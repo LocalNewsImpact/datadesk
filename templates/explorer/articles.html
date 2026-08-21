@@ -67,9 +67,38 @@
     <noscript><button type="submit">Filter</button></noscript>
   </form>
 
+  {% if role == "editor" or role == "admin" %}
+  <form method="post" action="{% url 'review:bulk_disposition' %}">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <div class="action-bar">
+      <span class="notice">With selected:</span>
+      <label>Disposition
+        <select name="disposition">
+          <option value="out_of_scope">out_of_scope</option>
+          <option value="wire">wire override</option>
+        </select>
+      </label>
+      <label>Wire status
+        <select name="wire_status">
+          <option value="">—</option>
+          {% for s in vocab.wire_statuses %}<option>{{ s }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Reason
+        <input type="text" name="reason" placeholder="recorded in the audit log">
+      </label>
+      <button type="submit">Apply</button>
+    </div>
+    <div id="results">
+      {% include "explorer/_articles_results.html" %}
+    </div>
+  </form>
+  {% else %}
   <div id="results">
     {% include "explorer/_articles_results.html" %}
   </div>
+  {% endif %}
   {% endif %}
 </section>
 {% endblock %}

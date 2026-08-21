@@ -32,12 +32,17 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 
-# create_crawler_readonly_role.sql sets the role's password from :pw; the
-# value lives in this project's crawler-ro-password secret.
+# The role-creation scripts set the role's password from :pw; the value
+# lives in the matching secret in this project.
 EXTRA=()
-if [ "$(basename "$SCRIPT")" = "create_crawler_readonly_role.sql" ]; then
+case "$(basename "$SCRIPT")" in
+  create_crawler_readonly_role.sql) PW_SECRET=crawler-ro-password ;;
+  create_crawler_write_role.sql)    PW_SECRET=crawler-rw-password ;;
+  *) PW_SECRET= ;;
+esac
+if [ -n "$PW_SECRET" ]; then
   EXTRA=(-v "pw=$(gcloud secrets versions access latest \
-    --secret=crawler-ro-password --project="$APP_PROJECT")")
+    --secret="$PW_SECRET" --project="$APP_PROJECT")")
 fi
 
 # The role must be a member of cloudsqlsuperuser to alter database privileges.

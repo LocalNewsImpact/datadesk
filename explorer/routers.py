@@ -17,10 +17,16 @@ class CrawlerRouter:
         return None
 
     def db_for_write(self, model, **hints):
-        # Routed the same as reads so the failure is Postgres refusing the
-        # write under datadesk_ro — loud and attributable — rather than a
-        # phantom row landing in the default database.
+        # Writes go through the audited datadesk_rw alias when configured
+        # (SCOPE.md §6.5). Without it (development, tests) they fall
+        # through to the crawler alias so the failure in production would
+        # be Postgres refusing datadesk_ro — loud and attributable — and
+        # the write path stays testable against sqlite locally.
+        from django.conf import settings
+
         if getattr(model, "crawler_db", False):
+            if "crawler_rw" in settings.DATABASES:
+                return "crawler_rw"
             return "crawler"
         return None
 
@@ -32,6 +38,6 @@ class CrawlerRouter:
         return None
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):
-        if db == "crawler":
+        if db in ("crawler", "crawler_rw"):
             return False
         return None

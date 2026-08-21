@@ -197,8 +197,19 @@ Decided 2026-08-21:
    registry; cross-project access to `mizzou-db-prod` and BigQuery is
    IAM grants, the pattern the directory already proved.
 
-Still open:
+5. **The write-role boundary** (decided 2026-08-21): a `datadesk_rw`
+   role with column-level grants, auth-gated in the app to the editor
+   and admin roles. Postgres enforces the boundary; the app enforces who
+   crosses it.
 
-5. The write-role boundary: exactly which crawler tables accept audited
-   writes in Phase 2 (proposed: articles' cleaned-text columns and status,
-   article_enrichment disposition columns, datasets/sources metadata)
+   | Table | Grant |
+   |---|---|
+   | `articles` | UPDATE (author, title, content, text, status, wire_check_status) |
+   | `article_enrichment` | UPDATE (skip_reason, geo_skip_reason) |
+   | `sources` | UPDATE (canonical_name, city, county, owner, type) |
+
+   No INSERT or DELETE anywhere — Datadesk corrects records, it does not
+   create or destroy them. Source *creation* and dataset membership are
+   Phase 4; those grants are added when the forms exist. Every write is
+   recorded in the append-only audit log with actor, before/after, and a
+   reason, and is reversible from the audit record.

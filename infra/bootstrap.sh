@@ -160,7 +160,7 @@ stage_secrets() {
   say "secrets"
   # Random where a random value is a working value; a placeholder where a
   # real credential must be pasted in, so nothing looks configured that isn't.
-  for name in django-secret-key db-password crawler-ro-password; do
+  for name in django-secret-key db-password crawler-ro-password crawler-rw-password; do
     if have secrets describe "$name" --project="$PROJECT_ID"; then
       echo "  ${name} exists"
     else
@@ -220,8 +220,9 @@ stage_sql() {
   echo "  NOT YET DONE — Cloud SQL added '${DB_USER}' to cloudsqlsuperuser, and"
   echo "  ownership and PUBLIC-CONNECT defaults are still open. Close them:"
   echo "    ./infra/sql/apply.sh isolate_datadesk_role.sql"
-  echo "  Then create the crawler read-only role (SCOPE.md §1):"
+  echo "  Then create the crawler read-only and audited-write roles (SCOPE.md §1, §6.5):"
   echo "    ./infra/sql/apply.sh create_crawler_readonly_role.sql"
+  echo "    ./infra/sql/apply.sh create_crawler_write_role.sql"
 }
 
 # Cross-project read access to the analytics mirror and the maps-data cache.

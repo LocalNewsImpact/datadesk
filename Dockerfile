@@ -15,6 +15,7 @@ COPY datadesk/ ./datadesk/
 COPY accounts/ ./accounts/
 COPY audit/ ./audit/
 COPY explorer/ ./explorer/
+COPY review/ ./review/
 COPY visuals/ ./visuals/
 COPY templates/ ./templates/
 COPY static/ ./static/

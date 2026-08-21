@@ -4,5 +4,6 @@ django-allauth[socialaccount]>=65.0
 psycopg[binary]>=3.2
 google-cloud-bigquery>=3.25
 google-cloud-storage>=2.18
+ftfy>=6.2
 gunicorn>=23.0
 whitenoise>=6.7

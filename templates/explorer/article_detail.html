@@ -4,10 +4,10 @@
 {% block content %}
 <section class="card card-wide">
   <p class="breadcrumb"><a href="{% url 'explorer:articles' %}">← Articles</a></p>
-  <h1>{{ article.title|default:"(no title)" }}</h1>
+  <h1>{{ article.title|default:"(no title)" }}{% if role == "editor" or role == "admin" %} <a class="edit-link" href="{% url 'review:edit_field' article.id 'title' %}">edit</a>{% endif %}</h1>
   <dl class="fact-row">
     <div><dt>Publisher</dt><dd>{{ article.candidate_link.source|default:"—" }}</dd></div>
-    <div><dt>Byline</dt><dd>{{ article.author|default:"—" }}</dd></div>
+    <div><dt>Byline</dt><dd>{{ article.author|default:"—" }}{% if role == "editor" or role == "admin" %} <a class="edit-link" href="{% url 'review:edit_field' article.id 'author' %}">edit</a>{% endif %}</dd></div>
     <div><dt>Published</dt><dd>{{ article.publish_date|date:"Y-m-d"|default:"—" }}</dd></div>
     <div><dt>Status</dt><dd>{{ article.status }}</dd></div>
     <div><dt>Wire</dt><dd>{{ article.wire_check_status }}</dd></div>
@@ -18,7 +18,7 @@
 
   <div class="side-by-side">
     <section>
-      <h2>Stored text</h2>
+      <h2>Stored text{% if role == "editor" or role == "admin" %} <a class="edit-link" href="{% url 'review:edit_field' article.id 'content' %}">edit</a>{% endif %}</h2>
       {% if stored_text %}
       <div class="stored-text">{{ stored_text|linebreaks }}</div>
       {% else %}

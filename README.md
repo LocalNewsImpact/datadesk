@@ -15,6 +15,15 @@ htmx-enhanced. The billed-cost BigQuery query needs truing up against
 the real `openrouter_traces` columns on first live run
 (explorer/costs.py).
 
+Phase 2's audited write path is in: inline cleaned-text edits with the
+ftfy mojibake preview (diff shown, applied only on explicit choice),
+bulk dispositions with recorded reasons, and revert from the audit
+record. Writes flow through the `datadesk_rw` role, whose column-level
+grants (SCOPE.md §6.5) are the boundary — created by
+`infra/sql/create_crawler_write_role.sql` — and are auth-gated to the
+editor and admin roles. Import (diff-then-apply) and BOM exports are
+the remaining Phase 2 work.
+
 ## Quickstart
 
 ```

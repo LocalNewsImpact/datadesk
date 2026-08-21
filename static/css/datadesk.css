@@ -117,3 +117,12 @@ nav.pager { display: flex; justify-content: space-between; margin-top: 1rem; }
 .stat-label { color: var(--muted); font-size: 0.8rem; }
 .stat-value { font-size: 1.6rem; font-variant-numeric: tabular-nums; }
 .stat-detail { color: var(--muted); font-size: 0.8rem; }
+
+label.stacked { display: block; margin: 0.75rem 0; font-size: 0.85rem; color: var(--muted); }
+label.stacked input, label.stacked textarea { display: block; width: 100%; margin-top: 0.25rem; font-size: 0.95rem; padding: 0.35rem 0.5rem; box-sizing: border-box; }
+.mono { font-family: ui-monospace, monospace; font-size: 0.85rem; white-space: pre-wrap; }
+.repair-preview { border: 1px solid var(--accent); border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem; }
+.repair-diff dt { color: var(--muted); font-size: 0.8rem; margin-top: 0.5rem; }
+.repair-diff dd { margin: 0; }
+.edit-link { font-size: 0.8rem; margin-left: 0.5rem; }
+.action-bar { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end; padding: 0.75rem; border: 1px solid var(--border, #ddd); border-radius: 6px; margin-bottom: 1rem; }

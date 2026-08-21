@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ field }} — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <p class="breadcrumb"><a href="{% url 'explorer:article_detail' article.id %}">← {{ article.title|default:article.id|truncatechars:60 }}</a></p>
+  <h1>Edit {{ field }}</h1>
+
+  {% if repaired %}
+  <div class="repair-preview">
+    <h2>Mojibake detected</h2>
+    <p class="notice">ftfy proposes this repair — review it before applying:</p>
+    <dl class="repair-diff">
+      <dt>Stored</dt><dd class="mono">{{ current }}</dd>
+      <dt>Repaired</dt><dd class="mono">{{ repaired }}</dd>
+    </dl>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="use_repaired" value="1">
+      <label>Reason <input type="text" name="reason" value="mojibake repair (ftfy)"></label>
+      <button type="submit">Apply repaired version</button>
+    </form>
+    <hr>
+  </div>
+  {% endif %}
+
+  <form method="post">
+    {% csrf_token %}
+    <label class="stacked">New value
+      {% if field == "content" %}
+      <textarea name="value" rows="16">{{ current }}</textarea>
+      {% else %}
+      <input type="text" name="value" value="{{ current }}">
+      {% endif %}
+    </label>
+    <label class="stacked">Reason
+      <input type="text" name="reason" placeholder="why this edit">
+    </label>
+    <button type="submit">Save</button>
+    <a href="{% url 'explorer:article_detail' article.id %}">Cancel</a>
+  </form>
+</section>
+{% endblock %}

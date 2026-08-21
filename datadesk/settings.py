@@ -38,6 +38,9 @@ Environment variables:
     CRAWLER_DB_PASSWORD         from Secret Manager (crawler-ro-password)
     CRAWLER_DB_NAME / _HOST / _PORT   default mizzou / the shared socket
                                 (or 127.0.0.1 for a local proxy) / 5432
+    CRAWLER_RW_DB_USER          presence configures the audited write
+                                alias (production: datadesk_rw)
+    CRAWLER_RW_DB_PASSWORD      from Secret Manager (crawler-rw-password)
 """
 
 import os
@@ -84,6 +87,7 @@ INSTALLED_APPS = [
     "accounts",
     "audit",
     "explorer",
+    "review",
     "visuals",
 ]
 
@@ -189,6 +193,18 @@ else:
         "NAME": os.environ.get(
             "DATADESK_CRAWLER_SQLITE_PATH", BASE_DIR / "crawler.sqlite3"
         ),
+    }
+
+# The audited write path (SCOPE.md §6.5): same database, the datadesk_rw
+# role with column-level grants. Reads keep flowing through datadesk_ro;
+# CrawlerRouter sends writes here when the alias exists. Locally unset,
+# writes fall through to the (sqlite) crawler alias, which is how tests
+# exercise the write path without Postgres.
+if "CRAWLER_RW_DB_USER" in os.environ:
+    DATABASES["crawler_rw"] = {
+        **DATABASES["crawler"],
+        "USER": os.environ["CRAWLER_RW_DB_USER"],
+        "PASSWORD": os.environ.get("CRAWLER_RW_DB_PASSWORD", ""),
     }
 
 DATABASE_ROUTERS = ["explorer.routers.CrawlerRouter"]

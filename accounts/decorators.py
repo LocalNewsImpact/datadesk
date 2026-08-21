@@ -5,7 +5,7 @@ from functools import wraps
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
 
-from accounts.roles import role_for_user
+from accounts.roles import ADMIN, EDITOR, role_for_user
 
 
 def role_required(view):
@@ -22,6 +22,21 @@ def role_required(view):
             return redirect_to_login(request.get_full_path())
         if role_for_user(request.user) is None:
             raise PermissionDenied("No role assigned")
+        return view(request, *args, **kwargs)
+
+    return wrapped
+
+
+def editor_required(view):
+    """Review/cleanup actions are for editors and admins (SCOPE.md §2.1);
+    viewers browse."""
+
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+        if role_for_user(request.user) not in (EDITOR, ADMIN):
+            raise PermissionDenied("Editor role required")
         return view(request, *args, **kwargs)
 
     return wrapped

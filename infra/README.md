@@ -28,8 +28,10 @@ it creates, so rerunning is safe and reading it tells you what exists.
    re-asserts grants on their instance.
 4. `./infra/sql/apply.sh create_crawler_readonly_role.sql` — creates
    `datadesk_ro`, the SELECT-only role Datadesk reads the corpus through
-   (SCOPE.md §1). Until the Phase 2 write boundary is decided, this is the
-   only path into the crawler's data.
+   (SCOPE.md §1). Then
+   `./infra/sql/apply.sh create_crawler_write_role.sql` — creates
+   `datadesk_rw`, the audited write role, with the SCOPE.md §6.5
+   column-level grants and nothing else.
 5. Paste real Google OAuth credentials into the two empty secrets
    (`google-oauth-client-id`, `google-oauth-client-secret`) — sign-in stays
    off, not broken, until then.
@@ -55,9 +57,10 @@ executing code that is not deployed.
 | Registry | `us-central1-docker.pkg.dev/lnic-datadesk/app` |
 | Runtime SA | `datadesk-run@` — Cloud SQL client, secret accessor, BigQuery jobs; reader on `mizzou_analytics`, writer on `gs://mizzou-news-maps-data` |
 | Deploy SA | `github-deploy@` — Run developer, registry writer, SA user |
-| Secrets | `django-secret-key`, `db-password`, `crawler-ro-password`, `google-oauth-client-id`, `google-oauth-client-secret` |
+| Secrets | `django-secret-key`, `db-password`, `crawler-ro-password`, `crawler-rw-password`, `google-oauth-client-id`, `google-oauth-client-secret` |
 | App database | `datadesk` on `mizzou-news-crawler:us-central1:mizzou-db-prod` |
 | Crawler read | role `datadesk_ro`, SELECT-only on `mizzou` |
+| Crawler write | role `datadesk_rw`, column-level UPDATE per SCOPE.md §6.5 |
 | Console hostname | `datadesk.localnewsimpact.org` via Cloud Run domain mapping |
 
 ## Public ingress

@@ -28,6 +28,8 @@ class AuditLogEntry(models.Model):
     target_ids = models.JSONField(default=list)
     before = models.JSONField(null=True, blank=True)
     after = models.JSONField(null=True, blank=True)
+    # Dispositions carry recorded reasons (SCOPE.md §2.2); free text.
+    reason = models.TextField(blank=True, default="")
 
     class Meta:
         ordering = ["-timestamp"]

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Audit log — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>Audit log</h1>
+  <p class="notice">Append-only. Reverts apply the recorded before-values
+  back as a new entry; history is never edited.</p>
+  <table class="grid">
+    <thead>
+      <tr>
+        <th scope="col">When</th>
+        <th scope="col">Actor</th>
+        <th scope="col">Action</th>
+        <th scope="col">Table</th>
+        <th scope="col" class="count">Rows</th>
+        <th scope="col">Reason</th>
+        <th scope="col"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in page %}
+      <tr>
+        <td class="nowrap">{{ entry.timestamp|date:"Y-m-d H:i" }}</td>
+        <td>{{ entry.actor.email }}</td>
+        <td>{{ entry.action }}</td>
+        <td>{{ entry.target_table }}</td>
+        <td class="count">{{ entry.target_ids|length }}</td>
+        <td>{{ entry.reason|truncatechars:60 }}</td>
+        <td>
+          <form method="post" action="{% url 'review:revert' entry.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="linklike">Revert</button>
+          </form>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="notice">No entries yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if page.paginator.num_pages > 1 %}
+  <nav class="pager">
+    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">← newer</a>{% endif %}
+    {% if page.has_next %}<a href="?page={{ page.next_page_number }}">older →</a>{% endif %}
+  </nav>
+  {% endif %}
+</section>
+{% endblock %}

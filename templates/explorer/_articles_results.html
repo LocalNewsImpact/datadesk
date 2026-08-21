@@ -6,6 +6,7 @@
 <table class="grid">
   <thead>
     <tr>
+      {% if role == "editor" or role == "admin" %}<th scope="col"></th>{% endif %}
       <th scope="col">Published</th>
       <th scope="col">Title</th>
       <th scope="col">Publisher</th>
@@ -18,6 +19,7 @@
   <tbody>
     {% for article in page %}
     <tr>
+      {% if role == "editor" or role == "admin" %}<td><input type="checkbox" name="ids" value="{{ article.id }}"></td>{% endif %}
       <td class="nowrap">{{ article.publish_date|date:"Y-m-d"|default:"—" }}</td>
       <td><a href="{% url 'explorer:article_detail' article.id %}">{{ article.title|default:article.url|truncatechars:90 }}</a></td>
       <td>{{ article.candidate_link.source|default:"—" }}</td>
@@ -27,7 +29,7 @@
       <td class="count">{{ article.primary_label_confidence|floatformat:2|default:"—" }}</td>
     </tr>
     {% empty %}
-    <tr><td colspan="7" class="notice">No articles match these filters.</td></tr>
+    <tr><td colspan="{% if role == 'editor' or role == 'admin' %}8{% else %}7{% endif %}" class="notice">No articles match these filters.</td></tr>
     {% endfor %}
   </tbody>
 </table>
