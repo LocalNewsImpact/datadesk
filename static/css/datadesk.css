@@ -131,3 +131,27 @@ label.stacked input, label.stacked textarea { display: block; width: 100%; margi
 .columns-pick { border: 1px solid var(--border, #ddd); border-radius: 6px; padding: 0.75rem 1rem; margin: 1rem 0; }
 .columns-pick legend { font-size: 0.85rem; color: var(--muted); }
 .columns-pick label { display: inline-flex; align-items: center; gap: 0.3rem; margin-right: 1.25rem; font-size: 0.9rem; }
+
+/* --- chart runtime (tokens from the validated reference palette) --- */
+.dd-visual { margin: 0; }
+.dd-subtitle { color: var(--muted); font-size: 0.95rem; margin: 0 0 0.75rem; }
+.dd-chart { min-height: 200px; }
+.dd-chart svg { max-width: 100%; height: auto; }
+.dd-footer { display: flex; justify-content: space-between; align-items: baseline; margin-top: 0.5rem; }
+.dd-source { color: var(--muted); font-size: 0.8rem; }
+.dd-toggle { border: none; background: none; padding: 0; color: var(--muted); font-size: 0.8rem; text-decoration: underline; cursor: pointer; }
+.dd-legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; font-size: 0.8rem; margin-bottom: 0.5rem; }
+.dd-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 0.35rem; }
+.dd-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.dd-table th, .dd-table td { padding: 0.3rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border, #e1e0d9); }
+.dd-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Builder layout */
+.builder { display: grid; grid-template-columns: 22rem 1fr; gap: 2rem; align-items: start; }
+@media (max-width: 70rem) { .builder { grid-template-columns: 1fr; } }
+.builder-form label { display: block; margin: 0.6rem 0; font-size: 0.85rem; color: var(--muted); }
+.builder-form select, .builder-form input[type="text"] { display: block; width: 100%; margin-top: 0.2rem; padding: 0.3rem 0.4rem; font-size: 0.9rem; box-sizing: border-box; }
+.builder-form .inline { display: flex; align-items: center; gap: 0.4rem; }
+.builder-form fieldset { border: 1px solid var(--border, #ddd); border-radius: 6px; margin: 1rem 0; padding: 0.5rem 0.9rem 0.9rem; }
+.builder-form legend { font-size: 0.8rem; color: var(--muted); }
+.builder-preview { position: sticky; top: 1rem; }

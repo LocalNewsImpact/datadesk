@@ -53,6 +53,20 @@ The Phase 4 write grants (source/dataset INSERT, membership
 INSERT/DELETE) are in `create_crawler_write_role.sql`, which is
 idempotent — rerun it if the role predates them.
 
+Phase 5, the form-driven builder, is code-complete: editors create a
+visual from an uploaded CSV, a BigQuery query, or a bucket object, pick
+a chart kind — bar, line, area, scatter, table, and the GIS pair:
+choropleth (US states or counties, FIPS-joined, sequential or diverging
+ramps, zoom-to-data) and point maps (lat/lon, size and label
+encodings, point overlay on choropleths) — map columns in a live
+preview, and publish; the embed, pinning, and feed are the unchanged v1
+machinery. Rendering is the vendored Observable Plot + d3 +
+topojson-client with Census TIGER boundary files — no runtime calls to
+third parties — driven by a runtime that encodes a validated
+accessible palette (light and dark), fixed-order series assignment with
+fold-to-Other caps, hover tips, legends, and an always-available data
+table view.
+
 ## Quickstart
 
 ```

@@ -9,3 +9,4 @@ staticfiles/
 .DS_Store
 crawler.sqlite3
 .mypy_cache/
+.playwright-mcp/

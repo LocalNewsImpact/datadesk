@@ -1,0 +1,44 @@
+{% load static %}
+{# The builder renderer: reads the visual's config and the feed, renders #}
+{# with the vendored Plot runtime. The data-table toggle is always there #}
+{# — it is the accessibility table view and the relief for palette slots #}
+{# that sit under 3:1 on the light surface. #}
+<figure class="dd-visual">
+  {% if visual.config.subtitle %}<p class="dd-subtitle">{{ visual.config.subtitle }}</p>{% endif %}
+  <div class="dd-chart" id="dd-chart-{{ visual.slug }}">Loading…</div>
+  <figcaption class="dd-footer">
+    {% if visual.config.source %}<span class="dd-source">Source: {{ visual.config.source }}</span>{% endif %}
+    <button type="button" class="dd-toggle" data-target="dd-chart-{{ visual.slug }}">View data</button>
+  </figcaption>
+</figure>
+{{ visual.config|json_script:"dd-config" }}
+<script src="{% static 'js/d3.min.js' %}"></script>
+<script src="{% static 'js/plot.min.js' %}"></script>
+<script src="{% static 'js/topojson-client.min.js' %}"></script>
+<script src="{% static 'js/datadesk-chart.js' %}"></script>
+<script>
+(function () {
+  const config = JSON.parse(document.getElementById("dd-config").textContent);
+  const el = document.getElementById("dd-chart-{{ visual.slug }}");
+  const toggle = document.querySelector('.dd-toggle[data-target="' + el.id + '"]');
+  fetch("{% url 'visuals:data' visual.slug %}{% if live %}?live=1{% endif %}")
+    .then((r) => r.json())
+    .then(({ data }) => {
+      const chart = DatadeskChart.mount(el, config, data, {
+        geoBase: "{% static 'geo/' %}",
+      });
+      let showingTable = false;
+      toggle.addEventListener("click", () => {
+        showingTable = !showingTable;
+        if (showingTable) {
+          DatadeskChart.renderTable(el, data);
+          toggle.textContent = "View chart";
+        } else {
+          chart.redraw();
+          toggle.textContent = "View data";
+        }
+      });
+    })
+    .catch(() => { el.textContent = "Feed unavailable."; });
+})();
+</script>

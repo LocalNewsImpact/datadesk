@@ -15,6 +15,7 @@ from django.template.loader import TemplateDoesNotExist, get_template
 
 BIGQUERY = "bigquery"
 GCS = "gcs"
+INLINE = "inline"
 
 
 def _validate_renderer(name):
@@ -31,7 +32,11 @@ class Visual(models.Model):
     DRAFT = "draft"
     PUBLISHED = "published"
     STATUSES = [(s, s) for s in (DRAFT, PUBLISHED)]
-    SOURCE_KINDS = [(BIGQUERY, "BigQuery query"), (GCS, "bucket object")]
+    SOURCE_KINDS = [
+        (BIGQUERY, "BigQuery query"),
+        (GCS, "bucket object"),
+        (INLINE, "uploaded data"),
+    ]
 
     slug = models.SlugField(unique=True)
     title = models.CharField(max_length=200)
@@ -44,7 +49,13 @@ class Visual(models.Model):
     bucket_path = models.CharField(max_length=500, blank=True, default="")
 
     # The renderer template's name under templates/visuals/renderers/.
+    # Builder visuals use "builder"; hand-authored visuals name their own.
     template = models.CharField(max_length=100, validators=[_validate_renderer])
+
+    # The form-driven builder's chart definition (SCOPE.md §2.6 v2): kind,
+    # column mappings, and options, read by the builder renderer runtime.
+    # Empty for hand-authored visuals.
+    config = models.JSONField(default=dict, blank=True)
 
     # The embed stability rule: the pinned snapshot is what embeds serve.
     pinned_snapshot = models.ForeignKey(
@@ -87,6 +98,7 @@ class Visual(models.Model):
             raise ValidationError(
                 {"bucket_path": "A bucket visual needs its object path."}
             )
+        # Inline visuals carry their data as snapshots; nothing to configure.
 
 
 class VisualSnapshot(models.Model):

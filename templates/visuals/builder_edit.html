@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Builder — {{ visual.title }}{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <p class="breadcrumb"><a href="{% url 'visuals:index' %}">← Visuals</a></p>
+  <h1>{{ visual.title }} <span class="notice">{{ visual.status }}{% if visual.pinned_snapshot %} · pinned v{{ visual.pinned_snapshot.version }}{% endif %}</span></h1>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% if not snapshot %}<p class="error">No data yet — refresh or upload below.</p>{% endif %}
+
+  <div class="builder">
+    <div class="builder-form">
+      <form method="post" id="config-form">
+        {% csrf_token %}
+        <input type="hidden" name="form" value="config">
+        <label>Chart kind
+          <select name="kind" id="f-kind">
+            {% for kind in chart_kinds %}<option>{{ kind }}</option>{% endfor %}
+          </select>
+        </label>
+
+        <fieldset data-kinds="bar line area scatter">
+          <legend>Mapping</legend>
+          <label>X column <select name="x" data-columns></select></label>
+          <label>Y column <select name="y" data-columns></select></label>
+          <label>Series (color) <select name="series" data-columns data-optional></select></label>
+          <label data-kinds="scatter">Size <select name="size" data-columns data-optional></select></label>
+          <label data-kinds="bar">Sort
+            <select name="sort"><option value="">as data</option><option value="y">by value</option></select>
+          </label>
+          <label class="inline" data-kinds="bar"><input type="checkbox" name="horizontal" value="1"> Horizontal</label>
+          <label class="inline" data-kinds="bar"><input type="checkbox" name="stacked" value="1" checked> Stacked</label>
+        </fieldset>
+
+        <fieldset data-kinds="choropleth points">
+          <legend>Map (GIS)</legend>
+          <label>Boundaries
+            <select name="geo_level"><option value="states">US states</option><option value="counties">US counties</option></select>
+          </label>
+          <label data-kinds="choropleth">FIPS/GEOID column <select name="geo_join" data-columns data-optional></select></label>
+          <label data-kinds="choropleth">Value column <select name="geo_value" data-columns data-optional></select></label>
+          <label data-kinds="choropleth">Palette
+            <select name="geo_palette"><option value="sequential">sequential</option><option value="diverging">diverging</option></select>
+          </label>
+          <label>Latitude <select name="lat" data-columns data-optional></select></label>
+          <label>Longitude <select name="lon" data-columns data-optional></select></label>
+          <label>Point size <select name="size" data-columns data-optional></select></label>
+          <label>Point label <select name="label" data-columns data-optional></select></label>
+          <label class="inline"><input type="checkbox" name="geo_fit" value="1"> Zoom to data</label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Text</legend>
+          <label>Subtitle <input type="text" name="subtitle"></label>
+          <label>Source line <input type="text" name="source"></label>
+          <label data-kinds="bar line area scatter">X label <input type="text" name="xlabel"></label>
+          <label data-kinds="bar line area scatter">Y label <input type="text" name="ylabel"></label>
+        </fieldset>
+
+        <button type="submit">Save</button>
+      </form>
+
+      <fieldset>
+        <legend>Data · snapshot {% if snapshot %}v{{ snapshot.version }} ({{ snapshot.created_at|date:"Y-m-d H:i" }}){% else %}none{% endif %}</legend>
+        {% if visual.source_kind == "inline" %}
+        <form method="post" enctype="multipart/form-data">
+          {% csrf_token %}
+          <input type="hidden" name="form" value="upload">
+          <label>Replace data <input type="file" name="file" accept=".csv"></label>
+          <button type="submit">Upload</button>
+        </form>
+        {% else %}
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="form" value="refresh">
+          <button type="submit">Refresh from source</button>
+        </form>
+        {% endif %}
+      </fieldset>
+
+      <fieldset>
+        <legend>Publish</legend>
+        {% if visual.status == "published" %}
+        <p class="notice">Embed: <code>&lt;iframe src="https://datadesk.localnewsimpact.org/embed/{{ visual.slug }}/" width="100%" height="480" frameborder="0"&gt;&lt;/iframe&gt;</code></p>
+        <form method="post">{% csrf_token %}<input type="hidden" name="form" value="publish"><button type="submit">Re-publish (pin latest snapshot)</button></form>
+        <form method="post">{% csrf_token %}<input type="hidden" name="form" value="unpublish"><button type="submit" class="linklike">Unpublish</button></form>
+        {% else %}
+        <p class="notice">Publishing pins the latest snapshot — the embed
+        serves that exact data until re-published.</p>
+        <form method="post">{% csrf_token %}<input type="hidden" name="form" value="publish"><button type="submit">Publish</button></form>
+        {% endif %}
+      </fieldset>
+    </div>
+
+    <div class="builder-preview">
+      <h2>Preview</h2>
+      <div class="dd-chart" id="preview">Configure and the preview follows.</div>
+    </div>
+  </div>
+</section>
+
+{{ columns|json_script:"dd-columns" }}
+<script id="dd-config" type="application/json">{{ config_json }}</script>
+<script id="dd-rows" type="application/json">{{ preview_json }}</script>
+<script src="{% static 'js/d3.min.js' %}"></script>
+<script src="{% static 'js/plot.min.js' %}"></script>
+<script src="{% static 'js/topojson-client.min.js' %}"></script>
+<script src="{% static 'js/datadesk-chart.js' %}"></script>
+<script>
+(function () {
+  const columns = JSON.parse(document.getElementById("dd-columns").textContent);
+  const saved = JSON.parse(document.getElementById("dd-config").textContent);
+  const rows = JSON.parse(document.getElementById("dd-rows").textContent);
+  const form = document.getElementById("config-form");
+  const preview = document.getElementById("preview");
+
+  // Populate every column select, with a blank row for optional ones.
+  for (const select of form.querySelectorAll("select[data-columns]")) {
+    if (select.hasAttribute("data-optional")) {
+      select.appendChild(new Option("—", ""));
+    }
+    for (const column of columns) select.appendChild(new Option(column, column));
+  }
+  // Restore the saved config into the form.
+  for (const [key, value] of Object.entries(saved)) {
+    const field = form.elements[key];
+    if (!field) continue;
+    if (field.type === "checkbox") field.checked = Boolean(value);
+    else field.value = value;
+  }
+
+  function configFromForm() {
+    const config = {};
+    for (const field of form.elements) {
+      if (!field.name || field.name === "form" || field.name === "csrfmiddlewaretoken") continue;
+      if (field.closest("fieldset[disabled]")) continue;
+      if (field.type === "checkbox") { if (field.checked) config[field.name] = true; }
+      else if (field.value) config[field.name] = field.value;
+    }
+    return config;
+  }
+
+  // Show only the sections relevant to the chosen kind.
+  function updateVisibility() {
+    const kind = form.elements.kind.value;
+    for (const el of form.querySelectorAll("[data-kinds]")) {
+      const active = el.dataset.kinds.split(" ").includes(kind);
+      el.style.display = active ? "" : "none";
+      // A hidden fieldset must not submit its values (two sections share
+      // field names, e.g. size).
+      if (el.tagName === "FIELDSET") el.disabled = !active;
+    }
+  }
+
+  function draw() {
+    updateVisibility();
+    DatadeskChart.render(preview, configFromForm(), rows, {
+      geoBase: "{% static 'geo/' %}",
+    });
+  }
+  form.addEventListener("input", draw);
+  form.addEventListener("change", draw);
+  draw();
+})();
+</script>
+{% endblock %}

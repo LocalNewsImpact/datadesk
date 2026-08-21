@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}New visual — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card">
+  <p class="breadcrumb"><a href="{% url 'visuals:index' %}">← Visuals</a></p>
+  <h1>New visual</h1>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <form method="post" enctype="multipart/form-data" class="builder-form">
+    {% csrf_token %}
+    <label>Title <input type="text" name="title" required></label>
+    <fieldset>
+      <legend>Data source</legend>
+      <label class="inline"><input type="radio" name="source_kind" value="inline" checked>
+        Upload a CSV</label>
+      <label>File <input type="file" name="file" accept=".csv"></label>
+      <label class="inline"><input type="radio" name="source_kind" value="bigquery">
+        BigQuery query</label>
+      <label>SQL <textarea name="query" rows="4" class="mono" style="width:100%"></textarea></label>
+      <label class="inline"><input type="radio" name="source_kind" value="gcs">
+        Bucket object</label>
+      <label>Path <input type="text" name="bucket_path" placeholder="gs://mizzou-news-maps-data/…"></label>
+    </fieldset>
+    <button type="submit">Create draft</button>
+  </form>
+</section>
+{% endblock %}

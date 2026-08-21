@@ -9,15 +9,28 @@ The feed serves the pinned snapshot — the embed stability rule — and
 ?live=1 runs the data source only where the visual explicitly allows it.
 """
 
+import json
+
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.http import Http404, JsonResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
+from django.utils.text import slugify
 from django.views.decorators.clickjacking import xframe_options_exempt
 
-from accounts.decorators import role_required
+from accounts.decorators import editor_required, role_required
 from accounts.roles import role_for_user
-from visuals.models import Visual
-from visuals.services import DataSourceError, fetch_source_data
+from audit.models import AuditLogEntry
+from visuals.builder import CHART_KINDS, BuilderError, config_from_form, parse_upload
+from visuals.models import BIGQUERY, GCS, INLINE, Visual
+from visuals.services import (
+    DataSourceError,
+    fetch_source_data,
+    publish,
+    record_snapshot,
+    refresh_snapshot,
+    unpublish,
+)
 
 _LIVE_CACHE_SECONDS = 300
 
@@ -99,3 +112,122 @@ def embed(request, slug):
 def index(request):
     """Published visuals (and drafts, marked) for signed-in users."""
     return render(request, "visuals/index.html", {"visuals": Visual.objects.all()})
+
+
+# --- the form-driven builder (SCOPE.md §2.6 v2) -----------------------------
+
+
+@editor_required
+def builder_new(request):
+    """Pick a data source, get a draft visual with a first snapshot."""
+    error = None
+    if request.method == "POST":
+        title = request.POST.get("title", "").strip()
+        kind = request.POST.get("source_kind", "")
+        if not title:
+            error = "A title is required."
+        elif kind not in (INLINE, BIGQUERY, GCS):
+            error = "Pick a data source."
+        else:
+            slug = base = slugify(title)[:40] or "visual"
+            n = 2
+            while Visual.objects.filter(slug=slug).exists():
+                slug = f"{base}-{n}"
+                n += 1
+            visual = Visual(
+                slug=slug,
+                title=title,
+                source_kind=kind,
+                query=request.POST.get("query", "").strip(),
+                bucket_path=request.POST.get("bucket_path", "").strip(),
+                template="builder",
+                config={"kind": "table"},
+                created_by=request.user,
+            )
+            try:
+                visual.full_clean()
+                visual.save()
+                if kind == INLINE:
+                    upload = request.FILES.get("file")
+                    if upload is None:
+                        raise BuilderError("Upload a CSV.")
+                    rows = parse_upload(upload)
+                    record_snapshot(
+                        visual,
+                        request.user,
+                        rows,
+                        note=f"uploaded {upload.name}",
+                    )
+                else:
+                    refresh_snapshot(visual, request.user)
+            except (BuilderError, DataSourceError) as exc:
+                if visual.pk:
+                    visual.delete()
+                error = str(exc)
+            except ValidationError as exc:
+                error = "; ".join(
+                    f"{field}: {' '.join(messages)}"
+                    for field, messages in exc.message_dict.items()
+                )
+            else:
+                return redirect("visuals:builder_edit", visual.slug)
+    return render(request, "visuals/builder_new.html", {"error": error})
+
+
+@editor_required
+def builder_edit(request, slug):
+    visual = Visual.objects.filter(slug=slug, template="builder").first()
+    if visual is None:
+        raise Http404("No such builder visual")
+    error = None
+
+    if request.method == "POST":
+        form = request.POST.get("form")
+        try:
+            if form == "config":
+                config = config_from_form(request.POST)
+                visual.config = config
+                visual.save(update_fields=["config", "updated_at"])
+                AuditLogEntry.objects.create(
+                    actor=request.user,
+                    action="visual:config",
+                    target_table="visuals",
+                    target_ids=[visual.slug],
+                    after=config,
+                    reason=f"builder config for {visual.slug}",
+                )
+            elif form == "refresh":
+                refresh_snapshot(visual, request.user)
+            elif form == "upload":
+                upload = request.FILES.get("file")
+                if upload is None:
+                    raise BuilderError("Upload a CSV.")
+                rows = parse_upload(upload)
+                record_snapshot(
+                    visual, request.user, rows, note=f"uploaded {upload.name}"
+                )
+            elif form == "publish":
+                publish(visual, request.user)
+            elif form == "unpublish":
+                unpublish(visual, request.user)
+        except (BuilderError, DataSourceError) as exc:
+            error = str(exc)
+        else:
+            return redirect("visuals:builder_edit", visual.slug)
+
+    snapshot = visual.snapshots.order_by("-version").first()
+    rows = snapshot.data if snapshot else []
+    columns = list(rows[0].keys()) if rows else []
+    return render(
+        request,
+        "visuals/builder_edit.html",
+        {
+            "visual": visual,
+            "snapshot": snapshot,
+            "columns": columns,
+            "chart_kinds": CHART_KINDS,
+            "config_json": json.dumps(visual.config or {}),
+            "preview_json": json.dumps(rows[:5000]),
+            "error": error,
+        },
+    )

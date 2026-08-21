@@ -7,7 +7,7 @@ from django.db.models import Max
 from django.utils import timezone
 
 from audit.models import AuditLogEntry
-from visuals.models import GCS, Visual, VisualSnapshot
+from visuals.models import GCS, INLINE, Visual, VisualSnapshot
 
 
 class DataSourceError(Exception):
@@ -16,6 +16,10 @@ class DataSourceError(Exception):
 
 def fetch_source_data(visual):
     """Run the visual's data source and return JSON-compatible rows."""
+    if visual.source_kind == INLINE:
+        raise DataSourceError(
+            "Inline visuals refresh by uploading a new file in the builder."
+        )
     if visual.source_kind == GCS:
         from google.cloud import storage
 
@@ -37,9 +41,8 @@ def fetch_source_data(visual):
         raise DataSourceError(f"BigQuery query failed: {exc}") from exc
 
 
-def refresh_snapshot(visual, actor):
-    """Capture a new snapshot version from the data source."""
-    data = fetch_source_data(visual)
+def record_snapshot(visual, actor, data, note=""):
+    """Store data as the next snapshot version, audited."""
     with transaction.atomic():
         latest = visual.snapshots.aggregate(v=Max("version"))["v"] or 0
         snapshot = VisualSnapshot.objects.create(
@@ -51,9 +54,14 @@ def refresh_snapshot(visual, actor):
             target_table="visuals",
             target_ids=[visual.slug],
             after={"version": snapshot.version},
-            reason=f"snapshot v{snapshot.version} of {visual.slug}",
+            reason=note or f"snapshot v{snapshot.version} of {visual.slug}",
         )
     return snapshot
+
+
+def refresh_snapshot(visual, actor):
+    """Capture a new snapshot version from the data source."""
+    return record_snapshot(visual, actor, fetch_source_data(visual))
 
 
 def publish(visual, actor):
