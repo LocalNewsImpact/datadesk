@@ -38,10 +38,19 @@ def fresh_cache():
 # CrawlerRouter keeps migrations out — so tables exist only where a test
 # asks for them, and their absence proves the degraded paths.
 _CRAWLER_TABLES = {
-    "datasets": "(id TEXT PRIMARY KEY, slug TEXT, label TEXT, name TEXT)",
+    "datasets": (
+        "(id TEXT PRIMARY KEY, slug TEXT, label TEXT, name TEXT,"
+        " description TEXT, metadata TEXT, cron_enabled INTEGER)"
+    ),
     "sources": (
         "(id TEXT PRIMARY KEY, host TEXT, host_norm TEXT, canonical_name TEXT,"
-        " city TEXT, county TEXT, status TEXT)"
+        " city TEXT, county TEXT, owner TEXT, type TEXT, status TEXT,"
+        " metadata TEXT, rss_consecutive_failures INTEGER,"
+        " rss_transient_failures TEXT)"
+    ),
+    "gazetteer": (
+        "(id TEXT PRIMARY KEY, dataset_id TEXT, source_id TEXT,"
+        " category TEXT, created_at TIMESTAMP)"
     ),
     "dataset_sources": "(id TEXT PRIMARY KEY, dataset_id TEXT, source_id TEXT)",
     "candidate_links": (

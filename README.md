@@ -40,6 +40,19 @@ story-geography map becomes the first registration once its assets
 (`gs://mizzou-news-maps-data`) are reachable from a deployed
 environment.
 
+Phase 4, dataset management, is code-complete: dataset CRUD (creation
+starts with cron off), membership add/remove with consequences noted
+and full revertibility, `default_state` as a first-class field, the
+enrichment-profile editor validating against the pipeline's schema and
+enforcing the version-bump reprocessing contract, source create/edit
+with the city validated against the vendored Census place gazetteer
+(typos refused with suggestions), per-source gazetteer status, and a
+build-request queue that records the exact `populate-gazetteer` command
+— dispatch to the crawler's job infrastructure is the remaining wiring.
+The Phase 4 write grants (source/dataset INSERT, membership
+INSERT/DELETE) are in `create_crawler_write_role.sql`, which is
+idempotent — rerun it if the role predates them.
+
 ## Quickstart
 
 ```

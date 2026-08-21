@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{% if source %}Edit source{% else %}New source{% endif %} — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card">
+  <p class="breadcrumb"><a href="{% url 'datasets:list' %}">← Datasets</a></p>
+  <h1>{% if source %}{{ source }}{% else %}New source{% endif %}</h1>
+  {% for error in errors %}<p class="error">{{ error }}</p>{% endfor %}
+
+  <form method="post">
+    {% csrf_token %}
+    {% if not source %}
+    <label class="stacked">Host <input type="text" name="host" required
+      value="{{ values.host|default:'' }}" placeholder="columbiamissourian.com"></label>
+    {% endif %}
+    <label class="stacked">Canonical name <input type="text" name="canonical_name" value="{{ values.canonical_name|default:'' }}"></label>
+    <div class="action-bar">
+      <label>City <input type="text" name="city" value="{{ values.city|default:'' }}"></label>
+      <label>State <input type="text" name="state" maxlength="2" value="{{ values.state|default:'' }}" placeholder="MO" style="width:4rem"></label>
+      <label>County <input type="text" name="county" value="{{ values.county|default:'' }}"></label>
+    </div>
+    <p class="notice">The city is validated against the Census place
+    gazetteer for the state — typos are refused with suggestions.</p>
+    <div class="action-bar">
+      <label>Owner <input type="text" name="owner" value="{{ values.owner|default:'' }}"></label>
+      <label>Type <input type="text" name="type" value="{{ values.type|default:'' }}"></label>
+    </div>
+    {% if not source and datasets %}
+    <label class="stacked">Add to dataset
+      <select name="dataset">
+        <option value="">— none —</option>
+        {% for dataset in datasets %}
+        <option value="{{ dataset.slug }}" {% if request.GET.dataset == dataset.slug %}selected{% endif %}>{{ dataset.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% endif %}
+    {% if source %}
+    <label class="stacked">Reason <input type="text" name="reason"></label>
+    {% endif %}
+    <button type="submit">{% if source %}Save{% else %}Create{% endif %}</button>
+  </form>
+</section>
+{% endblock %}

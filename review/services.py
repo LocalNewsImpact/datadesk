@@ -13,7 +13,7 @@ import ftfy
 from django.db import router, transaction
 
 from audit.models import AuditLogEntry
-from explorer.models import Article, ArticleEnrichment, Source
+from explorer.models import Article, ArticleEnrichment, Dataset, DatasetSource, Source
 
 
 class BoundaryViolation(Exception):
@@ -25,9 +25,20 @@ WRITABLE = {
     Article: ("author", "title", "content", "text", "status", "wire_check_status"),
     ArticleEnrichment: ("skip_reason", "geo_skip_reason"),
     Source: ("canonical_name", "city", "county", "owner", "type"),
+    Dataset: ("name", "description", "meta", "cron_enabled"),
 }
 
-_BY_TABLE = {model._meta.db_table: model for model in WRITABLE}
+# Phase 4 (SCOPE.md §2.4): what may be created, and the one thing that
+# may be deleted — membership rows, because they are a mapping, not a
+# record. Mirrors the INSERT/DELETE grants in
+# infra/sql/create_crawler_write_role.sql.
+CREATABLE = (Source, Dataset, DatasetSource)
+DELETABLE = (DatasetSource,)
+
+# Every model the audited path can touch, for resolving revert targets.
+_BY_TABLE = {
+    model._meta.db_table: model for model in {*WRITABLE, *CREATABLE, *DELETABLE}
+}
 
 
 def audited_update(actor, instances, changes, action, reason=""):
@@ -88,6 +99,10 @@ def revert(actor, entry, reason=""):
     model = _BY_TABLE.get(entry.target_table)
     if model is None:
         raise BoundaryViolation(f"{entry.target_table} is not writable")
+    if entry.before is None:
+        return _revert_creation(actor, entry, model, reason)
+    if entry.after is None:
+        return _revert_deletion(actor, entry, model, reason)
 
     write_alias = router.db_for_write(model)
     pk_name = model._meta.pk.name
@@ -176,3 +191,96 @@ def audited_update_rows(actor, model, rows, action, reason=""):
             reason=reason,
         )
     return entry
+
+
+def _row_values(obj):
+    """Every concrete field, JSON-safe, for creation/deletion audit records."""
+    values = {}
+    for field in type(obj)._meta.concrete_fields:
+        value = getattr(obj, field.attname)
+        values[field.attname] = value
+    return values
+
+
+def audited_create(actor, instances, action, reason=""):
+    """Create rows with a full-values audit record (before=None)."""
+    instances = list(instances)
+    if not instances:
+        raise ValueError("Nothing to create")
+    model = type(instances[0])
+    if model not in CREATABLE:
+        raise BoundaryViolation(f"{model.__name__} is not creatable")
+
+    pk_name = model._meta.pk.name
+    write_alias = router.db_for_write(model)
+    with transaction.atomic(using=write_alias):
+        for obj in instances:
+            obj.save(using=write_alias, force_insert=True)
+        after = {str(getattr(o, pk_name)): _row_values(o) for o in instances}
+        entry = AuditLogEntry.objects.create(
+            actor=actor,
+            action=action,
+            target_table=model._meta.db_table,
+            target_ids=list(after),
+            before=None,
+            after=after,
+            reason=reason,
+        )
+    return entry
+
+
+def audited_delete(actor, instances, action, reason=""):
+    """Delete rows with a full-values audit record (after=None), so a
+    revert can recreate them."""
+    instances = list(instances)
+    if not instances:
+        raise ValueError("Nothing to delete")
+    model = type(instances[0])
+    if model not in DELETABLE:
+        raise BoundaryViolation(f"{model.__name__} is not deletable")
+
+    pk_name = model._meta.pk.name
+    write_alias = router.db_for_write(model)
+    before = {str(getattr(o, pk_name)): _row_values(o) for o in instances}
+    with transaction.atomic(using=write_alias):
+        for obj in instances:
+            obj.delete(using=write_alias)
+        entry = AuditLogEntry.objects.create(
+            actor=actor,
+            action=action,
+            target_table=model._meta.db_table,
+            target_ids=list(before),
+            before=before,
+            after=None,
+            reason=reason,
+        )
+    return entry
+
+
+def _revert_creation(actor, entry, model, reason):
+    """Reverting a creation is a deletion — possible only where the
+    boundary allows deletes at all."""
+    if model not in DELETABLE:
+        raise BoundaryViolation(
+            f"Cannot revert a {model.__name__} creation: the write boundary "
+            "has no DELETE there. Correct the row instead."
+        )
+    pk_name = model._meta.pk.name
+    instances = list(model.objects.filter(**{f"{pk_name}__in": entry.target_ids}))
+    return audited_delete(
+        actor,
+        instances,
+        action=f"revert:{entry.action}",
+        reason=reason or f"revert of audit entry {entry.pk}",
+    )
+
+
+def _revert_deletion(actor, entry, model, reason):
+    """Reverting a deletion recreates the recorded rows."""
+    instances = [model(**values) for values in (entry.before or {}).values()]
+    return audited_create(
+        actor,
+        instances,
+        action=f"revert:{entry.action}",
+        reason=reason or f"revert of audit entry {entry.pk}",
+    )

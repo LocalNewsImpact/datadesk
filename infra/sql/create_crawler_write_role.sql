@@ -5,9 +5,10 @@
 -- role (editor/admin) and records every write in the append-only audit
 -- log with actor, before/after, and reason.
 --
--- No INSERT, no DELETE, anywhere: Datadesk corrects records, it does not
--- create or destroy them. Dataset/source creation is Phase 4 and gets its
--- grants when the forms exist.
+-- Articles are corrected, never created or destroyed: no INSERT or
+-- DELETE there. Phase 4 (dataset management) adds creation of sources
+-- and datasets and membership changes — the only DELETE anywhere is
+-- dataset_sources rows, because membership is a mapping, not a record.
 --
 -- SELECT comes with it: an UPDATE without SELECT cannot read the row it
 -- is changing (RETURNING, WHERE on current values), and the ORM reads
@@ -43,6 +44,21 @@ GRANT UPDATE (skip_reason, geo_skip_reason)
   ON article_enrichment TO datadesk_rw;
 GRANT UPDATE (canonical_name, city, county, owner, type)
   ON sources TO datadesk_rw;
+
+-- Phase 4: dataset management (SCOPE.md §2.4). Creation columns include
+-- the NOT-NULL-without-server-default pair on sources; everything else
+-- falls to the table defaults.
+GRANT INSERT (id, host, host_norm, canonical_name, city, county, owner,
+              type, status, metadata,
+              rss_consecutive_failures, rss_transient_failures)
+  ON sources TO datadesk_rw;
+GRANT INSERT (id, slug, label, name, description, metadata, cron_enabled)
+  ON datasets TO datadesk_rw;
+GRANT UPDATE (name, description, metadata, cron_enabled)
+  ON datasets TO datadesk_rw;
+GRANT INSERT (id, dataset_id, source_id, legacy_host_id, legacy_meta)
+  ON dataset_sources TO datadesk_rw;
+GRANT DELETE ON dataset_sources TO datadesk_rw;
 
 \echo ''
 \echo 'column grants held by datadesk_rw (expect only the boundary):'

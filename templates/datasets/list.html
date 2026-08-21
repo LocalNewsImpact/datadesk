@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Datasets — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>Datasets</h1>
+  <p><a href="{% url 'datasets:create' %}">New dataset</a> ·
+     <a href="{% url 'datasets:source_create' %}">New source</a></p>
+  <table class="grid">
+    <thead>
+      <tr>
+        <th scope="col">Dataset</th>
+        <th scope="col" class="count">Sources</th>
+        <th scope="col">State</th>
+        <th scope="col">Cron</th>
+        <th scope="col" class="count">Profile</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for dataset in datasets %}
+      <tr>
+        <td><a href="{% url 'datasets:detail' dataset.slug %}">{{ dataset.label }}</a>
+            <span class="slug">{{ dataset.slug }}</span></td>
+        <td class="count">{{ dataset.member_count }}</td>
+        <td>{{ dataset.default_state|default:"—" }}</td>
+        <td>{{ dataset.cron_enabled|yesno:"on,off" }}</td>
+        <td class="count">v{{ dataset.profile_version }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="notice">No datasets (or the crawler DB is not connected).</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

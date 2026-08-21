@@ -86,6 +86,7 @@ INSTALLED_APPS = [
     # Datadesk apps
     "accounts",
     "audit",
+    "datasets",
     "explorer",
     "review",
     "visuals",

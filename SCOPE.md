@@ -206,10 +206,11 @@ Decided 2026-08-21:
    |---|---|
    | `articles` | UPDATE (author, title, content, text, status, wire_check_status) |
    | `article_enrichment` | UPDATE (skip_reason, geo_skip_reason) |
-   | `sources` | UPDATE (canonical_name, city, county, owner, type) |
+   | `sources` | UPDATE (canonical_name, city, county, owner, type); INSERT (creation columns) — Phase 4 |
+   | `datasets` | INSERT (id, slug, label, name, description, metadata, cron_enabled); UPDATE (name, description, metadata, cron_enabled) — Phase 4 |
+   | `dataset_sources` | INSERT, DELETE (membership is a mapping, not a record) — Phase 4 |
 
-   No INSERT or DELETE anywhere — Datadesk corrects records, it does not
-   create or destroy them. Source *creation* and dataset membership are
-   Phase 4; those grants are added when the forms exist. Every write is
+   Articles are corrected, never created or destroyed — no INSERT or
+   DELETE there, and the only DELETE anywhere is dataset_sources rows. Every write is
    recorded in the append-only audit log with actor, before/after, and a
    reason, and is reversible from the audit record.

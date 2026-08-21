@@ -40,3 +40,18 @@ def editor_required(view):
         return view(request, *args, **kwargs)
 
     return wrapped
+
+
+def admin_required(view):
+    """Dataset management and destructive actions are admin-only
+    (SCOPE.md §2.1)."""
+
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+        if role_for_user(request.user) != ADMIN:
+            raise PermissionDenied("Admin role required")
+        return view(request, *args, **kwargs)
+
+    return wrapped

@@ -14,6 +14,7 @@ COPY manage.py ./
 COPY datadesk/ ./datadesk/
 COPY accounts/ ./accounts/
 COPY audit/ ./audit/
+COPY datasets/ ./datasets/
 COPY explorer/ ./explorer/
 COPY review/ ./review/
 COPY visuals/ ./visuals/

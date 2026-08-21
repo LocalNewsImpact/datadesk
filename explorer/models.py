@@ -29,6 +29,10 @@ class Dataset(CrawlerModel):
     slug = models.TextField(unique=True)
     label = models.TextField(unique=True)
     name = models.TextField(null=True)
+    description = models.TextField(null=True)
+    # datasets.metadata carries default_state and the enrichment profile.
+    meta = models.JSONField(db_column="metadata", null=True)
+    cron_enabled = models.BooleanField(default=True)
 
     class Meta(CrawlerModel.Meta):
         db_table = "datasets"
@@ -44,7 +48,14 @@ class Source(CrawlerModel):
     canonical_name = models.TextField(null=True)
     city = models.TextField(null=True)
     county = models.TextField(null=True)
-    status = models.TextField(null=True)
+    owner = models.TextField(null=True)
+    type = models.TextField(null=True)
+    status = models.TextField(null=True, default="active")
+    meta = models.JSONField(db_column="metadata", null=True)
+    # NOT NULL without server defaults in the crawler's schema; creation
+    # must supply them (see create_crawler_write_role.sql INSERT columns).
+    rss_consecutive_failures = models.IntegerField(default=0)
+    rss_transient_failures = models.JSONField(default=list)
 
     class Meta(CrawlerModel.Meta):
         db_table = "sources"
@@ -64,6 +75,17 @@ class DatasetSource(CrawlerModel):
 
     class Meta(CrawlerModel.Meta):
         db_table = "dataset_sources"
+
+
+class Gazetteer(CrawlerModel):
+    id = models.TextField(primary_key=True)
+    dataset_id = models.TextField(null=True)
+    source_id = models.TextField(null=True)
+    category = models.TextField(null=True)
+    created_at = models.DateTimeField(null=True)
+
+    class Meta(CrawlerModel.Meta):
+        db_table = "gazetteer"
 
 
 class CandidateLink(CrawlerModel):

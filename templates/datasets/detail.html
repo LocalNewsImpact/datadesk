@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}{{ dataset.label }} — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <p class="breadcrumb"><a href="{% url 'datasets:list' %}">← Datasets</a></p>
+  <h1>{{ dataset.label }} <span class="slug">{{ dataset.slug }}</span></h1>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+  <h2>Fields</h2>
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="form" value="fields">
+    <label class="stacked">Name <input type="text" name="name" value="{{ dataset.name|default:'' }}"></label>
+    <label class="stacked">Description <textarea name="description" rows="3">{{ dataset.description|default:'' }}</textarea></label>
+    <div class="action-bar">
+      <label>Default state
+        <input type="text" name="default_state" value="{{ default_state }}" maxlength="2" placeholder="MO" style="width:4rem">
+      </label>
+      <label class="checkbox">Cron enabled
+        <input type="checkbox" name="cron_enabled" value="1" {% if dataset.cron_enabled %}checked{% endif %}>
+      </label>
+      <label>Reason <input type="text" name="reason"></label>
+      <button type="submit">Save</button>
+    </div>
+    <p class="notice">Cron controls whether automated discovery and
+    extraction include this dataset when crons resume.</p>
+  </form>
+
+  <h2>Sources ({{ memberships|length }})</h2>
+  <p class="notice">Membership changes affect collection scope when crons
+  resume and export eligibility.</p>
+  <table class="grid">
+    <thead>
+      <tr>
+        <th scope="col">Source</th>
+        <th scope="col">City</th>
+        <th scope="col" class="count">Gazetteer entries</th>
+        <th scope="col">Last built</th>
+        <th scope="col"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for membership in memberships %}
+      <tr>
+        <td><a href="{% url 'datasets:source_edit' membership.source_id %}">{{ membership.source }}</a></td>
+        <td>{{ membership.source.city|default:"—" }}</td>
+        <td class="count">{{ membership.gazetteer_entries }}</td>
+        <td>{{ membership.gazetteer_built|date:"Y-m-d"|default:"never" }}</td>
+        <td>
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="form" value="remove_source">
+            <input type="hidden" name="source_id" value="{{ membership.source_id }}">
+            <button type="submit" class="linklike">remove</button>
+          </form>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="notice">No sources yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <form method="post" class="action-bar">
+    {% csrf_token %}
+    <input type="hidden" name="form" value="add_source">
+    <label>Add source
+      <select name="source_id">
+        {% for source in other_sources %}
+        <option value="{{ source.id }}">{{ source }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Add</button>
+    <a href="{% url 'datasets:source_create' %}?dataset={{ dataset.slug }}">New source…</a>
+  </form>
+
+  <h2>Gazetteer</h2>
+  {% if new_state_warning %}
+  <p class="error">No gazetteer entries exist for this dataset yet
+  {% if default_state %}({{ default_state }}){% endif %} — before a build
+  can run, the Geofabrik state extract must be staged for the offline
+  build path (public Overpass is never used).</p>
+  {% endif %}
+  <form method="post" class="action-bar">
+    {% csrf_token %}
+    <input type="hidden" name="form" value="gazetteer_build">
+    <button type="submit">Request gazetteer build</button>
+  </form>
+  {% if build_requests %}
+  <table class="grid">
+    <thead><tr><th scope="col">Requested</th><th scope="col">By</th><th scope="col">Status</th><th scope="col">Runs</th></tr></thead>
+    <tbody>
+      {% for build in build_requests %}
+      <tr>
+        <td class="nowrap">{{ build.requested_at|date:"Y-m-d H:i" }}</td>
+        <td>{{ build.requested_by.email }}</td>
+        <td>{{ build.status }}</td>
+        <td class="mono">{{ build.command }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <h2>Enrichment profile</h2>
+  <p class="notice">Schema-validated against the pipeline's contract.
+  <strong>The version-bump reprocessing contract:</strong> the pipeline
+  reprocesses articles whose recorded profile_version is lower than the
+  profile's version — so changing what the profile does requires bumping
+  version, and bumping version reprocesses the dataset. Flags:
+  content_gate, scope, places, geocode, people, organizations;
+  metadata_presets from {{ presets|join:", " }}; export_exclude_scopes
+  from {{ excludable|join:", " }}; steady_state_since (ISO date) is the
+  steady-state floor — scheduled runs touch only articles created on or
+  after it.</p>
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="form" value="profile">
+    <label class="stacked">Profile JSON
+      <textarea name="profile" rows="12" class="mono">{{ profile_json }}</textarea>
+    </label>
+    <button type="submit">Validate and save</button>
+  </form>
+</section>
+{% endblock %}
