@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Map columns — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <p class="breadcrumb"><a href="{% url 'review:import_batches' %}">← Import</a></p>
+  <h1>Map columns — {{ batch.filename }}</h1>
+  <p class="notice">{{ batch.rows|length }} rows. Pick the article UUID
+  column and map the columns to apply; unmapped columns are ignored.</p>
+
+  <form method="post">
+    {% csrf_token %}
+    <label class="stacked">Article UUID column
+      <select name="key_column" required>
+        {% for column in batch.columns %}
+        <option {% if column == batch.key_column %}selected{% endif %}>{{ column }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <table class="grid">
+      <thead><tr><th scope="col">CSV column</th><th scope="col">Applies to</th></tr></thead>
+      <tbody>
+        {% for column, mapped in column_rows %}
+        <tr>
+          <td>{{ column }}</td>
+          <td>
+            <select name="map_{{ column }}">
+              <option value="">— ignore —</option>
+              {% for field in fields %}
+              <option value="{{ field }}" {% if mapped == field %}selected{% endif %}>{{ field }}</option>
+              {% endfor %}
+            </select>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <button type="submit">Show the diff</button>
+  </form>
+</section>
+{% endblock %}

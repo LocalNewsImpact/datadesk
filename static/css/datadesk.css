@@ -126,3 +126,8 @@ label.stacked input, label.stacked textarea { display: block; width: 100%; margi
 .repair-diff dd { margin: 0; }
 .edit-link { font-size: 0.8rem; margin-left: 0.5rem; }
 .action-bar { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end; padding: 0.75rem; border: 1px solid var(--border, #ddd); border-radius: 6px; margin-bottom: 1rem; }
+
+.error { color: #b00020; }
+.columns-pick { border: 1px solid var(--border, #ddd); border-radius: 6px; padding: 0.75rem 1rem; margin: 1rem 0; }
+.columns-pick legend { font-size: 0.85rem; color: var(--muted); }
+.columns-pick label { display: inline-flex; align-items: center; gap: 0.3rem; margin-right: 1.25rem; font-size: 0.9rem; }

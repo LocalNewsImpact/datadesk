@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Diff — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <p class="breadcrumb"><a href="{% url 'review:import_batches' %}">← Import</a></p>
+  <h1>{{ batch.filename }} <span class="notice">{{ batch.status }}</span></h1>
+
+  <div class="stat-row">
+    <div class="stat"><span class="stat-label">Mojibake fixes</span><span class="stat-value">{{ diff.counts.mojibake_fix }}</span></div>
+    <div class="stat"><span class="stat-label">Edits</span><span class="stat-value">{{ diff.counts.edit }}</span></div>
+    <div class="stat"><span class="stat-label">Unchanged</span><span class="stat-value">{{ diff.counts.unchanged }}</span></div>
+    <div class="stat"><span class="stat-label">Missing articles</span><span class="stat-value">{{ diff.counts.missing }}</span></div>
+  </div>
+
+  {% if batch.status == "mapped" and diff.changes %}
+  <form method="post" class="action-bar">
+    {% csrf_token %}
+    <span class="notice">Applies {{ diff.changes|length }} row{{ diff.changes|length|pluralize }} through the audited write path.</span>
+    <button type="submit">Apply batch</button>
+    <a href="{% url 'review:import_map' batch.pk %}">Change mapping</a>
+  </form>
+  {% elif batch.status == "applied" %}
+  <form method="post" action="{% url 'review:import_revert' batch.pk %}" class="action-bar">
+    {% csrf_token %}
+    <span class="notice">Applied {{ batch.applied_at|date:"Y-m-d H:i" }} (audit entry {{ batch.audit_entry_id }}).</span>
+    <button type="submit">Revert batch</button>
+  </form>
+  {% elif batch.status == "reverted" %}
+  <p class="notice">This batch was applied and then reverted; the audit log holds both actions.</p>
+  {% elif not diff.changes %}
+  <p class="notice">Nothing to apply.</p>
+  {% endif %}
+
+  <table class="grid">
+    <thead>
+      <tr><th scope="col">Article</th><th scope="col">Field</th><th scope="col">Kind</th><th scope="col">Current</th><th scope="col">Incoming</th></tr>
+    </thead>
+    <tbody>
+      {% for row in diff.report %}
+        {% if row.kind == "missing" %}
+        <tr><td>{{ row.id }}</td><td>—</td><td>missing</td><td colspan="2" class="notice">no article with this UUID</td></tr>
+        {% else %}
+          {% for field in row.fields %}
+          <tr>
+            <td>{% if forloop.first %}<a href="{% url 'explorer:article_detail' row.id %}">{{ row.id|truncatechars:12 }}</a>{% endif %}</td>
+            <td>{{ field.field }}</td>
+            <td>{{ field.kind }}</td>
+            <td class="mono">{{ field.current|truncatechars:80 }}</td>
+            <td class="mono">{{ field.incoming|truncatechars:80 }}</td>
+          </tr>
+          {% endfor %}
+        {% endif %}
+      {% empty %}
+      <tr><td colspan="5" class="notice">Every row matches the corpus already.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

@@ -16,7 +16,8 @@
       <a href="{% url 'explorer:articles' %}">Articles</a>
       <a href="{% url 'explorer:enrichment' %}">Enrichment</a>
       <a href="{% url 'explorer:costs' %}">Costs</a>
-      {% if role == "editor" or role == "admin" %}<a href="{% url 'review:audit_log' %}">Audit</a>{% endif %}
+      {% if role == "editor" or role == "admin" %}<a href="{% url 'review:import_batches' %}">Import</a>
+      <a href="{% url 'review:audit_log' %}">Audit</a>{% endif %}
     </nav>
     {% endif %}
     <nav class="session">

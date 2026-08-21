@@ -21,8 +21,12 @@ bulk dispositions with recorded reasons, and revert from the audit
 record. Writes flow through the `datadesk_rw` role, whose column-level
 grants (SCOPE.md §6.5) are the boundary — created by
 `infra/sql/create_crawler_write_role.sql` — and are auth-gated to the
-editor and admin roles. Import (diff-then-apply) and BOM exports are
-the remaining Phase 2 work.
+editor and admin roles. Import follows the proven backpatch protocol
+(upload → column mapping → diff report with mojibake/edit
+classification → explicit apply, batches revertible as a unit), and
+exports produce the standardized deliverables (UTF-8 BOM CSV, one
+logical row per physical line, article UUID join key) with saved,
+re-runnable definitions. Phase 2 is code-complete.
 
 ## Quickstart
 

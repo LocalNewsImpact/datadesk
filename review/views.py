@@ -1,25 +1,30 @@
 """Review and cleanup views (SCOPE.md §2.2). Editor role throughout."""
 
-import ftfy
 from django.core.paginator import Paginator
 from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from accounts.decorators import editor_required
+from accounts.decorators import editor_required, role_required
 from audit.models import AuditLogEntry
 from explorer.models import Article, ArticleEnrichment
-from review.services import audited_update, revert
-
-# Repair encoding, don't editorialize: ftfy's default also uncurls smart
-# quotes and similar typography, which would rewrite text that was never
-# broken. This config fixes mojibake and nothing else.
-_FTFY_CONFIG = ftfy.TextFixerConfig(uncurl_quotes=False)
-
-
-def repair_text(value):
-    return ftfy.fix_text(value, config=_FTFY_CONFIG)
-
+from explorer.views import _filtered_articles
+from review.exports import EXPORT_COLUMNS, csv_response
+from review.imports import (
+    IMPORTABLE_FIELDS,
+    ImportError_,
+    compute_diff,
+    guess_key_column,
+    parse_csv,
+)
+from review.models import ExportDefinition, ImportBatch
+from review.services import (
+    audited_update,
+    audited_update_rows,
+    repair_text,
+    revert,
+)
 
 # The inline-editable cleaned-text columns (SCOPE.md §1: they change only
 # through explicit, audited human actions — this is that path).
@@ -146,3 +151,172 @@ def revert_entry(request, entry_id):
     entry = get_object_or_404(AuditLogEntry, pk=entry_id)
     revert(request.user, entry, reason=request.POST.get("reason", ""))
     return redirect("review:audit_log")
+
+
+# --- import (SCOPE.md §2.3: diff report first, then explicit apply) ---------
+
+
+@editor_required
+def import_batches(request):
+    if request.method == "POST":
+        upload = request.FILES.get("file")
+        if upload is None:
+            return HttpResponseBadRequest("No file uploaded")
+        try:
+            columns, rows = parse_csv(upload, upload.name)
+        except ImportError_ as exc:
+            return render(
+                request,
+                "review/import_batches.html",
+                {"batches": ImportBatch.objects.all(), "error": str(exc)},
+                status=400,
+            )
+        batch = ImportBatch.objects.create(
+            created_by=request.user,
+            filename=upload.name,
+            columns=columns,
+            rows=rows,
+            key_column=guess_key_column(columns),
+        )
+        return redirect("review:import_map", batch.pk)
+    return render(
+        request,
+        "review/import_batches.html",
+        {"batches": ImportBatch.objects.all()},
+    )
+
+
+@editor_required
+def import_map(request, batch_id):
+    batch = get_object_or_404(ImportBatch, pk=batch_id)
+    if batch.status == ImportBatch.APPLIED:
+        return redirect("review:import_diff", batch.pk)
+
+    if request.method == "POST":
+        key_column = request.POST.get("key_column", "")
+        if key_column not in batch.columns:
+            return HttpResponseBadRequest("Pick the article UUID column")
+        column_map = {}
+        for column in batch.columns:
+            field = request.POST.get(f"map_{column}", "")
+            if field:
+                if field not in IMPORTABLE_FIELDS:
+                    return HttpResponseBadRequest(f"{field} is not importable")
+                column_map[column] = field
+        if not column_map:
+            return HttpResponseBadRequest("Map at least one column")
+        batch.key_column = key_column
+        batch.column_map = column_map
+        batch.status = ImportBatch.MAPPED
+        batch.save(update_fields=["key_column", "column_map", "status"])
+        return redirect("review:import_diff", batch.pk)
+
+    return render(
+        request,
+        "review/import_map.html",
+        {
+            "batch": batch,
+            "fields": IMPORTABLE_FIELDS,
+            "column_rows": [
+                (column, batch.column_map.get(column, "")) for column in batch.columns
+            ],
+        },
+    )
+
+
+@editor_required
+def import_diff(request, batch_id):
+    """The diff report — and, on POST, the explicit apply."""
+    batch = get_object_or_404(ImportBatch, pk=batch_id)
+    if not batch.column_map:
+        return redirect("review:import_map", batch.pk)
+    diff = compute_diff(batch)
+
+    if request.method == "POST":
+        if batch.status == ImportBatch.APPLIED:
+            return HttpResponseBadRequest("Batch already applied")
+        if not diff["changes"]:
+            return HttpResponseBadRequest("Nothing to apply")
+        entry = audited_update_rows(
+            request.user,
+            Article,
+            diff["changes"],
+            action="import:apply",
+            reason=f"import batch {batch.pk}: {batch.filename}",
+        )
+        batch.status = ImportBatch.APPLIED
+        batch.applied_at = timezone.now()
+        batch.audit_entry = entry
+        batch.save(update_fields=["status", "applied_at", "audit_entry"])
+        return redirect("review:import_diff", batch.pk)
+
+    return render(
+        request,
+        "review/import_diff.html",
+        {"batch": batch, "diff": diff},
+    )
+
+
+@editor_required
+@require_POST
+def import_revert(request, batch_id):
+    batch = get_object_or_404(ImportBatch, pk=batch_id)
+    if batch.status != ImportBatch.APPLIED or batch.audit_entry is None:
+        return HttpResponseBadRequest("Batch is not applied")
+    revert(
+        request.user,
+        batch.audit_entry,
+        reason=f"revert of import batch {batch.pk}: {batch.filename}",
+    )
+    batch.status = ImportBatch.REVERTED
+    batch.save(update_fields=["status"])
+    return redirect("review:import_diff", batch.pk)
+
+
+# --- export (SCOPE.md §2.3: BOM CSVs, saved definitions) --------------------
+
+
+@role_required
+def export(request):
+    """Choose columns for the current filter set; download or save the
+    definition for re-running against current data."""
+    if request.method == "POST":
+        columns = [c for c in request.POST.getlist("columns") if c in EXPORT_COLUMNS]
+        if not columns:
+            return HttpResponseBadRequest("Pick at least one column")
+        params = {
+            key: value
+            for key, value in request.POST.items()
+            if key.startswith("f_") and value
+        }
+        params = {key[2:]: value for key, value in params.items()}
+        if request.POST.get("save_as"):
+            ExportDefinition.objects.update_or_create(
+                name=request.POST["save_as"],
+                defaults={
+                    "created_by": request.user,
+                    "params": params,
+                    "columns": columns,
+                },
+            )
+        queryset = _filtered_articles(params)
+        return csv_response(queryset, columns, "datadesk-export.csv")
+
+    return render(
+        request,
+        "review/export.html",
+        {
+            "columns": EXPORT_COLUMNS,
+            "params": request.GET,
+            "definitions": ExportDefinition.objects.all(),
+        },
+    )
+
+
+@role_required
+def export_run(request, definition_id):
+    """Re-run a saved definition against current data."""
+    definition = get_object_or_404(ExportDefinition, pk=definition_id)
+    queryset = _filtered_articles(definition.params)
+    filename = f"{definition.name}.csv".replace("/", "-")
+    return csv_response(queryset, definition.columns, filename)

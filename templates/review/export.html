@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Export — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>Export</h1>
+  <p class="notice">UTF-8 BOM CSV, one logical row per physical line,
+  article UUID as the join key. Filters carry over from the articles grid.</p>
+
+  <form method="post">
+    {% csrf_token %}
+    {% for key, value in params.items %}
+    <input type="hidden" name="f_{{ key }}" value="{{ value }}">
+    {% endfor %}
+
+    <fieldset class="columns-pick">
+      <legend>Columns</legend>
+      {% for name in columns %}
+      <label><input type="checkbox" name="columns" value="{{ name }}"
+        {% if name != "content" %}checked{% endif %}> {{ name }}</label>
+      {% endfor %}
+    </fieldset>
+
+    <div class="action-bar">
+      <label>Save as (optional)
+        <input type="text" name="save_as" placeholder="definition name">
+      </label>
+      <button type="submit">Download CSV</button>
+    </div>
+  </form>
+
+  {% if definitions %}
+  <h2>Saved definitions</h2>
+  <table class="grid">
+    <thead><tr><th scope="col">Name</th><th scope="col">Columns</th><th scope="col"></th></tr></thead>
+    <tbody>
+      {% for definition in definitions %}
+      <tr>
+        <td>{{ definition.name }}</td>
+        <td class="notice">{{ definition.columns|join:", " }}</td>
+        <td><a href="{% url 'review:export_run' definition.pk %}">run</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endblock %}
