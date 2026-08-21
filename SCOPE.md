@@ -192,12 +192,13 @@ Decided 2026-08-21:
 3. **Domain: datadesk.localnewsimpact.org**, via Cloud Run domain
    mapping.
 
+4. **GCP project: dedicated** (proposed name `lnic-datadesk`), the
+   sources-directory precedent. Own WIF binding, service accounts, and
+   registry; cross-project access to `mizzou-db-prod` and BigQuery is
+   IAM grants, the pattern the directory already proved.
+
 Still open:
 
-4. The write-role boundary: exactly which crawler tables accept audited
+5. The write-role boundary: exactly which crawler tables accept audited
    writes in Phase 2 (proposed: articles' cleaned-text columns and status,
    article_enrichment disposition columns, datasets/sources metadata)
-5. GCP project: a dedicated project (the sources-directory precedent —
-   it got `lnic-source-directory` rather than living in
-   `mizzou-news-crawler`) vs riding in an existing one. Determines what
-   `bootstrap.sh` provisions; needed before the deploy pipeline lands.
