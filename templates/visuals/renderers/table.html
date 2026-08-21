@@ -1,0 +1,35 @@
+{# The reference renderer: the feed as a table. Visuals are authored as #}
+{# code — a real visual gets its own template here plus a data source. #}
+<div class="visual-table" data-feed="{% url 'visuals:data' visual.slug %}"></div>
+<script>
+(function () {
+  const el = document.currentScript.previousElementSibling;
+  fetch(el.dataset.feed)
+    .then((r) => r.json())
+    .then(({ data }) => {
+      if (!Array.isArray(data) || !data.length) {
+        el.textContent = "No data.";
+        return;
+      }
+      const cols = Object.keys(data[0]);
+      const table = document.createElement("table");
+      table.className = "grid";
+      table.innerHTML =
+        "<thead><tr>" + cols.map((c) => `<th>${c}</th>`).join("") +
+        "</tr></thead>";
+      const tbody = document.createElement("tbody");
+      for (const row of data) {
+        const tr = document.createElement("tr");
+        for (const c of cols) {
+          const td = document.createElement("td");
+          td.textContent = row[c] ?? "";
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      el.replaceChildren(table);
+    })
+    .catch(() => { el.textContent = "Feed unavailable."; });
+})();
+</script>

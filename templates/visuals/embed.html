@@ -1,0 +1,15 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ visual.title }}</title>
+  <link rel="stylesheet" href="{% static 'css/datadesk.css' %}">
+  <style>body { background: transparent; } main { padding: 0; }</style>
+</head>
+<body>
+  <main>
+    {% include renderer %}
+  </main>
+</body>
+</html>

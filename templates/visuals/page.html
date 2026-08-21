@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ visual.title }} — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>{{ visual.title }} {% if visual.status == "draft" %}<span class="notice">draft</span>{% endif %}</h1>
+  {% include renderer %}
+  {% if visual.pinned_snapshot %}
+  <p class="notice">Pinned at snapshot v{{ visual.pinned_snapshot.version }}
+  ({{ visual.pinned_snapshot.created_at|date:"Y-m-d" }}).</p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -28,6 +28,18 @@ exports produce the standardized deliverables (UTF-8 BOM CSV, one
 logical row per physical line, article UUID join key) with saved,
 re-runnable definitions. Phase 2 is code-complete.
 
+Phase 3, visuals v1, is code-complete: the registry (a `Visual` is a
+renderer template in the repo plus a BigQuery query or bucket object,
+registered and published through the admin), `/visuals/<slug>/`,
+`/visuals/<slug>/data.json`, and `/embed/<slug>/` with a per-visual
+frame-ancestors allowlist — the embed and feed being the only public
+routes, for published visuals only. Publishing pins a data snapshot;
+embeds serve the pin (`?live=1` works only where a visual opts in), so
+a published report never changes under its readers. The March
+story-geography map becomes the first registration once its assets
+(`gs://mizzou-news-maps-data`) are reachable from a deployed
+environment.
+
 ## Quickstart
 
 ```

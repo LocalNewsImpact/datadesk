@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Visuals — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>Visuals</h1>
+  <p class="notice">Registered and published in the
+  <a href="/admin/visuals/visual/">admin</a>; authored as code
+  (a renderer template plus a data source).</p>
+  <table class="grid">
+    <thead>
+      <tr>
+        <th scope="col">Visual</th>
+        <th scope="col">Status</th>
+        <th scope="col">Pinned</th>
+        <th scope="col">Published</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for visual in visuals %}
+      <tr>
+        <td><a href="{% url 'visuals:page' visual.slug %}">{{ visual.title }}</a></td>
+        <td>{{ visual.status }}</td>
+        <td>{% if visual.pinned_snapshot %}v{{ visual.pinned_snapshot.version }}{% else %}—{% endif %}</td>
+        <td>{{ visual.published_at|date:"Y-m-d"|default:"—" }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4" class="notice">No visuals registered yet. The
+      story-geography map is the intended first resident.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

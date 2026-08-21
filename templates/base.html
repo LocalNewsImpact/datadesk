@@ -16,6 +16,7 @@
       <a href="{% url 'explorer:articles' %}">Articles</a>
       <a href="{% url 'explorer:enrichment' %}">Enrichment</a>
       <a href="{% url 'explorer:costs' %}">Costs</a>
+      <a href="{% url 'visuals:index' %}">Visuals</a>
       {% if role == "editor" or role == "admin" %}<a href="{% url 'review:import_batches' %}">Import</a>
       <a href="{% url 'review:audit_log' %}">Audit</a>{% endif %}
     </nav>
