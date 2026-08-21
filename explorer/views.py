@@ -18,10 +18,12 @@ from django.http import Http404
 from django.shortcuts import render
 
 from accounts.decorators import role_required
+from explorer.costs import billed_costs, recorded_costs
 from explorer.models import Article, ArticleEnrichment, Dataset, DatasetSource
 
 PAGE_SIZE = 50
 _VOCAB_CACHE_KEY = "explorer.article_filter_vocab"
+_ENRICHMENT_VOCAB_CACHE_KEY = "explorer.enrichment_filter_vocab"
 _VOCAB_CACHE_SECONDS = 300
 
 
@@ -160,5 +162,123 @@ def article_detail(request, article_id):
             "enrichment": enrichment,
             "dimensions": dimensions,
             "stored_text": article.content or article.text or article.text_excerpt,
+        },
+    )
+
+
+def _enrichment_vocab():
+    """Distinct enrichment filter values, or None offline."""
+
+    def fetch():
+        def distinct(field):
+            return sorted(
+                ArticleEnrichment.objects.filter(**{f"{field}__isnull": False})
+                .values_list(field, flat=True)
+                .distinct()
+            )
+
+        return {
+            "datasets": list(Dataset.objects.order_by("label").values("slug", "label")),
+            "scopes": distinct("scope"),
+            "skip_reasons": distinct("skip_reason"),
+            "geo_skip_reasons": distinct("geo_skip_reason"),
+            "geoid_levels": distinct("point_geoid_level"),
+        }
+
+    try:
+        return cache.get_or_set(
+            _ENRICHMENT_VOCAB_CACHE_KEY, fetch, _VOCAB_CACHE_SECONDS
+        )
+    except DatabaseError:
+        return None
+
+
+def _filtered_enrichment(params):
+    """The enrichment grid's filters (SCOPE.md §2.2): dataset, geography
+    (scope, FIPS, skip reason), confidence band."""
+    qs = ArticleEnrichment.objects.select_related("article__candidate_link__source")
+
+    if slug := params.get("dataset"):
+        member_sources = DatasetSource.objects.filter(dataset__slug=slug).values(
+            "source_id"
+        )
+        qs = qs.filter(article__candidate_link__source_id__in=member_sources)
+    if scope := params.get("scope"):
+        qs = qs.filter(scope=scope)
+    if fips := params.get("fips"):
+        # Prefix match: a state FIPS finds every place within it.
+        qs = qs.filter(point_geoid__startswith=fips)
+    if level := params.get("level"):
+        qs = qs.filter(point_geoid_level=level)
+    if skip := params.get("skip"):
+        qs = qs.filter(skip_reason=skip)
+    if geo_skip := params.get("geo_skip"):
+        qs = qs.filter(geo_skip_reason=geo_skip)
+    if params.get("no_point"):
+        qs = qs.filter(point_geoid__isnull=True)
+    if conf_min := params.get("conf_min"):
+        qs = qs.filter(scope_confidence__gte=conf_min)
+    if conf_max := params.get("conf_max"):
+        qs = qs.filter(scope_confidence__lte=conf_max)
+
+    return qs.order_by(F("enriched_at").desc(nulls_last=True))
+
+
+@role_required
+def enrichment(request):
+    vocab = _enrichment_vocab()
+    params = request.GET.copy()
+    params.pop("page", None)
+    context = {
+        "crawler_connected": vocab is not None,
+        "vocab": vocab,
+        "params": params,
+    }
+    if vocab is not None:
+        try:
+            page_number = int(request.GET.get("page", "1"))
+        except ValueError:
+            page_number = 1
+        paginator = Paginator(_filtered_enrichment(request.GET), PAGE_SIZE)
+        context["page"] = paginator.get_page(page_number)
+
+    template = (
+        "explorer/_enrichment_results.html"
+        if request.headers.get("HX-Request")
+        else "explorer/enrichment.html"
+    )
+    return render(request, template, context)
+
+
+@role_required
+def costs(request):
+    """The cost dashboard (SCOPE.md §2.5): recorded vs billed by day,
+    recorded by dataset and model, the cache discount as the headline."""
+    recorded = recorded_costs()
+    billed = billed_costs()
+
+    # Join the two sides by day for the comparison table.
+    by_day = {}
+    if recorded:
+        for row in recorded["by_day"]:
+            by_day[row["day"]] = {
+                "day": row["day"],
+                "recorded": row["cost"],
+                "articles": row["articles"],
+            }
+    if billed:
+        for row in billed["by_day"]:
+            entry = by_day.setdefault(row["day"], {"day": row["day"]})
+            entry["billed"] = row["billed"]
+            entry["cache_discount"] = row["cache_discount"]
+    days = sorted(by_day.values(), key=lambda r: str(r["day"]), reverse=True)
+
+    return render(
+        request,
+        "explorer/costs.html",
+        {
+            "recorded": recorded,
+            "billed": billed,
+            "days": days,
         },
     )

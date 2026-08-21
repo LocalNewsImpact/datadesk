@@ -109,3 +109,11 @@ nav.pager { display: flex; justify-content: space-between; margin-top: 1rem; }
 
 .rationales dt { color: var(--muted); font-size: 0.8rem; margin-top: 0.5rem; }
 .rationales dd { margin: 0; font-size: 0.85rem; }
+
+.filter-bar label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; }
+
+.stat-row { display: flex; flex-wrap: wrap; gap: 1.5rem; margin: 1rem 0 1.5rem; }
+.stat { display: flex; flex-direction: column; gap: 0.15rem; min-width: 11rem; }
+.stat-label { color: var(--muted); font-size: 0.8rem; }
+.stat-value { font-size: 1.6rem; font-variant-numeric: tabular-nums; }
+.stat-detail { color: var(--muted); font-size: 0.8rem; }

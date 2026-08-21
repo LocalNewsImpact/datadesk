@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Enrichment — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>Enrichment</h1>
+
+  {% if not crawler_connected %}
+  <p class="notice">
+    Crawler database not connected. Set CRAWLER_DB_USER (and run the Cloud
+    SQL Auth Proxy locally) to browse enrichment.
+  </p>
+  {% else %}
+  <form method="get" action="{% url 'explorer:enrichment' %}" class="filter-bar"
+        hx-get="{% url 'explorer:enrichment' %}" hx-target="#results"
+        hx-trigger="change, submit" hx-push-url="true">
+    <label>Dataset
+      <select name="dataset">
+        <option value="">all</option>
+        {% for d in vocab.datasets %}
+        <option value="{{ d.slug }}" {% if params.dataset == d.slug %}selected{% endif %}>{{ d.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Scope
+      <select name="scope">
+        <option value="">all</option>
+        {% for s in vocab.scopes %}
+        <option {% if params.scope == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>FIPS prefix
+      <input type="search" name="fips" value="{{ params.fips|default:'' }}" placeholder="e.g. 29">
+    </label>
+    <label>GEOID level
+      <select name="level">
+        <option value="">all</option>
+        {% for s in vocab.geoid_levels %}
+        <option {% if params.level == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Skip reason
+      <select name="skip">
+        <option value="">all</option>
+        {% for s in vocab.skip_reasons %}
+        <option {% if params.skip == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Geo skip
+      <select name="geo_skip">
+        <option value="">all</option>
+        {% for s in vocab.geo_skip_reasons %}
+        <option {% if params.geo_skip == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="checkbox">No point
+      <input type="checkbox" name="no_point" value="1" {% if params.no_point %}checked{% endif %}>
+    </label>
+    <label>Scope conf. ≥
+      <input type="number" name="conf_min" value="{{ params.conf_min|default:'' }}" min="0" max="1" step="0.05">
+    </label>
+    <label>≤
+      <input type="number" name="conf_max" value="{{ params.conf_max|default:'' }}" min="0" max="1" step="0.05">
+    </label>
+    <noscript><button type="submit">Filter</button></noscript>
+  </form>
+
+  <div id="results">
+    {% include "explorer/_enrichment_results.html" %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

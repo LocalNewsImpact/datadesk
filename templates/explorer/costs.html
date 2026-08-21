@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Costs — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>Enrichment costs</h1>
+
+  {% if not recorded and not billed %}
+  <p class="notice">
+    Neither cost source is connected. The recorded side needs the crawler
+    database (CRAWLER_DB_USER); the billed side needs BigQuery credentials.
+  </p>
+  {% else %}
+
+  <div class="stat-row">
+    {% if recorded %}
+    <div class="stat">
+      <span class="stat-label">Recorded (all time)</span>
+      <span class="stat-value">${{ recorded.totals.total|floatformat:2 }}</span>
+      <span class="stat-detail">{{ recorded.totals.articles }} articles · avg ${{ recorded.totals.avg|floatformat:4 }}</span>
+    </div>
+    {% endif %}
+    {% if billed %}
+    <div class="stat">
+      <span class="stat-label">Billed (30 days)</span>
+      <span class="stat-value">${{ billed.total|floatformat:2 }}</span>
+      <span class="stat-detail">{{ billed.requests }} requests</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Cache discount (30 days)</span>
+      <span class="stat-value">${{ billed.cache_discount|floatformat:2 }}</span>
+      <span class="stat-detail">{% if billed.cache_hit_rate is not None %}{{ billed.cache_hit_rate|floatformat:2 }} hit rate{% endif %}</span>
+    </div>
+    {% else %}
+    <div class="stat">
+      <span class="stat-label">Billed</span>
+      <span class="stat-value">—</span>
+      <span class="stat-detail">BigQuery not connected</span>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if days %}
+  <h2>By day (last 30)</h2>
+  <table class="grid">
+    <thead>
+      <tr>
+        <th scope="col">Day</th>
+        <th scope="col" class="count">Articles</th>
+        <th scope="col" class="count">Recorded</th>
+        <th scope="col" class="count">Billed</th>
+        <th scope="col" class="count">Cache discount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in days %}
+      <tr>
+        <td class="nowrap">{{ row.day }}</td>
+        <td class="count">{{ row.articles|default:"—" }}</td>
+        <td class="count">{% if row.recorded is not None %}${{ row.recorded|floatformat:2 }}{% else %}—{% endif %}</td>
+        <td class="count">{% if row.billed is not None %}${{ row.billed|floatformat:2 }}{% else %}—{% endif %}</td>
+        <td class="count">{% if row.cache_discount is not None %}${{ row.cache_discount|floatformat:2 }}{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if recorded %}
+  <h2>Recorded by dataset</h2>
+  <table class="grid">
+    <thead>
+      <tr><th scope="col">Dataset</th><th scope="col" class="count">Articles</th><th scope="col" class="count">Cost</th></tr>
+    </thead>
+    <tbody>
+      {% for row in recorded.by_dataset %}
+      <tr>
+        <td>{{ row.label }}</td>
+        <td class="count">{{ row.articles }}</td>
+        <td class="count">${{ row.cost|floatformat:2 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Recorded by model</h2>
+  <table class="grid">
+    <thead>
+      <tr><th scope="col">Model</th><th scope="col" class="count">Articles</th><th scope="col" class="count">Cost</th></tr>
+    </thead>
+    <tbody>
+      {% for row in recorded.by_model %}
+      <tr>
+        <td>{{ row.model|default:"—" }}</td>
+        <td class="count">{{ row.articles }}</td>
+        <td class="count">${{ row.cost|floatformat:2 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

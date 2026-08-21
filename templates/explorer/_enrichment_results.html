@@ -1,0 +1,50 @@
+{% if page %}
+<p class="result-count">
+  {{ page.paginator.count }} record{{ page.paginator.count|pluralize }}
+  {% if page.paginator.num_pages > 1 %}· page {{ page.number }} of {{ page.paginator.num_pages }}{% endif %}
+</p>
+<table class="grid">
+  <thead>
+    <tr>
+      <th scope="col">Article</th>
+      <th scope="col">Publisher</th>
+      <th scope="col">Scope</th>
+      <th scope="col" class="count">Conf.</th>
+      <th scope="col">Place</th>
+      <th scope="col">GEOID</th>
+      <th scope="col">Geo skip</th>
+      <th scope="col" class="count">Cost</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for record in page %}
+    <tr>
+      <td><a href="{% url 'explorer:article_detail' record.article_id %}">{{ record.article.title|default:record.article_id|truncatechars:60 }}</a></td>
+      <td>{{ record.article.candidate_link.source|default:"—" }}</td>
+      <td>{{ record.scope|default:"—" }}</td>
+      <td class="count">{{ record.scope_confidence|floatformat:2|default:"—" }}</td>
+      <td>{{ record.point_place|default:"—" }}</td>
+      <td>{% if record.point_geoid %}{{ record.point_geoid }} ({{ record.point_geoid_level }}){% else %}—{% endif %}</td>
+      <td>{{ record.geo_skip_reason|default:"—" }}</td>
+      <td class="count">{% if record.cost_usd is not None %}${{ record.cost_usd|floatformat:4 }}{% else %}—{% endif %}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="8" class="notice">No enrichment records match these filters.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if page.paginator.num_pages > 1 %}
+<nav class="pager">
+  {% if page.has_previous %}
+  <a href="?{{ params.urlencode }}&page={{ page.previous_page_number }}"
+     hx-get="{% url 'explorer:enrichment' %}?{{ params.urlencode }}&page={{ page.previous_page_number }}"
+     hx-target="#results">← newer</a>
+  {% endif %}
+  {% if page.has_next %}
+  <a href="?{{ params.urlencode }}&page={{ page.next_page_number }}"
+     hx-get="{% url 'explorer:enrichment' %}?{{ params.urlencode }}&page={{ page.next_page_number }}"
+     hx-target="#results">older →</a>
+  {% endif %}
+</nav>
+{% endif %}
+{% endif %}

@@ -3,17 +3,17 @@
 Django console for LNIC research data: review and cleanup, dataset
 management, cost insight, and a publishing platform for embeddable visuals.
 
-See [SCOPE.md](SCOPE.md) for the delivery plan. The current state is the
-Phase 0 scaffold: project layout, Google-only auth with hosted-domain
-restriction, role groups, the append-only audit log, and CI. Hosting is
-decided (SCOPE.md §6: Cloud Run on the sources-directory pattern, a
-`datadesk` database on the shared Cloud SQL instance,
-datadesk.localnewsimpact.org, a dedicated GCP project), the deploy
-pipeline is in place (see [infra/README.md](infra/README.md)), and the
-read-only crawler-DB and BigQuery connections exist: signed-in users
-with a role see live article counts per dataset on the landing page —
-the Phase 0 exit test. What remains is running the bootstrap against
-GCP and the first deploy.
+See [SCOPE.md](SCOPE.md) for the delivery plan. Phase 0 is code-complete
+(auth, roles, audit log, deploy pipeline — see
+[infra/README.md](infra/README.md) — and the read-only crawler-DB and
+BigQuery connections; what remains is running the bootstrap against GCP
+and the first deploy). Phase 1, the data explorer, is in: the articles
+grid with the March filters, the enrichment grid with the geography
+filters, the side-by-side article detail, and the recorded-vs-billed
+cost dashboard, all read-only over the `datadesk_ro` role and
+htmx-enhanced. The billed-cost BigQuery query needs truing up against
+the real `openrouter_traces` columns on first live run
+(explorer/costs.py).
 
 ## Quickstart
 
