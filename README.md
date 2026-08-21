@@ -5,9 +5,12 @@ management, cost insight, and a publishing platform for embeddable visuals.
 
 See [SCOPE.md](SCOPE.md) for the delivery plan. The current state is the
 Phase 0 scaffold: project layout, Google-only auth with hosted-domain
-restriction, role groups, the append-only audit log, and CI. Deploy
-pipeline and the read-only crawler-DB/BigQuery connections follow once the
-SCOPE.md §6 hosting and database-placement decisions land.
+restriction, role groups, the append-only audit log, and CI. Hosting is
+decided (SCOPE.md §6: Cloud Run on the sources-directory pattern, a
+`datadesk` database on the shared Cloud SQL instance,
+datadesk.localnewsimpact.org); the deploy pipeline and the read-only
+crawler-DB/BigQuery connections are the next work, pending only the §6.5
+GCP-project choice.
 
 ## Quickstart
 
@@ -35,11 +38,11 @@ All deployment-specific values come from environment variables
 | `ALLOWED_AUTH_DOMAINS` | Comma-separated Google hosted domains allowed to sign in; empty disables the restriction (development only) | empty |
 | `DATADESK_SQLITE_PATH` | Development sqlite location | `./db.sqlite3` |
 
-The development database is sqlite. The production Postgres seam (Cloud
-SQL, credentials from a Kubernetes secret, mirroring the
-MizzouNewsCrawler `USE_CLOUD_SQL_CONNECTOR` env contract) is a commented
-block in `datadesk/settings.py`, pending the SCOPE.md §6 placement
-decision.
+The development database is sqlite. Production is a `datadesk` database
+on the shared Cloud SQL instance, reached over the Cloud Run unix socket
+with credentials from Secret Manager (the sources-directory pattern —
+SCOPE.md §6.2). The seam is a commented block in `datadesk/settings.py`,
+activated when the deploy pipeline lands.
 
 ## Access model
 

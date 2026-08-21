@@ -2,20 +2,20 @@
 
 Environment-driven configuration. All deployment-specific values come from
 environment variables with development-safe defaults, so the same settings
-module serves local development and any of the hosting options left open in
-SCOPE.md §6 (GKE vs the sources-directory pattern; shared vs dedicated
-Cloud SQL). No hosting, domain, or database-placement decision is encoded
-here.
+module serves local development and the decided hosting (SCOPE.md §6:
+Cloud Run, sources-directory pattern; a `datadesk` database on the shared
+Cloud SQL instance). No deployment-specific value is encoded here.
 
 Configuration shapes follow the two sibling systems:
 
 - Auth: the django-allauth Google + hosted-domain pattern proven on
   sources.localnewsimpact.org (NewsSourceDirectory config/settings.py and
   directory/auth.py), generalized to a domain list via ALLOWED_AUTH_DOMAINS.
-- Database seam: the MizzouNewsCrawler Cloud SQL env contract
-  (USE_CLOUD_SQL_CONNECTOR / CLOUD_SQL_INSTANCE / DATABASE_USER /
-  DATABASE_PASSWORD / DATABASE_NAME, credentials from a Kubernetes secret),
-  kept as a commented block until the SCOPE.md §6 placement decision lands.
+- Database seam: Cloud Run reaches Cloud SQL over a unix socket
+  (/cloudsql/<connection-name>), credentials from Secret Manager — the
+  sources-directory pattern (its deploy.yml passes SQL_INSTANCE and the
+  service assembles the DSN). Kept as a commented block until the deploy
+  pipeline lands.
 
 Environment variables:
 
@@ -112,15 +112,16 @@ WSGI_APPLICATION = "datadesk.wsgi.application"
 
 # --- databases --------------------------------------------------------------
 #
-# Development default: local sqlite. Production is Datadesk's own Postgres
-# (application state only — SCOPE.md §1); its placement (shared Cloud SQL
-# instance vs dedicated) is a SCOPE.md §6 open decision, so only an
-# env-driven seam is provided here.
+# Development default: local sqlite. Production is the `datadesk` database
+# on the shared Cloud SQL instance (application state only — SCOPE.md §1,
+# placement decided in §6.2), reached the way the sources directory reaches
+# it from Cloud Run: over the unix socket the platform mounts at
+# /cloudsql/<connection-name>, password from Secret Manager
+# (--auto-iam-authn alone fails on this instance).
 #
-# When the placement decision lands, this block replaces the sqlite default.
-# The env contract mirrors MizzouNewsCrawler (k8s/crawler-cronjob.yaml:
-# credentials from a cloudsql-db-credentials-style Kubernetes secret) so the
-# two systems configure identically:
+# This block replaces the sqlite default when the deploy pipeline lands.
+# Note the instance is shared three ways (crawler, sources directory,
+# datadesk): set CONN_MAX_AGE and Cloud Run concurrency deliberately.
 #
 # if env_bool("USE_CLOUD_SQL_CONNECTOR"):
 #     DATABASES = {

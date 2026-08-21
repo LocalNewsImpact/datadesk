@@ -131,16 +131,19 @@ designed around them.
 
 ## 3. Architecture
 
-- Django 5.x, Postgres (own instance or a second database on the existing
-  Cloud SQL instance — decided in Phase 0 by cost), `django-allauth`,
+- Django 5.x, Postgres — a `datadesk` database on the existing
+  `mizzou-db-prod` Cloud SQL instance (§6.2), `django-allauth`,
   htmx for grid interactivity before reaching for a SPA
 - Read access to the crawler DB through the Cloud SQL connector with a
   read-only role created for the purpose (`--auto-iam-authn` alone fails on
   this instance; password auth via Secret Manager, the proven pattern)
-- Deployment target decided in Phase 0: the existing GKE cluster (new
-  deployment + ingress, e.g. datadesk.localnewsimpact.org) or the
-  sources-directory hosting pattern — whichever the directory project's
-  operational experience recommends
+- Cloud Run, following the sources-directory pattern (§6.1):
+  GitHub Actions → Workload Identity Federation → build → deploy, the
+  two-stage Dockerfile (dependency base rebuilt only on requirements
+  change), Cloud SQL over the unix socket, secrets in Secret Manager,
+  migrations as a Cloud Run job, domain mapping for
+  datadesk.localnewsimpact.org. Long-running work (imports, syncs) runs
+  as Cloud Run Jobs on the same image
 - No public unauthenticated surface except `/embed/*` and
   `/visuals/*/data.json` for published visuals
 
@@ -164,11 +167,37 @@ designed around them.
 - Real-time streaming; nightly-fresh is the contract, matching the
   BigQuery sync cadence
 
-## 6. Open decisions for Phase 0
+## 6. Phase 0 decisions
 
-1. Hosting: GKE deployment vs the sources-directory pattern
-2. Database placement: shared Cloud SQL instance vs dedicated
-3. Domain: datadesk.localnewsimpact.org (proposed)
+Decided 2026-08-21:
+
+1. **Hosting: Cloud Run**, on the sources-directory pattern (which is
+   Cloud Run — the deploy workflow, WIF binding, two-stage image,
+   `infra/bootstrap.sh`, and runbook port directly). GKE matches the
+   crawler, but the crawler is a batch data plane — cronjobs, extraction
+   fleets, work queues — which is what GKE is earning its keep for there.
+   Datadesk is a request/response console for a handful of internal
+   users, structurally the sources directory's twin: Cloud Run scales it
+   to zero, makes rollback a traffic change, and keeps a bad deploy out
+   of the crawler's cluster. Work that outruns a request becomes a Cloud
+   Run Job; the gazetteer build trigger dispatches to the crawler's
+   existing offline state-extract path rather than running here.
+2. **Database: shared instance.** A `datadesk` database on
+   `mizzou-db-prod`, with the sources directory's role-isolation SQL
+   ported (`isolate_directory_role.sql` — closes the PUBLIC CONNECT
+   default and the `cloudsqlsuperuser` membership Cloud SQL grants every
+   API-created user) plus its read-only-role pattern for the crawler
+   read role. Connection budget is now shared three ways: `CONN_MAX_AGE`
+   and Cloud Run concurrency set deliberately, not defaulted.
+3. **Domain: datadesk.localnewsimpact.org**, via Cloud Run domain
+   mapping.
+
+Still open:
+
 4. The write-role boundary: exactly which crawler tables accept audited
    writes in Phase 2 (proposed: articles' cleaned-text columns and status,
    article_enrichment disposition columns, datasets/sources metadata)
+5. GCP project: a dedicated project (the sources-directory precedent —
+   it got `lnic-source-directory` rather than living in
+   `mizzou-news-crawler`) vs riding in an existing one. Determines what
+   `bootstrap.sh` provisions; needed before the deploy pipeline lands.
