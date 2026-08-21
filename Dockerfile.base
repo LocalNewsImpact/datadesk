@@ -1,0 +1,42 @@
+# The dependency layer: operating system packages and Python libraries.
+#
+# Built only when requirements.txt changes, and tagged with a hash of that
+# file, so an application-only deploy reuses it rather than reinstalling the
+# libraries to change a template. The pattern (and the reasoning) is the
+# sources directory's Dockerfile.base.
+#
+#   docker build -f Dockerfile.base -t .../datadesk-base:<hash> .
+#
+# Multi-stage on purpose. Docker layers are additive: installing
+# build-essential in one layer and purging it in a later one leaves the
+# bytes in the image. Only the finished site-packages crosses into the
+# runtime stage.
+#
+# python:3.11 matches CI (.github/workflows/ci.yml) — the two must move
+# together.
+
+FROM python:3.11-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential libpq-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --prefix=/install -r requirements.txt
+
+
+FROM python:3.11-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+
+# libpq at runtime only; the compiler never reaches this stage.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libpq5 \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /install /usr/local
+
+RUN useradd --create-home --uid 1000 app
+WORKDIR /app

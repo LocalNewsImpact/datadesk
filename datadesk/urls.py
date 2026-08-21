@@ -7,6 +7,7 @@ from datadesk import views
 
 urlpatterns = [
     path("", views.landing, name="landing"),
+    path("_health", views.health, name="health"),
     path("accounts/", include("allauth.urls")),
     path("admin/", admin.site.urls),
 ]

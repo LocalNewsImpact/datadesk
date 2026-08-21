@@ -13,9 +13,9 @@ Configuration shapes follow the two sibling systems:
   directory/auth.py), generalized to a domain list via ALLOWED_AUTH_DOMAINS.
 - Database seam: Cloud Run reaches Cloud SQL over a unix socket
   (/cloudsql/<connection-name>), credentials from Secret Manager — the
-  sources-directory pattern (its deploy.yml passes SQL_INSTANCE and the
-  service assembles the DSN). Kept as a commented block until the deploy
-  pipeline lands.
+  sources-directory pattern (the deploy workflow passes the connection
+  name and the service assembles the DSN). Activated by
+  CLOUD_SQL_CONNECTION_NAME in the environment; sqlite otherwise.
 
 Environment variables:
 
@@ -29,6 +29,10 @@ Environment variables:
     GOOGLE_OAUTH_CLIENT_ID      Google OAuth client credentials; blank locally
     GOOGLE_OAUTH_CLIENT_SECRET  leaves the provider unconfigured
     DATADESK_SQLITE_PATH        development sqlite location override
+    CLOUD_SQL_CONNECTION_NAME   presence switches to Postgres over the
+                                /cloudsql unix socket (production)
+    DB_NAME / DB_USER           default "datadesk"
+    DB_PASSWORD                 from Secret Manager in production
 """
 
 import os
@@ -117,39 +121,37 @@ WSGI_APPLICATION = "datadesk.wsgi.application"
 # placement decided in §6.2), reached the way the sources directory reaches
 # it from Cloud Run: over the unix socket the platform mounts at
 # /cloudsql/<connection-name>, password from Secret Manager
-# (--auto-iam-authn alone fails on this instance).
+# (--auto-iam-authn alone fails on this instance). The deploy workflow
+# passes the connection name and the service assembles the DSN itself —
+# a DATABASE_URL built in CI would point at the runner's localhost.
 #
-# This block replaces the sqlite default when the deploy pipeline lands.
-# Note the instance is shared three ways (crawler, sources directory,
-# datadesk): set CONN_MAX_AGE and Cloud Run concurrency deliberately.
-#
-# if env_bool("USE_CLOUD_SQL_CONNECTOR"):
-#     DATABASES = {
-#         "default": {
-#             "ENGINE": "django.db.backends.postgresql",
-#             # "project:region:instance" via the Cloud SQL auth proxy or
-#             # connector sidecar-free path. Note --auto-iam-authn alone
-#             # fails on the existing instance; password auth via Secret
-#             # Manager is the proven pattern.
-#             # CLOUD_SQL_INSTANCE = os.environ["CLOUD_SQL_INSTANCE"]
-#             "NAME": os.environ["DATABASE_NAME"],
-#             "USER": os.environ["DATABASE_USER"],
-#             "PASSWORD": os.environ["DATABASE_PASSWORD"],
-#             "HOST": os.environ.get("DATABASE_HOST", "127.0.0.1"),
-#             "PORT": os.environ.get("DATABASE_PORT", "5432"),
-#         }
-#     }
-#
-# Read-only crawler-DB and BigQuery connections (Phase 0 infrastructure
-# work) are configured separately when those decisions land; they are not
-# Django DATABASES entries.
+# Read-only crawler-DB and BigQuery connections are configured separately
+# (Phase 0 infrastructure work); they are not Django DATABASES entries.
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": os.environ.get("DATADESK_SQLITE_PATH", BASE_DIR / "db.sqlite3"),
+if "CLOUD_SQL_CONNECTION_NAME" in os.environ:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ.get("DB_NAME", "datadesk"),
+            "USER": os.environ.get("DB_USER", "datadesk"),
+            "PASSWORD": os.environ.get("DB_PASSWORD", ""),
+            "HOST": f"/cloudsql/{os.environ['CLOUD_SQL_CONNECTION_NAME']}",
+            "PORT": "",
+            # The instance is shared three ways (crawler, sources
+            # directory, datadesk) with one connection cap, so pooling is
+            # deliberate rather than defaulted: hold a connection across
+            # requests, but not forever.
+            "CONN_MAX_AGE": 60,
+            "OPTIONS": {"connect_timeout": 10},
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": os.environ.get("DATADESK_SQLITE_PATH", BASE_DIR / "db.sqlite3"),
+        }
+    }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

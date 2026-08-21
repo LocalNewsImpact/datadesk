@@ -1,0 +1,171 @@
+# Runs only on main, after CI has passed and a reviewer has approved — branch
+# protection guarantees both, so this workflow does not re-check them.
+#
+# Ported from NewsSourceDirectory's deploy.yml (the proven shape: dependency
+# image keyed to a requirements hash, migrate before traffic, prove a
+# no-traffic candidate revision, then shift).
+#
+# The Workload Identity provider path contains the GCP project number, which
+# does not exist until infra/bootstrap.sh has run. It therefore lives in the
+# WIF_PROVIDER repository variable — bootstrap prints the exact `gh variable
+# set` command — and until the variable is set, this workflow skips instead
+# of failing every push.
+
+name: Deploy
+
+# Documentation does not reach the running service: a Markdown-only merge
+# would spend a full build and rollout to change nothing. A push that touches
+# both docs and code still deploys — the filter skips the run only when every
+# changed path is listed here.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'infra/**'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-main          # never two deploys at once
+  cancel-in-progress: false   # let a running deploy finish
+
+permissions:
+  contents: read
+  id-token: write             # required to mint the WIF token
+
+env:
+  PROJECT_ID: lnic-datadesk
+  REGION: us-central1
+  SERVICE: datadesk
+  REPO: app
+  # Cloud Run reaches Cloud SQL over a unix socket rather than a host and
+  # port, so the service is given the connection name and assembles the DSN
+  # itself (datadesk/settings.py). A DATABASE_URL built here would point the
+  # deployed service at its own localhost.
+  SQL_INSTANCE: mizzou-news-crawler:us-central1:mizzou-db-prod
+  ADMIN_HOST: datadesk.localnewsimpact.org
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    # Skip quietly until bootstrap has run and WIF_PROVIDER is set.
+    if: vars.WIF_PROVIDER != ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: github-deploy@lnic-datadesk.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Confirm the deploy identity
+        run: |
+          gcloud auth list --filter=status:ACTIVE --format='value(account)'
+          echo "project: ${PROJECT_ID}"
+
+      # The dependency image is rebuilt only when requirements.txt changes.
+      # Tagging it with a hash of that file makes "has anything changed?" a
+      # registry lookup rather than a guess; an application-only deploy then
+      # pushes a few megabytes instead of reinstalling every library.
+      - name: Dependency image
+        id: base
+        run: |
+          HASH="$(sha256sum requirements.txt | cut -c1-12)"
+          BASE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${SERVICE}-base:${HASH}"
+          echo "BASE=$BASE" >> "$GITHUB_ENV"
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+          if gcloud artifacts docker images describe "$BASE" >/dev/null 2>&1; then
+            echo "reusing $HASH — dependencies unchanged"
+          else
+            echo "building $HASH — requirements.txt changed"
+            docker build -f Dockerfile.base -t "$BASE" .
+            docker push "$BASE"
+          fi
+
+      - name: Build and push the image
+        run: |
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${SERVICE}:${GITHUB_SHA::7}"
+          docker build --build-arg "BASE_IMAGE=$BASE" -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      # Migrations run before traffic shifts, never as a side effect of the
+      # service starting — two revisions racing to migrate is a bad night.
+      - name: Migrate
+        run: |
+          gcloud run jobs deploy "${SERVICE}-release" \
+            --image "$IMAGE" --region "$REGION" --project "$PROJECT_ID" \
+            --command /bin/sh \
+            --args "^|^-c|python manage.py migrate --noinput" \
+            --set-secrets DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest \
+            --set-env-vars "CLOUD_SQL_CONNECTION_NAME=$SQL_INSTANCE,DB_NAME=datadesk,DB_USER=datadesk" \
+            --set-cloudsql-instances $SQL_INSTANCE \
+            --service-account datadesk-run@lnic-datadesk.iam.gserviceaccount.com
+          gcloud run jobs execute "${SERVICE}-release" \
+            --region "$REGION" --project "$PROJECT_ID" --wait
+
+      # There is no staging environment. Instead the revision is deployed with
+      # no traffic and proved on its own tagged URL first, so a broken build
+      # never serves a request: if the check below fails, traffic stays put.
+      - name: Deploy the revision without traffic
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --no-traffic --tag candidate \
+            --image "$IMAGE" --region "$REGION" --project "$PROJECT_ID" \
+            --service-account datadesk-run@lnic-datadesk.iam.gserviceaccount.com \
+            --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,GOOGLE_OAUTH_CLIENT_ID=google-oauth-client-id:latest,GOOGLE_OAUTH_CLIENT_SECRET=google-oauth-client-secret:latest" \
+            --set-env-vars "^@^CLOUD_SQL_CONNECTION_NAME=$SQL_INSTANCE@DB_NAME=datadesk@DB_USER=datadesk@ALLOWED_AUTH_DOMAINS=localnewsimpact.org@DJANGO_ALLOWED_HOSTS=$ADMIN_HOST,.run.app@DJANGO_CSRF_TRUSTED_ORIGINS=https://$ADMIN_HOST" \
+            --set-cloudsql-instances $SQL_INSTANCE \
+            --ingress all --allow-unauthenticated --min-instances 0
+
+      # gcloud reports a failed IAM binding as a warning and still exits zero,
+      # so a deploy can report success while leaving the service unreachable.
+      # That is what the directory's first real deploy did: Domain Restricted
+      # Sharing refused the public invoker binding and every request got a 403
+      # before reaching Django. Check, don't hope.
+      - name: The service is reachable
+        run: |
+          policy="$(gcloud run services get-iam-policy "$SERVICE" \
+                     --region "$REGION" --project "$PROJECT_ID" --format=json)"
+          if ! echo "$policy" | grep -q 'run.invoker'; then
+            echo "::error::No invoker binding — deployed but nobody can reach it."
+            echo "Domain Restricted Sharing blocks this unless the project has an exception."
+            echo "See infra/README.md, 'Public ingress'."
+            exit 1
+          fi
+          echo "invoker binding present"
+
+      - name: Prove the candidate before it serves anyone
+        run: |
+          URL="$(gcloud run services describe "$SERVICE" --region "$REGION" \
+                  --project "$PROJECT_ID" --format=json \
+                  | jq -r '.status.traffic[] | select(.tag == "candidate") | .url')"
+          [ -n "$URL" ] || { echo "::error::no candidate URL"; exit 1; }
+          code=""
+          for _ in $(seq 1 10); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' "$URL/_health" || true)"
+            [ "$code" = "200" ] && break
+            sleep 3
+          done
+          echo "candidate $URL/_health -> $code"
+          [ "$code" = "200" ] || { echo "::error::candidate failed its health check; traffic not shifted"; exit 1; }
+
+      - name: Shift traffic to it
+        run: |
+          gcloud run services update-traffic "$SERVICE" \
+            --region "$REGION" --project "$PROJECT_ID" --to-latest
+
+      - name: Smoke test what the public now gets
+        run: |
+          URL="$(gcloud run services describe "$SERVICE" --region "$REGION" \
+                  --project "$PROJECT_ID" --format='value(status.url)')"
+          code="$(curl -s -o /dev/null -w '%{http_code}' "$URL/_health")"
+          echo "$URL/_health -> $code"
+          [ "$code" = "200" ] || { echo "::error::smoke test failed after traffic shift"; exit 1; }

@@ -31,3 +31,10 @@ def test_authenticated_without_role(client, django_user_model):
     client.force_login(user)
     response = client.get("/")
     assert "none assigned" in response.content.decode()
+
+
+def test_health_endpoint(client, db):
+    """/_health returns 200 and touches the database (deploy.yml probes it)."""
+    response = client.get("/_health")
+    assert response.status_code == 200
+    assert response.content == b"ok"
