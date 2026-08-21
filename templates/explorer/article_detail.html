@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}{{ article.title|default:"Article" }} — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <p class="breadcrumb"><a href="{% url 'explorer:articles' %}">← Articles</a></p>
+  <h1>{{ article.title|default:"(no title)" }}</h1>
+  <dl class="fact-row">
+    <div><dt>Publisher</dt><dd>{{ article.candidate_link.source|default:"—" }}</dd></div>
+    <div><dt>Byline</dt><dd>{{ article.author|default:"—" }}</dd></div>
+    <div><dt>Published</dt><dd>{{ article.publish_date|date:"Y-m-d"|default:"—" }}</dd></div>
+    <div><dt>Status</dt><dd>{{ article.status }}</dd></div>
+    <div><dt>Wire</dt><dd>{{ article.wire_check_status }}</dd></div>
+    <div><dt>Label</dt><dd>{{ article.primary_label|default:"—" }}
+      {% if article.primary_label_confidence is not None %}({{ article.primary_label_confidence|floatformat:2 }}){% endif %}</dd></div>
+    <div><dt>URL</dt><dd><a href="{{ article.url }}" rel="noopener noreferrer">{{ article.url|truncatechars:60 }}</a></dd></div>
+  </dl>
+
+  <div class="side-by-side">
+    <section>
+      <h2>Stored text</h2>
+      {% if stored_text %}
+      <div class="stored-text">{{ stored_text|linebreaks }}</div>
+      {% else %}
+      <p class="notice">No stored text.</p>
+      {% endif %}
+    </section>
+
+    <section>
+      <h2>Enrichment</h2>
+      {% if enrichment %}
+      <table class="grid">
+        <thead><tr><th scope="col">Dimension</th><th scope="col">Value</th><th scope="col" class="count">Conf.</th></tr></thead>
+        <tbody>
+          {% for name, value, confidence in dimensions %}
+          <tr>
+            <td>{{ name }}</td>
+            <td>{{ value|default:"—" }}</td>
+            <td class="count">{{ confidence|floatformat:2|default:"—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <dl class="fact-row">
+        <div><dt>Geography</dt><dd>
+          {% if enrichment.point_geoid %}
+          {{ enrichment.point_place|default:"—" }} · GEOID {{ enrichment.point_geoid }} ({{ enrichment.point_geoid_level }})
+          {% else %}
+          — {% if enrichment.geo_skip_reason %}<span class="notice">{{ enrichment.geo_skip_reason }}</span>{% endif %}
+          {% endif %}
+        </dd></div>
+        <div><dt>News content</dt><dd>{{ enrichment.is_news_content|yesno:"yes,no,—" }}
+          {% if enrichment.content_gate_reason %}({{ enrichment.content_gate_reason }}){% endif %}</dd></div>
+        <div><dt>Skip reason</dt><dd>{{ enrichment.skip_reason|default:"—" }}</dd></div>
+        <div><dt>Profile</dt><dd>{{ enrichment.profile_version|default:"—" }}</dd></div>
+        <div><dt>Model</dt><dd>{{ enrichment.model|default:"—" }}</dd></div>
+        <div><dt>Enriched</dt><dd>{{ enrichment.enriched_at|date:"Y-m-d H:i"|default:"—" }}</dd></div>
+        <div><dt>Cost</dt><dd>{% if enrichment.cost_usd is not None %}${{ enrichment.cost_usd|floatformat:4 }}{% else %}—{% endif %}</dd></div>
+      </dl>
+
+      {% if enrichment.rationales %}
+      <h3>Rationales</h3>
+      <dl class="rationales">
+        {% for key, value in enrichment.rationales.items %}
+        <dt>{{ key }}</dt><dd>{{ value }}</dd>
+        {% endfor %}
+      </dl>
+      {% endif %}
+      {% else %}
+      <p class="notice">No enrichment record.</p>
+      {% endif %}
+    </section>
+  </div>
+</section>
+{% endblock %}

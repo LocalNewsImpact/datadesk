@@ -163,3 +163,68 @@ def test_degrades_without_crawler_tables(client, viewer):
     response = client.get(URL)
     assert response.status_code == 200
     assert "not connected" in response.content.decode()
+
+
+# --- article detail ---------------------------------------------------------
+
+
+@pytest.fixture
+def enriched_article(crawler_schema):
+    from explorer.models import ArticleEnrichment
+
+    source = Source.objects.create(
+        id="s1", host="tribune.example", host_norm="tribune.example"
+    )
+    link = CandidateLink.objects.create(id="cl1", url="https://t/", source=source)
+    article = _article(
+        1, link, content="Officials met Tuesday to discuss the levy.\n\nIt passed."
+    )
+    ArticleEnrichment.objects.create(
+        article=article,
+        scope="city_municipality",
+        scope_confidence=0.92,
+        subject="government",
+        subject_confidence=0.88,
+        cost_usd=0.0042,
+        point_place="Columbia",
+        point_geoid="2915670",
+        point_geoid_level="place",
+        rationales={"scope": "The story names a single city council."},
+    )
+    return article
+
+
+def test_detail_shows_text_and_enrichment_side_by_side(
+    client, viewer, enriched_article
+):
+    response = client.get(f"/explorer/articles/{enriched_article.id}/")
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert "Officials met Tuesday" in content
+    assert "city_municipality" in content
+    assert "0.92" in content
+    assert "2915670" in content
+    assert "0.0042" in content
+    assert "single city council" in content
+
+
+def test_detail_without_enrichment_says_so(client, viewer, crawler_schema):
+    source = Source.objects.create(id="s1", host="t.example", host_norm="t.example")
+    link = CandidateLink.objects.create(id="cl1", url="https://t/", source=source)
+    _article(1, link)
+    response = client.get("/explorer/articles/a1/")
+    assert response.status_code == 200
+    assert "No enrichment record" in response.content.decode()
+
+
+def test_detail_unknown_article_is_404(client, viewer, crawler_schema):
+    assert client.get("/explorer/articles/nope/").status_code == 404
+
+
+def test_detail_without_crawler_db_is_404(client, viewer):
+    assert client.get("/explorer/articles/a1/").status_code == 404
+
+
+def test_grid_titles_link_to_detail(client, viewer, corpus):
+    content = client.get(URL).content.decode()
+    assert "/explorer/articles/a1/" in content

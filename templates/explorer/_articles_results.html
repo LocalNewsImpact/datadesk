@@ -19,7 +19,7 @@
     {% for article in page %}
     <tr>
       <td class="nowrap">{{ article.publish_date|date:"Y-m-d"|default:"—" }}</td>
-      <td>{{ article.title|default:article.url|truncatechars:90 }}</td>
+      <td><a href="{% url 'explorer:article_detail' article.id %}">{{ article.title|default:article.url|truncatechars:90 }}</a></td>
       <td>{{ article.candidate_link.source|default:"—" }}</td>
       <td>{{ article.status }}</td>
       <td>{{ article.wire_check_status }}</td>

@@ -99,6 +99,10 @@ class Article(CrawlerModel):
     title = models.TextField(null=True)
     author = models.TextField(null=True)
     publish_date = models.DateTimeField(null=True)
+    content = models.TextField(null=True)
+    # The crawler keeps an older `text` column for compatibility; content
+    # is the current field and the one review edits will target.
+    text = models.TextField(null=True)
     text_excerpt = models.TextField(null=True)
     status = models.TextField()
     wire_check_status = models.TextField()

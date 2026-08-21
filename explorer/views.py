@@ -14,10 +14,11 @@ from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.db import DatabaseError
 from django.db.models import F
+from django.http import Http404
 from django.shortcuts import render
 
 from accounts.decorators import role_required
-from explorer.models import Article, Dataset, DatasetSource
+from explorer.models import Article, ArticleEnrichment, Dataset, DatasetSource
 
 PAGE_SIZE = 50
 _VOCAB_CACHE_KEY = "explorer.article_filter_vocab"
@@ -109,3 +110,55 @@ def articles(request):
         else "explorer/articles.html"
     )
     return render(request, template, context)
+
+
+@role_required
+def article_detail(request, article_id):
+    """The side-by-side view (SCOPE.md §2.2): stored text next to the
+    enrichment record — categories, confidences, rationales, FIPS claim —
+    and cost."""
+    try:
+        article = (
+            Article.objects.select_related("candidate_link__source")
+            .filter(id=article_id)
+            .first()
+        )
+    except DatabaseError as exc:
+        # No crawler connection: nothing at this URL, honestly.
+        raise Http404("Crawler database not connected") from exc
+    if article is None:
+        raise Http404("No such article")
+
+    try:
+        enrichment = ArticleEnrichment.objects.filter(article_id=article_id).first()
+    except DatabaseError:
+        enrichment = None
+
+    # The enrichment record's category/confidence pairs, in a fixed order
+    # the template can walk — the pipeline's vocabulary, not ours.
+    dimensions = (
+        [
+            (name, getattr(enrichment, name), getattr(enrichment, f"{name}_confidence"))
+            for name in (
+                "scope",
+                "subject",
+                "topic",
+                "format",
+                "timeframe",
+                "user_need",
+            )
+        ]
+        if enrichment
+        else []
+    )
+
+    return render(
+        request,
+        "explorer/article_detail.html",
+        {
+            "article": article,
+            "enrichment": enrichment,
+            "dimensions": dimensions,
+            "stored_text": article.content or article.text or article.text_excerpt,
+        },
+    )

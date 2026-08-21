@@ -95,3 +95,17 @@ table.grid td.count, table.grid th.count { text-align: right; font-variant-numer
 td.nowrap { white-space: nowrap; }
 
 nav.pager { display: flex; justify-content: space-between; margin-top: 1rem; }
+
+.breadcrumb { font-size: 0.85rem; }
+.breadcrumb a { color: var(--muted); text-decoration: none; }
+
+.fact-row { display: flex; flex-wrap: wrap; gap: 0.5rem 2rem; margin: 1rem 0; }
+.fact-row dt { color: var(--muted); font-size: 0.8rem; }
+.fact-row dd { margin: 0; font-size: 0.9rem; }
+
+.side-by-side { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; align-items: start; }
+@media (max-width: 60rem) { .side-by-side { grid-template-columns: 1fr; } }
+.stored-text { font-size: 0.9rem; line-height: 1.5; max-height: 70vh; overflow-y: auto; padding-right: 0.5rem; }
+
+.rationales dt { color: var(--muted); font-size: 0.8rem; margin-top: 0.5rem; }
+.rationales dd { margin: 0; font-size: 0.85rem; }
