@@ -5,11 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Datadesk{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'css/datadesk.css' %}">
+  <script src="{% static 'js/htmx.min.js' %}" defer></script>
 </head>
 <body>
   <header class="site-header">
-    <span class="wordmark">Datadesk</span>
+    <span class="wordmark"><a href="/">Datadesk</a></span>
     {% if user.is_authenticated %}
+    {% if role %}
+    <nav class="primary">
+      <a href="{% url 'explorer:articles' %}">Articles</a>
+    </nav>
+    {% endif %}
     <nav class="session">
       <span class="identity">{{ user.email }}</span>
       <form method="post" action="{% url 'account_logout' %}">

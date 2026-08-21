@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Articles — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>Articles</h1>
+
+  {% if not crawler_connected %}
+  <p class="notice">
+    Crawler database not connected. Set CRAWLER_DB_USER (and run the Cloud
+    SQL Auth Proxy locally) to browse the corpus.
+  </p>
+  {% else %}
+  <form method="get" action="{% url 'explorer:articles' %}" class="filter-bar"
+        hx-get="{% url 'explorer:articles' %}" hx-target="#results"
+        hx-trigger="change, submit" hx-push-url="true">
+    <label>Dataset
+      <select name="dataset">
+        <option value="">all</option>
+        {% for d in vocab.datasets %}
+        <option value="{{ d.slug }}" {% if params.dataset == d.slug %}selected{% endif %}>{{ d.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Status
+      <select name="status">
+        <option value="">all</option>
+        {% for s in vocab.statuses %}
+        <option {% if params.status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Wire
+      <select name="wire">
+        <option value="">all</option>
+        {% for s in vocab.wire_statuses %}
+        <option {% if params.wire == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Label
+      <select name="label">
+        <option value="">all</option>
+        {% for s in vocab.labels %}
+        <option {% if params.label == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Publisher
+      <input type="search" name="publisher" value="{{ params.publisher|default:'' }}" placeholder="host contains…">
+    </label>
+    <label>From
+      <input type="date" name="from" value="{{ params.from|default:'' }}">
+    </label>
+    <label>To
+      <input type="date" name="to" value="{{ params.to|default:'' }}">
+    </label>
+    <label>Confidence ≥
+      <input type="number" name="conf_min" value="{{ params.conf_min|default:'' }}" min="0" max="1" step="0.05">
+    </label>
+    <label>≤
+      <input type="number" name="conf_max" value="{{ params.conf_max|default:'' }}" min="0" max="1" step="0.05">
+    </label>
+    <label>Title
+      <input type="search" name="q" value="{{ params.q|default:'' }}" placeholder="contains…">
+    </label>
+    <noscript><button type="submit">Filter</button></noscript>
+  </form>
+
+  <div id="results">
+    {% include "explorer/_articles_results.html" %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

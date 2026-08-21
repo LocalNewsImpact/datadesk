@@ -1,0 +1,48 @@
+{% if page %}
+<p class="result-count">
+  {{ page.paginator.count }} article{{ page.paginator.count|pluralize }}
+  {% if page.paginator.num_pages > 1 %}· page {{ page.number }} of {{ page.paginator.num_pages }}{% endif %}
+</p>
+<table class="grid">
+  <thead>
+    <tr>
+      <th scope="col">Published</th>
+      <th scope="col">Title</th>
+      <th scope="col">Publisher</th>
+      <th scope="col">Status</th>
+      <th scope="col">Wire</th>
+      <th scope="col">Label</th>
+      <th scope="col" class="count">Conf.</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for article in page %}
+    <tr>
+      <td class="nowrap">{{ article.publish_date|date:"Y-m-d"|default:"—" }}</td>
+      <td>{{ article.title|default:article.url|truncatechars:90 }}</td>
+      <td>{{ article.candidate_link.source|default:"—" }}</td>
+      <td>{{ article.status }}</td>
+      <td>{{ article.wire_check_status }}</td>
+      <td>{{ article.primary_label|default:"—" }}</td>
+      <td class="count">{{ article.primary_label_confidence|floatformat:2|default:"—" }}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="7" class="notice">No articles match these filters.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if page.paginator.num_pages > 1 %}
+<nav class="pager">
+  {% if page.has_previous %}
+  <a href="?{{ params.urlencode }}&page={{ page.previous_page_number }}"
+     hx-get="{% url 'explorer:articles' %}?{{ params.urlencode }}&page={{ page.previous_page_number }}"
+     hx-target="#results">← newer</a>
+  {% endif %}
+  {% if page.has_next %}
+  <a href="?{{ params.urlencode }}&page={{ page.next_page_number }}"
+     hx-get="{% url 'explorer:articles' %}?{{ params.urlencode }}&page={{ page.next_page_number }}"
+     hx-target="#results">older →</a>
+  {% endif %}
+</nav>
+{% endif %}
+{% endif %}

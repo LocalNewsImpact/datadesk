@@ -9,7 +9,6 @@ uses) to prove the query, and its absence proves the degraded path.
 
 import pytest
 from django.contrib.auth.models import Group, User
-from django.core.cache import cache
 from django.db import connections
 
 from explorer.crawler import dataset_row_counts
@@ -17,40 +16,25 @@ from explorer.crawler import dataset_row_counts
 pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
 
 
-@pytest.fixture(autouse=True)
-def fresh_cache():
-    """Row counts are cached; tests must not read each other's."""
-    cache.clear()
-    yield
-    cache.clear()
-
-
-@pytest.fixture
-def crawler_schema():
-    with connections["crawler"].cursor() as c:
-        c.execute("CREATE TABLE datasets (id TEXT PRIMARY KEY, slug TEXT, label TEXT)")
-        c.execute(
-            "CREATE TABLE dataset_sources "
-            "(id TEXT PRIMARY KEY, dataset_id TEXT, source_id TEXT)"
-        )
-        c.execute("CREATE TABLE candidate_links (id TEXT PRIMARY KEY, source_id TEXT)")
-        c.execute("CREATE TABLE articles (id TEXT PRIMARY KEY, candidate_link_id TEXT)")
-    yield
-    with connections["crawler"].cursor() as c:
-        for table in ("articles", "candidate_links", "dataset_sources", "datasets"):
-            c.execute(f"DROP TABLE {table}")
-
-
 @pytest.fixture
 def crawler_rows(crawler_schema):
     """Two datasets: one with two articles, one with none."""
     with connections["crawler"].cursor() as c:
-        c.execute("INSERT INTO datasets VALUES ('d1', 'missouri', 'Missouri')")
-        c.execute("INSERT INTO datasets VALUES ('d2', 'lehigh', 'Lehigh Valley')")
-        c.execute("INSERT INTO dataset_sources VALUES ('ds1', 'd1', 's1')")
-        c.execute("INSERT INTO candidate_links VALUES ('cl1', 's1')")
-        c.execute("INSERT INTO articles VALUES ('a1', 'cl1')")
-        c.execute("INSERT INTO articles VALUES ('a2', 'cl1')")
+        c.execute(
+            "INSERT INTO datasets (id, slug, label) "
+            "VALUES ('d1', 'missouri', 'Missouri')"
+        )
+        c.execute(
+            "INSERT INTO datasets (id, slug, label) "
+            "VALUES ('d2', 'lehigh', 'Lehigh Valley')"
+        )
+        c.execute(
+            "INSERT INTO dataset_sources (id, dataset_id, source_id) "
+            "VALUES ('ds1', 'd1', 's1')"
+        )
+        c.execute("INSERT INTO candidate_links (id, source_id) VALUES ('cl1', 's1')")
+        c.execute("INSERT INTO articles (id, candidate_link_id) VALUES ('a1', 'cl1')")
+        c.execute("INSERT INTO articles (id, candidate_link_id) VALUES ('a2', 'cl1')")
 
 
 def test_counts_per_dataset(crawler_rows):
@@ -72,7 +56,7 @@ def test_missing_tables_reads_as_not_connected():
 def test_counts_are_cached(crawler_rows):
     first = dataset_row_counts()
     with connections["crawler"].cursor() as c:
-        c.execute("INSERT INTO articles VALUES ('a3', 'cl1')")
+        c.execute("INSERT INTO articles (id, candidate_link_id) VALUES ('a3', 'cl1')")
     assert dataset_row_counts() == first
 
 
