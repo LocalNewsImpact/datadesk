@@ -1,0 +1,54 @@
+# Toolchain and ordering match the MizzouNewsCrawler pre-push gate
+# (ruff, black, isort, mypy, then tests); workflow shape follows the
+# NewsSourceDirectory CI. Python here must match the deployment runtime
+# once one exists (SCOPE.md §6).
+name: CI
+
+on:
+  push: # every branch, so a contributor sees failures before opening a PR
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: ruff
+        run: ruff check .
+      - name: black
+        run: black --check .
+      - name: isort
+        run: isort --check-only .
+      - name: mypy
+        run: mypy .
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Migrations are complete and committed
+        run: python manage.py makemigrations --check --dry-run
+      - name: Tests
+        run: python -m pytest
