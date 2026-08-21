@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% load socialaccount %}
+
+{% block content %}
+{% if user.is_authenticated %}
+<section class="card">
+  <h1>Datadesk</h1>
+  <dl class="identity-panel">
+    <dt>Signed in as</dt>
+    <dd>{{ user.email }}</dd>
+    <dt>Role</dt>
+    <dd>{% if role %}{{ role }}{% else %}none assigned{% endif %}</dd>
+  </dl>
+</section>
+{% else %}
+<section class="card">
+  <h1>Datadesk</h1>
+  <p>Console for LNIC research data. Sign in to continue.</p>
+  {% if google_configured %}
+  <form method="post" action="{% provider_login_url 'google' %}">
+    {% csrf_token %}
+    <button type="submit" class="google-signin">Sign in with Google</button>
+  </form>
+  {% else %}
+  <p class="notice">
+    Google sign-in is not configured. Set GOOGLE_OAUTH_CLIENT_ID and
+    GOOGLE_OAUTH_CLIENT_SECRET; superusers can use
+    <a href="/admin/">the admin login</a>.
+  </p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

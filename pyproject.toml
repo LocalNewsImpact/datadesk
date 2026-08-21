@@ -1,0 +1,37 @@
+# Tool configuration. Line length and toolchain match MizzouNewsCrawler
+# (black 88 / isort profile black / ruff / mypy); pytest layout follows
+# NewsSourceDirectory.
+
+[project]
+name = "datadesk"
+version = "0.1.0"
+description = "Django console and visuals platform for LNIC research data"
+requires-python = ">=3.11"
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "B", "UP", "C4", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"*/migrations/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+exclude = ["migrations", "\\.venv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+DJANGO_SETTINGS_MODULE = "datadesk.settings"

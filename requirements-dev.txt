@@ -1,0 +1,9 @@
+# Development and CI tooling. Toolchain matches the MizzouNewsCrawler
+# pre-push gate: ruff, black, isort, mypy, then tests.
+-r requirements.txt
+pytest>=8.0
+pytest-django>=4.8
+ruff>=0.6
+black>=24.0
+isort>=5.13
+mypy>=1.11
