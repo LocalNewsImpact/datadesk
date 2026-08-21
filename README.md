@@ -8,9 +8,12 @@ Phase 0 scaffold: project layout, Google-only auth with hosted-domain
 restriction, role groups, the append-only audit log, and CI. Hosting is
 decided (SCOPE.md §6: Cloud Run on the sources-directory pattern, a
 `datadesk` database on the shared Cloud SQL instance,
-datadesk.localnewsimpact.org, a dedicated GCP project); the deploy
-pipeline and the read-only crawler-DB/BigQuery connections are the next
-work.
+datadesk.localnewsimpact.org, a dedicated GCP project), the deploy
+pipeline is in place (see [infra/README.md](infra/README.md)), and the
+read-only crawler-DB and BigQuery connections exist: signed-in users
+with a role see live article counts per dataset on the landing page —
+the Phase 0 exit test. What remains is running the bootstrap against
+GCP and the first deploy.
 
 ## Quickstart
 

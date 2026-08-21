@@ -67,3 +67,11 @@ button.linklike {
 }
 
 .notice { color: var(--muted); font-size: 0.9rem; }
+
+h2 { font-size: 1.15rem; margin-top: 0; }
+
+.dataset-counts { width: 100%; border-collapse: collapse; }
+.dataset-counts th,
+.dataset-counts td { padding: 0.4rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border, #ddd); }
+.dataset-counts td.count { text-align: right; font-variant-numeric: tabular-nums; }
+.dataset-counts .slug { color: var(--muted); font-size: 0.8rem; margin-left: 0.4rem; }

@@ -78,5 +78,5 @@ check: lint test ## Everything CI runs
 
 .PHONY: clean
 clean: ## Remove build and cache artefacts
-	rm -rf .pytest_cache .ruff_cache .mypy_cache staticfiles db.sqlite3
+	rm -rf .pytest_cache .ruff_cache .mypy_cache staticfiles db.sqlite3 crawler.sqlite3
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +

@@ -6,17 +6,25 @@ from django.http import HttpResponse
 from django.shortcuts import render
 
 from accounts.roles import role_for_user
+from explorer.crawler import dataset_row_counts
 
 
 def landing(request):
     """Landing page.
 
-    Authenticated users see their email and role (SCOPE.md §2.1);
-    unauthenticated visitors get the Google sign-in.
+    Authenticated users see their email and role (SCOPE.md §2.1); with a
+    role assigned they also see live row counts per dataset — the Phase 0
+    exit test (SCOPE.md §4). Unauthenticated visitors get the Google
+    sign-in.
     """
     context = {"google_configured": settings.GOOGLE_SIGN_IN_CONFIGURED}
     if request.user.is_authenticated:
-        context["role"] = role_for_user(request.user)
+        role = role_for_user(request.user)
+        context["role"] = role
+        if role is not None:
+            counts = dataset_row_counts()
+            context["crawler_connected"] = counts is not None
+            context["dataset_counts"] = counts
     return render(request, "landing.html", context)
 
 

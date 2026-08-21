@@ -7,3 +7,5 @@ db.sqlite3
 staticfiles/
 .env
 .DS_Store
+crawler.sqlite3
+.mypy_cache/

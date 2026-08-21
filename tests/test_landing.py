@@ -13,7 +13,8 @@ def test_anonymous_gets_sign_in(client):
     assert "Sign in" in content
 
 
-@pytest.mark.django_db
+# A role assigned means the view also asks the crawler alias for row counts.
+@pytest.mark.django_db(databases=["default", "crawler"])
 def test_authenticated_sees_email_and_role(client, django_user_model):
     user = django_user_model.objects.create_user("v1", email="v1@example.org")
     user.groups.add(Group.objects.get(name="viewer"))

@@ -12,6 +12,33 @@
     <dd>{% if role %}{{ role }}{% else %}none assigned{% endif %}</dd>
   </dl>
 </section>
+{% if role %}
+<section class="card">
+  <h2>Datasets</h2>
+  {% if not crawler_connected %}
+  <p class="notice">
+    Crawler database not connected. Set CRAWLER_DB_USER (and run the Cloud
+    SQL Auth Proxy locally) to see live row counts.
+  </p>
+  {% elif not dataset_counts %}
+  <p class="notice">Connected — no datasets found.</p>
+  {% else %}
+  <table class="dataset-counts">
+    <thead>
+      <tr><th scope="col">Dataset</th><th scope="col">Articles</th></tr>
+    </thead>
+    <tbody>
+      {% for row in dataset_counts %}
+      <tr>
+        <td>{{ row.label }} <span class="slug">{{ row.slug }}</span></td>
+        <td class="count">{{ row.articles }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endif %}
 {% else %}
 <section class="card">
   <h1>Datadesk</h1>

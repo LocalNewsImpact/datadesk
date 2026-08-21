@@ -33,6 +33,11 @@ Environment variables:
                                 /cloudsql unix socket (production)
     DB_NAME / DB_USER           default "datadesk"
     DB_PASSWORD                 from Secret Manager in production
+    CRAWLER_DB_USER             presence configures the read-only crawler
+                                alias (production: datadesk_ro)
+    CRAWLER_DB_PASSWORD         from Secret Manager (crawler-ro-password)
+    CRAWLER_DB_NAME / _HOST / _PORT   default mizzou / the shared socket
+                                (or 127.0.0.1 for a local proxy) / 5432
 """
 
 import os
@@ -152,6 +157,40 @@ else:
             "NAME": os.environ.get("DATADESK_SQLITE_PATH", BASE_DIR / "db.sqlite3"),
         }
     }
+
+# The crawler's database (SCOPE.md §1: articles, enrichment, datasets,
+# sources, gazetteer), read through the SELECT-only datadesk_ro role
+# (infra/sql/create_crawler_readonly_role.sql). Postgres enforces read-only;
+# explorer.routers.CrawlerRouter keeps Django from even trying to migrate
+# or write here. Unset locally, the alias falls back to an (empty) sqlite
+# file so the code paths exist and views degrade to "not connected".
+if "CRAWLER_DB_USER" in os.environ:
+    DATABASES["crawler"] = {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ.get("CRAWLER_DB_NAME", "mizzou"),
+        "USER": os.environ["CRAWLER_DB_USER"],
+        "PASSWORD": os.environ.get("CRAWLER_DB_PASSWORD", ""),
+        # Same unix socket as the default database in production — one
+        # instance carries both. Locally, the Cloud SQL Auth Proxy.
+        "HOST": os.environ.get("CRAWLER_DB_HOST")
+        or (
+            f"/cloudsql/{os.environ['CLOUD_SQL_CONNECTION_NAME']}"
+            if "CLOUD_SQL_CONNECTION_NAME" in os.environ
+            else "127.0.0.1"
+        ),
+        "PORT": os.environ.get("CRAWLER_DB_PORT", "5432"),
+        "CONN_MAX_AGE": 60,
+        "OPTIONS": {"connect_timeout": 10},
+    }
+else:
+    DATABASES["crawler"] = {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": os.environ.get(
+            "DATADESK_CRAWLER_SQLITE_PATH", BASE_DIR / "crawler.sqlite3"
+        ),
+    }
+
+DATABASE_ROUTERS = ["explorer.routers.CrawlerRouter"]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
