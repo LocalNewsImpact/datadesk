@@ -136,7 +136,7 @@ label.stacked input, label.stacked textarea { display: block; width: 100%; margi
 .dd-visual { margin: 0; }
 .dd-subtitle { color: var(--muted); font-size: 0.95rem; margin: 0 0 0.75rem; }
 .dd-chart { min-height: 200px; }
-.dd-chart svg { max-width: 100%; height: auto; }
+.dd-chart svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
 .dd-footer { display: flex; justify-content: space-between; align-items: baseline; margin-top: 0.5rem; }
 .dd-source { color: var(--muted); font-size: 0.8rem; }
 .dd-toggle { border: none; background: none; padding: 0; color: var(--muted); font-size: 0.8rem; text-decoration: underline; cursor: pointer; }

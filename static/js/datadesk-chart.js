@@ -87,11 +87,53 @@
     return String(v ?? "").replace(/\.0$/, "").padStart(n, "0");
   }
 
+  // Geographic levels, nation → census tract. Nation/state/county ship
+  // as single national files; places and tracts load per state, the
+  // states derived from the data's GEOID prefixes
+  // (infra/fetch_boundaries.sh builds and commits those files).
+  const GEO_LEVELS = {
+    nation: { file: "nation-10m.json", object: "nation", idLength: 0 },
+    states: { file: "states-10m.json", object: "states", idLength: 2 },
+    counties: { file: "counties-10m.json", object: "counties", idLength: 5 },
+    places: { perState: "places/", idLength: 7 },
+    tracts: { perState: "tracts/", idLength: 11 },
+  };
+
   const geoCache = {};
-  function boundaries(base, level) {
-    const file = level === "counties" ? "counties-10m.json" : "states-10m.json";
-    geoCache[file] = geoCache[file] || fetch(base + file).then((r) => r.json());
-    return geoCache[file];
+  function fetchJSON(url) {
+    geoCache[url] = geoCache[url] || fetch(url).then((r) => {
+      if (!r.ok) throw new Error(url);
+      return r.json();
+    });
+    return geoCache[url];
+  }
+
+  function toFeatures(topo, objectName) {
+    const object = topo.objects[objectName] || Object.values(topo.objects)[0];
+    const features = global.topojson.feature(topo, object).features;
+    for (const f of features) {
+      if (f.id == null && f.properties) f.id = f.properties.GEOID;
+    }
+    return features;
+  }
+
+  // Resolve a level's features; ids drive which per-state files load.
+  function boundaries(base, level, ids) {
+    const spec = GEO_LEVELS[level] || GEO_LEVELS.states;
+    if (!spec.perState) {
+      return fetchJSON(base + spec.file)
+        .then((topo) => toFeatures(topo, spec.object));
+    }
+    const states = [...new Set((ids || []).map((id) => id.slice(0, 2)))]
+      .filter((s) => /^\d\d$/.test(s));
+    if (!states.length) {
+      return Promise.reject(new Error(
+        "tract/place maps need a joined GEOID column to pick the states"));
+    }
+    return Promise.all(
+      states.map((s) => fetchJSON(`${base}${spec.perState}${s}.json`)
+        .then((topo) => toFeatures(topo, level)))
+    ).then((sets) => sets.flat());
   }
 
   function baseMarks(Plot, t) {
@@ -113,6 +155,9 @@
     if (kind === "choropleth" || kind === "points") {
       return renderMap(el, config, rows, opts, t, width);
     }
+    if (kind === "donut") return renderDonut(el, config, rows, t, width);
+    if (kind === "chord") return renderChord(el, config, rows, t, width);
+    if (kind === "arc") return renderArc(el, config, rows, t, width);
 
     const x = config.x, y = config.y, series = config.series;
     if (!x || !y) { el.textContent = "Pick the x and y columns."; return; }
@@ -219,12 +264,13 @@
   }
 
   function renderMap(el, config, rows, opts, t, width) {
-    const Plot = global.Plot, topojson = global.topojson;
-    const level = config.geo_level === "counties" ? "counties" : "states";
-    boundaries(opts.geoBase, level).then((topo) => {
-      const object = topo.objects[level];
-      const features = topojson.feature(topo, object).features;
-      const idLength = level === "counties" ? 5 : 2;
+    const Plot = global.Plot;
+    const level = GEO_LEVELS[config.geo_level] ? config.geo_level : "states";
+    const idLength = GEO_LEVELS[level].idLength;
+    const joinIds = config.geo_join
+      ? rows.map((r) => pad(r[config.geo_join], idLength))
+      : [];
+    boundaries(opts.geoBase, level, joinIds).then((features) => {
       const marks = [];
       let colorOpt;
 
@@ -257,9 +303,16 @@
         }));
         marks.push(Plot.geo(joined, {
           fill: value, stroke: t.surface, strokeWidth: 0.5, tip: true,
-          channels: { name: (f) => f.properties.name },
+          channels: {
+            name: (f) => f.properties.name || f.properties.NAME || f.id,
+          },
         }));
-        var domainFeatures = config.geo_fit && joined.length ? joined : null;
+        // Tract- and place-scale maps are unreadable at national extent:
+        // they always fit to the joined features.
+        var domainFeatures =
+          (config.geo_fit || GEO_LEVELS[level].perState) && joined.length
+            ? joined
+            : null;
       } else {
         marks.push(Plot.geo(features, {
           fill: t.missing, stroke: t.boundary, strokeWidth: 0.5,
@@ -293,7 +346,12 @@
         marks,
       });
       el.replaceChildren(plot);
-    }).catch(() => { el.textContent = "Boundary data unavailable."; });
+    }).catch((err) => {
+      el.textContent = /GEOID/.test(String(err))
+        ? String(err.message || err)
+        : "Boundary data unavailable for this level" +
+          " (infra/fetch_boundaries.sh adds states).";
+    });
   }
 
   // A one-hue quantized ramp between two endpoints, in sRGB-linear steps.
@@ -305,6 +363,200 @@
       const rgb = a.map((v, j) => Math.round(v + (b[j] - v) * k));
       return "#" + rgb.map((v) => v.toString(16).padStart(2, "0")).join("");
     });
+  }
+
+  // Per-slice label ink: black or white by the fill's relative luminance.
+  function inkOn(hex) {
+    const [r, g, b] = [1, 3, 5].map((i) =>
+      parseInt(hex.slice(i, i + 2), 16) / 255);
+    const lin = (v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b) > 0.4
+      ? "#0b0b0b" : "#ffffff";
+  }
+
+  function htmlLegend(el, domain, colors) {
+    const div = document.createElement("div");
+    div.className = "dd-legend";
+    domain.forEach((d, i) => {
+      const item = document.createElement("span");
+      const swatch = document.createElement("span");
+      swatch.className = "dd-swatch";
+      swatch.style.background = colors[i];
+      item.append(swatch, String(d));
+      div.appendChild(item);
+    });
+    el.appendChild(div);
+  }
+
+  // Slot colors for a name list, gray for the fold bucket.
+  function slotColors(domain, t) {
+    return domain.map((d, i) =>
+      d === "Other" ? t.other : t.series[i % t.series.length]);
+  }
+
+  function svgRoot(width, height, t) {
+    return d3.create("svg")
+      .attr("width", width).attr("height", height)
+      .attr("viewBox", [-width / 2, -height / 2, width, height])
+      .attr("style",
+        'max-width:100%;height:auto;font-family:system-ui,-apple-system,' +
+        '"Segoe UI",sans-serif;font-size:12px;color:' + t.ink);
+  }
+
+  // Parts of a whole. Aggregates y by x, folds past five slices, labels
+  // the slices that have room and legends the rest; total in the hole.
+  function renderDonut(el, config, rows, t, width) {
+    const d3 = global.d3;
+    const x = config.x, y = config.y;
+    if (!x || !y) { el.textContent = "Pick the category and value columns."; return; }
+    rows = coerce(rows.slice(), y);
+    let entries = [...d3.rollup(
+      rows, (v) => d3.sum(v, (r) => +r[y] || 0), (r) => r[x])];
+    entries.sort((a, b) => b[1] - a[1]);
+    if (entries.length > 5) {
+      entries = [...entries.slice(0, 5),
+        ["Other", d3.sum(entries.slice(5), (e) => e[1])]];
+    }
+    const domain = entries.map((e) => e[0]);
+    const colors = slotColors(domain, t);
+    const total = d3.sum(entries, (e) => e[1]);
+    const R = Math.min(width, 440) / 2 - 8;
+    const svg = svgRoot(width, 2 * R + 16, t);
+    const arcs = d3.pie().value((e) => e[1]).sort(null).padAngle(0.01)(entries);
+    const shape = d3.arc().innerRadius(R * 0.62).outerRadius(R);
+    svg.append("g").selectAll("path").data(arcs).join("path")
+      .attr("d", shape)
+      .attr("fill", (d, i) => colors[i])
+      .attr("stroke", t.surface).attr("stroke-width", 2)
+      .append("title").text((d) =>
+        `${d.data[0]}: ${d.data[1].toLocaleString()} ` +
+        `(${(100 * d.data[1] / total).toFixed(1)}%)`);
+    const labelAt = d3.arc().innerRadius(R * 0.81).outerRadius(R * 0.81);
+    svg.append("g").selectAll("text")
+      .data(arcs.filter((d) => d.endAngle - d.startAngle > 0.35)).join("text")
+      .attr("transform", (d) => `translate(${labelAt.centroid(d)})`)
+      .attr("text-anchor", "middle").attr("dy", "0.35em")
+      .attr("fill", (d) => inkOn(colors[arcs.indexOf(d)]))
+      .text((d) => `${(100 * d.data[1] / total).toFixed(0)}%`);
+    svg.append("text").attr("text-anchor", "middle").attr("dy", "-0.2em")
+      .attr("fill", "currentColor").attr("font-size", 22)
+      .text(total.toLocaleString());
+    svg.append("text").attr("text-anchor", "middle").attr("dy", "1.4em")
+      .attr("fill", t.muted).text(config.ylabel || y);
+    el.replaceChildren();
+    htmlLegend(el, domain, colors);
+    el.appendChild(svg.node());
+  }
+
+  // Shared: fold a from/to edge list to at most eight named groups.
+  function edgeGroups(rows, from, to) {
+    const order = [];
+    for (const r of rows) {
+      for (const v of [r[from], r[to]]) {
+        if (v != null && v !== "" && !order.includes(v)) order.push(v);
+      }
+    }
+    if (order.length <= 8) return { names: order, fold: (v) => v };
+    const keep = new Set(order.slice(0, 8));
+    return {
+      names: [...order.slice(0, 8), "Other"],
+      fold: (v) => (keep.has(v) ? v : "Other"),
+    };
+  }
+
+  // Flows between groups. Identity is carried by the labels on every
+  // group arc — color is redundant there, so the eight-slot order holds.
+  function renderChord(el, config, rows, t, width) {
+    const d3 = global.d3;
+    const { from, to, value } = config;
+    if (!from || !to || !value) {
+      el.textContent = "Pick the from, to, and value columns."; return;
+    }
+    rows = coerce(rows.slice(), value);
+    const { names, fold } = edgeGroups(rows, from, to);
+    const colors = slotColors(names, t);
+    const index = new Map(names.map((n, i) => [n, i]));
+    const matrix = names.map(() => names.map(() => 0));
+    for (const r of rows) {
+      const a = index.get(fold(r[from])), b = index.get(fold(r[to]));
+      if (a != null && b != null) matrix[a][b] += +r[value] || 0;
+    }
+    const size = Math.min(width, 560);
+    const R = size / 2 - 70;
+    const chords = d3.chord().padAngle(0.04)
+      .sortSubgroups(d3.descending)(matrix);
+    const svg = svgRoot(size, size, t);
+    const group = svg.append("g").selectAll("g").data(chords.groups).join("g");
+    group.append("path")
+      .attr("d", d3.arc().innerRadius(R).outerRadius(R + 12))
+      .attr("fill", (d) => colors[d.index])
+      .append("title").text((d) => `${names[d.index]}: ${d.value.toLocaleString()}`);
+    group.append("text")
+      .each((d) => { d.angle = (d.startAngle + d.endAngle) / 2; })
+      .attr("transform", (d) =>
+        `rotate(${(d.angle * 180) / Math.PI - 90}) translate(${R + 18})` +
+        (d.angle > Math.PI ? " rotate(180)" : ""))
+      .attr("text-anchor", (d) => (d.angle > Math.PI ? "end" : "start"))
+      .attr("dy", "0.35em").attr("fill", "currentColor")
+      .text((d) => names[d.index]);
+    svg.append("g").selectAll("path").data(chords).join("path")
+      .attr("d", d3.ribbon().radius(R - 2))
+      .attr("fill", (d) => colors[d.source.index])
+      .attr("fill-opacity", 0.7)
+      .attr("stroke", t.surface).attr("stroke-width", 0.5)
+      .append("title").text((d) =>
+        `${names[d.source.index]} → ${names[d.target.index]}: ` +
+        d.source.value.toLocaleString() +
+        (d.source.index !== d.target.index
+          ? `
+${names[d.target.index]} → ${names[d.source.index]}: ` +
+            d.target.value.toLocaleString()
+          : ""));
+    el.replaceChildren(svg.node());
+  }
+
+  // Arc diagram: nodes on a baseline, arcs above, weight as stroke width.
+  function renderArc(el, config, rows, t, width) {
+    const d3 = global.d3;
+    const { from, to, value } = config;
+    if (!from || !to) { el.textContent = "Pick the from and to columns."; return; }
+    if (value) rows = coerce(rows.slice(), value);
+    const { names, fold } = edgeGroups(rows, from, to);
+    const colors = slotColors(names, t);
+    const index = new Map(names.map((n, i) => [n, i]));
+    const margin = 40, baseline = 60;
+    const xAt = d3.scalePoint(names, [-width / 2 + margin, width / 2 - margin]);
+    const weights = rows.map((r) => (value ? +r[value] || 0 : 1));
+    const w = d3.scaleSqrt()
+      .domain([0, d3.max(weights) || 1]).range([1, 10]);
+    const arcSpan = (a, b) => Math.abs(xAt(names[b]) - xAt(names[a]));
+    const height = Math.min(
+      420, baseline + margin + d3.max([120, width / 3.2]));
+    const svg = svgRoot(width, height, t);
+    const Y = height / 2 - baseline;
+    svg.append("g").selectAll("path").data(rows).join("path")
+      .attr("d", (r) => {
+        const a = xAt(fold(r[from])), b = xAt(fold(r[to]));
+        if (a == null || b == null) return null;
+        const rad = Math.abs(b - a) / 2;
+        return `M${a},${Y} A${rad},${rad} 0 0,${a < b ? 1 : 0} ${b},${Y}`;
+      })
+      .attr("fill", "none")
+      .attr("stroke", (r) => colors[index.get(fold(r[from]))])
+      .attr("stroke-opacity", 0.55)
+      .attr("stroke-width", (r) => w(value ? +r[value] || 0 : 1))
+      .append("title").text((r) =>
+        `${r[from]} → ${r[to]}` + (value ? `: ${r[value]}` : ""));
+    const node = svg.append("g").selectAll("g").data(names).join("g")
+      .attr("transform", (n) => `translate(${xAt(n)},${Y})`);
+    node.append("circle").attr("r", 5)
+      .attr("fill", (n, i) => colors[i])
+      .attr("stroke", t.surface).attr("stroke-width", 1.5);
+    node.append("text").attr("transform", "rotate(35)")
+      .attr("x", 4).attr("y", 14).attr("fill", "currentColor")
+      .text((n) => n);
+    el.replaceChildren(svg.node());
+    void arcSpan;
   }
 
   // Two half-ramps meeting at the neutral midpoint (odd n keeps it center).

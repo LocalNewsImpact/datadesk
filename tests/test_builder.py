@@ -186,3 +186,21 @@ def test_builder_config_json_is_escaped_into_page(client, editor):
     assert "<script>alert(1)</script>" not in content
     config = Visual.objects.get().config
     assert json.loads(json.dumps(config))["kind"] == "bar"
+
+
+def test_relational_and_geo_configs_pass_the_whitelist():
+    config = config_from_form(
+        {"kind": "chord", "from": "src", "to": "dst", "value": "n"}
+    )
+    assert config == {"kind": "chord", "from": "src", "to": "dst", "value": "n"}
+    config = config_from_form(
+        {
+            "kind": "choropleth",
+            "geo_level": "tracts",
+            "geo_join": "geoid",
+            "geo_value": "share",
+        }
+    )
+    assert config["geo_level"] == "tracts"
+    for kind in ("donut", "arc", "points"):
+        assert config_from_form({"kind": kind})["kind"] == kind

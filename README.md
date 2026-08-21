@@ -55,11 +55,14 @@ idempotent — rerun it if the role predates them.
 
 Phase 5, the form-driven builder, is code-complete: editors create a
 visual from an uploaded CSV, a BigQuery query, or a bucket object, pick
-a chart kind — bar, line, area, scatter, table, and the GIS pair:
-choropleth (US states or counties, FIPS-joined, sequential or diverging
-ramps, zoom-to-data) and point maps (lat/lon, size and label
-encodings, point overlay on choropleths) — map columns in a live
-preview, and publish; the embed, pinning, and feed are the unchanged v1
+a chart kind — bar, line, area, scatter, donut, chord, arc diagram,
+table, and the GIS pair: choropleth and point maps at every level from
+nation to census tract (nation/state/county boundaries ship with the
+repo; place and tract boundaries load per state from the joined GEOIDs,
+built and committed by `infra/fetch_boundaries.sh` — MO, PA, and MN are
+in) with FIPS joins, sequential or diverging ramps, zoom-to-data, and
+size/label point encodings — map columns in a live preview, and
+publish; the embed, pinning, and feed are the unchanged v1
 machinery. Rendering is the vendored Observable Plot + d3 +
 topojson-client with Census TIGER boundary files — no runtime calls to
 third parties — driven by a runtime that encodes a validated

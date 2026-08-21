@@ -20,11 +20,11 @@
           </select>
         </label>
 
-        <fieldset data-kinds="bar line area scatter">
+        <fieldset data-kinds="bar line area scatter donut">
           <legend>Mapping</legend>
           <label>X column <select name="x" data-columns></select></label>
           <label>Y column <select name="y" data-columns></select></label>
-          <label>Series (color) <select name="series" data-columns data-optional></select></label>
+          <label data-kinds="bar line area scatter">Series (color) <select name="series" data-columns data-optional></select></label>
           <label data-kinds="scatter">Size <select name="size" data-columns data-optional></select></label>
           <label data-kinds="bar">Sort
             <select name="sort"><option value="">as data</option><option value="y">by value</option></select>
@@ -33,11 +33,28 @@
           <label class="inline" data-kinds="bar"><input type="checkbox" name="stacked" value="1" checked> Stacked</label>
         </fieldset>
 
+        <fieldset data-kinds="chord arc">
+          <legend>Flows</legend>
+          <label>From <select name="from" data-columns></select></label>
+          <label>To <select name="to" data-columns></select></label>
+          <label>Value <select name="value" data-columns data-optional></select></label>
+        </fieldset>
+
         <fieldset data-kinds="choropleth points">
           <legend>Map (GIS)</legend>
           <label>Boundaries
-            <select name="geo_level"><option value="states">US states</option><option value="counties">US counties</option></select>
+            <select name="geo_level">
+              <option value="nation">Nation</option>
+              <option value="states" selected>States</option>
+              <option value="counties">Counties</option>
+              <option value="places">Places (per state)</option>
+              <option value="tracts">Census tracts (per state)</option>
+            </select>
           </label>
+          <p class="notice" data-kinds="choropleth">Place and tract
+          boundaries load per state from the joined GEOIDs; a state
+          missing from static/geo/ is added with
+          infra/fetch_boundaries.sh.</p>
           <label data-kinds="choropleth">FIPS/GEOID column <select name="geo_join" data-columns data-optional></select></label>
           <label data-kinds="choropleth">Value column <select name="geo_value" data-columns data-optional></select></label>
           <label data-kinds="choropleth">Palette

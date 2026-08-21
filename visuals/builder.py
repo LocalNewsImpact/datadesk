@@ -8,13 +8,27 @@ snapshots, publishing, the pinned embed — is the v1 machinery unchanged.
 import csv
 import io
 
-CHART_KINDS = ("table", "bar", "line", "area", "scatter", "choropleth", "points")
+CHART_KINDS = (
+    "table",
+    "bar",
+    "line",
+    "area",
+    "scatter",
+    "donut",
+    "chord",
+    "arc",
+    "choropleth",
+    "points",
+)
 
 _STRING_KEYS = (
     "x",
     "y",
     "series",
     "size",
+    "from",
+    "to",
+    "value",
     "label",
     "sort",
     "xlabel",
