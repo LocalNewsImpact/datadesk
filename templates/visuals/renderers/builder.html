@@ -4,6 +4,7 @@
 {# — it is the accessibility table view and the relief for palette slots #}
 {# that sit under 3:1 on the light surface. #}
 <figure class="dd-visual">
+  {% if visual.config.title %}<h2 class="dd-title">{{ visual.config.title }}</h2>{% endif %}
   {% if visual.config.subtitle %}<p class="dd-subtitle">{{ visual.config.subtitle }}</p>{% endif %}
   <div class="dd-chart" id="dd-chart-{{ visual.slug }}">Loading…</div>
   <figcaption class="dd-footer">

@@ -210,6 +210,7 @@ def builder_edit(request, slug):
                     "min_publishers": request.POST.get("min_publishers") or "",
                     "enriched_only": bool(request.POST.get("enriched_only")),
                     "news_only": bool(request.POST.get("news_only")),
+                    "labeled_only": bool(request.POST.get("labeled_only")),
                 }
                 if request.POST.get("area_scope"):
                     spec["area_scope"] = request.POST["area_scope"]

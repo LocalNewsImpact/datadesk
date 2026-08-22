@@ -46,6 +46,7 @@
         <label>Min publishers per group <input type="number" name="min_publishers" min="0" placeholder="2"></label>
         <label class="inline"><input type="checkbox" name="enriched_only" value="1"> Enriched only</label>
         <label class="inline"><input type="checkbox" name="news_only" value="1"> News content only</label>
+        <label class="inline"><input type="checkbox" name="labeled_only" value="1"> CIN-labelled only</label>
         <label>Shape
           <select name="shape">
             <option value="">table of groups</option>
@@ -134,6 +135,12 @@
 
         <fieldset>
           <legend>Style</legend>
+          <label>Category taxonomy
+            <select name="taxonomy">
+              <option value="">none (colours by first appearance)</option>
+              <option value="cin">CIN — fixed order, all ten needs</option>
+            </select>
+          </label>
           <label>Theme
             <select name="theme">
               <option value="lnic">LNIC (default)</option>
@@ -146,6 +153,7 @@
 
         <fieldset>
           <legend>Text</legend>
+          <label>Title <input type="text" name="title"></label>
           <label>Subtitle <input type="text" name="subtitle"></label>
           <label>Source line <input type="text" name="source"></label>
           <label data-kinds="bar line area scatter">X label <input type="text" name="xlabel"></label>

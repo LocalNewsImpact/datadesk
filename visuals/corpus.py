@@ -262,6 +262,10 @@ def _base_queryset(spec):
         qs = qs.filter(enrichment__isnull=False)
     if spec.get("news_only"):
         qs = qs.filter(enrichment__is_news_content=True)
+    if spec.get("labeled_only"):
+        # "articles evaluated" — those the classifier actually labelled,
+        # so a group threshold counts the same articles the chart plots.
+        qs = qs.filter(primary_label__isnull=False)
     return qs
 
 

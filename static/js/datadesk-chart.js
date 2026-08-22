@@ -101,6 +101,44 @@
   };
   const DEFAULT_THEME = "lnic";
 
+  // Named taxonomies: a fixed vocabulary whose categories must always
+  // appear in the same order with the same colour, whatever a particular
+  // chart's volumes are. A taxonomy is never folded into "Other" — the
+  // whole point is that the reader can compare the same ten needs across
+  // every column.
+  //
+  // The CIN palette is ten slots, ordered warm/cool alternating so no two
+  // neighbouring segments of a stack share a hue family. Validated with
+  // the dataviz palette validator on the adjacent pairlist, both modes,
+  // 2026-08-22 — rerun it before changing any value.
+  const TAXONOMIES = {
+    cin: {
+      order: [
+        "Emergencies and Public Safety",
+        "Health",
+        "Education",
+        "Economic Development",
+        "Environment and Planning",
+        "Transportation Systems",
+        "Civic Life",
+        "Political life",
+        "Civic information",
+        "Sports",
+      ],
+      light: ["#256abf", "#eb6834", "#1baf7a", "#a35a00", "#4a3aa7",
+              "#eda100", "#e87ba4", "#008300", "#9a4dbf", "#8f8fdc"],
+      dark: ["#3987e5", "#d95926", "#199e70", "#a35a00", "#9085e9",
+             "#c98500", "#d55181", "#008300", "#cf5fa8", "#6d8fdd"],
+    },
+  };
+
+  function taxonomy(name, t) {
+    const spec = TAXONOMIES[name];
+    if (!spec) return null;
+    const dark = t.surface !== LIGHT.surface;
+    return { order: spec.order, colors: dark ? spec.dark : spec.light };
+  }
+
   // Series caps per form: adjacent-comparison forms validated to 8;
   // all-pairs forms (scatter, categorical map points) to 3.
   const CAP_ADJACENT = 8;
@@ -240,11 +278,25 @@
     rows = coerce(coerce(rows.slice(), y), x);
 
     let domain = [], folded = false;
-    if (series) {
+    let color;
+    const taxa = series ? taxonomy(config.taxonomy, t) : null;
+    if (taxa) {
+      // Every category in the taxonomy's order, present in the data or
+      // not, so the legend and the stack read the same on every chart.
+      const seen = new Set(rows.map((r) => r[series]));
+      domain = taxa.order.filter((v) => seen.has(v));
+      const extra = [...seen].filter(
+        (v) => v != null && v !== "" && !taxa.order.includes(v));
+      const range = domain.map((v) => taxa.colors[taxa.order.indexOf(v)]);
+      // A value outside the taxonomy is a data problem, shown as such.
+      domain.push(...extra);
+      range.push(...extra.map(() => t.other));
+      color = { domain, range, legend: domain.length > 1 };
+    } else if (series) {
       ({ rows, domain, folded } = foldSeries(
         rows, series, kind === "scatter" ? CAP_ALLPAIRS : CAP_ADJACENT));
+      color = colorScale(domain, t, folded);
     }
-    const color = series ? colorScale(domain, t, folded) : undefined;
     const stroke1 = t.series[0];
     const marks = baseMarks(Plot, t);
     const horizontal = kind === "bar" && config.horizontal;
