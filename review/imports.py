@@ -84,19 +84,21 @@ def _owner_finding(incoming, current, known):
     from datasets.owners import canonical_owner, fold
 
     canonical, kind = canonical_owner(incoming, known)
-    if kind == "unknown":
-        return (
-            None,
-            "suspect",
-            f"{canonical!r} is not a known owner — add it deliberately "
-            "or correct the spelling",
-        )
+    # A record that already names an owner gets the more useful message,
+    # whether or not the incoming name is one we know.
     if current and fold(current) != fold(canonical):
         return (
             None,
             "suspect",
             f"record already names {current!r}; an ownership change is a "
             "fact to confirm, not a spelling to fix",
+        )
+    if kind == "unknown":
+        return (
+            None,
+            "suspect",
+            f"{canonical!r} is not a known owner — add it deliberately "
+            "or correct the spelling",
         )
     return canonical, "edit", ""
 
@@ -184,6 +186,16 @@ def compute_diff(batch):
         "missing": 0,
     }
 
+    # Two rows keyed to the same record silently make the last one win,
+    # which is how a sheet with a duplicated line quietly overwrites a
+    # correction with a different one. Name them instead.
+    seen_keys = set()
+    duplicates = set()
+    for key in keys:
+        if key and key in seen_keys:
+            duplicates.add(key)
+        seen_keys.add(key)
+
     for row in batch.rows:
         pk = str(row.get(batch.key_column, "") or "").strip()
         article = found.get(pk)
@@ -238,6 +250,28 @@ def compute_diff(batch):
                         "reason": suspect,
                     }
                 )
+        if pk in duplicates:
+            # Nothing from a duplicated key is applied: which of the two
+            # rows was meant is not ours to guess.
+            counts["duplicate"] = counts.get("duplicate", 0) + 1
+            report.append(
+                {
+                    "id": pk,
+                    "kind": "duplicate",
+                    "fields": [
+                        {
+                            "field": f["field"],
+                            "kind": "suspect",
+                            "current": f["current"],
+                            "incoming": f["incoming"],
+                            "reason": "the file has more than one row for "
+                            "this record; keep one",
+                        }
+                        for f in fields
+                    ],
+                }
+            )
+            continue
         if row_changes:
             changes[str(article.pk)] = row_changes
         # A row whose only finding is suspect applies nothing, but it is

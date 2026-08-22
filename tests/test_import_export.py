@@ -226,7 +226,9 @@ def _source_batch(rows, state="MO"):
         key_column="source_id",
         rows=rows,
         validate_state=state,
-        column_map={"city": "city", "county": "county"},
+        column_map={
+            f: f for f in ("canonical_name", "city", "county", "owner", "type")
+        },
     )
 
 
@@ -338,3 +340,20 @@ def test_unknown_owner_is_never_written(publishers):
     diff = compute_diff(_source_batch([{"source_id": "s2", "owner": "some new llc"}]))
     assert diff["changes"] == {}
     assert "not a known owner" in diff["report"][0]["fields"][0]["reason"]
+
+
+def test_duplicate_keys_apply_nothing(publishers):
+    """Two rows for one record make the last silently win; name it."""
+    from review.imports import compute_diff
+
+    diff = compute_diff(
+        _source_batch(
+            [
+                {"source_id": "s2", "city": "Columbia"},
+                {"source_id": "s2", "city": "Springfield"},
+            ]
+        )
+    )
+    assert diff["changes"] == {}
+    assert diff["counts"]["duplicate"] == 2
+    assert "more than one row" in diff["report"][0]["fields"][0]["reason"]
