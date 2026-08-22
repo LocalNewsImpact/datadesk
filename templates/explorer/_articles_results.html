@@ -7,13 +7,15 @@
   <thead>
     <tr>
       {% if role == "editor" or role == "admin" %}<th scope="col"></th>{% endif %}
-      <th scope="col">Published</th>
+      <th scope="col">{% include "explorer/_sort_header.html" with key="date" h=headers.date %}</th>
       <th scope="col">Title</th>
-      <th scope="col">Publisher</th>
+      <th scope="col">{% include "explorer/_sort_header.html" with key="publication" h=headers.publication %}</th>
+      <th scope="col">Byline</th>
       <th scope="col">Status</th>
-      <th scope="col">Wire</th>
       <th scope="col">Label</th>
       <th scope="col" class="count">Conf.</th>
+      <th scope="col">Scope</th>
+      <th scope="col">Central place</th>
     </tr>
   </thead>
   <tbody>
@@ -23,27 +25,32 @@
       <td class="nowrap">{{ article.publish_date|date:"Y-m-d"|default:"—" }}</td>
       <td><a href="{% url 'explorer:article_detail' article.id %}">{{ article.title|default:article.url|truncatechars:90 }}</a></td>
       <td>{{ article.candidate_link.source|default:"—" }}</td>
-      <td>{{ article.status }}</td>
-      <td>{{ article.wire_check_status }}</td>
+      <td>{% if article.author %}<span title="{{ article.author }}">bylined</span>{% else %}<span class="absent">none</span>{% endif %}</td>
+      <td>{{ article.status }}
+        {% if article.wire_check_status != "complete" %}<span class="sub">wire: {{ article.wire_check_status }}</span>{% endif %}</td>
       <td>{{ article.primary_label|default:"—" }}</td>
-      <td class="count">{{ article.primary_label_confidence|floatformat:2|default:"—" }}</td>
+      <td class="count">{% if article.primary_label_confidence is not None %}{{ article.primary_label_confidence|floatformat:2 }}{% else %}—{% endif %}</td>
+      <td>{{ article.enr_scope|default:"—" }}</td>
+      <td>{% if article.enr_point_geoid %}{{ article.enr_point_place|default:"—" }}
+        <span class="sub"><span class="mono-inline">{{ article.enr_point_geoid }}</span> {{ article.enr_point_level|default:"" }}</span>
+        {% else %}<span class="absent">no claim</span>{% endif %}</td>
     </tr>
     {% empty %}
-    <tr><td colspan="{% if role == 'editor' or role == 'admin' %}8{% else %}7{% endif %}" class="notice">No articles match these filters.</td></tr>
+    <tr><td colspan="{% if role == 'editor' or role == 'admin' %}10{% else %}9{% endif %}" class="notice">No articles match these filters.</td></tr>
     {% endfor %}
   </tbody>
 </table>
 {% if page.paginator.num_pages > 1 %}
 <nav class="pager">
   {% if page.has_previous %}
-  <a href="?{{ params.urlencode }}&page={{ page.previous_page_number }}"
-     hx-get="{% url 'explorer:articles' %}?{{ params.urlencode }}&page={{ page.previous_page_number }}"
-     hx-target="#results">← newer</a>
+  <a href="?{{ params.urlencode }}&amp;page={{ page.previous_page_number }}"
+     hx-get="{% url 'explorer:articles' %}?{{ params.urlencode }}&amp;page={{ page.previous_page_number }}"
+     hx-target="#results">← previous</a>
   {% endif %}
   {% if page.has_next %}
-  <a href="?{{ params.urlencode }}&page={{ page.next_page_number }}"
-     hx-get="{% url 'explorer:articles' %}?{{ params.urlencode }}&page={{ page.next_page_number }}"
-     hx-target="#results">older →</a>
+  <a href="?{{ params.urlencode }}&amp;page={{ page.next_page_number }}"
+     hx-get="{% url 'explorer:articles' %}?{{ params.urlencode }}&amp;page={{ page.next_page_number }}"
+     hx-target="#results">next →</a>
   {% endif %}
 </nav>
 {% endif %}

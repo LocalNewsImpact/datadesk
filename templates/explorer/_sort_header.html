@@ -1,0 +1,8 @@
+{# A sortable column header. Needs `key`, `h` (its descriptor), and
+   `sort_params` — the query string with sort/dir already removed, so the
+   appended pair is the only one. #}
+<a class="sort{% if h.active %} active{% endif %}"
+   href="?{{ sort_params.urlencode }}&amp;sort={{ key }}&amp;dir={{ h.next_dir }}"
+   hx-get="{% url 'explorer:articles' %}?{{ sort_params.urlencode }}&amp;sort={{ key }}&amp;dir={{ h.next_dir }}"
+   hx-target="#results"
+   {% if h.active %}aria-sort="{% if h.indicator == "▾" %}descending{% else %}ascending{% endif %}"{% endif %}>{{ h.label }}<span class="sort-mark">{{ h.indicator }}</span></a>

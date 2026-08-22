@@ -14,6 +14,9 @@
   <form method="get" action="{% url 'explorer:articles' %}" class="filter-bar"
         hx-get="{% url 'explorer:articles' %}" hx-target="#results"
         hx-trigger="change, submit" hx-push-url="true">
+    {# Sort is chosen from the column headers; carry it through a filter change. #}
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="dir" value="{{ dir }}">
     <label>Dataset
       <select name="dataset">
         <option value="">all</option>
@@ -48,6 +51,29 @@
     </label>
     <label>Publisher
       <input type="search" name="publisher" value="{{ params.publisher|default:'' }}" placeholder="host contains…">
+    </label>
+    <label>Scope
+      <select name="scope">
+        <option value="">all</option>
+        {% for s in vocab.scopes %}
+        <option {% if params.scope == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Central FIPS
+      <select name="fips">
+        <option value="">all</option>
+        <option value="yes" {% if params.fips == "yes" %}selected{% endif %}>claimed</option>
+        <option value="no" {% if params.fips == "no" %}selected{% endif %}>none</option>
+      </select>
+    </label>
+    <label>Geo skip reason
+      <select name="geo_skip">
+        <option value="">all</option>
+        {% for s in vocab.geo_skip_reasons %}
+        <option {% if params.geo_skip == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
     </label>
     <label>From
       <input type="date" name="from" value="{{ params.from|default:'' }}">

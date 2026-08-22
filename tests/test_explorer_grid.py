@@ -228,3 +228,122 @@ def test_detail_without_crawler_db_is_404(client, viewer):
 def test_grid_titles_link_to_detail(client, viewer, corpus):
     content = client.get(URL).content.decode()
     assert "/explorer/articles/a1/" in content
+
+
+# --- enrichment facets on the articles grid ---------------------------------
+
+
+@pytest.fixture
+def geo_corpus(crawler_schema):
+    """Four articles with contrasting enrichment geography."""
+    from explorer.models import ArticleEnrichment
+
+    source = Source.objects.create(
+        id="s1", host="tribune.example", host_norm="tribune.example"
+    )
+    link = CandidateLink.objects.create(id="cl1", url="https://t/", source=source)
+
+    claimed = _article(1, link, author="Jane Reporter")
+    ArticleEnrichment.objects.create(
+        article=claimed,
+        scope="city_municipality",
+        point_place="Columbia",
+        point_geoid="2915670",
+        point_geoid_level="place",
+        point_method="focus_model",
+    )
+    regional = _article(2, link, author=None)
+    ArticleEnrichment.objects.create(
+        article=regional,
+        scope="regional",
+        geo_skip_reason="regional_uses_place_set",
+    )
+    uncodeable = _article(3, link)
+    ArticleEnrichment.objects.create(
+        article=uncodeable,
+        scope="state",
+        geo_skip_reason="no_codeable_geography",
+    )
+    _article(4, link)  # no enrichment record at all
+
+
+def test_scope_filter(client, viewer, geo_corpus):
+    assert _titles(client.get(URL, {"scope": "regional"})) == ["Story 2"]
+    assert _titles(client.get(URL, {"scope": "city_municipality"})) == ["Story 1"]
+
+
+def test_has_central_fips_filter(client, viewer, geo_corpus):
+    assert _titles(client.get(URL, {"fips": "yes"})) == ["Story 1"]
+    # "no" covers both a record without a claim and no record at all.
+    assert _titles(client.get(URL, {"fips": "no"})) == [
+        "Story 2",
+        "Story 3",
+        "Story 4",
+    ]
+
+
+def test_geo_skip_reason_filter(client, viewer, geo_corpus):
+    response = client.get(URL, {"geo_skip": "regional_uses_place_set"})
+    assert _titles(response) == ["Story 2"]
+
+
+def test_geo_vocabularies_come_from_the_data(client, viewer, geo_corpus):
+    content = client.get(URL).content.decode()
+    for value in (
+        "city_municipality",
+        "regional",
+        "regional_uses_place_set",
+        "no_codeable_geography",
+    ):
+        assert value in content
+
+
+def test_grid_shows_byline_presence_scope_and_central_place(client, viewer, geo_corpus):
+    content = client.get(URL).content.decode()
+    assert "bylined" in content
+    assert "no claim" in content
+    assert "Columbia" in content
+    assert "2915670" in content
+
+
+def test_sort_defaults_to_newest_first(client, viewer, corpus):
+    order = _order_of(client.get(URL), ("Story 1", "Story 3", "Story 2"))
+    assert order.index("Story 2") == len(order) - 1
+
+
+def test_sort_by_publication(client, viewer, corpus):
+    content = client.get(URL, {"sort": "publication"}).content.decode()
+    assert content.index("herald.example") < content.index("tribune.example")
+    reversed_ = client.get(URL, {"sort": "publication", "dir": "desc"})
+    body = reversed_.content.decode()
+    assert body.index("tribune.example") < body.index("herald.example")
+
+
+def test_sort_by_date_ascending(client, viewer, corpus):
+    content = client.get(URL, {"sort": "date", "dir": "asc"}).content.decode()
+    assert content.index("Story 2") < content.index("Story 1")
+
+
+def test_unknown_sort_falls_back_to_date(client, viewer, corpus):
+    from explorer.views import _sort_state
+
+    assert _sort_state({"sort": "content; DROP TABLE"}) == ("date", "desc")
+    assert _sort_state({"sort": "publication"}) == ("publication", "asc")
+    assert _sort_state({"sort": "date", "dir": "sideways"}) == ("date", "desc")
+    assert client.get(URL, {"sort": "nope", "dir": "nope"}).status_code == 200
+
+
+def test_sort_links_carry_the_active_filters(client, viewer, corpus):
+    content = client.get(URL, {"status": "labeled"}).content.decode()
+    assert "status=labeled&amp;sort=publication" in content
+
+
+def test_filter_form_carries_the_active_sort(client, viewer, corpus):
+    content = client.get(URL, {"sort": "publication", "dir": "desc"}).content.decode()
+    assert 'name="sort" value="publication"' in content
+    assert 'name="dir" value="desc"' in content
+
+
+def _order_of(response, needles):
+    content = response.content.decode()
+    return sorted((n for n in needles if n in content), key=lambda n: content.index(n))

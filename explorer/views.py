@@ -5,9 +5,9 @@ role couldn't write anyway. Filters are the ones that mattered in the
 March reconciliation: dataset, status, wire state, publisher, date
 range, label confidence.
 
-Filter vocabularies (statuses, wire states, labels) are read from the
-data, cached briefly — the grid never invents statuses the pipeline
-doesn't know (SCOPE.md §2.2).
+Filter vocabularies (statuses, wire states, labels, scopes, geographic
+skip reasons) are read from the data, cached briefly — the grid never
+invents statuses the pipeline doesn't know (SCOPE.md §2.2).
 """
 
 from django.core.cache import cache
@@ -36,6 +36,15 @@ _ENRICHMENT_VOCAB_CACHE_KEY = "explorer.enrichment_filter_vocab"
 _VOCAB_CACHE_SECONDS = 300
 
 
+def _distinct(model, field):
+    """The values a column actually holds, nulls excluded, sorted."""
+    return sorted(
+        model.objects.filter(**{f"{field}__isnull": False})
+        .values_list(field, flat=True)
+        .distinct()
+    )
+
+
 def _filter_vocab():
     """Distinct filter values as the data defines them, or None offline."""
 
@@ -48,11 +57,9 @@ def _filter_vocab():
             "wire_statuses": sorted(
                 Article.objects.values_list("wire_check_status", flat=True).distinct()
             ),
-            "labels": sorted(
-                Article.objects.filter(primary_label__isnull=False)
-                .values_list("primary_label", flat=True)
-                .distinct()
-            ),
+            "labels": _distinct(Article, "primary_label"),
+            "scopes": _distinct(ArticleEnrichment, "scope"),
+            "geo_skip_reasons": _distinct(ArticleEnrichment, "geo_skip_reason"),
         }
 
     try:
@@ -61,9 +68,68 @@ def _filter_vocab():
         return None
 
 
+# Sortable columns, with the direction each opens in. A publisher list
+# reads alphabetically; a corpus reads newest first.
+SORTS = {
+    "date": ("Published", "publish_date", "desc"),
+    "publication": ("Publisher", "candidate_link__source__host_norm", "asc"),
+}
+
+
+def _sort_state(params):
+    """The requested sort, defaulted and bounded to the sortable columns."""
+    key = params.get("sort", "date")
+    if key not in SORTS:
+        key = "date"
+    direction = params.get("dir")
+    if direction not in ("asc", "desc"):
+        direction = SORTS[key][2]
+    return key, direction
+
+
+def _ordering(key, direction):
+    field = F(SORTS[key][1])
+    primary = (
+        field.desc(nulls_last=True)
+        if direction == "desc"
+        else field.asc(nulls_last=True)
+    )
+    # created_at breaks ties so paging is stable across requests.
+    return [primary, "-created_at"]
+
+
+def sort_headers(key, direction):
+    """Header descriptors: which column is active, and where a click goes."""
+    headers = {}
+    for name, (label, _field, default) in SORTS.items():
+        active = name == key
+        headers[name] = {
+            "label": label,
+            "active": active,
+            # Clicking the active column reverses it; clicking another
+            # opens it in its natural direction.
+            "next_dir": (
+                ("asc" if direction == "desc" else "desc") if active else default
+            ),
+            "indicator": ("▾" if direction == "desc" else "▴") if active else "",
+        }
+    return headers
+
+
 def _filtered_articles(params):
-    """Apply the grid filters from the query string to the corpus."""
-    qs = Article.objects.select_related("candidate_link__source")
+    """Apply the grid filters from the query string to the corpus.
+
+    Scope, the central-FIPS claim and the geographic skip reason live on
+    article_enrichment; they join through the reverse one-to-one, and are
+    annotated onto the row so the grid can show them without a query per
+    article.
+    """
+    qs = Article.objects.select_related("candidate_link__source").annotate(
+        enr_scope=F("enrichment__scope"),
+        enr_point_place=F("enrichment__point_place"),
+        enr_point_geoid=F("enrichment__point_geoid"),
+        enr_point_level=F("enrichment__point_geoid_level"),
+    )
 
     if slug := params.get("dataset"):
         # The canonical membership path (the crawler's own enrichment
@@ -92,8 +158,19 @@ def _filtered_articles(params):
         qs = qs.filter(primary_label_confidence__lte=conf_max)
     if q := params.get("q"):
         qs = qs.filter(title__icontains=q)
+    if scope := params.get("scope"):
+        qs = qs.filter(enrichment__scope=scope)
+    if geo_skip := params.get("geo_skip"):
+        qs = qs.filter(enrichment__geo_skip_reason=geo_skip)
+    # The central-geography claim, present or absent. "no" includes both
+    # an enrichment record without a claim and no enrichment record at
+    # all — from the grid's seat those read the same.
+    if (fips := params.get("fips")) == "yes":
+        qs = qs.filter(enrichment__point_geoid__isnull=False)
+    elif fips == "no":
+        qs = qs.filter(enrichment__point_geoid__isnull=True)
 
-    return qs.order_by(F("publish_date").desc(nulls_last=True), "-created_at")
+    return qs.order_by(*_ordering(*_sort_state(params)))
 
 
 @role_required
@@ -101,10 +178,18 @@ def articles(request):
     vocab = _filter_vocab()
     params = request.GET.copy()
     params.pop("page", None)
+    sort_params = params.copy()
+    sort_params.pop("sort", None)
+    sort_params.pop("dir", None)
+    sort, direction = _sort_state(request.GET)
     context = {
         "crawler_connected": vocab is not None,
         "vocab": vocab,
         "params": params,
+        "sort_params": sort_params,
+        "sort": sort,
+        "dir": direction,
+        "headers": sort_headers(sort, direction),
     }
     if vocab is not None:
         try:
