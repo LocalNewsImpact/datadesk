@@ -1494,3 +1494,4 @@ table.rec-table tbody th { white-space: nowrap; color: var(--muted); }
 .auth-card ul { margin: 0; padding: 0; list-style: none; display: flex;
   flex-direction: column; gap: .5rem; }
 .auth-foot { font-size: .8rem; color: var(--muted); }
+.auth-note { font-size: .82rem; color: var(--muted); line-height: 1.5; }

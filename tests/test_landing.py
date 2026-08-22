@@ -39,3 +39,22 @@ def test_health_endpoint(client, db):
     response = client.get("/_health")
     assert response.status_code == 200
     assert response.content == b"ok"
+
+
+@pytest.mark.django_db
+def test_sign_in_page_offers_google_and_not_signup(client, settings):
+    """Signup is closed and Google is the only path, so the page must not
+    invite either a password or an account of one's own."""
+    settings.SOCIALACCOUNT_PROVIDERS = {
+        "google": {
+            "APP": {"client_id": "x", "secret": "y", "key": ""},
+            "SCOPE": ["profile", "email"],
+        }
+    }
+    response = client.get("/accounts/login/")
+    content = response.content.decode()
+    assert response.status_code == 200
+    assert "Continue with Google" in content
+    assert "sign up" not in content.lower()
+    assert "Remember Me" not in content
+    assert "created by an administrator" in content

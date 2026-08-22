@@ -1,0 +1,29 @@
+{% extends "allauth/layouts/base.html" %}
+{% load socialaccount %}
+{% comment %}
+allauth's default login page leads with an email-and-password form and
+invites the visitor to sign up. Neither applies here: signup is closed
+(accounts.adapters.NoPublicSignupAdapter) and Google is the only
+sign-in path (SCOPE.md §2.1). So the page offers the one thing that
+works, and says plainly where an account comes from.
+{% endcomment %}
+{% block head_title %}Sign in{% endblock %}
+{% block content %}
+  <h1>Sign in</h1>
+  {% get_providers as socialaccount_providers %}
+  {% if socialaccount_providers %}
+    <p>Use your localnewsimpact.org Google account.</p>
+    <form method="post" action="{% provider_login_url 'google' process='login' %}">
+      {% csrf_token %}
+      {% if redirect_field_value %}
+      <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
+      {% endif %}
+      <button type="submit">Continue with Google</button>
+    </form>
+    <p class="auth-note">Accounts are created by an administrator — there is no
+    self-signup. A new account has no role until one is assigned.</p>
+  {% else %}
+    <p class="auth-note">Google sign-in is not configured on this deployment.
+    Superusers can use the <a href="/admin/">admin login</a>.</p>
+  {% endif %}
+{% endblock %}
