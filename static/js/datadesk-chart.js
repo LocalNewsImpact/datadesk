@@ -260,6 +260,11 @@
       const enc = horizontal
         ? { y: x, x: y, fill: series || stroke1, inset: 0.5 }
         : { x, y, fill: series || stroke1, sort, inset: 0.5 };
+      // Plot stacks each column in that column's own row order, so the
+      // segments would sit in a different sequence per category. Pinning
+      // the order to the colour domain makes the stack readable across
+      // columns: the same need is always the same band.
+      if (series) enc.order = domain;
       if (series && config.stacked === false) {
         enc[horizontal ? "fy" : "fx"] = enc[horizontal ? "y" : "x"];
         enc[horizontal ? "y" : "x"] = series;
@@ -276,7 +281,8 @@
       if (series) enc.stroke = series; else enc.stroke = stroke1;
       if (kind === "area") {
         const area = { x, y, fillOpacity: 0.25 };
-        if (series) area.fill = series; else area.fill = stroke1;
+        if (series) { area.fill = series; area.order = domain; }
+        else area.fill = stroke1;
         marks.push(Plot.areaY(rows, area));
       }
       marks.push(Plot.line(rows, { ...enc, strokeWidth: 2 }));
@@ -306,6 +312,7 @@
     let xScale = { label: config.xlabel || undefined, tickSize: 0 };
     let yDomain;
     let marginLeft;
+    let marginBottom;
     let height = 420;
     if (kind === "bar") {
       // The category axis: y when horizontal, x otherwise.
@@ -329,6 +336,12 @@
         height = Math.max(320, Math.min(1600, order.length * 22 + 90));
       } else {
         xScale.domain = order;
+        if (order.length > 8) {
+          // Upright labels would collide; rotate and reserve the depth.
+          const longest = Math.max(...order.map((v) => String(v ?? "").length));
+          xScale.tickRotate = -45;
+          marginBottom = Math.min(160, 40 + 5.2 * longest);
+        }
       }
     }
 
@@ -337,6 +350,7 @@
       height,
       marginLeft,
       marginRight,
+      marginBottom,
       style: { background: "transparent", color: t.ink,
                fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif' },
       color,
