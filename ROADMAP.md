@@ -207,6 +207,79 @@ fast — they serve a pinned snapshot rather than querying. The same trick
 (precompute, serve the result) is available to the dashboard if its
 numbers may be nightly-fresh rather than live.
 
+## 8. Extraction page as a per-dataset operations view
+
+**Now:** the extraction review queue lists items needing human
+attention. There is no view of the pipeline that produced them.
+
+**Wanted:** one page per dataset — selectable for anyone with access to
+more than one — carrying:
+
+- counts of sources and of articles in the database
+- article and candidate-link counts by pipeline status
+- pipeline health indicators
+- cost for the dataset
+- the human-review tasks outstanding, linking into them
+- current logs for that dataset and job
+- workers running, and articles discovered / processed / extracted
+
+**What the corpus already supports (checked 2026-08-22):**
+
+| Need | Source | State |
+|---|---|---|
+| Sources per dataset | `dataset_sources` | available |
+| Articles per dataset | articles → candidate_links → dataset_sources | available |
+| Status counts | `articles.status` (labeled 85k, wire 47k, enriched 14.5k, obituary, out_of_scope, weather, paywall, opinion), `candidate_links.status` (extracted 85k, wire 78k, paused 41k, not_article 26k, sampled_out 16k) | available |
+| Discovered / processed / extracted | `jobs.records_processed`, `records_created`, `records_updated`, `errors_count`, `exit_status`, `started_at`, `finished_at` | available |
+| **Job → dataset attribution** | `jobs.params->>'dataset_label'` — present on 767 of 769 rows | **available now**; no crawler change needed for this page |
+| Extraction health | `extraction_telemetry_v2` — per article: success, HTTP status, error type, timings, methods attempted, proxy state | available |
+| Recorded cost per dataset | `article_enrichment.cost_usd` joined through the dataset path | available |
+| Human-review tasks | the review queue, filtered to the dataset | available after item 6 |
+| Logs | `jobs.logs_path` | **unverified** — see below |
+| Workers running | not in the database | **needs a decision** — see below |
+
+**Two gaps, and the cheapest way to close each:**
+
+1. **Logs.** `jobs.logs_path` exists on the job record. If it points at a
+   bucket object, Datadesk reads it with a storage grant and the feature
+   is small. If logs live only in Cloud Logging on the crawler project,
+   Datadesk needs a log-reader grant there and a query by resource
+   label, which is more plumbing and more privilege. **Check what
+   `logs_path` actually contains before designing anything.**
+
+2. **Workers.** Live cluster state is not in Postgres, and Datadesk
+   should not hold cluster credentials — it is a window, not a control
+   plane (SCOPE.md §5). Three options, cheapest first:
+   - *In-flight jobs as a proxy*: rows with `started_at` set and
+     `finished_at` null, grouped by dataset. Free, immediate, and
+     approximately what "workers running" means to a reader.
+   - *Cloud Monitoring read*: real pod counts, one more cross-project
+     grant, and a metric to agree on.
+   - *Crawler heartbeat*: the crawler writes worker counts to a table
+     Datadesk reads. Most accurate, needs crawler-side work.
+
+**Health indicators need defining before they are built.** Candidates the
+data supports today: extraction success rate over a window; sources
+paused by consecutive RSS failures (`sources.rss_consecutive_failures`,
+`skip_rss_until`); time since the last successful job per type; error
+concentration by host from `extraction_telemetry_v2`; articles stuck in
+a status longer than a threshold. Each needs a threshold that says
+"unhealthy", and a threshold nobody agreed to is a false alarm.
+
+**Touches:** a new `explorer/pipeline.py` for the aggregates, the
+extraction page and its template, item 1 for the dataset selector, item
+6 for the review-task links, item 5 for compute cost.
+
+**Performance warning:** this page aggregates over 164k articles and
+85k candidate links per view. It is the page most likely to be slow, so
+it should be built precomputed or cached from the start rather than
+retrofitted — see item 7.
+
+**Still open:**
+- What `logs_path` points at.
+- Which worker signal to use.
+- The health thresholds, and who owns them.
+
 ## Sequence
 
 1. **Item 1** first: items 5 and 6 both need dataset-scoped roles, and
@@ -222,3 +295,7 @@ numbers may be nightly-fresh rather than live.
    nothing else.
 7. **Item 7** is independent and should start with measurement, not
    code. Worth doing early if the slowness is blocking daily use.
+8. **Item 8** after items 1 and 6, since the dataset selector and the
+   review-task links depend on both — but its aggregates can be built
+   and cached before either, and `jobs.params` already carries the
+   dataset, so nothing here waits on the crawler.
