@@ -13,10 +13,12 @@ from explorer.views import _filtered_articles
 from review import queue as review_queue
 from review.exports import EXPORT_COLUMNS, csv_response
 from review.imports import (
-    IMPORTABLE_FIELDS,
+    TARGETS,
     ImportError_,
     compute_diff,
     guess_key_column,
+    guess_target,
+    importable_fields,
     parse_csv,
 )
 from review.models import ExportDefinition, ImportBatch
@@ -176,12 +178,14 @@ def import_batches(request):
                 {"batches": ImportBatch.objects.all(), "error": str(exc)},
                 status=400,
             )
+        target = request.POST.get("target") or guess_target(columns)
         batch = ImportBatch.objects.create(
             created_by=request.user,
             filename=upload.name,
+            target=target,
             columns=columns,
             rows=rows,
-            key_column=guess_key_column(columns),
+            key_column=guess_key_column(columns, target),
         )
         return redirect("review:import_map", batch.pk)
     return render(
@@ -197,15 +201,18 @@ def import_map(request, batch_id):
     if batch.status == ImportBatch.APPLIED:
         return redirect("review:import_diff", batch.pk)
 
+    fields = importable_fields(batch.target)
     if request.method == "POST":
         key_column = request.POST.get("key_column", "")
         if key_column not in batch.columns:
-            return HttpResponseBadRequest("Pick the article UUID column")
+            return HttpResponseBadRequest(
+                f"Pick the {TARGETS[batch.target]['key_label']} column"
+            )
         column_map = {}
         for column in batch.columns:
             field = request.POST.get(f"map_{column}", "")
             if field:
-                if field not in IMPORTABLE_FIELDS:
+                if field not in fields:
                     return HttpResponseBadRequest(f"{field} is not importable")
                 column_map[column] = field
         if not column_map:
@@ -221,7 +228,8 @@ def import_map(request, batch_id):
         "review/import_map.html",
         {
             "batch": batch,
-            "fields": IMPORTABLE_FIELDS,
+            "fields": fields,
+            "target": TARGETS[batch.target],
             "column_rows": [
                 (column, batch.column_map.get(column, "")) for column in batch.columns
             ],
@@ -244,7 +252,7 @@ def import_diff(request, batch_id):
             return HttpResponseBadRequest("Nothing to apply")
         entry = audited_update_rows(
             request.user,
-            Article,
+            TARGETS[batch.target]["model"],
             diff["changes"],
             action="import:apply",
             reason=f"import batch {batch.pk}: {batch.filename}",

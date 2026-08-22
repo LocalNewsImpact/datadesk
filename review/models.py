@@ -27,6 +27,8 @@ class ImportBatch(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     filename = models.CharField(max_length=255)
+    # Which table the batch writes to (review.imports.TARGETS).
+    target = models.CharField(max_length=20, default="articles")
     columns = models.JSONField(default=list)
     rows = models.JSONField(default=list)
     key_column = models.CharField(max_length=100, blank=True, default="")

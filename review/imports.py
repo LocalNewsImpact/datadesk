@@ -11,16 +11,41 @@ apply — both kinds apply the same way, through the audited write path.
 import csv
 import io
 
-from explorer.models import Article
+from explorer.models import Article, Source
 from review.services import WRITABLE, repair_text
 
 MAX_ROWS = 20_000
 
+# What an import can write to, and how its rows find their row.
+#
+# The key is what the CSV joins on — the article UUID, or a publisher's
+# normalized host. The fields are the target's side of the audited write
+# boundary and nothing else: a source's `status` and `paused_at` are the
+# crawler's operational state, not editorial metadata, so a spreadsheet
+# cannot reach them however tempting the column looks.
+TARGETS = {
+    "articles": {
+        "label": "Articles",
+        "model": Article,
+        "key_field": "id",
+        "key_hints": ("id", "article_id", "uuid", "article_uuid"),
+        "key_label": "article UUID",
+    },
+    "sources": {
+        "label": "Sources (publishers)",
+        "model": Source,
+        "key_field": "host_norm",
+        "key_hints": ("host_norm", "host", "domain", "site"),
+        "key_label": "publisher host",
+    },
+}
+
 # Columns an import may target: the article side of the write boundary.
 IMPORTABLE_FIELDS = WRITABLE[Article]
 
-# Header names that mean "this is the article UUID join key".
-_KEY_HINTS = ("id", "article_id", "uuid", "article_uuid")
+
+def importable_fields(target):
+    return WRITABLE[TARGETS[target]["model"]]
 
 
 class ImportError_(Exception):
@@ -48,8 +73,17 @@ def parse_csv(uploaded_file, filename):
     return list(reader.fieldnames), rows
 
 
-def guess_key_column(columns):
-    for hint in _KEY_HINTS:
+def guess_target(columns):
+    """Which table a file is about, from its header row."""
+    lowered = {c.lower() for c in columns}
+    for name, target in TARGETS.items():
+        if lowered & set(target["key_hints"]):
+            return name
+    return "articles"
+
+
+def guess_key_column(columns, target="articles"):
+    for hint in TARGETS[target]["key_hints"]:
         for column in columns:
             if column.lower() == hint:
                 return column
@@ -59,16 +93,20 @@ def guess_key_column(columns):
 def compute_diff(batch):
     """The diff report: per-row, per-field classification against the
     current corpus. Nothing is written."""
-    ids = [row.get(batch.key_column, "").strip() for row in batch.rows]
-    articles = Article.objects.in_bulk([i for i in ids if i])
+    target = TARGETS[getattr(batch, "target", "articles") or "articles"]
+    model, key_field = target["model"], target["key_field"]
+    keys = [str(row.get(batch.key_column, "") or "").strip() for row in batch.rows]
+    # A source's key is its host, not its primary key, so the lookup is
+    # by the join column and the audit record still keys on the pk.
+    found = model.objects.in_bulk([k for k in keys if k], field_name=key_field)
 
     changes = {}  # pk -> {field: incoming} — what apply would write
     report = []
     counts = {"unchanged": 0, "edit": 0, "mojibake_fix": 0, "missing": 0}
 
     for row in batch.rows:
-        pk = row.get(batch.key_column, "").strip()
-        article = articles.get(pk)
+        pk = str(row.get(batch.key_column, "") or "").strip()
+        article = found.get(pk)
         if article is None:
             counts["missing"] += 1
             report.append({"id": pk or "(blank)", "kind": "missing", "fields": []})
@@ -98,7 +136,7 @@ def compute_diff(batch):
                     }
                 )
         if row_changes:
-            changes[pk] = row_changes
+            changes[str(article.pk)] = row_changes
             report.append({"id": pk, "kind": "changed", "fields": fields})
 
     return {"counts": counts, "report": report, "changes": changes}

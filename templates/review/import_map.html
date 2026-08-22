@@ -5,12 +5,13 @@
 <section class="card card-wide">
   <p class="breadcrumb"><a href="{% url 'review:import_batches' %}">← Import</a></p>
   <h1>Map columns — {{ batch.filename }}</h1>
-  <p class="notice">{{ batch.rows|length }} rows. Pick the article UUID
-  column and map the columns to apply; unmapped columns are ignored.</p>
+  <p class="notice">{{ batch.rows|length }} rows into <strong>{{ target.label }}</strong>.
+  Pick the {{ target.key_label }} column and map the columns to apply;
+  unmapped columns are ignored.</p>
 
   <form method="post">
     {% csrf_token %}
-    <label class="stacked">Article UUID column
+    <label class="stacked">{{ target.key_label|capfirst }} column
       <select name="key_column" required>
         {% for column in batch.columns %}
         <option {% if column == batch.key_column %}selected{% endif %}>{{ column }}</option>

@@ -13,6 +13,13 @@
     <label>CSV (UTF-8, BOM welcome)
       <input type="file" name="file" accept=".csv" required>
     </label>
+    <label>Writes to
+      <select name="target">
+        <option value="">detect from the header row</option>
+        <option value="articles">Articles</option>
+        <option value="sources">Sources (publishers)</option>
+      </select>
+    </label>
     <button type="submit">Upload</button>
   </form>
 
@@ -22,6 +29,7 @@
       <tr>
         <th scope="col">When</th>
         <th scope="col">File</th>
+        <th scope="col">Writes to</th>
         <th scope="col">By</th>
         <th scope="col" class="count">Rows</th>
         <th scope="col">Status</th>
@@ -33,13 +41,14 @@
       <tr>
         <td class="nowrap">{{ batch.created_at|date:"Y-m-d H:i" }}</td>
         <td>{{ batch.filename }}</td>
+        <td>{{ batch.target }}</td>
         <td>{{ batch.created_by.email }}</td>
         <td class="count">{{ batch.rows|length }}</td>
         <td>{{ batch.status }}</td>
         <td><a href="{% url 'review:import_diff' batch.pk %}">open</a></td>
       </tr>
       {% empty %}
-      <tr><td colspan="6" class="notice">No batches yet.</td></tr>
+      <tr><td colspan="7" class="notice">No batches yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>
