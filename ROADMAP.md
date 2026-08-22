@@ -214,24 +214,62 @@ a flag is worth keeping. A case whose items are 90% disagreed is a
 broken rule, not a queue; the disposition counts should be visible per
 case so that shows up rather than being absorbed by patient reviewers.
 
-**Leaving the queue is a recorded fact, not a filter trick.** The queue
-already excludes `removed_in_march_review` unconditionally — a human
-decided, so it never returns. Accepts need the same treatment: a
-disposition written where the queue's own filter can see it, so an
-accepted item stays gone across sessions and across a reprocessing run
-that would otherwise re-flag it.
+### Where a review is recorded
+
+**Decided:** a review is columns on the record — reviewed, with a
+reason and a disposition — not a filter Datadesk keeps to itself.
+
+They belong on `article_enrichment`, in the crawler database, for one
+reason: the pipeline has to see them. A disposition Datadesk keeps
+privately stops the queue re-showing an item, but does nothing to stop
+the pipeline re-flagging it on the next run, which is the same article
+arriving back in the queue with a new row. The pipeline can only skip
+what it can read.
+
+```sql
+ALTER TABLE article_enrichment
+  ADD COLUMN reviewed_at             timestamp,
+  ADD COLUMN reviewed_by             text,   -- actor, by email
+  ADD COLUMN review_disposition      text,   -- agree | disagree | fix
+  ADD COLUMN review_reason           text,   -- why, in the reviewer's words
+  ADD COLUMN reviewed_profile_version integer;
+```
+
+`reviewed_profile_version` matters more than it looks: a judgement is
+made against a particular version of the rules. "I disagree that this is
+out of scope" was decided under profile v3; if v4 changes what scope
+means, that judgement is no longer known to hold. Recording the version
+lets a reviewed item resurface deliberately when the rule beneath it
+changes, instead of silently standing on a decision nobody would make
+again.
+
+**Sequence, across two repositories:**
+
+1. **MizzouNewsCrawler** adds the columns (alembic) and teaches the
+   enrichment orchestrator to leave reviewed articles alone — an
+   `agree` is final, a `disagree` is an instruction to re-run without
+   the flag, a `fix` waits for the fix.
+2. **Datadesk** grants `datadesk_rw` UPDATE on exactly those five
+   columns (`infra/sql/create_crawler_write_role.sql`), writes them
+   through the audited path, and filters the queue on `reviewed_at`.
+
+Until step 1 lands, Datadesk can write nothing here — the columns do not
+exist. A Datadesk-side table would unblock the UI sooner and would have
+to be migrated into the columns later, so it is worth doing only if the
+crawler change is far off.
 
 **Bulk is the point.** Reviewers work in bands (the 2000+ band is mostly
 false flags); selecting a band and accepting it in one action is the
 difference between a queue that gets worked and one that does not.
 
 **Still open:**
-- Where the disposition is recorded: a new column on the enrichment
-  record, a Datadesk-side disposition table, or an existing skip_reason
-  value. The first two survive reprocessing; a skip_reason may be
-  overwritten by the pipeline. Whatever it is, it has to hold all three
-  verbs — "a human agreed" and "a human disagreed" are different facts,
-  and collapsing them loses the only measure of whether the flag works.
+- Is `review_reason` free text or a controlled vocabulary? Free text
+  reads well and aggregates badly; a vocabulary is the opposite. A short
+  list per case plus an optional note is the usual compromise, and the
+  cases already have their language in `CASE_NOTES`.
+- Does a reviewed item resurface when the profile version advances past
+  `reviewed_profile_version`? It should be possible; whether it is the
+  default is a judgement about how much churn a reviewer will tolerate.
 - Does a disagreement feed back to the pipeline automatically (clear the
   skip and let it re-enrich), or only record the judgement? Automatic is
   what a reviewer expects; it also means a wrong click changes the
