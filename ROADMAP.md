@@ -188,11 +188,18 @@ What it does not yet do is let a reviewer *finish* an item.
    disagree, or fix it?* Three verbs, everywhere, so a reviewer learns
    the queue once rather than per case.
 
-   | | Agree | Disagree | Fix |
-   |---|---|---|---|
-   | **Paywall stub** | the text really is a teaser; keep the skip, keep the byline and label | it is a real article; clear the skip so it enriches normally | re-extract to get the actual text |
-   | **Minimal capture** | genuinely boilerplate; it stays `not_article` | it is an article whose text never arrived; return it to the pipeline | re-extract |
-   | **Scope mislabel** | the exclusion is right | the scope is wrong; the article belongs in scope | set the correct scope |
+   The three verbs mean the same thing in every case, because each is a
+   decision about where the article goes next:
+
+   | | Meaning | Where the article ends up |
+   |---|---|---|
+   | **Agree** | the flag is right | out of the processing flow, terminally — it is done |
+   | **Disagree** | the app is wrong | back into processing, unchanged, from where it was flagged |
+   | **Fix** | the flag is right and I can repair it | repaired first, then back into processing |
+
+   So disagree and fix differ only in whether the record is changed on
+   the way back in. Agree is the only one that ends the article's
+   journey.
 
    Agree and disagree are one click. Fix opens the edit — the text, the
    scope, or a re-extraction request — because a fix is a change and a
@@ -235,6 +242,10 @@ What a fix edits, and what makes it resolved:
 | Minimal capture | little or no text captured | the article text, or a re-extraction | there is real text — the band it now falls in is no longer the flagging one |
 | Scope mislabel | scope excluded but recorded | the scope value | the scope is one the profile does not exclude |
 
+A fix that cannot be made — the text is genuinely gone, the source is
+dead — is not a fix. It is an agree, and the reviewer should say so
+rather than leaving the item half-worked.
+
 **Submit checks that a fix actually fixed it.** After the edit applies,
 the flag's own condition is re-evaluated against the new record. If it
 still holds — text still under the threshold, scope still excluded —
@@ -275,6 +286,33 @@ pipeline was wrong, and it is the only signal that tells anyone whether
 a flag is worth keeping. A case whose items are 90% disagreed is a
 broken rule, not a queue; the disposition counts should be visible per
 case so that shows up rather than being absorbed by patient reviewers.
+
+### Who does the routing
+
+Datadesk records the disposition; **the crawler acts on it.** Datadesk
+does not reset pipeline status, requeue work or clear the pipeline's own
+flags — it is a window and a control panel, not a data plane
+(SCOPE.md §5). The orchestrator reads the review columns and routes:
+
+| Disposition | What the pipeline does |
+|---|---|
+| `agree` | never reprocesses and never re-flags it; the article is terminal |
+| `disagree` | clears the flag and resumes the article from the stage it was flagged at |
+| `fix` | waits for the edit, then resumes as with disagree |
+
+This keeps the write boundary narrow. Datadesk writes the five review
+columns and, for a fix, the field being repaired — nothing that steers
+the pipeline. If instead Datadesk reset `articles.status` or
+`candidate_links.status` itself, it would be running the pipeline by
+hand from a web form, and two systems would own the same state.
+
+**One boundary gap this exposes:** fixing a scope mislabel means writing
+`article_enrichment.scope`, which `datadesk_rw` cannot currently do —
+the enrichment grant covers `skip_reason` and `geo_skip_reason` only.
+Either the grant widens to `scope` (and `scope_confidence`, since a
+human-set scope has no model confidence), or a scope fix is expressed as
+a disposition the pipeline applies. The first is simpler and honest
+about who decided; the second keeps every enrichment value the model's.
 
 ### Where a review is recorded
 
