@@ -59,7 +59,40 @@ label confidence.
 - Every action lands in Postgres through the audited write role and is
   reversible from the audit record
 
-### 2.3 Import and export
+### 2.3 Extraction review queue
+
+Automated triage flags articles it cannot use; a human decides what happens
+to them. Three findings from the March 2026 backfill define the queue
+(evidence in that run's gap analysis):
+
+- **Paywall stubs** (968 in March): the stored text is a teaser or a
+  login wall. Median length 265 characters — too short for entity or
+  geographic extraction, long enough for a CIN label and a byline. All 968
+  carried a CIN; 639 carried a byline. Excluding them loses valid
+  observations for CIN counts, byline rates, and publication volume.
+- **Minimal or empty captures** (198 in March, currently `not_article`):
+  a mix of genuine boilerplate and real articles whose text never came
+  through. Only a human can tell them apart.
+- **Scope mislabels** (69 in March, `out_of_scope`): roughly 70% were
+  locally bylined stories that merely referenced international subjects.
+  Automated scope exclusion deleted real local journalism from analysis.
+
+The queue presents each flagged article with its stored text, the reason it
+was flagged, and its CIN label and byline, and offers three dispositions:
+
+1. **Skip** — terminal, excluded from export, reason recorded
+2. **Export unenriched** — the article reaches BigQuery with its CIN,
+   byline, and publication intact and enrichment fields empty (the
+   `enrichment_skipped` status the pipeline already defines)
+3. **Send to enrichment** — for articles the operator judges usable, or
+   re-extractable
+
+Design rules: no automated step may permanently exclude an article that has
+a CIN label; scope values are recorded for downstream filtering, never used
+to withhold an article from export; and every disposition is an audited
+action attributable to a person.
+
+### 2.4 Import and export
 
 - **Import** follows the backpatch protocol proven on the March CSV:
   upload → column mapping → **diff report first** (per-field, with
@@ -70,7 +103,7 @@ label confidence.
   join key. Saved export definitions (query + columns) can be re-run
   against current data.
 
-### 2.4 Dataset creation and maintenance
+### 2.5 Dataset creation and maintenance
 
 CRUD over `datasets`, `dataset_sources`, and `sources` metadata with the
 invariants learned this cycle enforced in the forms:
@@ -86,7 +119,7 @@ invariants learned this cycle enforced in the forms:
   state, the missing Geofabrik extract is flagged
 - `default_state` and steady-state floors exposed as first-class fields
 
-### 2.5 Cost insight
+### 2.6 Cost insight
 
 Dashboards over two sources joined by time (and by article id once request
 tagging lands):
@@ -99,7 +132,7 @@ The standing headline: recorded vs billed (the cache discount), run burn
 rate against ceilings, and per-article cost distribution. Alerts are out of
 scope for v1; the queries exist from the March run and port directly.
 
-### 2.6 Visuals platform
+### 2.7 Visuals platform
 
 The Flourish-replacement, delivered in two stages.
 
@@ -154,6 +187,7 @@ designed around them.
 | 0 | Repo scaffold, auth (Google, domain-restricted, roles), deploy pipeline, read-only connections to crawler DB and BigQuery | A viewer signs in with Google and sees live row counts per dataset |
 | 1 | Data explorer (articles + enrichment grids, filters, article detail view) and the cost dashboard | The March repair-queue investigation is reproducible entirely in the UI, no SQL session |
 | 2 | Review and cleanup: audited writes, inline edits with ftfy preview, bulk dispositions, import with diff-then-apply, BOM exports | A March-style field backpatch runs end-to-end through the UI with an audit trail and a revert |
+| 2b | Extraction review queue (§2.3) with its three dispositions | A paywall stub is exported unenriched, an empty capture is skipped, and a mislabeled international story reaches enrichment — each with an audited actor |
 | 3 | Visuals v1: registry, page/embed/data views, snapshot pinning, the story-geography map ported and embedded in a test report | The map updates from a nightly sync while a pinned embed stays stable |
 | 4 | Dataset management: dataset/source CRUD with validations, profile editor, gazetteer status and build trigger | A new source is added with a typo'd city and the form catches it; a gazetteer build runs from the UI |
 | 5 | Visuals v2: form-driven builder over Observable Plot + the map runtime | An editor creates and publishes a bar chart from a saved query without writing code |
