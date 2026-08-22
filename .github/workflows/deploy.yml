@@ -114,10 +114,20 @@ jobs:
       # There is no staging environment. Instead the revision is deployed with
       # no traffic and proved on its own tagged URL first, so a broken build
       # never serves a request: if the check below fails, traffic stays put.
+      # The very first deploy is the exception — Cloud Run refuses
+      # --no-traffic when creating a service, so the bootstrap revision
+      # takes traffic directly and the smoke test is its gate.
       - name: Deploy the revision without traffic
         run: |
+          if gcloud run services describe "$SERVICE" --region "$REGION" \
+              --project "$PROJECT_ID" >/dev/null 2>&1; then
+            TRAFFIC_FLAGS="--no-traffic --tag=candidate"
+          else
+            echo "first deploy: service does not exist; deploying with traffic"
+            TRAFFIC_FLAGS=""
+          fi
           gcloud run deploy "$SERVICE" \
-            --no-traffic --tag candidate \
+            $TRAFFIC_FLAGS \
             --image "$IMAGE" --region "$REGION" --project "$PROJECT_ID" \
             --service-account datadesk-run@lnic-datadesk.iam.gserviceaccount.com \
             --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_DB_PASSWORD=crawler-ro-password:latest,CRAWLER_RW_DB_PASSWORD=crawler-rw-password:latest,GOOGLE_OAUTH_CLIENT_ID=google-oauth-client-id:latest,GOOGLE_OAUTH_CLIENT_SECRET=google-oauth-client-secret:latest" \
@@ -146,8 +156,13 @@ jobs:
         run: |
           URL="$(gcloud run services describe "$SERVICE" --region "$REGION" \
                   --project "$PROJECT_ID" --format=json \
-                  | jq -r '.status.traffic[] | select(.tag == "candidate") | .url')"
-          [ -n "$URL" ] || { echo "::error::no candidate URL"; exit 1; }
+                  | jq -r '.status.traffic[] | select(.tag == "candidate") | .url // empty')"
+          if [ -z "$URL" ]; then
+            # First deploy: no candidate tag exists; prove the live URL.
+            URL="$(gcloud run services describe "$SERVICE" --region "$REGION" \
+                    --project "$PROJECT_ID" --format='value(status.url)')"
+          fi
+          [ -n "$URL" ] || { echo "::error::no URL to check"; exit 1; }
           code=""
           for _ in $(seq 1 10); do
             code="$(curl -s -o /dev/null -w '%{http_code}' "$URL/_health" || true)"
