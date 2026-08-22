@@ -97,3 +97,22 @@ def test_no_migrations_reach_the_crawler_alias():
     router = CrawlerRouter()
     assert router.allow_migrate("crawler", "explorer") is False
     assert router.allow_migrate("default", "explorer") is None
+
+
+def test_json_fields_accept_driver_decoded_values():
+    """The crawler's JSON columns are Postgres `json`, not `jsonb`, so
+    psycopg3 hands Django a parsed dict and plain JSONField would call
+    json.loads on it (production 500s, 2026-08-22). sqlite tests cannot
+    reproduce the driver behaviour, so exercise from_db_value directly.
+    """
+    from django.db import connections
+
+    from explorer.models import Source
+
+    field = Source._meta.get_field("meta")
+    connection = connections["crawler"]
+    assert field.from_db_value({"state": "MO"}, None, connection) == {"state": "MO"}
+    assert field.from_db_value([1, 2], None, connection) == [1, 2]
+    # Strings still parse, for backends that hand over raw JSON text.
+    assert field.from_db_value('{"state": "MO"}', None, connection) == {"state": "MO"}
+    assert field.from_db_value(None, None, connection) is None

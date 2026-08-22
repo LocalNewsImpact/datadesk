@@ -14,6 +14,23 @@ crawler's schema; Django only needs the join paths.
 from django.db import models
 
 
+class DecodedJSONField(models.JSONField):
+    """A JSONField that tolerates values the driver already decoded.
+
+    The crawler's JSON columns are Postgres `json`, not `jsonb`. Django's
+    psycopg3 backend registers its raw-string loader for jsonb only, so a
+    `json` column arrives as a parsed dict/list and JSONField.from_db_value
+    then calls json.loads on it — TypeError: the JSON object must be str,
+    bytes or bytearray, not dict. We do not own that schema, so the field
+    accommodates both shapes instead.
+    """
+
+    def from_db_value(self, value, expression, connection):
+        if isinstance(value, (dict, list)):
+            return value
+        return super().from_db_value(value, expression, connection)
+
+
 class CrawlerModel(models.Model):
     """Marker base: routed to the crawler alias, never migrated."""
 
@@ -31,7 +48,7 @@ class Dataset(CrawlerModel):
     name = models.TextField(null=True)
     description = models.TextField(null=True)
     # datasets.metadata carries default_state and the enrichment profile.
-    meta = models.JSONField(db_column="metadata", null=True)
+    meta = DecodedJSONField(db_column="metadata", null=True)
     cron_enabled = models.BooleanField(default=True)
 
     class Meta(CrawlerModel.Meta):
@@ -51,11 +68,11 @@ class Source(CrawlerModel):
     owner = models.TextField(null=True)
     type = models.TextField(null=True)
     status = models.TextField(null=True, default="active")
-    meta = models.JSONField(db_column="metadata", null=True)
+    meta = DecodedJSONField(db_column="metadata", null=True)
     # NOT NULL without server defaults in the crawler's schema; creation
     # must supply them (see create_crawler_write_role.sql INSERT columns).
     rss_consecutive_failures = models.IntegerField(default=0)
-    rss_transient_failures = models.JSONField(default=list)
+    rss_transient_failures = DecodedJSONField(default=list)
 
     class Meta(CrawlerModel.Meta):
         db_table = "sources"
@@ -167,7 +184,7 @@ class ArticleEnrichment(CrawlerModel):
     timeframe_confidence = models.FloatField(null=True)
     user_need = models.TextField(null=True)
     user_need_confidence = models.FloatField(null=True)
-    rationales = models.JSONField(null=True)
+    rationales = DecodedJSONField(null=True)
     point_place = models.TextField(null=True)
     point_method = models.TextField(null=True)
     point_geoid = models.TextField(null=True)
