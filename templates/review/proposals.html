@@ -44,9 +44,9 @@
       <table class="rec-table">
         <thead>
           <tr><th scope="col">Field</th>
-              <th scope="col">Proposed value</th>
-              <th scope="col">Current value</th>
-              <th scope="col">A different value</th></tr>
+              <th scope="col">Proposed change</th>
+              <th scope="col">Current text</th>
+              <th scope="col">Something else</th></tr>
         </thead>
         <tbody>
         {% for p in group.fields %}
@@ -66,19 +66,19 @@
               {% if p.check_failed %}<span class="flagchip">flagged</span>{% endif %}
               <button type="button" class="verb accept{% if p.check_failed %} override{% endif %}"
                       data-verb="accept">
-                <b>Accept proposal</b><i>write this value</i></button>
+                <b>Accept</b></button>
             </td>
             <td class="option">
               <span class="val">{% if p.current_value %}{{ p.current_value }}{% else %}<span class="none">empty</span>{% endif %}</span>
               <button type="button" class="verb reject" data-verb="reject">
-                <b>Keep current</b><i>no change</i></button>
+                <b>Keep</b><i>Leave as is</i></button>
             </td>
             <td class="option">
               <input type="text" class="fixval" name="v-{{ p.pk }}"
                      placeholder="{{ p.useful_suggestion|default:'another value' }}"
                      value="" aria-label="A different value for {{ p.field }}">
               <button type="button" class="verb fix" data-verb="fix">
-                <b>Use my value</b><i>write what I typed</i></button>
+                <b>Fix</b><i>Use what I typed</i></button>
               <input type="hidden" name="d-{{ p.pk }}" value="">
             </td>
           </tr>

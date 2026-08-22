@@ -139,7 +139,7 @@ def test_a_rejected_value_is_not_the_ordinary_path(client, editor, publisher):
     )
     assert p.check_failed is True
     content = client.get(URL).content.decode()
-    assert "Accept proposal" in content
+    assert ">Accept<" in content
     assert 'class="flagchip"' in content
     assert "Rock Port" in content
     # The gazetteer's spelling is what the record already holds, so Keep
@@ -170,7 +170,7 @@ def test_a_passing_proposal_keeps_the_plain_accept(client, editor, publisher):
     p = _proposal(publisher, "owner", "", "CherryRoad Media")
     assert p.check_failed is False
     content = client.get(URL).content.decode()
-    assert "Accept proposal" in content
+    assert ">Accept<" in content
     assert 'class="flagchip"' not in content
 
 
@@ -220,5 +220,5 @@ def test_the_three_columns_share_one_vocabulary(client, editor, publisher):
         "write what I typed",
     ):
         assert phrase in content, phrase
-    for gone in ("Accept anyway", "overrule the check", "leave as is", "use this</i>"):
+    for gone in ("Accept anyway", "overrule the check", "Accept proposal"):
         assert gone not in content, gone
