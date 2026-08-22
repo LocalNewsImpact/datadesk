@@ -38,8 +38,8 @@ echo
 gcloud run jobs deploy "$JOB" \
   --image "$IMAGE" --region "$REGION" --project "$PROJECT" \
   --command python --args "^|^${ARGS}" \
-  --set-secrets DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest \
-  --set-env-vars "CLOUD_SQL_CONNECTION_NAME=${SQL_INSTANCE},DB_NAME=datadesk,DB_USER=datadesk" \
+  --set-secrets DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_DB_PASSWORD=crawler-ro-password:latest,CRAWLER_RW_DB_PASSWORD=crawler-rw-password:latest \
+  --set-env-vars "CLOUD_SQL_CONNECTION_NAME=${SQL_INSTANCE},DB_NAME=datadesk,DB_USER=datadesk,CRAWLER_DB_NAME=mizzou,CRAWLER_DB_USER=datadesk_ro,CRAWLER_RW_DB_USER=datadesk_rw" \
   --set-cloudsql-instances "$SQL_INSTANCE" \
   --service-account "datadesk-run@${PROJECT}.iam.gserviceaccount.com" \
   --max-retries 0 --task-timeout 60m --quiet >/dev/null
