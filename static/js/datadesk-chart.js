@@ -40,8 +40,8 @@
   // Chrome (ink, grid, surfaces) is shared; only series and ramps swap.
   const THEMES = {
     datadesk: {
-      light: { ...LIGHT },
-      dark: { ...DARK },
+      light: { ...LIGHT, points: ["#eb6834", "#008300", "#4a3aa7"] },
+      dark: { ...DARK, points: ["#d95926", "#008300", "#9085e9"] },
     },
     lnic: {
       light: {
@@ -50,6 +50,8 @@
                  "#e87ba4", "#008300", "#4a3aa7", "#e34948"],
         seqLow: "#d3ecfa", seqHigh: "#003a56",
         divLow: "#003a56", divMid: "#f0efec", divHigh: "#8f1d1d",
+        // Dots must not read as another step of the shading ramp.
+        points: ["#eb6834", "#008300", "#4a3aa7"],
       },
       dark: {
         ...DARK,
@@ -57,6 +59,7 @@
                  "#d55181", "#008300", "#9085e9", "#e66767"],
         seqLow: "#0e4a6d", seqHigh: "#9fd6f2",
         divLow: "#9fd6f2", divMid: "#383835", divHigh: "#e66767",
+        points: ["#d95926", "#008300", "#9085e9"],
       },
     },
     mizzou: {
@@ -66,6 +69,7 @@
                  "#e87ba4", "#008300", "#4a3aa7", "#eb6834"],
         seqLow: "#f7e6bd", seqHigh: "#6b4d05",
         divLow: "#184f95", divMid: "#f0efec", divHigh: "#7a0f0f",
+        points: ["#a31414", "#2a78d6", "#008300"],
       },
       dark: {
         ...DARK,
@@ -73,6 +77,7 @@
                  "#199e70", "#9085e9", "#d55181", "#008300"],
         seqLow: "#5c4304", seqHigh: "#f0d488",
         divLow: "#9ec5f4", divMid: "#383835", divHigh: "#e66767",
+        points: ["#c23a3a", "#3987e5", "#008300"],
       },
     },
     rji: {
@@ -82,6 +87,7 @@
                  "#2a78d6", "#e87ba4", "#008300", "#4a3aa7"],
         seqLow: "#d4e5f2", seqHigh: "#0d3350",
         divLow: "#0d3350", divMid: "#f0efec", divHigh: "#8f1d1d",
+        points: ["#d9a018", "#e34948", "#008300"],
       },
       dark: {
         ...DARK,
@@ -89,6 +95,7 @@
                  "#3987e5", "#d55181", "#008300", "#9085e9"],
         seqLow: "#123a5c", seqHigh: "#a8cce8",
         divLow: "#a8cce8", divMid: "#383835", divHigh: "#e66767",
+        points: ["#c98500", "#e66767", "#008300"],
       },
     },
   };
@@ -815,9 +822,24 @@
       const byCounty = new Map(areas.map((a) => [String(a.county), a.stories]));
       const max = d3.max(areas, (a) => a.stories) || 0;
       const ramp = quantizeRamp(t.seqLow, t.seqHigh, 5);
-      // Thresholds mirror the March map's legend: 0 · 1-2 · 3-5 · 6-9 · 10+
-      const shadeFor = (n) =>
-        !n ? t.missing : n <= 2 ? ramp[1] : n <= 5 ? ramp[2] : n <= 9 ? ramp[3] : ramp[4];
+      // Bands are quartiles of the counties that actually have stories,
+      // so the map stays informative whether it is a 500-article sample
+      // or the whole corpus. config.bands: "fixed" restores the March
+      // map's 1-2 / 3-5 / 6-9 / 10+ cuts.
+      const values = areas.map((a) => a.stories).filter((n) => n > 0).sort(d3.ascending);
+      const cuts = config.bands === "fixed" || values.length < 8
+        ? [2, 5, 9]
+        : [0.25, 0.5, 0.75].map((q) => Math.max(1, Math.round(d3.quantile(values, q))));
+      const bandOf = (n) =>
+        !n ? 0 : n <= cuts[0] ? 1 : n <= cuts[1] ? 2 : n <= cuts[2] ? 3 : 4;
+      const shadeFor = (n) => (n ? ramp[bandOf(n)] : t.missing);
+      const bandLabels = [
+        "0",
+        cuts[0] === 1 ? "1" : `1\u2013${cuts[0]}`,
+        cuts[1] === cuts[0] + 1 ? `${cuts[1]}` : `${cuts[0] + 1}\u2013${cuts[1]}`,
+        cuts[2] === cuts[1] + 1 ? `${cuts[2]}` : `${cuts[1] + 1}\u2013${cuts[2]}`,
+        `${cuts[2] + 1}+`,
+      ];
 
       const projection = d3.geoAlbersUsa().fitSize(
         [width, Math.round(width * 0.62)],
@@ -854,7 +876,9 @@
       const dots = frame.append("g").selectAll("circle").data(placed).join("circle")
         .attr("transform", (p) => `translate(${projection([p.lon, p.lat])})`)
         .attr("r", (p) => r(p.stories))
-        .attr("fill", (p) => t.series[PRECISION[p.level] ?? 5])
+        .attr("fill", (p) =>
+          (t.points || t.series)[PRECISION[p.level] ?? 0] ||
+          t.series[PRECISION[p.level] ?? 0])
         .attr("fill-opacity", 0.85)
         .attr("stroke", t.surface).attr("stroke-width", 1);
 
@@ -883,7 +907,8 @@
         const item = document.createElement("span");
         const dot = document.createElement("span");
         dot.className = "dd-swatch round";
-        dot.style.background = t.series[PRECISION[level]];
+        dot.style.background =
+          (t.points || t.series)[PRECISION[level]] || t.series[PRECISION[level]];
         item.append(dot, level);
         legend.appendChild(item);
       }
@@ -893,8 +918,8 @@
         scale.append(document.createTextNode(
           ((payload.meta && payload.meta.area_scope) || "place-set") +
           " stories touching each county:"));
-        [["0", t.missing], ["1\u20132", ramp[1]], ["3\u20135", ramp[2]],
-         ["6\u20139", ramp[3]], ["10+", ramp[4]]].forEach(([label, color]) => {
+        bandLabels.map((label, i) => [label, i ? ramp[i] : t.missing])
+          .forEach(([label, color]) => {
           const chip = document.createElement("span");
           const sw = document.createElement("span");
           sw.className = "dd-swatch";
