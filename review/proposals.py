@@ -15,24 +15,8 @@ from django.db import models
 
 
 class ChangeProposal(models.Model):
-    # What the checks concluded, in the order a reviewer meets them.
-    READY = "ready"
-    OWNER_CONFLICT = "owner_conflict"
-    UNKNOWN_OWNER = "unknown_owner"
-    GAZETTEER = "gazetteer"
-    DUPLICATE = "duplicate"
-    NO_MATCH = "no_match"
-    # Filter labels name the state of the proposal, so a reviewer can
-    # choose what to work on: the safe ones, or the ones needing a call.
-    FINDINGS = [
-        (READY, "Ready to apply"),
-        (OWNER_CONFLICT, "Different owner recorded"),
-        (UNKNOWN_OWNER, "Unknown owner"),
-        (GAZETTEER, "No such place or county"),
-        (DUPLICATE, "File disagrees with itself"),
-        (NO_MATCH, "No publisher with that id"),
-    ]
-
+    # A queue item is a record with a named defect (REVIEW.md). The flag
+    # says what is wrong; the vocabulary lives in review/flags.py.
     PENDING = "pending"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
@@ -57,8 +41,9 @@ class ChangeProposal(models.Model):
     current_value = models.TextField(blank=True, default="")
     proposed_value = models.TextField(blank=True, default="")
 
-    finding = models.CharField(max_length=30, choices=FINDINGS)
-    why = models.TextField(blank=True, default="")
+    flag = models.CharField(max_length=40, default="")
+    # What makes this record's instance of the defect specific.
+    detail = models.TextField(blank=True, default="")
     suggestion = models.TextField(blank=True, default="")
 
     state = models.CharField(max_length=20, choices=STATES, default=PENDING)
@@ -98,6 +83,20 @@ class ChangeProposal(models.Model):
         return f"{self.record_label}.{self.field}: {self.proposed_value!r}"
 
     @property
+    def flag_label(self):
+        from review.flags import ALL_BY_KEY
+
+        found = ALL_BY_KEY.get(self.flag)
+        return found.label if found else self.flag
+
+    @property
+    def flag_defect(self):
+        from review.flags import ALL_BY_KEY
+
+        found = ALL_BY_KEY.get(self.flag)
+        return found.defect if found else ""
+
+    @property
     def useful_suggestion(self):
         """The check's own value, when it is genuinely a third option.
 
@@ -116,25 +115,11 @@ class ChangeProposal(models.Model):
         return value
 
     @property
-    def check_failed(self):
-        """Did a check reject the proposed value?
-
-        Accepting one of these writes a value the checks refused, which
-        is a reviewer overruling the check — legitimate, but it must not
-        look like the ordinary path.
-        """
-        return self.finding in (
-            self.OWNER_CONFLICT,
-            self.UNKNOWN_OWNER,
-            self.GAZETTEER,
-        )
-
-    @property
     def actionable(self):
-        """Can a reviewer accept this as proposed?
+        """Can a reviewer decide this here?
 
-        A duplicate or an unmatched record has nothing safe to accept —
-        the file disagrees with itself, or names a record that is not
-        there — so those are reported for correction at the source.
+        A file that contradicts itself offers nothing safe to accept:
+        which of its values was meant is a question for whoever wrote
+        it, not a guess to make in a queue.
         """
-        return self.finding not in (self.DUPLICATE, self.NO_MATCH)
+        return self.flag != "evidence_conflict"

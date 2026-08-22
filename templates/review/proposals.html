@@ -1,13 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Proposed changes — Datadesk{% endblock %}
+{% block title %}Publisher records to review — Datadesk{% endblock %}
 
 {% block content %}
 <section class="card card-wide queue">
   <header class="queue-head">
-    <h1>Proposed changes</h1>
-    <p class="notice">Changes something proposed for publisher records —
-    an imported sheet, a normalization pass — with what the checks found.
-    Decide as you read; nothing is written until you submit.</p>
+    <h1>Publisher records to review</h1>
+    <p class="notice">Publisher records with something missing, contradicted
+    or unrecognised. Each row says what is wrong with it. Decide as you
+    read; nothing is written until you submit.</p>
   </header>
 
   {% if receipt %}
@@ -19,17 +19,15 @@
   </p>
   {% endif %}
 
-  <nav class="queue-facets" aria-label="What the checks found">
-    <a href="?state={{ state }}" class="facet-chip {% if not finding %}on{% endif %}">
-      All pending <span>{{ pending_total }}</span>
+  <nav class="queue-facets" aria-label="What is wrong">
+    <a href="?state={{ state }}" class="facet-chip {% if not flag %}on{% endif %}">
+      Everything wrong <span>{{ pending_total }}</span>
     </a>
-    {% for key, label, count in findings %}
-      {% if count %}
-      <a href="?finding={{ key }}&state={{ state }}"
-         class="facet-chip {% if finding == key %}on{% endif %}">{{ label }} <span>{{ count }}</span></a>
-      {% endif %}
+    {% for key, label, defect, count in flags %}
+    <a href="?flag={{ key }}&state={{ state }}" title="{{ defect }}"
+       class="facet-chip {% if flag == key %}on{% endif %}">{{ label }} <span>{{ count }}</span></a>
     {% endfor %}
-    <a href="?finding={{ finding }}&state=all" class="facet-chip {% if state == 'all' %}on{% endif %}">Everything</a>
+    <a href="?flag={{ flag }}&state=all" class="facet-chip {% if state == 'all' %}on{% endif %}">Including decided</a>
   </nav>
 
   <form method="post" id="queue-form" autocomplete="off">
@@ -56,11 +54,12 @@
               data-proposed="{{ p.proposed_value }}"
               data-suggestion="{{ p.suggestion }}"
               data-suggested="{{ p.useful_suggestion }}"
-              data-why="{{ p.why }}"
+              data-why="{{ p.detail }}"
               data-failed="{% if p.check_failed %}1{% else %}0{% endif %}">
             <th scope="row">
               {{ p.field }}
-              {% if p.why %}<span class="finding {{ p.finding }}">{{ p.why }}</span>{% endif %}
+              <span class="flag-label">{{ p.flag_label }}</span>
+              {% if p.detail %}<span class="finding">{{ p.detail }}</span>{% endif %}
             </th>
             <td class="option">
               <span class="val proposed">{{ p.proposed_value|default:"—" }}</span>
@@ -94,7 +93,7 @@
         <h3>Not offered for a decision</h3>
         <ul>
           {% for p in group.blocked %}
-          <li><b>{{ p.field }}</b> → {{ p.proposed_value|default:"empty" }} — {{ p.why }}
+          <li><b>{{ p.field }}</b> — {{ p.flag_label }}: {{ p.detail }}
             {% if p.suggestion %}<span class="sugg">{{ p.suggestion }}</span>{% endif %}</li>
           {% endfor %}
         </ul>

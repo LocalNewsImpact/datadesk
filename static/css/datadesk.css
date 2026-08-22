@@ -1514,3 +1514,4 @@ tr.prop td { border-bottom: 0; }
 .rec-table td.option .fixval { display: block; width: 100%; margin-bottom: .3rem;
   padding: .25rem .4rem; font-size: .82rem; box-sizing: border-box; }
 .queue-dock .tally.warn { color: #8a5a12; }
+.flag-label { display: block; font-weight: 600; font-size: .78rem; color: var(--ink, inherit); margin-top: .2rem; }

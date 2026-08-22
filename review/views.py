@@ -1,7 +1,7 @@
 """Review and cleanup views (SCOPE.md §2.2). Editor role throughout."""
 
 from django.core.paginator import Paginator
-from django.db.models import F
+from django.db.models import Count, F
 from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -398,7 +398,7 @@ def _one_per_field(qs):
     """
     seen, out = set(), []
     for p in qs.order_by("record_label", "field", "-created_at"):
-        key = (p.record_id, p.field)
+        key = (p.record_id, p.flag, p.field)
         if key in seen:
             continue
         seen.add(key)
@@ -429,46 +429,41 @@ def _proposal_groups(proposals):
 
 @editor_required
 def proposals(request):
-    """Review proposed changes, decide, then submit the session at once."""
+    """Publisher records with something wrong, for review (REVIEW.md)."""
+    from review.flags import ALL_FLAGS
     from review.proposals import ChangeProposal
 
     if request.method == "POST":
         return _submit_proposals(request)
 
-    finding = request.GET.get("finding") or ""
+    flag = request.GET.get("flag") or ""
     state = request.GET.get("state") or ChangeProposal.PENDING
     qs = ChangeProposal.objects.filter(target="sources")
-    # A proposal whose value already matches the record is not a
-    # question; showing it produces "writing X over X".
-    qs = qs.exclude(proposed_value=F("current_value"))
+    qs = qs.exclude(proposed_value=F("current_value"), flag="value_disputed")
     if state != "all":
         qs = qs.filter(state=state)
-    if finding:
-        qs = qs.filter(finding=finding)
+    if flag:
+        qs = qs.filter(flag=flag)
 
-    counts = {
-        key: ChangeProposal.objects.filter(
-            target="sources", state=ChangeProposal.PENDING, finding=key
-        )
-        .exclude(proposed_value=F("current_value"))
-        .count()
-        for key, _label in ChangeProposal.FINDINGS
-    }
+    pending = ChangeProposal.objects.filter(
+        target="sources", state=ChangeProposal.PENDING
+    )
+    counts = dict(
+        pending.values_list("flag").annotate(n=Count("id")).values_list("flag", "n")
+    )
     return render(
         request,
         "review/proposals.html",
         {
             "groups": _proposal_groups(_one_per_field(qs)),
-            "findings": [
-                (k, label, counts.get(k, 0)) for k, label in ChangeProposal.FINDINGS
+            "flags": [
+                (f.key, f.label, f.defect, counts.get(f.key, 0))
+                for f in ALL_FLAGS
+                if counts.get(f.key, 0)
             ],
-            "finding": finding,
+            "flag": flag,
             "state": state,
-            "pending_total": ChangeProposal.objects.filter(
-                target="sources", state=ChangeProposal.PENDING
-            )
-            .exclude(proposed_value=F("current_value"))
-            .count(),
+            "pending_total": pending.count(),
             "receipt": request.session.pop("proposal_receipt", None),
         },
     )

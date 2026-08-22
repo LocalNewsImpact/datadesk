@@ -43,7 +43,7 @@ def _proposal(publisher, field, current, proposed, **kwargs):
         field=field,
         current_value=current,
         proposed_value=proposed,
-        finding=kwargs.pop("finding", ChangeProposal.READY),
+        flag=kwargs.pop("flag", "value_disputed"),
         **kwargs,
     )
 
@@ -99,16 +99,16 @@ def test_a_fix_without_a_value_stays_pending(client, editor, publisher):
     assert publisher.city == "Columbia"
 
 
-def test_duplicates_and_missing_records_are_not_offered(client, editor, publisher):
-    """Nothing safe to accept: the file disagrees with itself, or names a
-    record that is not there."""
+def test_a_file_that_contradicts_itself_is_not_decidable(client, editor, publisher):
+    """Which of a file's two values was meant is a question for whoever
+    wrote it, not a guess to make in a queue."""
     dupe = _proposal(
         publisher,
         "owner",
         "",
         "Gannett",
-        finding=ChangeProposal.DUPLICATE,
-        why="the file has two rows for this record",
+        flag="evidence_conflict",
+        detail="the file has two rows for this record",
     )
     assert dupe.actionable is False
     content = client.get(URL).content.decode()
@@ -124,25 +124,21 @@ def test_viewers_cannot_reach_the_queue(client, publisher):
 
 
 def test_a_rejected_value_is_not_the_ordinary_path(client, editor, publisher):
-    """The sheet proposed "Rockport"; the gazetteer says "Rock Port".
-    Accepting must read as overruling the check, and the checked value
-    must be offered without retyping it."""
+    """The record says Rock Port and a file says Rockport, which is not
+    a Missouri place. The row must say so where the reviewer reads it."""
     p = _proposal(
         publisher,
         "city",
         "Rock Port",
         "Rockport",
-        finding=ChangeProposal.GAZETTEER,
-        why="Rockport is not a Missouri place",
+        flag="city_unknown",
+        detail="Rockport is not a Missouri place",
         suggested_value="Rock Port",
         suggestion="the gazetteer spells it Rock Port",
     )
-    assert p.check_failed is True
     content = client.get(URL).content.decode()
     assert "Accept Proposal" in content
-    # The finding is said in the line beneath, not coloured onto the
-    # button: Accept is the affirmative action in every row.
-    assert p.why in content
+    assert p.detail in content
     assert "Rock Port" in content
     # The gazetteer's spelling is what the record already holds, so Keep
     # is the answer; nothing repeats it.
@@ -157,8 +153,8 @@ def test_the_checked_value_is_offered_when_it_differs_from_both(
         "city",
         "Rockport",
         "Rockpot",
-        finding=ChangeProposal.GAZETTEER,
-        why="Rockpot is not a Missouri place",
+        flag="city_unknown",
+        detail="Rockpot is not a Missouri place",
         suggested_value="Rock Port",
     )
     assert p.useful_suggestion == "Rock Port"
@@ -168,9 +164,8 @@ def test_the_checked_value_is_offered_when_it_differs_from_both(
     assert 'placeholder="Rock Port"' in content
 
 
-def test_a_passing_proposal_keeps_the_plain_accept(client, editor, publisher):
-    p = _proposal(publisher, "owner", "", "CherryRoad Media")
-    assert p.check_failed is False
+def test_a_row_without_a_rejected_value_reads_the_same(client, editor, publisher):
+    _proposal(publisher, "owner", "", "CherryRoad Media", flag="owner_missing")
     content = client.get(URL).content.decode()
     assert "Accept Proposal" in content
 
@@ -196,7 +191,7 @@ def test_a_suggestion_is_only_offered_when_it_is_a_third_option(
         "canonical_name",
         "KMBZ",
         "KFTK",
-        finding=ChangeProposal.OWNER_CONFLICT,
+        flag="owner_unknown",
         suggested_value="KMBZ",
     )
     assert same_as_current.useful_suggestion == ""
@@ -272,32 +267,6 @@ def test_a_fix_with_nothing_typed_does_not_block_the_others(client, editor, publ
     assert publisher.city == "Columbia"
 
 
-def test_reloading_the_file_does_not_ask_about_decided_fields(
-    client, editor, publisher, tmp_path
-):
-    """Reloading re-created proposals for fields already decided, so the
-    same rows kept coming back after every reload."""
-    from django.core.management import call_command
-
-    csv_path = tmp_path / "findings.csv"
-    csv_path.write_text(
-        "source_id,host_norm,field,current,proposed,suggested_value,finding,why,suggestion\n"
-        f"{publisher.id},tribune.example,city,Columbia,Ashland,,apply,,apply\n"
-    )
-    call_command("load_source_proposals", path=str(csv_path), origin="sheet")
-    proposal = ChangeProposal.objects.get(field="city")
-    client.post(URL, {f"d-{proposal.pk}": "reject"})
-
-    call_command("load_source_proposals", path=str(csv_path), origin="sheet")
-    assert ChangeProposal.objects.filter(field="city").count() == 1
-    assert (
-        ChangeProposal.objects.filter(
-            field="city", state=ChangeProposal.PENDING
-        ).count()
-        == 0
-    )
-
-
 def test_two_pending_rows_for_one_field_ask_once(client, editor, publisher):
     _proposal(publisher, "city", "Columbia", "Ashland")
     _proposal(publisher, "city", "Columbia", "Ashland")
@@ -321,3 +290,114 @@ def test_decided_rows_leave_the_pending_queue(client, editor, publisher):
     assert f'data-id="{p.pk}"' not in client.get(URL).content.decode()
     # Still findable when asked for explicitly.
     assert f'data-id="{p.pk}"' in client.get(URL + "?state=all").content.decode()
+
+
+# --- the scan finds defects in the corpus, not in a file ---------------------
+
+
+def test_the_scan_flags_records_no_file_mentions(crawler_schema, editor):
+    """Coverage is the point: a publisher nobody wrote a spreadsheet row
+    for still has to surface if something is wrong with it (REVIEW.md)."""
+    from django.core.management import call_command
+
+    from explorer.models import Dataset, DatasetSource
+
+    dataset = Dataset.objects.create(
+        id="d1", slug="mo", label="Missouri", meta={"default_state": "MO"}
+    )
+    broken = Source.objects.create(
+        id="s9",
+        host="quiet.example",
+        host_norm="quiet.example",
+        canonical_name="Quiet Weekly",
+        city="Columbia",
+        county="",
+        owner="",
+    )
+    DatasetSource.objects.create(id="ds9", dataset=dataset, source=broken)
+
+    call_command("scan_sources", dataset="mo")
+    flags = set(
+        ChangeProposal.objects.filter(record_id="s9").values_list("flag", flat=True)
+    )
+    assert "county_missing" in flags
+    assert "owner_missing" in flags
+
+
+def test_the_scan_does_not_queue_a_record_with_nothing_wrong(crawler_schema, editor):
+    from django.core.management import call_command
+
+    from explorer.models import Dataset, DatasetSource
+
+    dataset = Dataset.objects.create(
+        id="d1", slug="mo", label="Missouri", meta={"default_state": "MO"}
+    )
+    fine = Source.objects.create(
+        id="s10",
+        host="ok.example",
+        host_norm="ok.example",
+        canonical_name="The Columbia Example",
+        city="Columbia",
+        county="Boone",
+        owner="CherryRoad Media",
+    )
+    DatasetSource.objects.create(id="ds10", dataset=dataset, source=fine)
+
+    call_command("scan_sources", dataset="mo")
+    assert not ChangeProposal.objects.filter(record_id="s10").exists()
+
+
+def test_the_scan_names_the_defect_not_the_check(crawler_schema, editor):
+    """A county that is not a county in this state says exactly that."""
+    from django.core.management import call_command
+
+    from explorer.models import Dataset, DatasetSource
+
+    dataset = Dataset.objects.create(
+        id="d1", slug="mo", label="Missouri", meta={"default_state": "MO"}
+    )
+    wrong = Source.objects.create(
+        id="s11",
+        host="kc.example",
+        host_norm="kc.example",
+        canonical_name="KC Example",
+        city="Kansas City",
+        county="Wyandotte",
+        owner="CherryRoad Media",
+    )
+    DatasetSource.objects.create(id="ds11", dataset=dataset, source=wrong)
+
+    call_command("scan_sources", dataset="mo")
+    p = ChangeProposal.objects.get(record_id="s11", flag="county_unknown")
+    assert "Wyandotte is a county in KS, not MO" in p.detail
+    assert p.flag_label == "County does not exist here"
+
+
+def test_a_rescan_does_not_ask_again_about_a_decision(client, crawler_schema, editor):
+    from django.core.management import call_command
+
+    from explorer.models import Dataset, DatasetSource
+
+    dataset = Dataset.objects.create(
+        id="d1", slug="mo", label="Missouri", meta={"default_state": "MO"}
+    )
+    source = Source.objects.create(
+        id="s12",
+        host="x.example",
+        host_norm="x.example",
+        canonical_name="Example",
+        city="Columbia",
+        county="Boone",
+        owner="",
+    )
+    DatasetSource.objects.create(id="ds12", dataset=dataset, source=source)
+
+    call_command("scan_sources", dataset="mo")
+    p = ChangeProposal.objects.get(record_id="s12", flag="owner_missing")
+    client.post(URL, {f"d-{p.pk}": "reject"})
+
+    call_command("scan_sources", dataset="mo")
+    assert (
+        ChangeProposal.objects.filter(record_id="s12", flag="owner_missing").count()
+        == 1
+    )
