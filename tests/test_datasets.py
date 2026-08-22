@@ -283,3 +283,23 @@ def test_normalize_command_reports_then_applies(client, admin, crawler_schema):
     assert both.county == "Jasper and Newton"  # never touched
     entry = AuditLogEntry.objects.get(action="source:normalize_county")
     assert entry.before == {"s1": {"county": "st louis county"}}
+
+
+def test_normalize_diagnoses_wrong_state_and_city_values():
+    """A dead end is usually a county in the next state or a city."""
+    from datasets.management.commands.normalize_counties import classify
+
+    kind, _, detail = classify("MO", "Wyandotte")
+    assert kind == "review"
+    assert "county in KS" in detail
+    kind, _, detail = classify("MO", "Kansas City")
+    assert kind == "review"
+    assert "is a city, not a county" in detail
+    assert "Jackson" in detail
+
+
+def test_place_to_county_uses_the_place_internal_point():
+    """Kansas City spans four counties; lowest-FIPS would say Cass."""
+    from datasets.geo import county_for_place
+
+    assert county_for_place("2938000") == ("29095", 4)

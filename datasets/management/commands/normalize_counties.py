@@ -21,7 +21,13 @@ import re
 
 from django.core.management.base import BaseCommand, CommandError
 
-from datasets.geo import canonical_county, suggest_counties
+from datasets.geo import (
+    canonical_county,
+    place_county,
+    state_code,
+    states_with_county,
+    suggest_counties,
+)
 from explorer.models import Dataset, DatasetSource, Source
 from review.services import audited_update
 
@@ -49,6 +55,24 @@ def classify(state, value):
             )
         return "review", None, f"names several places: {raw}"
 
+    # A value that matches nothing here often matches something obvious
+    # elsewhere: a county in the neighbouring state, or a city rather
+    # than a county. Naming that turns a dead end into a correction.
+    elsewhere = [st for st in states_with_county(raw) if st != state_code(state)]
+    if elsewhere:
+        return (
+            "review",
+            None,
+            f"{raw} is a county in {', '.join(elsewhere)}, not "
+            f"{state_code(state)} — check the state or the county",
+        )
+    as_place = place_county(state, raw)
+    if as_place:
+        return (
+            "review",
+            None,
+            f"{raw} is a city, not a county; it sits in {as_place[2]}",
+        )
     hints = suggest_counties(state, raw)
     return (
         "review",

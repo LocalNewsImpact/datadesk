@@ -25,6 +25,7 @@ _SUFFIX = re.compile(
 )
 
 _places: dict[str, set[str]] | None = None
+_geoids: dict[tuple[str, str], str] | None = None
 
 
 def _norm(name):
@@ -32,16 +33,27 @@ def _norm(name):
 
 
 def _load():
-    global _places
+    global _places, _geoids
     if _places is not None:
         return _places
     places: dict[str, set[str]] = {}
+    geoids: dict[tuple[str, str], str] = {}
     with open(_DATA, newline="") as fh:
         for row in csv.DictReader(fh):
             name = _norm(_SUFFIX.sub("", row["NAME"]))
             places.setdefault(row["USPS"], set()).add(name)
+            # First (lowest GEOID) wins on bare-name ties, matching the
+            # crawler's fips.py.
+            geoids.setdefault((row["USPS"], name), row["GEOID"])
     _places = places
+    _geoids = geoids
     return places
+
+
+def place_geoid(state, city):
+    """The place GEOID for a city in a state, or None."""
+    _load()
+    return _geoids.get(((state or "").strip().upper(), _norm(city or "")))
 
 
 def validate_city(state, city):

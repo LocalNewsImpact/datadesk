@@ -106,7 +106,7 @@ def canonical_county(state, name):
     suffix removed — "St. Louis", "Ste. Genevieve", "DeKalb" — which is
     what a normalization pass should write back.
     """
-    entry = _load_counties().get(((state or "").strip().upper(), _fold(name)))
+    entry = _load_counties().get((state_code(state), _fold(name)))
     if entry is None:
         return None, None
     fips, official = entry
@@ -117,8 +117,104 @@ def suggest_counties(state, name, limit=3):
     """Close gazetteer names for a value that did not match."""
     import difflib
 
-    pool = [k[1] for k in _load_counties() if k[0] == (state or "").upper()]
+    pool = [k[1] for k in _load_counties() if k[0] == state_code(state)]
     matches = difflib.get_close_matches(_fold(name), pool, n=limit, cutoff=0.72)
     return [
         canonical_county(state, m)[1] for m in matches if canonical_county(state, m)[1]
     ]
+
+
+# --- state codes ------------------------------------------------------------
+#
+# Source records carry the state as "MO" or "Missouri" depending on when
+# they were loaded, so every lookup normalizes first.
+
+_STATE_BY_NAME = {
+    "alabama": "AL",
+    "alaska": "AK",
+    "arizona": "AZ",
+    "arkansas": "AR",
+    "california": "CA",
+    "colorado": "CO",
+    "connecticut": "CT",
+    "delaware": "DE",
+    "district of columbia": "DC",
+    "florida": "FL",
+    "georgia": "GA",
+    "hawaii": "HI",
+    "idaho": "ID",
+    "illinois": "IL",
+    "indiana": "IN",
+    "iowa": "IA",
+    "kansas": "KS",
+    "kentucky": "KY",
+    "louisiana": "LA",
+    "maine": "ME",
+    "maryland": "MD",
+    "massachusetts": "MA",
+    "michigan": "MI",
+    "minnesota": "MN",
+    "mississippi": "MS",
+    "missouri": "MO",
+    "montana": "MT",
+    "nebraska": "NE",
+    "nevada": "NV",
+    "new hampshire": "NH",
+    "new jersey": "NJ",
+    "new mexico": "NM",
+    "new york": "NY",
+    "north carolina": "NC",
+    "north dakota": "ND",
+    "ohio": "OH",
+    "oklahoma": "OK",
+    "oregon": "OR",
+    "pennsylvania": "PA",
+    "puerto rico": "PR",
+    "rhode island": "RI",
+    "south carolina": "SC",
+    "south dakota": "SD",
+    "tennessee": "TN",
+    "texas": "TX",
+    "utah": "UT",
+    "vermont": "VT",
+    "virginia": "VA",
+    "washington": "WA",
+    "west virginia": "WV",
+    "wisconsin": "WI",
+    "wyoming": "WY",
+}
+
+
+def state_code(value):
+    """USPS code for a state written either way, or ''."""
+    text = (value or "").strip()
+    if len(text) == 2 and text.isalpha():
+        return text.upper()
+    return _STATE_BY_NAME.get(text.lower(), "")
+
+
+def states_with_county(name):
+    """Every state whose gazetteer has a county by this name."""
+    folded = _fold(name)
+    return sorted({st for st, key in _load_counties() if key == folded})
+
+
+def place_county(state, name):
+    """(place, county fips, county name) when the value names a place.
+
+    A source whose county field reads "Kansas City" has a city in it;
+    naming the county that place sits in turns a dead end into a
+    correction.
+    """
+    from datasets.places import place_geoid
+
+    geoid = place_geoid(state_code(state), name)
+    if not geoid:
+        return None
+    county_fips = county_for_place(geoid)[0]
+    if not county_fips:
+        return None
+    for (_st, _key), (fips, official) in _load_counties().items():
+        if fips == county_fips:
+            return name, county_fips, _COUNTY_SUFFIX.sub("", official).strip()
+    return None
