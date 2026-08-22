@@ -208,3 +208,78 @@ def test_editors_cannot_manage_datasets(client, editor, dataset):
 
 def test_anonymous_is_redirected(client):
     assert client.get("/manage/datasets/").status_code == 302
+
+
+# --- county normalization ----------------------------------------------------
+
+
+def test_county_canonicalization_keeps_city_and_county_apart():
+    """Missouri's St. Louis city and St. Louis County are different
+    places; folding away "city" would silently merge them."""
+    from datasets.geo import canonical_county
+
+    assert canonical_county("MO", "St Louis") == ("29189", "St. Louis")
+    assert canonical_county("MO", "SAINT LOUIS COUNTY") == ("29189", "St. Louis")
+    assert canonical_county("MO", "St. Louis city") == ("29510", "St. Louis city")
+    assert canonical_county("MO", "SAINTE GENEVIEVE COUNTY") == (
+        "29186",
+        "Ste. Genevieve",
+    )
+    assert canonical_county("MO", "Nowhere") == (None, None)
+
+
+def test_normalize_classifies_clean_rewrite_and_review():
+    from datasets.management.commands.normalize_counties import classify
+
+    assert classify("MO", "Boone")[0] == "clean"
+    kind, canonical, _ = classify("MO", "st louis county")
+    assert (kind, canonical) == ("rewrite", "St. Louis")
+    kind, _, detail = classify("MO", "Jasper and Newton")
+    assert kind == "review"
+    assert "several counties" in detail
+    kind, _, detail = classify("MO", "Grenfeld")
+    assert kind == "review"
+    assert "no gazetteer match" in detail
+    assert classify("MO", "")[0] == "review"
+
+
+def test_normalize_command_reports_then_applies(client, admin, crawler_schema):
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    from audit.models import AuditLogEntry
+
+    dataset = Dataset.objects.create(
+        id="d1", slug="mo", label="Missouri", meta={"default_state": "MO"}
+    )
+    messy = Source.objects.create(
+        id="s1", host="a.com", host_norm="a.com", county="st louis county"
+    )
+    fine = Source.objects.create(
+        id="s2", host="b.com", host_norm="b.com", county="Boone"
+    )
+    both = Source.objects.create(
+        id="s3", host="c.com", host_norm="c.com", county="Jasper and Newton"
+    )
+    for i, source in enumerate((messy, fine, both)):
+        DatasetSource.objects.create(id=f"ds{i}", dataset=dataset, source=source)
+
+    out = StringIO()
+    call_command("normalize_counties", dataset="mo", stdout=out)
+    report = out.getvalue()
+    assert "1 clean · 1 to rewrite · 1 need review" in report
+    assert "Jasper and Newton" in report
+    messy.refresh_from_db()
+    assert messy.county == "st louis county"  # reported only
+
+    out = StringIO()
+    call_command(
+        "normalize_counties", dataset="mo", apply=True, actor=admin.email, stdout=out
+    )
+    messy.refresh_from_db()
+    both.refresh_from_db()
+    assert messy.county == "St. Louis"
+    assert both.county == "Jasper and Newton"  # never touched
+    entry = AuditLogEntry.objects.get(action="source:normalize_county")
+    assert entry.before == {"s1": {"county": "st louis county"}}
