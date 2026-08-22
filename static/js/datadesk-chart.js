@@ -806,8 +806,12 @@
         framed = features.filter((f) => keep.has(String(f.id).slice(0, 2)));
       }
       if (!framed.length) framed = features;
-      // Draw every county whose state is in frame plus the frame itself.
-      const shown = features;
+      // An explicit focus draws only that geography — the March map is
+      // Missouri and nothing else. Auto-framing keeps every county in
+      // view so no state reads as a hole.
+      const focused = /^\d{2,5}$/.test(focus);
+      const shown = focused ? framed : features;
+      const inFrame = new Set(shown.map((f) => String(f.id).slice(0, 2)));
       const byCounty = new Map(areas.map((a) => [String(a.county), a.stories]));
       const max = d3.max(areas, (a) => a.stories) || 0;
       const ramp = quantizeRamp(t.seqLow, t.seqHigh, 5);
@@ -839,7 +843,13 @@
       const r = d3.scaleSqrt()
         .domain([0, d3.max(points, (p) => p.stories) || 1])
         .range([2.5, Math.max(9, width / 45)]);
-      const placed = points.filter(
+      // Centrals outside the frame are counted, not drawn floating in
+      // whitespace (the artifact listed them as "beyond the frame").
+      const visible = focused
+        ? points.filter((p) => inFrame.has(String(p.geoid || "").slice(0, 2)))
+        : points;
+      const beyond = points.length - visible.length;
+      const placed = visible.filter(
         (p) => p.lon != null && p.lat != null && projection([p.lon, p.lat]));
       const dots = frame.append("g").selectAll("circle").data(placed).join("circle")
         .attr("transform", (p) => `translate(${projection([p.lon, p.lat])})`)
@@ -893,6 +903,13 @@
           scale.appendChild(chip);
         });
         legend.appendChild(scale);
+      }
+      if (beyond) {
+        const note = document.createElement("span");
+        note.className = "dd-beyond";
+        note.textContent =
+          `${beyond.toLocaleString()} central${beyond === 1 ? "" : "s"} beyond the frame`;
+        legend.appendChild(note);
       }
       el.prepend(legend);
     }).catch(() => { el.textContent = "Boundary data unavailable."; });

@@ -178,3 +178,4 @@ label.stacked input, label.stacked textarea { display: block; width: 100%; margi
 .dd-swatch.round { border-radius: 50%; }
 .dd-ramp { display: inline-flex; align-items: center; gap: 0.5rem; color: var(--muted); }
 .dd-ramp span { display: inline-flex; align-items: center; gap: 0.25rem; }
+.dd-beyond { color: var(--muted); font-style: italic; }
