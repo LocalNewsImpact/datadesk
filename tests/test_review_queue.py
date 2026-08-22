@@ -62,10 +62,16 @@ def _article(article_id, link, title, status, text="", **overrides):
 def flagged(crawler_schema):
     dataset = Dataset.objects.create(id="d1", slug="missouri", label="Missouri")
     tribune = Source.objects.create(
-        id="s1", host="tribune.example", host_norm="tribune.example"
+        id="s1",
+        host="tribune.example",
+        host_norm="tribune.example",
+        canonical_name="Tribune",
     )
     herald = Source.objects.create(
-        id="s2", host="herald.example", host_norm="herald.example"
+        id="s2",
+        host="herald.example",
+        host_norm="herald.example",
+        canonical_name="Herald",
     )
     DatasetSource.objects.create(id="ds1", dataset=dataset, source=tribune)
     cl1 = CandidateLink.objects.create(id="cl1", url="https://t/", source=tribune)

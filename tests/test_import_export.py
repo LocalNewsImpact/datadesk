@@ -199,3 +199,101 @@ def test_saved_definition_reruns_against_current_data(client, viewer, corpus):
 
 def test_export_requires_sign_in(client, corpus):
     assert client.get("/review/export/").status_code == 302
+
+
+# --- source imports ----------------------------------------------------------
+
+
+@pytest.fixture
+def publishers(crawler_schema):
+    Source.objects.create(
+        id="s1",
+        host="www.greenfieldvedette.com",
+        host_norm="www.greenfieldvedette.com",
+        city="Greenfield",
+        county="Dade",
+    )
+    Source.objects.create(
+        id="s2", host="komu.com", host_norm="komu.com", city="", county=""
+    )
+
+
+def _source_batch(rows, state="MO"):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        target="sources",
+        key_column="source_id",
+        rows=rows,
+        validate_state=state,
+        column_map={"city": "city", "county": "county"},
+    )
+
+
+def test_source_import_joins_on_the_uuid_not_the_host(publishers):
+    """A hostname is never the join: it changes, it exists with and
+    without a www. prefix, and two records can wear the same one."""
+    from review.imports import compute_diff
+
+    diff = compute_diff(
+        _source_batch(
+            [
+                {
+                    "source_id": "s1",
+                    "city": "Greenfield",
+                    "county": "Dade",
+                }
+            ]
+        )
+    )
+    assert diff["counts"]["missing"] == 0
+    assert diff["counts"]["unchanged"] == 2
+
+    # The same row keyed by host finds nothing, by design.
+    by_host = compute_diff(
+        _source_batch(
+            [
+                {
+                    "source_id": "greenfieldvedette.com",
+                    "city": "Greenfield",
+                    "county": "Dade",
+                }
+            ]
+        )
+    )
+    assert by_host["counts"]["missing"] == 1
+
+
+def test_source_import_refuses_to_write_a_gazetteer_typo(publishers):
+    """The spreadsheet carried 'Grenfield' — the very typo SCOPE.md §2.4
+    cites. An import must not launder it into the corpus."""
+    from review.imports import compute_diff
+
+    diff = compute_diff(
+        _source_batch(
+            [
+                {
+                    "source_id": "s1",
+                    "city": "Grenfield",
+                    "county": "Dade",
+                }
+            ]
+        )
+    )
+    assert diff["counts"]["suspect"] == 1
+    assert diff["changes"] == {}
+    field = diff["report"][0]["fields"][0]
+    assert field["kind"] == "suspect"
+    assert "did you mean Greenfield" in field["reason"]
+
+
+def test_source_import_flags_a_county_from_another_state(publishers):
+    from review.imports import compute_diff
+
+    diff = compute_diff(
+        _source_batch([{"source_id": "s2", "city": "Columbia", "county": "Wyandotte"}])
+    )
+    kinds = {f["field"]: f["kind"] for f in diff["report"][0]["fields"]}
+    assert kinds == {"city": "edit", "county": "suspect"}
+    # The good value still applies; only the suspect one is held back.
+    assert diff["changes"] == {"s2": {"city": "Columbia"}}

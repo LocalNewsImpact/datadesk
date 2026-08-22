@@ -184,7 +184,10 @@ def _apply_common(qs, params):
         )
         qs = qs.filter(candidate_link__source_id__in=member_sources)
     if publisher := params.get("publisher"):
-        qs = qs.filter(candidate_link__source__host_norm__icontains=publisher.lower())
+        # Publishers are searched by name: a hostname is not an
+        # identifier and must not be matched on (it changes, and
+        # the same one can front two records).
+        qs = qs.filter(candidate_link__source__canonical_name__icontains=publisher)
     if skip := params.get("skip"):
         qs = qs.filter(enrichment__skip_reason=skip)
     if label := params.get("label"):

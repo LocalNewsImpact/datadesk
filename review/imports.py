@@ -18,11 +18,17 @@ MAX_ROWS = 20_000
 
 # What an import can write to, and how its rows find their row.
 #
-# The key is what the CSV joins on — the article UUID, or a publisher's
-# normalized host. The fields are the target's side of the audited write
-# boundary and nothing else: a source's `status` and `paused_at` are the
-# crawler's operational state, not editorial metadata, so a spreadsheet
-# cannot reach them however tempting the column looks.
+# The key is always a UUID — the article's or the source's. A hostname
+# is never an identifier here: it changes, it exists with and without a
+# www. prefix, and two records can wear the same one. Matching on it
+# quietly writes the right correction to the wrong publisher, so the
+# join is the UUID and a file without one is refused rather than guessed
+# at. Export from Datadesk, edit, re-import: the export carries the id.
+#
+# The fields are the target's side of the audited write boundary and
+# nothing else: a source's `status` and `paused_at` are the crawler's
+# operational state, not editorial metadata, so a spreadsheet cannot
+# reach them however tempting the column looks.
 TARGETS = {
     "articles": {
         "label": "Articles",
@@ -34,9 +40,9 @@ TARGETS = {
     "sources": {
         "label": "Sources (publishers)",
         "model": Source,
-        "key_field": "host_norm",
-        "key_hints": ("host_norm", "host", "domain", "site"),
-        "key_label": "publisher host",
+        "key_field": "id",
+        "key_hints": ("source_id", "source_uuid", "id", "uuid"),
+        "key_label": "source UUID",
     },
 }
 
@@ -73,6 +79,38 @@ def parse_csv(uploaded_file, filename):
     return list(reader.fieldnames), rows
 
 
+def _suspect(field, value, state):
+    """Why an incoming publisher value should not be written, or ''.
+
+    The same gazetteer checks the source form applies (SCOPE.md §2.4):
+    an import is not a way around them.
+    """
+    text = (value or "").strip()
+    if not text or field not in ("city", "county"):
+        return ""
+    from datasets.geo import canonical_county, states_with_county
+    from datasets.places import validate_city
+
+    if field == "county":
+        if state:
+            if canonical_county(state, text)[1]:
+                return ""
+            elsewhere = states_with_county(text)
+            if elsewhere:
+                return f"{text} is a county in {', '.join(elsewhere)}, not {state}"
+            return f"{text} is not a county in {state}"
+        return "" if states_with_county(text) else f"{text} is not a county anywhere"
+
+    if not state:
+        return ""
+    known, hints = validate_city(state, text)
+    if known:
+        return ""
+    return f"{text} is not a {state} place" + (
+        f"; did you mean {', '.join(hints)}?" if hints else ""
+    )
+
+
 def guess_target(columns):
     """Which table a file is about, from its header row."""
     lowered = {c.lower() for c in columns}
@@ -93,16 +131,25 @@ def guess_key_column(columns, target="articles"):
 def compute_diff(batch):
     """The diff report: per-row, per-field classification against the
     current corpus. Nothing is written."""
-    target = TARGETS[getattr(batch, "target", "articles") or "articles"]
+    name = getattr(batch, "target", "articles") or "articles"
+    target = TARGETS[name]
     model, key_field = target["model"], target["key_field"]
     keys = [str(row.get(batch.key_column, "") or "").strip() for row in batch.rows]
-    # A source's key is its host, not its primary key, so the lookup is
-    # by the join column and the audit record still keys on the pk.
     found = model.objects.in_bulk([k for k in keys if k], field_name=key_field)
+
+    # City and county are checked against the gazetteer when a state is
+    # given, so an import cannot write what the source form would refuse.
+    validate_state = (getattr(batch, "validate_state", "") or "").strip()
 
     changes = {}  # pk -> {field: incoming} — what apply would write
     report = []
-    counts = {"unchanged": 0, "edit": 0, "mojibake_fix": 0, "missing": 0}
+    counts = {
+        "unchanged": 0,
+        "edit": 0,
+        "mojibake_fix": 0,
+        "suspect": 0,
+        "missing": 0,
+    }
 
     for row in batch.rows:
         pk = str(row.get(batch.key_column, "") or "").strip()
@@ -118,25 +165,38 @@ def compute_diff(batch):
                 continue
             incoming = row[csv_column]
             current = getattr(article, field) or ""
+            suspect = (
+                _suspect(field, incoming, validate_state) if name == "sources" else ""
+            )
             if incoming == current:
                 kind = "unchanged"
+            elif suspect:
+                # A value the gazetteer does not recognise is not applied
+                # by this batch: an import must not launder a typo into
+                # the corpus because it arrived in a spreadsheet.
+                kind = "suspect"
             elif incoming == repair_text(current):
                 kind = "mojibake_fix"
             else:
                 kind = "edit"
-            counts[kind] += 1
+            counts[kind] = counts.get(kind, 0) + 1
             if kind != "unchanged":
-                row_changes[field] = incoming
+                if kind != "suspect":
+                    row_changes[field] = incoming
                 fields.append(
                     {
                         "field": field,
                         "kind": kind,
                         "current": current,
                         "incoming": incoming,
+                        "reason": suspect,
                     }
                 )
         if row_changes:
             changes[str(article.pk)] = row_changes
+        # A row whose only finding is suspect applies nothing, but it is
+        # exactly what the reviewer needs to see, so it still reports.
+        if fields:
             report.append({"id": pk, "kind": "changed", "fields": fields})
 
     return {"counts": counts, "report": report, "changes": changes}

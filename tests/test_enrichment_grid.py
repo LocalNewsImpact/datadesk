@@ -32,10 +32,16 @@ def enriched_corpus(crawler_schema):
     mo = Dataset.objects.create(id="d1", slug="missouri", label="Missouri")
     lv = Dataset.objects.create(id="d2", slug="lehigh", label="Lehigh Valley")
     tribune = Source.objects.create(
-        id="s1", host="tribune.example", host_norm="tribune.example"
+        id="s1",
+        host="tribune.example",
+        host_norm="tribune.example",
+        canonical_name="Tribune",
     )
     herald = Source.objects.create(
-        id="s2", host="herald.example", host_norm="herald.example"
+        id="s2",
+        host="herald.example",
+        host_norm="herald.example",
+        canonical_name="Herald",
     )
     DatasetSource.objects.create(id="ds1", dataset=mo, source=tribune)
     DatasetSource.objects.create(id="ds2", dataset=lv, source=herald)

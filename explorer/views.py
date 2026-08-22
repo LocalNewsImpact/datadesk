@@ -73,7 +73,7 @@ def _filter_vocab():
 # reads alphabetically; a corpus reads newest first.
 SORTS = {
     "date": ("Published", "publish_date", "desc"),
-    "publication": ("Publisher", "candidate_link__source__host_norm", "asc"),
+    "publication": ("Publisher", "candidate_link__source__canonical_name", "asc"),
 }
 
 
@@ -146,7 +146,10 @@ def _filtered_articles(params):
     if publisher := params.get("publisher"):
         # Text search over host and canonical name; hundreds of sources
         # make a dropdown unwieldy and a search box is how March worked.
-        qs = qs.filter(candidate_link__source__host_norm__icontains=publisher.lower())
+        # Publishers are searched by name: a hostname is not an
+        # identifier and must not be matched on (it changes, and
+        # the same one can front two records).
+        qs = qs.filter(candidate_link__source__canonical_name__icontains=publisher)
     if label := params.get("label"):
         qs = qs.filter(primary_label=label)
     if date_from := params.get("from"):

@@ -40,10 +40,16 @@ def corpus(crawler_schema):
     mo = Dataset.objects.create(id="d1", slug="missouri", label="Missouri")
     lv = Dataset.objects.create(id="d2", slug="lehigh", label="Lehigh Valley")
     tribune = Source.objects.create(
-        id="s1", host="tribune.example", host_norm="tribune.example"
+        id="s1",
+        host="tribune.example",
+        host_norm="tribune.example",
+        canonical_name="Tribune",
     )
     herald = Source.objects.create(
-        id="s2", host="herald.example", host_norm="herald.example"
+        id="s2",
+        host="herald.example",
+        host_norm="herald.example",
+        canonical_name="Herald",
     )
     DatasetSource.objects.create(id="ds1", dataset=mo, source=tribune)
     DatasetSource.objects.create(id="ds2", dataset=lv, source=herald)
@@ -173,7 +179,10 @@ def enriched_article(crawler_schema):
     from explorer.models import ArticleEnrichment
 
     source = Source.objects.create(
-        id="s1", host="tribune.example", host_norm="tribune.example"
+        id="s1",
+        host="tribune.example",
+        host_norm="tribune.example",
+        canonical_name="Tribune",
     )
     link = CandidateLink.objects.create(id="cl1", url="https://t/", source=source)
     article = _article(
@@ -239,7 +248,10 @@ def geo_corpus(crawler_schema):
     from explorer.models import ArticleEnrichment
 
     source = Source.objects.create(
-        id="s1", host="tribune.example", host_norm="tribune.example"
+        id="s1",
+        host="tribune.example",
+        host_norm="tribune.example",
+        canonical_name="Tribune",
     )
     link = CandidateLink.objects.create(id="cl1", url="https://t/", source=source)
 
@@ -315,11 +327,12 @@ def test_sort_defaults_to_newest_first(client, viewer, corpus):
 
 
 def test_sort_by_publication(client, viewer, corpus):
+    # Publications sort by name; a hostname is not a sortable identity.
     content = client.get(URL, {"sort": "publication"}).content.decode()
-    assert content.index("herald.example") < content.index("tribune.example")
+    assert content.index("Herald") < content.index("Tribune")
     reversed_ = client.get(URL, {"sort": "publication", "dir": "desc"})
     body = reversed_.content.decode()
-    assert body.index("tribune.example") < body.index("herald.example")
+    assert body.index("Tribune") < body.index("Herald")
 
 
 def test_sort_by_date_ascending(client, viewer, corpus):
