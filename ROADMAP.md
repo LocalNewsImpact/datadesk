@@ -147,9 +147,10 @@ dashboard, dataset-scoped access from item 1.
 **Now:** the queue shows every dataset to any role that can reach it,
 and acting on an item writes to the corpus immediately.
 
-**Wanted, two parts:**
+**Wanted, three parts:**
 
-1. The queue lists only datasets the user may act on.
+1. The queue lists only datasets the user may act on, and an item is not
+   actionable from a URL a user could otherwise guess.
 2. A **reviewer** privilege between read and write: a reviewer works the
    queue and their dispositions are *proposed*, not applied. Someone
    with write on that dataset accepts or rejects them. This is how a
@@ -166,11 +167,61 @@ and the revert path is unchanged.
 model, the audit entry (a `proposed_by` column), and item 1's privilege
 set, which becomes read / reviewer / write / design.
 
+### The queue's own interaction
+
+The queue today explains its cases in aggregate — the three cases carry
+labels and notes, and the length bands say why an item is suspicious.
+What it does not yet do is let a reviewer *finish* an item.
+
+**Every row states two things, in its own words:**
+
+1. **Why it is here.** Not the raw `skip_reason` string, but what that
+   reason means for this article: "the stored text is a login wall, so
+   the body is unusable — the byline and CIN label are not", "scope was
+   excluded but recorded, and in March most of these were local stories
+   that merely mentioned a foreign subject". The vocabulary exists
+   already in `CASE_NOTES`; it belongs on the row, not only above the
+   list.
+
+2. **What can be done about it**, as named actions rather than a form to
+   interpret. Per case, the dispositions are known:
+
+   | Case | Actions |
+   |---|---|
+   | Paywall stub | Accept as-is (text unusable, label kept) · Re-extract · Mark out of scope |
+   | Minimal capture | Accept as-is · Re-extract · Confirm not an article |
+   | Scope mislabel | Accept the recorded scope · Correct the scope · Mark out of scope |
+
+   Every one of them ends the item's presence in the queue.
+
+**Accept is the common case and must be one click.** A checkbox per row
+and an "accept selected" action on the page, or a single button on the
+row — "the current state is correct, stop asking me". Accepting records
+a disposition through the audited path so the decision is attributable
+and revertible, and the row leaves the queue.
+
+**Leaving the queue is a recorded fact, not a filter trick.** The queue
+already excludes `removed_in_march_review` unconditionally — a human
+decided, so it never returns. Accepts need the same treatment: a
+disposition written where the queue's own filter can see it, so an
+accepted item stays gone across sessions and across a reprocessing run
+that would otherwise re-flag it.
+
+**Bulk is the point.** Reviewers work in bands (the 2000+ band is mostly
+false flags); selecting a band and accepting it in one action is the
+difference between a queue that gets worked and one that does not.
+
 **Still open:**
+- Where an accept is recorded: a new column on the enrichment record, a
+  Datadesk-side disposition table, or an existing skip_reason value. The
+  first two survive reprocessing; a skip_reason may be overwritten by
+  the pipeline.
 - Can a reviewer see the whole queue for their dataset, or only items
   assigned to them?
 - Does accepting a batch of proposals produce one audit entry or one per
-  proposal? One per proposal keeps revert granular.
+  proposal? One per proposal keeps revert granular; one per batch keeps
+  the log readable. Probably: one entry per accepted batch, with the row
+  ids in it, since revert already restores per row.
 
 **Depends on:** item 1.
 
