@@ -31,6 +31,7 @@
           <a class="nav-item {% nav_active section.url %}" href="{% url section.url %}">{{ section.label }}</a>
           {% endfor %}
           {% if role == "editor" or role == "admin" %}
+          <a class="nav-item {% nav_active 'review:proposals' %}" href="{% url 'review:proposals' %}">Proposed changes</a>
           <a class="nav-item {% nav_active 'review:import_batches' %}" href="{% url 'review:import_batches' %}">Import</a>
           {% endif %}
         </div>

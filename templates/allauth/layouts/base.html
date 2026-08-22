@@ -1,0 +1,32 @@
+{% load static %}<!doctype html>
+{% comment %}
+allauth ships its own layout — an unstyled page with a "Menu:" list —
+and Django will not let this template both fill base.html's `content`
+block and expose one of the same name for allauth's pages to fill. So
+the sign-in page gets its own shell rather than the console's: no
+sidebar, because there is no session yet and nothing to navigate to.
+The head matches base.html so the typefaces and stylesheet are the same.
+{% endcomment %}
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block head_title %}Sign in{% endblock %} — Datadesk</title>
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+        href="{% static 'fonts/ibm-plex-sans-400-latin.woff2' %}">
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+        href="{% static 'fonts/ibm-plex-sans-600-latin.woff2' %}">
+  <link rel="stylesheet" href="{% static 'css/fonts.css' %}">
+  <link rel="stylesheet" href="{% static 'css/datadesk.css' %}">
+</head>
+<body class="auth-page">
+  <main class="auth-shell">
+    <div class="auth-card">
+      <p class="auth-brand">Datadesk</p>
+      {% block content %}{% endblock %}
+    </div>
+    <p class="auth-foot">Console for LNIC research data.</p>
+  </main>
+  {% block extra_body %}{% endblock %}
+</body>
+</html>
