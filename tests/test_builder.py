@@ -204,3 +204,12 @@ def test_relational_and_geo_configs_pass_the_whitelist():
     assert config["geo_level"] == "tracts"
     for kind in ("donut", "arc", "points"):
         assert config_from_form({"kind": kind})["kind"] == kind
+
+
+def test_theme_is_whitelisted_config():
+    assert (
+        config_from_form({"kind": "bar", "x": "a", "y": "b", "theme": "mizzou"})[
+            "theme"
+        ]
+        == "mizzou"
+    )

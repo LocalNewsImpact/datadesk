@@ -31,16 +31,82 @@
     boundary: "#383835", surface: "#1a1a19",
   };
 
+  // Brand themes (validated with the dataviz palette validator, both
+  // modes, 2026-08-21 — rerun it before touching any series array):
+  //   lnic    — localnewsimpact.org blues (the house default)
+  //   mizzou  — MU gold #f1b82d stepped chart-safe, MU crimson
+  //   rji     — RJI steel blue #1c5e90, MU-affiliation gold
+  //   datadesk — the neutral reference palette
+  // Chrome (ink, grid, surfaces) is shared; only series and ramps swap.
+  const THEMES = {
+    datadesk: {
+      light: { ...LIGHT },
+      dark: { ...DARK },
+    },
+    lnic: {
+      light: {
+        ...LIGHT,
+        series: ["#00618f", "#eb6834", "#59bbeb", "#eda100",
+                 "#e87ba4", "#008300", "#4a3aa7", "#e34948"],
+        seqLow: "#d3ecfa", seqHigh: "#003a56",
+        divLow: "#003a56", divMid: "#f0efec", divHigh: "#8f1d1d",
+      },
+      dark: {
+        ...DARK,
+        series: ["#1d6f9e", "#d95926", "#2f9ecf", "#c98500",
+                 "#d55181", "#008300", "#9085e9", "#e66767"],
+        seqLow: "#0e4a6d", seqHigh: "#9fd6f2",
+        divLow: "#9fd6f2", divMid: "#383835", divHigh: "#e66767",
+      },
+    },
+    mizzou: {
+      light: {
+        ...LIGHT,
+        series: ["#d9a018", "#a31414", "#2a78d6", "#1baf7a",
+                 "#e87ba4", "#008300", "#4a3aa7", "#eb6834"],
+        seqLow: "#f7e6bd", seqHigh: "#6b4d05",
+        divLow: "#184f95", divMid: "#f0efec", divHigh: "#7a0f0f",
+      },
+      dark: {
+        ...DARK,
+        series: ["#c98500", "#c23a3a", "#3987e5", "#d95926",
+                 "#199e70", "#9085e9", "#d55181", "#008300"],
+        seqLow: "#5c4304", seqHigh: "#f0d488",
+        divLow: "#9ec5f4", divMid: "#383835", divHigh: "#e66767",
+      },
+    },
+    rji: {
+      light: {
+        ...LIGHT,
+        series: ["#1c5e90", "#d9a018", "#1baf7a", "#eb6834",
+                 "#2a78d6", "#e87ba4", "#008300", "#4a3aa7"],
+        seqLow: "#d4e5f2", seqHigh: "#0d3350",
+        divLow: "#0d3350", divMid: "#f0efec", divHigh: "#8f1d1d",
+      },
+      dark: {
+        ...DARK,
+        series: ["#2f7cb8", "#c98500", "#199e70", "#d95926",
+                 "#3987e5", "#d55181", "#008300", "#9085e9"],
+        seqLow: "#123a5c", seqHigh: "#a8cce8",
+        divLow: "#a8cce8", divMid: "#383835", divHigh: "#e66767",
+      },
+    },
+  };
+  const DEFAULT_THEME = "lnic";
+
   // Series caps per form: adjacent-comparison forms validated to 8;
   // all-pairs forms (scatter, categorical map points) to 3.
   const CAP_ADJACENT = 8;
   const CAP_ALLPAIRS = 3;
 
-  function theme() {
+  function theme(name) {
+    const modes = THEMES[name] || THEMES[DEFAULT_THEME];
     const stamped = document.documentElement.dataset.theme;
-    if (stamped === "dark") return DARK;
-    if (stamped === "light") return LIGHT;
-    return matchMedia("(prefers-color-scheme: dark)").matches ? DARK : LIGHT;
+    if (stamped === "dark") return modes.dark;
+    if (stamped === "light") return modes.light;
+    return matchMedia("(prefers-color-scheme: dark)").matches
+      ? modes.dark
+      : modes.light;
   }
 
   function isFiniteNumber(v) {
@@ -141,7 +207,7 @@
   }
 
   function render(el, config, rows, opts) {
-    const t = theme();
+    const t = theme(config.theme);
     el.textContent = "";
     if (!rows || !rows.length) {
       el.textContent = "No data.";

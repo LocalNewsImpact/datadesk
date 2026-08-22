@@ -26,6 +26,7 @@ _STRING_KEYS = (
     "y",
     "series",
     "size",
+    "theme",
     "from",
     "to",
     "value",

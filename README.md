@@ -65,10 +65,13 @@ size/label point encodings — map columns in a live preview, and
 publish; the embed, pinning, and feed are the unchanged v1
 machinery. Rendering is the vendored Observable Plot + d3 +
 topojson-client with Census TIGER boundary files — no runtime calls to
-third parties — driven by a runtime that encodes a validated
-accessible palette (light and dark), fixed-order series assignment with
-fold-to-Other caps, hover tips, legends, and an always-available data
-table view.
+third parties — driven by a runtime that encodes validated
+accessible palettes (light and dark), fixed-order series assignment
+with fold-to-Other caps, hover tips, legends, and an always-available
+data table view. Four brand themes ship, each run through the palette
+validator in both modes: LNIC (the default — localnewsimpact.org
+blues), Mizzou (MU gold and crimson, stepped chart-safe), RJI (steel
+blue with the affiliation gold), and a neutral reference.
 
 ## Quickstart
 
