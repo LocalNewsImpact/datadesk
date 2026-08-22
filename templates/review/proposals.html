@@ -83,11 +83,11 @@
                       data-value="{{ p.suggested_value }}">
                 <b>Use this</b><i>what the check says</i></button>
               {% endif %}
+              <input type="text" class="fixval" name="v-{{ p.pk }}"
+                     placeholder="another value" value=""
+                     aria-label="A different value for {{ p.field }}">
               <button type="button" class="verb fix" data-verb="fix">
-                <b>Fix</b><i>another value</i></button>
-              <input type="text" class="fixval" name="v-{{ p.pk }}" hidden
-                     placeholder="the right value"
-                     value="{{ p.suggested_value|default:p.current_value }}">
+                <b>Fix</b><i>use what I typed</i></button>
               <input type="hidden" name="d-{{ p.pk }}" value="">
             </td>
           </tr>
@@ -195,14 +195,14 @@
     row.querySelectorAll(".verb").forEach((b) =>
       b.setAttribute("aria-pressed", b.dataset.verb === chosen));
     const fixval = row.querySelector(".fixval");
-    fixval.hidden = chosen !== "fix";
-    if (chosen === "fix") fixval.focus();
+    if (chosen === "fix" && !fixval.value.trim()) fixval.focus();
     if (chosen === "suggest") {
       // The suggestion is written the same way a fix is: a value the
       // reviewer chose, which is neither the proposal nor what is there.
       fixval.value = button.dataset.value;
       store.value = "fix";
       row.dataset.verb = "fix";
+      row.classList.add("decided");
       row.querySelectorAll(".verb").forEach((b) =>
         b.setAttribute("aria-pressed", b.dataset.verb === "suggest"));
     }
@@ -211,7 +211,23 @@
   });
   form.addEventListener("input", (event) => {
     if (!event.target.classList.contains("fixval")) return;
-    describe(event.target.closest(".prop"));
+    const row = event.target.closest(".prop");
+    const store = row.querySelector('input[type="hidden"]');
+    const typed = event.target.value.trim();
+    // Typing a value is the decision. Clearing it withdraws the decision
+    // rather than leaving a fix with nothing to write.
+    if (typed) {
+      store.value = "fix";
+      row.dataset.verb = "fix";
+      row.classList.add("decided");
+    } else if (store.value === "fix") {
+      store.value = "";
+      row.dataset.verb = "";
+      row.classList.remove("decided");
+    }
+    row.querySelectorAll(".verb").forEach((b) =>
+      b.setAttribute("aria-pressed", b.dataset.verb === store.value));
+    describe(row);
     recount();
   });
   document.getElementById("q-clear").onclick = () => {
@@ -220,7 +236,7 @@
       row.classList.remove("decided");
       row.dataset.verb = "";
       row.querySelectorAll(".verb").forEach((b) => b.setAttribute("aria-pressed", "false"));
-      row.querySelector(".fixval").hidden = true;
+      row.querySelector(".fixval").value = "";
       describe(row);
     });
     recount();

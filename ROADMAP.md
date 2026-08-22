@@ -254,6 +254,14 @@ clear the flag", because it did not. Marking it resolved on the
 strength of an edit that changed nothing is how a queue starts lying
 about its own size.
 
+**The metadata pattern does not carry to long text.** For a publisher's
+city or owner, three columns and a text field work: the values are short
+enough to compare at a glance and to retype. An article's body is
+neither. A queue whose fix means replacing several paragraphs needs a
+different affordance — the editor opening in place, or the row handing
+off to the article view and coming back — and that is a separate design,
+not a wider column.
+
 **Fix does not bulk.** Agree and disagree apply to a selection; a fix is
 one record at a time by nature, since the edit is specific to it. A
 queue worked at speed is mostly agree and disagree, with fixes as the

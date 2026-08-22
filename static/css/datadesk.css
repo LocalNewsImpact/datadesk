@@ -1516,3 +1516,5 @@ tr.prop td { border-bottom: 0; }
 .verb.suggest b { color: #1c7049; }
 .val.suggested { color: #1c7049; font-weight: 600; }
 .outcome-line.on.override { color: #a8452c; }
+.rec-table td.option .fixval { display: block; width: 100%; margin-bottom: .3rem;
+  padding: .25rem .4rem; font-size: .82rem; box-sizing: border-box; }
