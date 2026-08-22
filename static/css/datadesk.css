@@ -1508,3 +1508,11 @@ tr.prop td { border-bottom: 0; }
 .outcome-line.on.accept { color: #1c7049; }
 .outcome-line.on.reject { color: var(--muted); }
 .outcome-line.on.fix { color: #8a5a12; }
+
+/* A value a check rejected is not the ordinary path. */
+.rec-table td.option.rejected-value .val.proposed { text-decoration: line-through;
+  text-decoration-color: #a8452c; color: var(--muted); }
+.verb.override b { color: #a8452c; }
+.verb.suggest b { color: #1c7049; }
+.val.suggested { color: #1c7049; font-weight: 600; }
+.outcome-line.on.override { color: #a8452c; }

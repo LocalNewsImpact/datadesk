@@ -68,6 +68,10 @@ class ChangeProposal(models.Model):
         related_name="+",
     )
     decided_at = models.DateTimeField(null=True, blank=True)
+    # What the check believes the value should be, when it knows: the
+    # gazetteer's spelling, the corpus's spelling of an owner. Offered as
+    # its own option so the reviewer does not have to retype it.
+    suggested_value = models.TextField(blank=True, default="")
     # For a fix: the value the reviewer supplied instead.
     final_value = models.TextField(blank=True, default="")
     note = models.TextField(blank=True, default="")
@@ -90,6 +94,20 @@ class ChangeProposal(models.Model):
 
     def __str__(self):
         return f"{self.record_label}.{self.field}: {self.proposed_value!r}"
+
+    @property
+    def check_failed(self):
+        """Did a check reject the proposed value?
+
+        Accepting one of these writes a value the checks refused, which
+        is a reviewer overruling the check — legitimate, but it must not
+        look like the ordinary path.
+        """
+        return self.finding in (
+            self.OWNER_CONFLICT,
+            self.UNKNOWN_OWNER,
+            self.GAZETTEER,
+        )
 
     @property
     def actionable(self):

@@ -76,6 +76,7 @@ class Command(BaseCommand):
                 finding=FINDING_MAP.get(
                     (row.get("finding") or "").strip(), ChangeProposal.READY
                 ),
+                suggested_value=(row.get("suggested_value") or "").strip(),
                 why=(row.get("why") or "").strip(),
                 suggestion=(row.get("suggestion") or "").strip(),
             )

@@ -121,3 +121,33 @@ def test_viewers_cannot_reach_the_queue(client, publisher):
     user.groups.add(Group.objects.get(name="viewer"))
     client.force_login(user)
     assert client.get(URL).status_code == 403
+
+
+def test_a_rejected_value_is_not_the_ordinary_path(client, editor, publisher):
+    """The sheet proposed "Rockport"; the gazetteer says "Rock Port".
+    Accepting must read as overruling the check, and the checked value
+    must be offered without retyping it."""
+    p = _proposal(
+        publisher,
+        "city",
+        "Rock Port",
+        "Rockport",
+        finding=ChangeProposal.GAZETTEER,
+        why="Rockport is not a Missouri place",
+        suggested_value="Rock Port",
+        suggestion="the gazetteer spells it Rock Port",
+    )
+    assert p.check_failed is True
+    content = client.get(URL).content.decode()
+    assert "Accept anyway" in content
+    assert "overrule the check" in content
+    assert 'data-verb="suggest"' in content
+    assert "Rock Port" in content
+
+
+def test_a_passing_proposal_keeps_the_plain_accept(client, editor, publisher):
+    p = _proposal(publisher, "owner", "", "CherryRoad Media")
+    assert p.check_failed is False
+    content = client.get(URL).content.decode()
+    assert "Accept anyway" not in content
+    assert "use this" in content
