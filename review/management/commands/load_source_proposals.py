@@ -55,7 +55,7 @@ class Command(BaseCommand):
             ).delete()
             self.stdout.write(f"cleared {removed} pending from {origin!r}")
 
-        made, skipped = 0, 0
+        made, skipped, noop = 0, 0, 0
         for row in rows:
             record_id = (row.get("source_id") or "").strip()
             field = (row.get("field") or "").strip()
@@ -64,6 +64,15 @@ class Command(BaseCommand):
                 # change anyone can decide on.
                 skipped += 1
                 continue
+            current = (row.get("current") or "").strip()
+            proposed = (row.get("proposed") or "").strip()
+            if proposed == current:
+                # Nothing to decide. A sheet spelling that resolves to
+                # what is already recorded — "cherryroad" for
+                # "CherryRoad Media" — is agreement, not a change, and
+                # asking about it wastes the reviewer's attention.
+                noop += 1
+                continue
             ChangeProposal.objects.create(
                 target="sources",
                 record_id=record_id,
@@ -71,8 +80,8 @@ class Command(BaseCommand):
                 dataset=options["dataset"],
                 origin=origin,
                 field=field,
-                current_value=(row.get("current") or "").strip(),
-                proposed_value=(row.get("proposed") or "").strip(),
+                current_value=current,
+                proposed_value=proposed,
                 finding=FINDING_MAP.get(
                     (row.get("finding") or "").strip(), ChangeProposal.READY
                 ),
@@ -82,7 +91,9 @@ class Command(BaseCommand):
             )
             made += 1
 
-        self.stdout.write(f"loaded {made} proposals; skipped {skipped} rows")
+        self.stdout.write(
+            f"loaded {made} proposals; {noop} already correct; {skipped} unusable rows"
+        )
         for key, label in ChangeProposal.FINDINGS:
             n = ChangeProposal.objects.filter(
                 origin=origin, state=ChangeProposal.PENDING, finding=key

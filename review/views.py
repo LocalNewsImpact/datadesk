@@ -1,6 +1,7 @@
 """Review and cleanup views (SCOPE.md §2.2). Editor role throughout."""
 
 from django.core.paginator import Paginator
+from django.db.models import F
 from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -420,6 +421,9 @@ def proposals(request):
     finding = request.GET.get("finding") or ""
     state = request.GET.get("state") or ChangeProposal.PENDING
     qs = ChangeProposal.objects.filter(target="sources")
+    # A proposal whose value already matches the record is not a
+    # question; showing it produces "writing X over X".
+    qs = qs.exclude(proposed_value=F("current_value"))
     if state != "all":
         qs = qs.filter(state=state)
     if finding:
@@ -428,7 +432,9 @@ def proposals(request):
     counts = {
         key: ChangeProposal.objects.filter(
             target="sources", state=ChangeProposal.PENDING, finding=key
-        ).count()
+        )
+        .exclude(proposed_value=F("current_value"))
+        .count()
         for key, _label in ChangeProposal.FINDINGS
     }
     return render(
@@ -443,7 +449,9 @@ def proposals(request):
             "state": state,
             "pending_total": ChangeProposal.objects.filter(
                 target="sources", state=ChangeProposal.PENDING
-            ).count(),
+            )
+            .exclude(proposed_value=F("current_value"))
+            .count(),
             "receipt": request.session.pop("proposal_receipt", None),
         },
     )

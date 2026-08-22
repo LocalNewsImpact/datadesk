@@ -151,3 +151,14 @@ def test_a_passing_proposal_keeps_the_plain_accept(client, editor, publisher):
     content = client.get(URL).content.decode()
     assert "Accept anyway" not in content
     assert "use this" in content
+
+
+def test_a_proposal_that_changes_nothing_is_not_a_question(client, editor, publisher):
+    """A sheet spelling that resolves to what is already recorded is
+    agreement, not a change: "Writing X over X" is not a decision."""
+    Source.objects.filter(id="s1").update(owner="CherryRoad Media")
+    _proposal(publisher, "owner", "CherryRoad Media", "CherryRoad Media")
+    real = _proposal(publisher, "city", "Columbia", "Columbia Heights")
+    content = client.get(URL).content.decode()
+    assert content.count('class="prop"') == 1
+    assert f'data-id="{real.pk}"' in content
