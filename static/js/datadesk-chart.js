@@ -770,17 +770,44 @@
       return;
     }
 
-    // States in play come from both layers, so a single-state corpus
-    // draws that state rather than the whole country.
     const ids = [
       ...areas.map((a) => String(a.county || "")),
       ...points.map((p) => String(p.geoid || "")),
     ].filter(Boolean);
-    const states = new Set(ids.map((id) => id.slice(0, 2)).filter((s2) => /^\d\d$/.test(s2)));
 
     boundaries(opts.geoBase, "counties", ids).then((features) => {
-      const inScope = features.filter((f) => states.has(String(f.id).slice(0, 2)));
-      const shown = inScope.length ? inScope : features;
+      // Focus decides the frame, never what is drawn: every county in
+      // view is painted, so a state without stories reads as "none"
+      // rather than as a hole in the map.
+      const focus = String(config.focus || "").trim();
+      let framed;
+      if (/^\d{5}$/.test(focus)) {
+        // A county focus frames its whole state — a lone county floating
+        // in white says nothing about where it is.
+        framed = features.filter((f) => String(f.id).slice(0, 2) === focus.slice(0, 2));
+      } else if (/^\d{2}$/.test(focus)) {
+        framed = features.filter((f) => String(f.id).slice(0, 2) === focus);
+      } else {
+        // Auto: frame the states carrying most of the stories, so a
+        // handful of distant mentions do not zoom the map out to the
+        // whole country.
+        const weight = new Map();
+        for (const a of areas) {
+          const st = String(a.county).slice(0, 2);
+          weight.set(st, (weight.get(st) || 0) + a.stories);
+        }
+        for (const p of points) {
+          const st = String(p.geoid || "").slice(0, 2);
+          if (st) weight.set(st, (weight.get(st) || 0) + p.stories);
+        }
+        const total = [...weight.values()].reduce((a, b) => a + b, 0);
+        const keep = new Set(
+          [...weight].filter(([, n]) => n >= total * 0.02).map(([st]) => st));
+        framed = features.filter((f) => keep.has(String(f.id).slice(0, 2)));
+      }
+      if (!framed.length) framed = features;
+      // Draw every county whose state is in frame plus the frame itself.
+      const shown = features;
       const byCounty = new Map(areas.map((a) => [String(a.county), a.stories]));
       const max = d3.max(areas, (a) => a.stories) || 0;
       const ramp = quantizeRamp(t.seqLow, t.seqHigh, 5);
@@ -790,7 +817,7 @@
 
       const projection = d3.geoAlbersUsa().fitSize(
         [width, Math.round(width * 0.62)],
-        { type: "FeatureCollection", features: shown });
+        { type: "FeatureCollection", features: framed });
       const path = d3.geoPath(projection);
       const height = Math.round(width * 0.62);
       const svg = d3.create("svg")
@@ -799,8 +826,12 @@
         .attr("style",
           'max-width:100%;height:auto;display:block;font-family:system-ui,' +
           '-apple-system,"Segoe UI",sans-serif;font-size:12px');
+      const clipId = "dd-clip-" + Math.abs(width | 0) + "-" + shown.length;
+      svg.append("clipPath").attr("id", clipId)
+        .append("rect").attr("width", width).attr("height", height);
+      const frame = svg.append("g").attr("clip-path", `url(#${clipId})`);
 
-      const counties = svg.append("g").selectAll("path").data(shown).join("path")
+      const counties = frame.append("g").selectAll("path").data(shown).join("path")
         .attr("d", path)
         .attr("fill", (f) => shadeFor(byCounty.get(String(f.id))))
         .attr("stroke", t.boundary).attr("stroke-width", 0.6);
@@ -810,7 +841,7 @@
         .range([2.5, Math.max(9, width / 45)]);
       const placed = points.filter(
         (p) => p.lon != null && p.lat != null && projection([p.lon, p.lat]));
-      const dots = svg.append("g").selectAll("circle").data(placed).join("circle")
+      const dots = frame.append("g").selectAll("circle").data(placed).join("circle")
         .attr("transform", (p) => `translate(${projection([p.lon, p.lat])})`)
         .attr("r", (p) => r(p.stories))
         .attr("fill", (p) => t.series[PRECISION[p.level] ?? 5])

@@ -41,6 +41,7 @@ _STRING_KEYS = (
     "geo_join",
     "geo_value",
     "geo_palette",
+    "focus",
     "lat",
     "lon",
 )

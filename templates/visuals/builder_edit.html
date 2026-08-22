@@ -40,7 +40,7 @@
           <label>Value <select name="value" data-columns data-optional></select></label>
         </fieldset>
 
-        <fieldset data-kinds="choropleth points">
+        <fieldset data-kinds="choropleth points storymap">
           <legend>Map (GIS)</legend>
           <label>Boundaries
             <select name="geo_level">
@@ -65,6 +65,9 @@
           <label>Point size <select name="size" data-columns data-optional></select></label>
           <label>Point label <select name="label" data-columns data-optional></select></label>
           <label class="inline"><input type="checkbox" name="geo_fit" value="1"> Zoom to data</label>
+          <label data-kinds="storymap">Focus (state or county FIPS)
+            <input type="text" name="focus" placeholder="29 or 29019">
+          </label>
         </fieldset>
 
         <fieldset>
