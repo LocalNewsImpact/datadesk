@@ -70,6 +70,19 @@ ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", default="localhost,127.0.0.1")
 
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
 
+# Cloud Run terminates TLS at the edge and forwards plain HTTP to the
+# container, so request.is_secure() is False unless Django is told to
+# trust the forwarded protocol. Without this every absolute URL the app
+# builds is http:// — including the OAuth callback allauth sends to
+# Google, which then fails redirect_uri_mismatch against the registered
+# https:// URI. Safe here because the only ingress is Cloud Run's proxy,
+# which strips client-supplied X-Forwarded-Proto.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Cookies ride TLS in production; local development stays plain HTTP.
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",

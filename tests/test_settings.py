@@ -44,3 +44,15 @@ def test_hd_hint_only_for_single_domain():
     assert multi["google"]["AUTH_PARAMS"] == {}
     none = build_socialaccount_providers("", "", [])
     assert none["google"]["AUTH_PARAMS"] == {}
+
+
+def test_forwarded_proto_is_trusted():
+    """Cloud Run forwards plain HTTP; without this Django builds http://
+    absolute URLs and the OAuth callback fails redirect_uri_mismatch."""
+    from django.conf import settings
+    from django.test import RequestFactory
+
+    assert settings.SECURE_PROXY_SSL_HEADER == ("HTTP_X_FORWARDED_PROTO", "https")
+    request = RequestFactory().get("/", HTTP_X_FORWARDED_PROTO="https")
+    assert request.is_secure()
+    assert request.build_absolute_uri("/x/").startswith("https://")
