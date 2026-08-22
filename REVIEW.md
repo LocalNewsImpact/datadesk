@@ -61,6 +61,17 @@ who, when, which flag, what they chose — and are durable: a decision
 survives a rescan, and the scan does not raise the same flag again
 after a human has ruled on it.
 
+A decision is a ruling on one field **at the value it then held**, not
+a permanent mute on a flag. Keeping a value settles that value;
+applying one settles what was written. While the field still reads that
+way the question is closed, and a row for it that is still in the queue
+is swept out on the next scan. When the field later changes, the
+question is genuinely new and is asked again.
+
+Matching on the flag key alone is not durable enough: a decision taken
+before a flag existed carries no key and would be re-asked forever,
+and a field that changed after a decision would never be re-examined.
+
 Deciding is not required in bulk. A reviewer may act on ten of ninety
 and submit; the rest stay flagged.
 
