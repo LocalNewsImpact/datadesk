@@ -202,6 +202,44 @@ What it does not yet do is let a reviewer *finish* an item.
    both decisions; only "fix" is deferred work, and it leaves the queue
    because it has become a task with an owner rather than a question.
 
+### Decide now, execute on submit
+
+Every review queue — this one and the ones after it — works the same
+way: the reviewer makes decisions down the page, and **nothing happens
+until they submit**. A decision is a stated intention; submit is the
+act. That is what makes it safe to click quickly through fifty rows.
+
+- Each row carries the same control: agree / disagree / fix.
+- Choosing one marks the row decided and leaves it visible, so it can be
+  changed before submitting.
+- A running count — "23 decisions pending" — and one submit for all of
+  them.
+- Submit executes every decision in the session as **one audited batch**,
+  reverting as a unit, like an import batch.
+- Leaving without submitting discards nothing quietly: the page says
+  what is pending.
+
+**A fix is the exception that proves the shape.** Agree and disagree
+need no extra input, so they stage as a bare decision. A fix needs its
+value — the corrected scope, the re-extraction request — so the row
+opens an editor and the value stages with the decision. Same submit,
+same batch.
+
+**Deferred execution has one real hazard: staleness.** Minutes pass
+between the decision and the submit, and the pipeline does not stop. If
+an article is reprocessed in that window, the state the reviewer judged
+is not the state being written. So submit re-reads each row and, where
+the record moved underneath, reports it rather than applying: "3 of 23
+changed since you decided — review those again". The rest apply.
+Without that check, deferred execution quietly launders stale
+judgements into the corpus.
+
+**Where pending decisions live** decides how far a session can stretch.
+Held in the page, a session is one page of the queue and a refresh
+loses it. Held server-side as drafts, a reviewer can work several bands
+and pages and submit once — which is how the queue will actually be
+worked, and is the reason to prefer it.
+
 **Agree is the common case and must be one click.** A checkbox per row
 and an "agree with selected" action on the page — "the app was right,
 stop asking me". It records a disposition through the audited path, so
@@ -276,10 +314,13 @@ difference between a queue that gets worked and one that does not.
   corpus, so it wants the audited path and a visible revert.
 - Can a reviewer see the whole queue for their dataset, or only items
   assigned to them?
-- Does accepting a batch of proposals produce one audit entry or one per
-  proposal? One per proposal keeps revert granular; one per batch keeps
-  the log readable. Probably: one entry per accepted batch, with the row
-  ids in it, since revert already restores per row.
+- Pending decisions in the page or as server-side drafts? Drafts let a
+  session span pages, which is how the queue gets worked, at the cost of
+  a table and a cleanup rule for abandoned sessions.
+- One audit entry per submitted session, or one per row? One per session
+  keeps the log readable and reverts the batch as a unit; revert already
+  restores per row inside it. Per row only helps if reverting a single
+  decision from a session is a real need.
 
 **Depends on:** item 1.
 
