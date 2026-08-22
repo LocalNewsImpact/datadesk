@@ -1,0 +1,79 @@
+{% if page is not None %}
+<div class="band-facets">
+  <span class="band-caption">Captured text</span>
+  {% for band in bands %}
+  <a class="band{% if band.selected %} selected{% endif %}"
+     href="?{{ band_params.urlencode }}{% if not band.selected %}&amp;band={{ band.key }}{% endif %}"
+     hx-get="{% url 'review:queue' %}?{{ band_params.urlencode }}{% if not band.selected %}&amp;band={{ band.key }}{% endif %}"
+     hx-target="#queue-results">
+    <span class="band-count">{{ band.count }}</span>
+    <span class="band-label">{{ band.label }}</span>
+  </a>
+  {% endfor %}
+</div>
+
+<div class="disposition-placeholder">
+  <p><strong>Dispositions arrive in Phase 2b.</strong> This queue is
+  read-only: nothing on this screen writes to the crawler database. The
+  three buttons below are inert placeholders showing where the audited
+  actions will sit.</p>
+  <p class="button-row">
+    <button type="button" disabled>Skip</button>
+    <button type="button" disabled>Export unenriched</button>
+    <button type="button" disabled>Send to enrichment</button>
+  </p>
+</div>
+
+<p class="result-count">
+  {{ page.paginator.count }} article{{ page.paginator.count|pluralize }} flagged
+  {% if page.paginator.num_pages > 1 %}· page {{ page.number }} of {{ page.paginator.num_pages }}{% endif %}
+  · longest captures first
+</p>
+<table class="grid">
+  <thead>
+    <tr>
+      <th scope="col" class="count">Chars</th>
+      <th scope="col">Published</th>
+      <th scope="col">Title</th>
+      <th scope="col">Publisher</th>
+      <th scope="col">Flagged as</th>
+      <th scope="col">Reason</th>
+      <th scope="col">CIN label</th>
+      <th scope="col" class="count">Conf.</th>
+      <th scope="col">Byline</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for article in page %}
+    <tr>
+      <td class="count{% if article.text_length >= 2000 %} flag{% endif %}">{{ article.text_length }}</td>
+      <td class="nowrap">{{ article.publish_date|date:"Y-m-d"|default:"—" }}</td>
+      <td><a href="{% url 'explorer:article_detail' article.id %}">{{ article.title|default:article.url|truncatechars:80 }}</a></td>
+      <td>{{ article.candidate_link.source|default:"—" }}</td>
+      <td>{{ article.status }}</td>
+      <td>{{ article.enr_skip_reason|default:"—" }}
+        {% if article.enr_gate_reason %}<span class="sub">gate: {{ article.enr_gate_reason }}</span>{% endif %}</td>
+      <td>{{ article.primary_label|default:"—" }}</td>
+      <td class="count">{% if article.primary_label_confidence is not None %}{{ article.primary_label_confidence|floatformat:2 }}{% else %}—{% endif %}</td>
+      <td>{% if article.author %}{{ article.author|truncatechars:30 }}{% else %}<span class="absent">none</span>{% endif %}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="9" class="notice">Nothing flagged under these filters. Either triage passed everything here, or the filters are narrower than the data.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if page.paginator.num_pages > 1 %}
+<nav class="pager">
+  {% if page.has_previous %}
+  <a href="?{{ params.urlencode }}&amp;page={{ page.previous_page_number }}"
+     hx-get="{% url 'review:queue' %}?{{ params.urlencode }}&amp;page={{ page.previous_page_number }}"
+     hx-target="#queue-results">← previous</a>
+  {% endif %}
+  {% if page.has_next %}
+  <a href="?{{ params.urlencode }}&amp;page={{ page.next_page_number }}"
+     hx-get="{% url 'review:queue' %}?{{ params.urlencode }}&amp;page={{ page.next_page_number }}"
+     hx-target="#queue-results">next →</a>
+  {% endif %}
+</nav>
+{% endif %}
+{% endif %}

@@ -1,4 +1,4 @@
-{% if page %}
+{% if page is not None %}
 <p class="result-count">
   {{ page.paginator.count }} article{{ page.paginator.count|pluralize }}
   {% if page.paginator.num_pages > 1 %}· page {{ page.number }} of {{ page.paginator.num_pages }}{% endif %}

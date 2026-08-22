@@ -15,6 +15,7 @@
     <nav class="primary">
       <a href="{% url 'explorer:articles' %}">Articles</a>
       <a href="{% url 'explorer:enrichment' %}">Enrichment</a>
+      <a href="{% url 'review:queue' %}">Queue</a>
       <a href="{% url 'explorer:costs' %}">Costs</a>
       <a href="{% url 'visuals:index' %}">Visuals</a>
       {% if role == "admin" %}<a href="{% url 'datasets:list' %}">Datasets</a>{% endif %}

@@ -347,3 +347,10 @@ def test_filter_form_carries_the_active_sort(client, viewer, corpus):
 def _order_of(response, needles):
     content = response.content.decode()
     return sorted((n for n in needles if n in content), key=lambda n: content.index(n))
+
+
+def test_empty_results_say_so(client, viewer, corpus):
+    """An empty django Page is falsy, so `{% if page %}` hid the empty
+    row exactly when it was wanted."""
+    response = client.get(URL, {"publisher": "nowhere.example"})
+    assert "No articles match these filters." in response.content.decode()

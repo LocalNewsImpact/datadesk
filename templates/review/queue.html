@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Extraction review queue — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>Extraction review queue</h1>
+  <p class="lede">
+    Articles automated triage could not use. No automated step may
+    permanently exclude an article carrying a CIN label, so each one waits
+    here for a person to decide.
+  </p>
+
+  {% if not crawler_connected %}
+  <p class="notice">
+    Crawler database not connected. Set CRAWLER_DB_USER (and run the Cloud
+    SQL Auth Proxy locally) to work the queue.
+  </p>
+  {% else %}
+
+  <div class="case-facets">
+    {% for case in cases %}
+    <a class="facet{% if case.selected %} selected{% endif %}"
+       href="?{{ case_params.urlencode }}{% if not case.selected %}&amp;case={{ case.key }}{% endif %}">
+      <span class="facet-count">{{ case.count }}</span>
+      <span class="facet-label">{{ case.label }}</span>
+      <span class="facet-note">{{ case.note }}</span>
+    </a>
+    {% endfor %}
+  </div>
+
+  <form method="get" action="{% url 'review:queue' %}" class="filter-bar"
+        hx-get="{% url 'review:queue' %}" hx-target="#queue-results"
+        hx-trigger="change, submit" hx-push-url="true">
+    <input type="hidden" name="case" value="{{ params.case|default:'' }}">
+    <input type="hidden" name="band" value="{{ params.band|default:'' }}">
+    <label>Dataset
+      <select name="dataset">
+        <option value="">all</option>
+        {% for d in vocab.datasets %}
+        <option value="{{ d.slug }}" {% if params.dataset == d.slug %}selected{% endif %}>{{ d.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Skip reason
+      <select name="skip">
+        <option value="">any</option>
+        {% for s in vocab.skip_reasons %}
+        <option {% if params.skip == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>CIN label
+      <select name="label">
+        <option value="">all</option>
+        {% for s in vocab.labels %}
+        <option {% if params.label == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Byline
+      <select name="byline">
+        <option value="">all</option>
+        <option value="yes" {% if params.byline == "yes" %}selected{% endif %}>present</option>
+        <option value="no" {% if params.byline == "no" %}selected{% endif %}>absent</option>
+      </select>
+    </label>
+    <label>Publisher
+      <input type="search" name="publisher" value="{{ params.publisher|default:'' }}" placeholder="host contains…">
+    </label>
+    <noscript><button type="submit">Filter</button></noscript>
+  </form>
+
+  <div id="queue-results">
+    {% include "review/_queue_results.html" %}
+  </div>
+
+  {% endif %}
+</section>
+{% endblock %}

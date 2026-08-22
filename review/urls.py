@@ -7,6 +7,7 @@ from review import views
 app_name = "review"
 
 urlpatterns = [
+    path("queue/", views.queue, name="queue"),
     path(
         "articles/<str:article_id>/edit/<str:field>/",
         views.edit_field,

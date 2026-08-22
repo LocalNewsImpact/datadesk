@@ -10,6 +10,7 @@ from accounts.decorators import editor_required, role_required
 from audit.models import AuditLogEntry
 from explorer.models import Article, ArticleEnrichment
 from explorer.views import _filtered_articles
+from review import queue as review_queue
 from review.exports import EXPORT_COLUMNS, csv_response
 from review.imports import (
     IMPORTABLE_FIELDS,
@@ -29,6 +30,10 @@ from review.services import (
 # The inline-editable cleaned-text columns (SCOPE.md §1: they change only
 # through explicit, audited human actions — this is that path).
 TEXT_FIELDS = ("author", "title", "content")
+
+# The queue is browsed, not paged through: a smaller page keeps the text
+# lengths and reasons on one screen.
+QUEUE_PAGE_SIZE = 50
 
 
 def _get_article(article_id):
@@ -320,3 +325,53 @@ def export_run(request, definition_id):
     queryset = _filtered_articles(definition.params)
     filename = f"{definition.name}.csv".replace("/", "-")
     return csv_response(queryset, definition.columns, filename)
+
+
+# --- extraction review queue (SCOPE.md §2.3) --------------------------------
+#
+# Read-only. Any assigned role may look; Phase 2b adds the three
+# dispositions as audited writes behind the editor role, in the
+# placeholder the template already marks.
+
+
+@role_required
+def queue(request):
+    """Articles automated triage flagged, with what a human needs to judge
+    them: captured text length, the reason given, the CIN label, the
+    byline (SCOPE.md §2.3)."""
+    vocabulary = review_queue.vocab()
+    params = request.GET.copy()
+    params.pop("page", None)
+    # Facet links replace their own dimension rather than appending a
+    # second value to it, so each facet builds on the query string with
+    # its own key removed.
+    case_params = params.copy()
+    case_params.pop("case", None)
+    band_params = params.copy()
+    band_params.pop("band", None)
+    context = {
+        "crawler_connected": vocabulary is not None,
+        "vocab": vocabulary,
+        "params": params,
+        "case_params": case_params,
+        "band_params": band_params,
+        "bands": [],
+        "cases": [],
+    }
+
+    if vocabulary is not None:
+        try:
+            page_number = int(request.GET.get("page", "1"))
+        except ValueError:
+            page_number = 1
+        paginator = Paginator(review_queue.queued(request.GET), QUEUE_PAGE_SIZE)
+        context["page"] = paginator.get_page(page_number)
+        context["bands"] = review_queue.band_facets(request.GET)
+        context["cases"] = review_queue.case_facets(request.GET)
+
+    template = (
+        "review/_queue_results.html"
+        if request.headers.get("HX-Request")
+        else "review/queue.html"
+    )
+    return render(request, template, context)
