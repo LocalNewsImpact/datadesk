@@ -196,6 +196,29 @@ def builder_edit(request, slug):
                     after=config,
                     reason=f"builder config for {visual.slug}",
                 )
+            elif form == "pivot":
+                spec = {
+                    "shape": request.POST.get("shape") or "",
+                    "dimensions": [
+                        d for d in request.POST.getlist("dimensions") if d
+                    ],
+                    "measure": request.POST.get("measure") or "articles",
+                    "dataset": request.POST.get("f_dataset") or "",
+                    "scope": request.POST.get("f_scope") or "",
+                    "cin": request.POST.get("f_cin") or "",
+                    "from": request.POST.get("f_from") or "",
+                    "to": request.POST.get("f_to") or "",
+                    "min_articles": request.POST.get("min_articles") or "",
+                    "min_publishers": request.POST.get("min_publishers") or "",
+                    "enriched_only": bool(request.POST.get("enriched_only")),
+                    "news_only": bool(request.POST.get("news_only")),
+                }
+                if request.POST.get("area_scope"):
+                    spec["area_scope"] = request.POST["area_scope"]
+                visual.spec = {k: v for k, v in spec.items() if v not in ("", [], None)}
+                visual.source_kind = CORPUS
+                visual.save(update_fields=["spec", "source_kind", "updated_at"])
+                refresh_snapshot(visual, request.user)
             elif form == "refresh":
                 refresh_snapshot(visual, request.user)
             elif form == "upload":
@@ -216,8 +239,13 @@ def builder_edit(request, slug):
             return redirect("visuals:builder_edit", visual.slug)
 
     snapshot = visual.snapshots.order_by("-version").first()
-    rows = snapshot.data if snapshot else []
+    data = snapshot.data if snapshot else []
+    # A story-map payload is layers, not rows; the grid shows its points.
+    rows = data.get("points", []) if isinstance(data, dict) else data
     columns = list(rows[0].keys()) if rows else []
+
+    from visuals.corpus import DIMENSIONS, MEASURES
+
     return render(
         request,
         "visuals/builder_edit.html",
@@ -227,7 +255,27 @@ def builder_edit(request, slug):
             "columns": columns,
             "chart_kinds": CHART_KINDS,
             "config_json": json.dumps(visual.config or {}),
+            "spec_json": json.dumps(visual.spec or {}),
             "preview_json": json.dumps(rows[:5000]),
+            "dimensions": [
+                {"key": k, "label": v["label"], "note": v.get("note", "")}
+                for k, v in DIMENSIONS.items()
+            ],
+            "measures": [
+                {"key": k, "label": v["label"]} for k, v in MEASURES.items()
+            ],
+            "datasets": _dataset_choices(),
             "error": error,
         },
     )
+
+
+def _dataset_choices():
+    from django.db import DatabaseError
+
+    from explorer.models import Dataset
+
+    try:
+        return list(Dataset.objects.order_by("label").values("slug", "label"))
+    except DatabaseError:
+        return []

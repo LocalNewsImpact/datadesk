@@ -33,6 +33,7 @@ _STRING_KEYS = (
     "value",
     "label",
     "sort",
+    "stack",
     "xlabel",
     "ylabel",
     "subtitle",
@@ -47,6 +48,7 @@ _STRING_KEYS = (
     "lon",
 )
 _BOOL_KEYS = ("horizontal", "stacked", "geo_fit")
+# "stack" is a string ("percent") rather than a flag.
 
 MAX_ROWS = 20_000
 

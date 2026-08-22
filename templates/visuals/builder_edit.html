@@ -9,6 +9,61 @@
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
   {% if not snapshot %}<p class="error">No data yet — refresh or upload below.</p>{% endif %}
 
+  <details class="data-step" {% if not snapshot %}open{% endif %}>
+    <summary>Data — {% if visual.source_kind == "corpus" %}corpus pivot{% else %}{{ visual.get_source_kind_display }}{% endif %}{% if snapshot %} · snapshot v{{ snapshot.version }} ({{ snapshot.created_at|date:"Y-m-d H:i" }}){% endif %}</summary>
+
+    {% if visual.source_kind == "corpus" or not snapshot %}
+    <form method="post" class="pivot-form">
+      {% csrf_token %}
+      <input type="hidden" name="form" value="pivot">
+      <div class="pivot-grid">
+        <label>Group by
+          <select name="dimensions">
+            <option value="">—</option>
+            {% for d in dimensions %}<option value="{{ d.key }}">{{ d.label }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Then by (optional — makes a cross-tab for chord/arc)
+          <select name="dimensions">
+            <option value="">—</option>
+            {% for d in dimensions %}<option value="{{ d.key }}">{{ d.label }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Measure
+          <select name="measure">
+            {% for m in measures %}<option value="{{ m.key }}">{{ m.label }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Dataset
+          <select name="f_dataset">
+            <option value="">all</option>
+            {% for d in datasets %}<option value="{{ d.slug }}">{{ d.label }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Published from <input type="date" name="f_from"></label>
+        <label>to <input type="date" name="f_to"></label>
+        <label>Min articles per group <input type="number" name="min_articles" min="0" placeholder="100"></label>
+        <label>Min publishers per group <input type="number" name="min_publishers" min="0" placeholder="2"></label>
+        <label class="inline"><input type="checkbox" name="enriched_only" value="1"> Enriched only</label>
+        <label class="inline"><input type="checkbox" name="news_only" value="1"> News content only</label>
+        <label>Shape
+          <select name="shape">
+            <option value="">table of groups</option>
+            <option value="story_map">story map (centrals + regional counties)</option>
+          </select>
+        </label>
+      </div>
+      <button type="submit">Run and load the data</button>
+      <p class="notice">The pivot runs in Postgres and the snapshot keeps
+      the grouped result, so an embed never downloads the corpus.
+      Thresholds decide which groups appear, not which rows count inside
+      them.</p>
+    </form>
+    {% endif %}
+
+    <div id="data-grid"></div>
+  </details>
+
   <div class="builder">
     <div class="builder-form">
       <form method="post" id="config-form">
@@ -19,6 +74,7 @@
             {% for kind in chart_kinds %}<option>{{ kind }}</option>{% endfor %}
           </select>
         </label>
+        <p class="kind-hint notice" id="kind-hint"></p>
 
         <fieldset data-kinds="bar line area scatter donut">
           <legend>Mapping</legend>
@@ -31,6 +87,12 @@
           </label>
           <label class="inline" data-kinds="bar"><input type="checkbox" name="horizontal" value="1"> Horizontal</label>
           <label class="inline" data-kinds="bar"><input type="checkbox" name="stacked" value="1" checked> Stacked</label>
+          <label data-kinds="bar">Stack as
+            <select name="stack">
+              <option value="">counts</option>
+              <option value="percent">percent (composition)</option>
+            </select>
+          </label>
         </fieldset>
 
         <fieldset data-kinds="chord arc">
@@ -139,6 +201,7 @@
 <script src="{% static 'js/plot.min.js' %}"></script>
 <script src="{% static 'js/topojson-client.min.js' %}"></script>
 <script src="{% static 'js/datadesk-chart.js' %}"></script>
+<script src="{% static 'js/datadesk-grid.js' %}"></script>
 <script>
 (function () {
   const columns = JSON.parse(document.getElementById("dd-columns").textContent);
@@ -185,12 +248,39 @@
     }
   }
 
+  // The grid owns the working set; the chart always draws what the grid
+  // shows, so filtering or dropping a column updates the preview.
+  let working = rows;
+  let types = {};
+  const hint = document.getElementById("kind-hint");
+
+  function updateHint() {
+    const kind = form.elements.kind.value;
+    const fit = DatadeskGrid.suitability(working, types)[kind];
+    hint.textContent = fit && !fit.ok ? `${kind} ${fit.why}` : "";
+    hint.classList.toggle("warn", Boolean(fit && !fit.ok));
+  }
+
   function draw() {
     updateVisibility();
-    DatadeskChart.render(preview, configFromForm(), rows, {
+    updateHint();
+    DatadeskChart.render(preview, configFromForm(), working, {
       geoBase: "{% static 'geo/' %}",
     });
   }
+
+  const gridEl = document.getElementById("data-grid");
+  if (gridEl && rows.length) {
+    const grid = DatadeskGrid.Grid(gridEl, rows, {
+      onChange: (selected) => { working = selected; draw(); },
+    });
+    types = grid.types;
+    working = grid.rows();
+  } else if (gridEl) {
+    gridEl.innerHTML =
+      '<p class="notice">No data yet — run a pivot or upload a file.</p>';
+  }
+
   form.addEventListener("input", draw);
   form.addEventListener("change", draw);
   draw();

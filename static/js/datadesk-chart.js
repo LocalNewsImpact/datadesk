@@ -262,6 +262,11 @@
         enc[horizontal ? "fy" : "fx"] = enc[horizontal ? "y" : "x"];
         enc[horizontal ? "y" : "x"] = series;
       }
+      // "percent" turns a stack into a composition: each column fills the
+      // axis and the series read as shares.
+      if (config.stack === "percent" && series) {
+        enc.offset = "expand";
+      }
       marks.push((horizontal ? Plot.barX : Plot.barY)(rows, { ...enc, ...common, rx: 2 }));
       marks.push(horizontal ? Plot.ruleX([0], { stroke: t.boundary }) : Plot.ruleY([0], { stroke: t.boundary }));
     } else if (kind === "line" || kind === "area") {
@@ -295,6 +300,7 @@
       return;
     }
 
+    const percentStack = kind === "bar" && config.stack === "percent" && series;
     let xScale = { label: config.xlabel || undefined, tickSize: 0 };
     if (kind === "bar" && !config.sort) {
       const axis = horizontal ? y : x;
@@ -312,6 +318,7 @@
       color,
       x: xScale,
       y: { label: config.ylabel || undefined, tickSize: 0, grid: false,
+           ...(percentStack && !horizontal ? { percent: true } : {}),
            ...(typeof yDomain !== "undefined" ? { domain: yDomain } : {}) },
       marks,
     });

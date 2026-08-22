@@ -205,6 +205,41 @@ def _fold(rows, dim_keys, extra, rollups, measure_key, measures):
     return out
 
 
+def qualifying_values(spec, dim_key):
+    """Values of a dimension that clear the spec's group thresholds.
+
+    "Counties with at least two publishers and 100 articles" is a HAVING
+    on the group, not a filter on the rows: the threshold decides which
+    groups appear at all, and the composition inside them is untouched.
+    Returns None when no threshold is set.
+    """
+    min_articles = int(spec.get("min_articles") or 0)
+    min_publishers = int(spec.get("min_publishers") or 0)
+    if not (min_articles or min_publishers):
+        return None
+    dimension = DIMENSIONS[dim_key]
+    if dimension.get("rollup"):
+        raise CorpusSpecError(
+            "Group thresholds do not apply to a rolled-up dimension yet — "
+            "the publisher and article counts cannot be recombined safely."
+        )
+    qs = (
+        _base_queryset(spec)
+        .annotate(_dim=dimension["expr"])
+        .exclude(_dim__isnull=True)
+        .values("_dim")
+        .annotate(
+            _articles=Count("id", distinct=True),
+            _publishers=Count("candidate_link__source_id", distinct=True),
+        )
+    )
+    if min_articles:
+        qs = qs.filter(_articles__gte=min_articles)
+    if min_publishers:
+        qs = qs.filter(_publishers__gte=min_publishers)
+    return {row["_dim"] for row in qs}
+
+
 def _base_queryset(spec):
     """Articles narrowed by the spec's filters."""
     qs = Article.objects.all()
@@ -270,6 +305,8 @@ def run_spec(spec):
             "coding, or pick a different measure."
         )
 
+    qualifying = qualifying_values(spec, dim_keys[0])
+
     annotations = {key: DIMENSIONS[key]["expr"] for key in dim_keys}
     # A rollup needs its companion columns (the coding level) in the group.
     extra = []
@@ -279,6 +316,8 @@ def run_spec(spec):
             annotations[name] = F(path)
             extra.append(name)
     qs = qs.annotate(**annotations)
+    if qualifying is not None:
+        qs = qs.filter(**{f"{dim_keys[0]}__in": qualifying})
     # Exclude rows with no value for a grouping dimension: an unlabeled
     # bucket in a chart reads as a category, which it is not.
     if not spec.get("keep_null"):
@@ -321,6 +360,11 @@ def run_spec(spec):
         out.append(item)
 
     meta = {
+        "qualifying_groups": None if qualifying is None else len(qualifying),
+        "thresholds": {
+            "min_articles": int(spec.get("min_articles") or 0),
+            "min_publishers": int(spec.get("min_publishers") or 0),
+        },
         "dimensions": [
             {
                 "key": k,

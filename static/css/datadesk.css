@@ -179,3 +179,25 @@ label.stacked input, label.stacked textarea { display: block; width: 100%; margi
 .dd-ramp { display: inline-flex; align-items: center; gap: 0.5rem; color: var(--muted); }
 .dd-ramp span { display: inline-flex; align-items: center; gap: 0.25rem; }
 .dd-beyond { color: var(--muted); font-style: italic; }
+
+/* --- the builder's data step --- */
+.data-step { border: 1px solid var(--border, #ddd); border-radius: 6px; padding: 0.6rem 1rem 1rem; margin-bottom: 1.5rem; }
+.data-step > summary { cursor: pointer; font-size: 0.9rem; color: var(--muted); }
+.pivot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.5rem 1rem; margin: 0.75rem 0; }
+.pivot-grid label { display: block; font-size: 0.8rem; color: var(--muted); }
+.pivot-grid select, .pivot-grid input { display: block; width: 100%; margin-top: 0.2rem; padding: 0.25rem 0.35rem; font-size: 0.9rem; box-sizing: border-box; }
+.pivot-grid label.inline { display: flex; align-items: center; gap: 0.4rem; }
+.pivot-grid label.inline input { width: auto; margin: 0; }
+
+.grid-bar { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.8rem; color: var(--muted); margin: 0.5rem 0 0.3rem; }
+.grid-scroll { max-height: 22rem; overflow: auto; border: 1px solid var(--border, #e1e0d9); border-radius: 4px; }
+table.data-grid { font-size: 0.8rem; }
+table.data-grid thead th { position: sticky; top: 0; background: var(--surface-1, #fcfcfb); z-index: 2; vertical-align: top; padding: 0.25rem 0.4rem; }
+table.data-grid tr.grid-filters th { top: 2.6rem; }
+table.data-grid tr.grid-filters input { width: 100%; font-size: 0.75rem; padding: 0.15rem 0.3rem; box-sizing: border-box; }
+.grid-sort { display: flex; align-items: center; gap: 0.3rem; border: none; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.grid-sort em { font-style: normal; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.grid-sort i { font-style: normal; }
+.grid-stat { display: block; font-weight: 400; font-size: 0.7rem; color: var(--muted); }
+table.data-grid td.unselected { opacity: 0.3; }
+.kind-hint.warn { color: #b00020; }
