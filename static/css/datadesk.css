@@ -1495,3 +1495,16 @@ table.rec-table tbody th { white-space: nowrap; color: var(--muted); }
   flex-direction: column; gap: .5rem; }
 .auth-foot { font-size: .8rem; color: var(--muted); }
 .auth-note { font-size: .82rem; color: var(--muted); line-height: 1.5; }
+
+/* Each control sits under the value it chooses. */
+.rec-table td.option { vertical-align: top; }
+.rec-table td.option .val { display: block; margin-bottom: .3rem; }
+.rec-table td.option .verb { width: 100%; }
+.rec-table tbody th .finding { display: block; font-weight: 400; margin-top: .2rem; }
+tr.prop-note td { border-bottom: 1px solid var(--border, #eee); padding-top: 0; }
+tr.prop td { border-bottom: 0; }
+.outcome-line { font-size: .8rem; color: var(--accent, #2f5d8a); }
+.outcome-line.on { font-weight: 600; }
+.outcome-line.on.accept { color: #1c7049; }
+.outcome-line.on.reject { color: var(--muted); }
+.outcome-line.on.fix { color: #8a5a12; }

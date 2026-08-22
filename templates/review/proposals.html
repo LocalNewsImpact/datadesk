@@ -43,30 +43,41 @@
       {% if group.fields %}
       <table class="rec-table">
         <thead>
-          <tr><th scope="col">Field</th><th scope="col">Now</th>
-              <th scope="col">Proposed</th><th scope="col">Decision</th></tr>
+          <tr><th scope="col">Field</th>
+              <th scope="col">Proposed</th>
+              <th scope="col">Now</th>
+              <th scope="col">Something else</th></tr>
         </thead>
         <tbody>
         {% for p in group.fields %}
-          <tr class="prop" data-id="{{ p.pk }}">
-            <th scope="row">{{ p.field }}</th>
-            <td class="val">{% if p.current_value %}{{ p.current_value }}{% else %}<span class="none">empty</span>{% endif %}</td>
-            <td class="val proposed">{{ p.proposed_value }}</td>
-            <td class="decide">
-              <div class="verbs">
-                <button type="button" class="verb accept" data-verb="accept">
-                  <b>Accept</b><i>use proposed</i></button>
-                <button type="button" class="verb reject" data-verb="reject">
-                  <b>Keep</b><i>leave as is</i></button>
-                <button type="button" class="verb fix" data-verb="fix">
-                  <b>Fix</b><i>another value</i></button>
-              </div>
-              <input type="hidden" name="d-{{ p.pk }}" value="">
+          <tr class="prop" data-id="{{ p.pk }}"
+              data-current="{{ p.current_value }}"
+              data-proposed="{{ p.proposed_value }}"
+              data-suggestion="{{ p.suggestion }}">
+            <th scope="row">
+              {{ p.field }}
+              {% if p.why %}<span class="finding {{ p.finding }}">{{ p.why }}</span>{% endif %}
+            </th>
+            <td class="option">
+              <span class="val proposed">{{ p.proposed_value|default:"—" }}</span>
+              <button type="button" class="verb accept" data-verb="accept">
+                <b>Accept</b><i>use this</i></button>
+            </td>
+            <td class="option">
+              <span class="val">{% if p.current_value %}{{ p.current_value }}{% else %}<span class="none">empty</span>{% endif %}</span>
+              <button type="button" class="verb reject" data-verb="reject">
+                <b>Keep</b><i>leave as is</i></button>
+            </td>
+            <td class="option">
+              <button type="button" class="verb fix" data-verb="fix">
+                <b>Fix</b><i>another value</i></button>
               <input type="text" class="fixval" name="v-{{ p.pk }}" hidden
                      placeholder="the right value" value="{{ p.current_value }}">
-              {% if p.why %}<p class="finding {{ p.finding }}">{{ p.why }}</p>{% endif %}
-              {% if p.suggestion %}<p class="sugg">{{ p.suggestion }}</p>{% endif %}
+              <input type="hidden" name="d-{{ p.pk }}" value="">
             </td>
+          </tr>
+          <tr class="prop-note" data-for="{{ p.pk }}">
+            <td colspan="4"><span class="outcome-line">{{ p.suggestion }}</span></td>
           </tr>
         {% endfor %}
         </tbody>
@@ -125,6 +136,31 @@
       : total ? "Submit " + total + (total > 1 ? " decisions" : " decision") : "Submit";
   }
 
+  function describe(row) {
+    const verb = row.querySelector('input[type="hidden"]').value;
+    const note = form.querySelector(`.prop-note[data-for="${row.dataset.id}"] .outcome-line`);
+    if (!note) return;
+    const proposed = row.dataset.proposed || "(empty)";
+    const current = row.dataset.current || "(empty)";
+    const typed = row.querySelector(".fixval").value.trim();
+    if (verb === "accept") {
+      note.textContent = `Writing ${proposed} over ${current}.`;
+      note.className = "outcome-line on accept";
+    } else if (verb === "reject") {
+      note.textContent = `Leaving ${current} as it is. The proposal is dismissed.`;
+      note.className = "outcome-line on reject";
+    } else if (verb === "fix") {
+      note.textContent = typed
+        ? `Writing ${typed} — neither the proposal nor what is recorded.`
+        : "Type the value to write.";
+      note.className = "outcome-line on fix";
+    } else {
+      // No decision yet: back to what the checks suggested.
+      note.textContent = row.dataset.suggestion || "";
+      note.className = "outcome-line";
+    }
+  }
+
   form.addEventListener("click", (event) => {
     const button = event.target.closest(".verb");
     if (!button) return;
@@ -139,10 +175,13 @@
       b.setAttribute("aria-pressed", b.dataset.verb === chosen));
     row.querySelector(".fixval").hidden = chosen !== "fix";
     if (chosen === "fix") row.querySelector(".fixval").focus();
+    describe(row);
     recount();
   });
   form.addEventListener("input", (event) => {
-    if (event.target.classList.contains("fixval")) recount();
+    if (!event.target.classList.contains("fixval")) return;
+    describe(event.target.closest(".prop"));
+    recount();
   });
   document.getElementById("q-clear").onclick = () => {
     form.querySelectorAll(".prop").forEach((row) => {
@@ -151,6 +190,7 @@
       row.dataset.verb = "";
       row.querySelectorAll(".verb").forEach((b) => b.setAttribute("aria-pressed", "false"));
       row.querySelector(".fixval").hidden = true;
+      describe(row);
     });
     recount();
   };
