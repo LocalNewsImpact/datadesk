@@ -11,6 +11,8 @@ FKs carry db_constraint=False: the constraints exist (or don't) in the
 crawler's schema; Django only needs the join paths.
 """
 
+import json
+
 from django.db import models
 
 
@@ -200,8 +202,140 @@ class ArticleEnrichment(CrawlerModel):
     point_lat = models.FloatField(null=True)
     point_lon = models.FloatField(null=True)
     point_zcta = models.TextField(null=True)
+    # `geoids` is a text column holding a JSON array of MENTIONED FIPS
+    # codes. The central claim (point_geoid) is never repeated here; the
+    # two are separate assertions. mentioned_geoids() parses it.
     geoids = models.TextField(null=True)
     geo_skip_reason = models.TextField(null=True)
 
     class Meta(CrawlerModel.Meta):
         db_table = "article_enrichment"
+
+    @property
+    def has_point(self):
+        """True when the record carries a central-geography claim."""
+        return bool(self.point_geoid)
+
+    def mentioned_geoids(self):
+        """The mention list, parsed from the `geoids` text column.
+
+        Stored as a JSON array in the March backfill. Tolerates a
+        comma-separated string, which older rows may carry, and returns []
+        for anything it cannot read rather than raising in a template.
+        """
+        raw = self.geoids
+        if not raw:
+            return []
+        if isinstance(raw, list):
+            return [str(item) for item in raw if item]
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            return [part.strip() for part in str(raw).split(",") if part.strip()]
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed if item]
+        if isinstance(parsed, str):
+            return [parsed] if parsed else []
+        return []
+
+
+class ArticleGeoid(CrawlerModel):
+    """The superset of geographies for an article: the central claim
+    (is_primary) plus every mention, each with the rung it resolved to."""
+
+    id = models.BigAutoField(primary_key=True)
+    article = models.ForeignKey(
+        Article,
+        models.DO_NOTHING,
+        db_column="article_id",
+        db_constraint=False,
+        related_name="geoid_rows",
+    )
+    geoid = models.TextField()
+    geoid_level = models.TextField()
+    is_primary = models.BooleanField(default=False)
+    source = models.TextField(null=True)
+
+    class Meta(CrawlerModel.Meta):
+        db_table = "article_geoids"
+
+
+class ArticlePlace(CrawlerModel):
+    id = models.BigAutoField(primary_key=True)
+    article = models.ForeignKey(
+        Article,
+        models.DO_NOTHING,
+        db_column="article_id",
+        db_constraint=False,
+        related_name="places",
+    )
+    full_name = models.TextField(null=True)
+    place_type = models.TextField(null=True)
+    city = models.TextField(null=True)
+    county = models.TextField(null=True)
+    state = models.TextField(null=True)
+    address = models.TextField(null=True)
+    description = models.TextField(null=True)
+    mention_text = models.TextField(null=True)
+    is_point = models.BooleanField(null=True)
+    lat = models.FloatField(null=True)
+    lon = models.FloatField(null=True)
+    geocoder = models.TextField(null=True)
+    geoid = models.TextField(null=True)
+    geoid_level = models.TextField(null=True)
+
+    class Meta(CrawlerModel.Meta):
+        db_table = "article_places"
+
+    def __str__(self):
+        return self.full_name or self.mention_text or ""
+
+
+class ArticlePerson(CrawlerModel):
+    id = models.BigAutoField(primary_key=True)
+    article = models.ForeignKey(
+        Article,
+        models.DO_NOTHING,
+        db_column="article_id",
+        db_constraint=False,
+        related_name="people",
+    )
+    name = models.TextField()
+    sort_key = models.TextField(null=True)
+    title = models.TextField(null=True)
+    affiliation = models.TextField(null=True)
+    person_type = models.TextField(null=True)
+    role_in_story = models.TextField(null=True)
+    nature = models.TextField(null=True)
+    public_figure = models.BooleanField(null=True)
+    mention_count = models.IntegerField(null=True)
+    quotes = DecodedJSONField(null=True)
+
+    class Meta(CrawlerModel.Meta):
+        db_table = "article_people"
+
+    def __str__(self):
+        return self.name
+
+
+class ArticleOrganization(CrawlerModel):
+    id = models.BigAutoField(primary_key=True)
+    article = models.ForeignKey(
+        Article,
+        models.DO_NOTHING,
+        db_column="article_id",
+        db_constraint=False,
+        related_name="organizations",
+    )
+    name = models.TextField()
+    org_type = models.TextField(null=True)
+    boundary = models.TextField(null=True)
+    role_in_story = models.TextField(null=True)
+    nature = models.TextField(null=True)
+    mention_count = models.IntegerField(null=True)
+
+    class Meta(CrawlerModel.Meta):
+        db_table = "article_organizations"
+
+    def __str__(self):
+        return self.name

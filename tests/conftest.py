@@ -77,6 +77,27 @@ _CRAWLER_TABLES = {
         " point_geoid TEXT, point_geoid_level TEXT, point_lat REAL,"
         " point_lon REAL, point_zcta TEXT, geoids TEXT, geo_skip_reason TEXT)"
     ),
+    "article_geoids": (
+        "(id INTEGER PRIMARY KEY AUTOINCREMENT, article_id TEXT, geoid TEXT,"
+        " geoid_level TEXT, is_primary INTEGER, source TEXT)"
+    ),
+    "article_people": (
+        "(id INTEGER PRIMARY KEY AUTOINCREMENT, article_id TEXT, name TEXT,"
+        " sort_key TEXT, title TEXT, affiliation TEXT, person_type TEXT,"
+        " role_in_story TEXT, nature TEXT, public_figure INTEGER,"
+        " mention_count INTEGER, quotes TEXT)"
+    ),
+    "article_organizations": (
+        "(id INTEGER PRIMARY KEY AUTOINCREMENT, article_id TEXT, name TEXT,"
+        " org_type TEXT, boundary TEXT, role_in_story TEXT, nature TEXT,"
+        " mention_count INTEGER)"
+    ),
+    "article_places": (
+        "(id INTEGER PRIMARY KEY AUTOINCREMENT, article_id TEXT, full_name TEXT,"
+        " place_type TEXT, city TEXT, county TEXT, state TEXT, address TEXT,"
+        " description TEXT, mention_text TEXT, is_point INTEGER, lat REAL,"
+        " lon REAL, geocoder TEXT, geoid TEXT, geoid_level TEXT)"
+    ),
 }
 
 

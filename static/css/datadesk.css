@@ -1,12 +1,36 @@
 /* Datadesk — single small stylesheet, no framework. */
 
+/* One palette, defined once as custom properties. The dark scheme
+   redefines the tokens and nothing else; no rule below hard-codes a
+   colour that would survive the swap. */
 :root {
   --ink: #1a1a1a;
   --muted: #5c5c5c;
   --rule: #d9d9d9;
+  --border: #dddddd;
   --paper: #fafaf8;
+  --surface: #ffffff;
+  --surface-2: #f4f4f1;
   --accent: #14538c;
+  --danger: #b00020;
 }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8e8e6;
+    --muted: #9a9a95;
+    --rule: #34342f;
+    --border: #34342f;
+    --paper: #131312;
+    --surface: #1c1c1a;
+    --surface-2: #232320;
+    --accent: #7fb2e5;
+    --danger: #ff8a94;
+  }
+}
+
+/* Let native form controls, scrollbars and the canvas follow the scheme. */
+html { color-scheme: light dark; }
 
 * { box-sizing: border-box; }
 
@@ -24,7 +48,7 @@ body {
   align-items: baseline;
   padding: 0.75rem 1.5rem;
   border-bottom: 1px solid var(--rule);
-  background: #fff;
+  background: var(--surface);
 }
 
 .wordmark { font-weight: 700; letter-spacing: 0.02em; }
@@ -35,7 +59,7 @@ body {
 main { max-width: 40rem; margin: 3rem auto; padding: 0 1.5rem; }
 
 .card {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--rule);
   border-radius: 6px;
   padding: 2rem;
@@ -51,7 +75,7 @@ button.google-signin {
   border: 1px solid var(--accent);
   border-radius: 4px;
   background: var(--accent);
-  color: #fff;
+  color: var(--paper);
   font-size: 1rem;
   cursor: pointer;
 }
@@ -72,7 +96,7 @@ h2 { font-size: 1.15rem; margin-top: 0; }
 
 .dataset-counts { width: 100%; border-collapse: collapse; }
 .dataset-counts th,
-.dataset-counts td { padding: 0.4rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border, #ddd); }
+.dataset-counts td { padding: 0.4rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border); }
 .dataset-counts td.count { text-align: right; font-variant-numeric: tabular-nums; }
 .dataset-counts .slug { color: var(--muted); font-size: 0.8rem; margin-left: 0.4rem; }
 
@@ -90,7 +114,7 @@ nav.primary a:hover { text-decoration: underline; }
 
 .result-count { color: var(--muted); font-size: 0.85rem; }
 table.grid { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-table.grid th, table.grid td { padding: 0.35rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border, #ddd); vertical-align: top; }
+table.grid th, table.grid td { padding: 0.35rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
 table.grid td.count, table.grid th.count { text-align: right; font-variant-numeric: tabular-nums; }
 td.nowrap { white-space: nowrap; }
 
@@ -125,10 +149,10 @@ label.stacked input, label.stacked textarea { display: block; width: 100%; margi
 .repair-diff dt { color: var(--muted); font-size: 0.8rem; margin-top: 0.5rem; }
 .repair-diff dd { margin: 0; }
 .edit-link { font-size: 0.8rem; margin-left: 0.5rem; }
-.action-bar { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end; padding: 0.75rem; border: 1px solid var(--border, #ddd); border-radius: 6px; margin-bottom: 1rem; }
+.action-bar { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: end; padding: 0.75rem; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1rem; }
 
-.error { color: #b00020; }
-.columns-pick { border: 1px solid var(--border, #ddd); border-radius: 6px; padding: 0.75rem 1rem; margin: 1rem 0; }
+.error { color: var(--danger); }
+.columns-pick { border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; margin: 1rem 0; }
 .columns-pick legend { font-size: 0.85rem; color: var(--muted); }
 .columns-pick label { display: inline-flex; align-items: center; gap: 0.3rem; margin-right: 1.25rem; font-size: 0.9rem; }
 
@@ -143,7 +167,7 @@ label.stacked input, label.stacked textarea { display: block; width: 100%; margi
 .dd-legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; font-size: 0.8rem; margin-bottom: 0.5rem; }
 .dd-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 0.35rem; }
 .dd-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-.dd-table th, .dd-table td { padding: 0.3rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border, #e1e0d9); }
+.dd-table th, .dd-table td { padding: 0.3rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border); }
 .dd-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* Builder layout */
@@ -152,7 +176,7 @@ label.stacked input, label.stacked textarea { display: block; width: 100%; margi
 .builder-form label { display: block; margin: 0.6rem 0; font-size: 0.85rem; color: var(--muted); }
 .builder-form select, .builder-form input[type="text"] { display: block; width: 100%; margin-top: 0.2rem; padding: 0.3rem 0.4rem; font-size: 0.9rem; box-sizing: border-box; }
 .builder-form .inline { display: flex; align-items: center; gap: 0.4rem; }
-.builder-form fieldset { border: 1px solid var(--border, #ddd); border-radius: 6px; margin: 1rem 0; padding: 0.5rem 0.9rem 0.9rem; }
+.builder-form fieldset { border: 1px solid var(--border); border-radius: 6px; margin: 1rem 0; padding: 0.5rem 0.9rem 0.9rem; }
 .builder-form legend { font-size: 0.8rem; color: var(--muted); }
 .builder-preview { position: sticky; top: 1rem; }
 
@@ -181,7 +205,7 @@ label.stacked input, label.stacked textarea { display: block; width: 100%; margi
 .dd-beyond { color: var(--muted); font-style: italic; }
 
 /* --- the builder's data step --- */
-.data-step { border: 1px solid var(--border, #ddd); border-radius: 6px; padding: 0.6rem 1rem 1rem; margin-bottom: 1.5rem; }
+.data-step { border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem 1rem 1rem; margin-bottom: 1.5rem; }
 .data-step > summary { cursor: pointer; font-size: 0.9rem; color: var(--muted); }
 .pivot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.5rem 1rem; margin: 0.75rem 0; }
 .pivot-grid label { display: block; font-size: 0.8rem; color: var(--muted); }
@@ -190,7 +214,7 @@ label.stacked input, label.stacked textarea { display: block; width: 100%; margi
 .pivot-grid label.inline input { width: auto; margin: 0; }
 
 .grid-bar { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.8rem; color: var(--muted); margin: 0.5rem 0 0.3rem; }
-.grid-scroll { max-height: 22rem; overflow: auto; border: 1px solid var(--border, #e1e0d9); border-radius: 4px; }
+.grid-scroll { max-height: 22rem; overflow: auto; border: 1px solid var(--border); border-radius: 4px; }
 table.data-grid { font-size: 0.8rem; }
 table.data-grid thead th { position: sticky; top: 0; background: var(--surface-1, #fcfcfb); z-index: 2; vertical-align: top; padding: 0.25rem 0.4rem; }
 table.data-grid tr.grid-filters th { top: 2.6rem; }
@@ -200,4 +224,12 @@ table.data-grid tr.grid-filters input { width: 100%; font-size: 0.75rem; padding
 .grid-sort i { font-style: normal; }
 .grid-stat { display: block; font-weight: 400; font-size: 0.7rem; color: var(--muted); }
 table.data-grid td.unselected { opacity: 0.3; }
-.kind-hint.warn { color: #b00020; }
+.kind-hint.warn { color: var(--danger); }
+
+/* --- article detail: enrichment record and entities --- */
+.mono-inline { font-family: ui-monospace, monospace; font-size: 0.85rem; }
+.fips-list { display: flex; flex-wrap: wrap; gap: 0.3rem 0.5rem; margin: 0.5rem 0; }
+.fips-list .mono-inline { border: 1px solid var(--border); border-radius: 3px; padding: 0.05rem 0.35rem; background: var(--surface-2); }
+.rationale, .sub { display: block; color: var(--muted); font-size: 0.8rem; }
+h3 { font-size: 0.95rem; margin: 1.5rem 0 0.4rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.entity-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 2rem; margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); align-items: start; }

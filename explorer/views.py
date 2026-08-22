@@ -19,7 +19,16 @@ from django.shortcuts import render
 
 from accounts.decorators import role_required
 from explorer.costs import billed_costs, recorded_costs
-from explorer.models import Article, ArticleEnrichment, Dataset, DatasetSource
+from explorer.models import (
+    Article,
+    ArticleEnrichment,
+    ArticleGeoid,
+    ArticleOrganization,
+    ArticlePerson,
+    ArticlePlace,
+    Dataset,
+    DatasetSource,
+)
 
 PAGE_SIZE = 50
 _VOCAB_CACHE_KEY = "explorer.article_filter_vocab"
@@ -114,11 +123,37 @@ def articles(request):
     return render(request, template, context)
 
 
+# The enrichment record's category dimensions, in the order the detail
+# view walks them. The pipeline's vocabulary, not ours.
+DIMENSIONS = ("scope", "subject", "topic", "format", "timeframe", "user_need")
+
+
+def _rows(queryset):
+    """Materialize a related-entity queryset, tolerating an absent table.
+
+    The entity tables arrived with the enrichment backfield; a crawler
+    database that predates it (or a test fixture that does not create
+    them) yields an empty section rather than a 500.
+    """
+    try:
+        return list(queryset)
+    except DatabaseError:
+        return []
+
+
 @role_required
 def article_detail(request, article_id):
-    """The side-by-side view (SCOPE.md §2.2): stored text next to the
-    enrichment record — categories, confidences, rationales, FIPS claim —
-    and cost."""
+    """The side-by-side view (SCOPE.md §2.2): stored text next to the whole
+    enrichment record — every category with its confidence and rationale,
+    the central-geography claim with its basis and ZIP, the mention FIPS,
+    the extracted people, organizations and places, and cost.
+
+    This is the screen an operator uses to judge whether enrichment is
+    right, so the claim and the mentions are shown as what they are: two
+    separate assertions. `article_enrichment.geoids` lists mentions only —
+    the central claim is never repeated there — and `article_geoids` holds
+    the superset with an is_primary flag.
+    """
     try:
         article = (
             Article.objects.select_related("candidate_link__source")
@@ -136,22 +171,35 @@ def article_detail(request, article_id):
     except DatabaseError:
         enrichment = None
 
-    # The enrichment record's category/confidence pairs, in a fixed order
-    # the template can walk — the pipeline's vocabulary, not ours.
     dimensions = (
         [
-            (name, getattr(enrichment, name), getattr(enrichment, f"{name}_confidence"))
-            for name in (
-                "scope",
-                "subject",
-                "topic",
-                "format",
-                "timeframe",
-                "user_need",
+            (
+                name,
+                getattr(enrichment, name),
+                getattr(enrichment, f"{name}_confidence"),
+                (
+                    (enrichment.rationales or {}).get(name)
+                    if isinstance(enrichment.rationales, dict)
+                    else None
+                ),
             )
+            for name in DIMENSIONS
         ]
         if enrichment
         else []
+    )
+
+    # Rationales the pipeline recorded under keys that are not dimension
+    # names still belong on screen; the dimension table has already shown
+    # the rest.
+    extra_rationales = (
+        {
+            key: value
+            for key, value in enrichment.rationales.items()
+            if key not in DIMENSIONS
+        }
+        if enrichment and isinstance(enrichment.rationales, dict)
+        else {}
     )
 
     return render(
@@ -161,6 +209,26 @@ def article_detail(request, article_id):
             "article": article,
             "enrichment": enrichment,
             "dimensions": dimensions,
+            "extra_rationales": extra_rationales,
+            "mentioned_geoids": enrichment.mentioned_geoids() if enrichment else [],
+            "geoid_rows": _rows(
+                ArticleGeoid.objects.filter(article_id=article_id).order_by(
+                    "-is_primary", "geoid_level", "geoid"
+                )
+            ),
+            "people": _rows(
+                ArticlePerson.objects.filter(article_id=article_id).order_by(
+                    "-mention_count", "name"
+                )
+            ),
+            "organizations": _rows(
+                ArticleOrganization.objects.filter(article_id=article_id).order_by(
+                    "-mention_count", "name"
+                )
+            ),
+            "places": _rows(
+                ArticlePlace.objects.filter(article_id=article_id).order_by("full_name")
+            ),
             "stored_text": article.content or article.text or article.text_excerpt,
         },
     )

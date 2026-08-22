@@ -10,6 +10,7 @@ uses) to prove the query, and its absence proves the degraded path.
 import pytest
 from django.contrib.auth.models import Group, User
 from django.db import connections
+from django.db import models as models_module
 
 from explorer.crawler import dataset_row_counts
 
@@ -97,6 +98,64 @@ def test_no_migrations_reach_the_crawler_alias():
     router = CrawlerRouter()
     assert router.allow_migrate("crawler", "explorer") is False
     assert router.allow_migrate("default", "explorer") is None
+
+
+def test_every_explorer_model_reads_from_the_crawler_alias():
+    """Adding a model to explorer must not silently query `default`."""
+    from django.apps import apps
+
+    from explorer.routers import CrawlerRouter
+
+    router = CrawlerRouter()
+    models = apps.get_app_config("explorer").get_models()
+    assert models, "explorer declares no models"
+    for model in models:
+        assert router.db_for_read(model) == "crawler", model.__name__
+        assert model._meta.managed is False, model.__name__
+        assert model._meta.db_table, model.__name__
+
+
+def test_application_models_stay_on_the_default_alias():
+    from django.apps import apps
+
+    from explorer.routers import CrawlerRouter
+
+    router = CrawlerRouter()
+    for app_label in ("audit", "review", "visuals"):
+        for model in apps.get_app_config(app_label).get_models():
+            assert router.db_for_read(model) is None, model.__name__
+            assert router.db_for_write(model) is None, model.__name__
+
+
+def test_entity_tables_match_the_crawler_schema():
+    """Table names are the crawler's (docs/crawler_schema.txt), not
+    Django's app_model default."""
+    from explorer.models import (
+        ArticleGeoid,
+        ArticleOrganization,
+        ArticlePerson,
+        ArticlePlace,
+    )
+
+    assert ArticleGeoid._meta.db_table == "article_geoids"
+    assert ArticlePerson._meta.db_table == "article_people"
+    assert ArticleOrganization._meta.db_table == "article_organizations"
+    assert ArticlePlace._meta.db_table == "article_places"
+
+
+def test_id_columns_are_strings_not_uuids():
+    """Every id in these tables is `character varying`, and some values
+    are not UUIDs ('manual_art_...'). A UUIDField would reject them."""
+    from explorer.models import Article, ArticleEnrichment, Dataset, Source
+
+    for model, field in (
+        (Article, "id"),
+        (Dataset, "id"),
+        (Source, "id"),
+        (ArticleEnrichment, "article_id"),
+    ):
+        column = model._meta.get_field(field)
+        assert not isinstance(column, models_module.UUIDField), model.__name__
 
 
 def test_json_fields_accept_driver_decoded_values():

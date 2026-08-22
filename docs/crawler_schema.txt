@@ -1,0 +1,172 @@
+-- ============ articles ============
+  id character varying NOT NULL
+  candidate_link_id character varying NOT NULL
+  url character varying
+  title text
+  author character varying
+  publish_date timestamp without time zone
+  content text
+  text text
+  text_hash character varying
+  text_excerpt character varying
+  status character varying NOT NULL
+  metadata json
+  wire json
+  created_at timestamp without time zone NOT NULL
+  raw_gcs_path character varying
+  extracted_at timestamp without time zone NOT NULL
+  extraction_version character varying
+  primary_label character varying
+  primary_label_confidence double precision
+  alternate_label character varying
+  alternate_label_confidence double precision
+  label_version character varying
+  label_model_version character varying
+  labels_updated_at timestamp without time zone
+  wire_check_status character varying NOT NULL
+  wire_check_attempted_at timestamp without time zone
+  wire_check_error character varying
+  wire_check_metadata json
+  entities_extracted_at timestamp without time zone
+  enriched_at timestamp without time zone
+  enrichment_attempts smallint NOT NULL
+-- ============ article_enrichment ============
+  article_id text NOT NULL
+  profile_version integer NOT NULL
+  steps_applied ARRAY NOT NULL
+  skip_reason text
+  backfield_commit text NOT NULL
+  model text NOT NULL
+  prompt_versions json NOT NULL
+  cost_usd numeric
+  enriched_at timestamp with time zone NOT NULL
+  is_news_content boolean
+  content_gate_reason text
+  scope text
+  scope_confidence double precision
+  subject text
+  subject_confidence double precision
+  topic text
+  topic_confidence double precision
+  format text
+  format_confidence double precision
+  timeframe text
+  timeframe_confidence double precision
+  user_need text
+  user_need_confidence double precision
+  rationales json
+  point_place text
+  point_method text
+  point_lat double precision
+  point_lon double precision
+  point_gnis text
+  point_geoid text
+  point_geoid_level text
+  geoids text
+  geo_skip_reason text
+  point_zcta character varying
+-- ============ article_places ============
+  id bigint NOT NULL
+  article_id text NOT NULL
+  full_name text
+  place_type text
+  city text
+  county text
+  state text
+  address text
+  description text
+  mention_text text
+  is_point boolean
+  lat double precision
+  lon double precision
+  geocoder text
+  geoid text
+  geoid_level text
+-- ============ article_people ============
+  id bigint NOT NULL
+  article_id text NOT NULL
+  name text NOT NULL
+  sort_key text
+  title text
+  affiliation text
+  person_type text
+  role_in_story text
+  nature text
+  public_figure boolean
+  mention_count integer
+  quotes json
+-- ============ article_organizations ============
+  id bigint NOT NULL
+  article_id text NOT NULL
+  name text NOT NULL
+  org_type text
+  boundary text
+  role_in_story text
+  nature text
+  mention_count integer
+-- ============ article_geoids ============
+  id bigint NOT NULL
+  article_id text NOT NULL
+  geoid text NOT NULL
+  geoid_level text NOT NULL
+  is_primary boolean NOT NULL
+  source text NOT NULL
+-- ============ sources ============
+  id character varying NOT NULL
+  host character varying NOT NULL
+  host_norm character varying NOT NULL
+  canonical_name character varying
+  city character varying
+  county character varying
+  owner character varying
+  type character varying
+  metadata json
+  bot_sensitivity integer
+  bot_sensitivity_updated_at timestamp without time zone
+  bot_encounters integer NOT NULL
+  last_bot_detection_at timestamp without time zone
+  bot_detection_metadata jsonb
+  rss_consecutive_failures integer NOT NULL
+  rss_transient_failures jsonb NOT NULL
+  rss_missing_at timestamp without time zone
+  rss_last_failed_at timestamp without time zone
+  last_successful_method character varying
+  no_effective_methods_consecutive integer NOT NULL
+  no_effective_methods_last_seen timestamp without time zone
+  status character varying
+  paused_at timestamp without time zone
+  paused_reason text
+  discovered_sections json
+  section_discovery_enabled boolean NOT NULL
+  section_last_updated timestamp without time zone
+  bot_protection_type character varying
+  selenium_only boolean NOT NULL
+  bot_protection_detected_at timestamp without time zone
+  extraction_method character varying NOT NULL
+  discovery_proxy character varying
+  rss_feeds json
+  amp_supported boolean
+  last_successful_rss_at timestamp without time zone
+  skip_rss_until timestamp without time zone
+  requires_login boolean NOT NULL
+  auth_type character varying
+  auth_secret_name character varying
+  auth_config json
+-- ============ datasets ============
+  id character varying NOT NULL
+  slug character varying NOT NULL
+  label character varying NOT NULL
+  name character varying
+  description text
+  ingested_at timestamp without time zone NOT NULL
+  ingested_by character varying
+  metadata json
+  is_public boolean
+  cron_enabled boolean NOT NULL
+  created_at timestamp without time zone NOT NULL
+-- ============ dataset_sources ============
+  id character varying NOT NULL
+  dataset_id character varying NOT NULL
+  source_id character varying NOT NULL
+  legacy_host_id character varying
+  legacy_meta json
