@@ -209,13 +209,15 @@
   function render(el, config, rows, opts) {
     const t = theme(config.theme);
     el.textContent = "";
-    if (!rows || !rows.length) {
-      el.textContent = "No data.";
-      return;
-    }
     const Plot = global.Plot;
     const width = Math.max(320, el.clientWidth || 640);
     const kind = config.kind || "table";
+    // The story map's payload is an object of layers, not a row array;
+    // every other form takes rows and needs at least one.
+    if (kind !== "storymap" && (!rows || !rows.length)) {
+      el.textContent = "No data.";
+      return;
+    }
 
     if (kind === "table") return renderTable(el, rows);
     if (kind === "choropleth" || kind === "points") {
