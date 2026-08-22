@@ -219,11 +219,35 @@ act. That is what makes it safe to click quickly through fifty rows.
 - Leaving without submitting discards nothing quietly: the page says
   what is pending.
 
-**A fix is the exception that proves the shape.** Agree and disagree
-need no extra input, so they stage as a bare decision. A fix needs its
-value — the corrected scope, the re-extraction request — so the row
-opens an editor and the value stages with the decision. Same submit,
-same batch.
+**A fix is not a decision — it is work.** Agree and disagree are
+judgements about the record as it stands, so they stage as bare
+decisions. A fix says the record is wrong and someone has to change it:
+the reviewer opens the editor and makes the edit that removes the
+reason the article was flagged. The edit stages with the session and
+applies on submit like the rest, but the reviewer has to do it, and no
+amount of clicking substitutes.
+
+What a fix edits, and what makes it resolved:
+
+| Case | Flagged because | A fix edits | Resolved when |
+|---|---|---|---|
+| Paywall stub | stored text is a teaser or login wall | the article text, or a re-extraction that replaces it | the text is the article's own |
+| Minimal capture | little or no text captured | the article text, or a re-extraction | there is real text — the band it now falls in is no longer the flagging one |
+| Scope mislabel | scope excluded but recorded | the scope value | the scope is one the profile does not exclude |
+
+**Submit checks that a fix actually fixed it.** After the edit applies,
+the flag's own condition is re-evaluated against the new record. If it
+still holds — text still under the threshold, scope still excluded —
+the item does not leave the queue; it returns with "the edit did not
+clear the flag", because it did not. Marking it resolved on the
+strength of an edit that changed nothing is how a queue starts lying
+about its own size.
+
+**Fix does not bulk.** Agree and disagree apply to a selection; a fix is
+one record at a time by nature, since the edit is specific to it. A
+queue worked at speed is mostly agree and disagree, with fixes as the
+few that need hands — and that ratio is worth showing, because a case
+that is mostly fixes is a pipeline defect, not a review workload.
 
 **Deferred execution has one real hazard: staleness.** Minutes pass
 between the decision and the submit, and the pipeline does not stop. If
@@ -301,6 +325,12 @@ false flags); selecting a band and accepting it in one action is the
 difference between a queue that gets worked and one that does not.
 
 **Still open:**
+- When a fix is a re-extraction rather than a text edit, the resolution
+  is asynchronous: the request goes to the crawler and the article
+  changes minutes or hours later. Does the item leave the queue on
+  request, or stay in a "fix requested" state until the re-extraction
+  lands and the condition clears? The second is honest and needs a state
+  the first does not.
 - Is `review_reason` free text or a controlled vocabulary? Free text
   reads well and aggregates badly; a vocabulary is the opposite. A short
   list per case plus an optional note is the usual compromise, and the
