@@ -22,12 +22,14 @@ class ChangeProposal(models.Model):
     GAZETTEER = "gazetteer"
     DUPLICATE = "duplicate"
     NO_MATCH = "no_match"
+    # Filter labels name the state of the proposal, so a reviewer can
+    # choose what to work on: the safe ones, or the ones needing a call.
     FINDINGS = [
-        (READY, "Nothing wrong with it"),
-        (OWNER_CONFLICT, "A different owner is already recorded"),
-        (UNKNOWN_OWNER, "That owner is new to us"),
+        (READY, "Ready to apply"),
+        (OWNER_CONFLICT, "Different owner recorded"),
+        (UNKNOWN_OWNER, "Unknown owner"),
         (GAZETTEER, "No such place or county"),
-        (DUPLICATE, "The file says two different things"),
+        (DUPLICATE, "File disagrees with itself"),
         (NO_MATCH, "No publisher with that id"),
     ]
 
