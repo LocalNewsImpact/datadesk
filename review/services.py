@@ -28,7 +28,7 @@ WRITABLE = {
     Dataset: ("name", "description", "meta", "cron_enabled"),
 }
 
-# Phase 4 (SCOPE.md §2.4): what may be created, and the one thing that
+# Phase 4 (SCOPE.md §2.5): what may be created, and the one thing that
 # may be deleted — membership rows, because they are a mapping, not a
 # record. Mirrors the INSERT/DELETE grants in
 # infra/sql/create_crawler_write_role.sql.
@@ -150,7 +150,7 @@ def repair_text(value):
 
 def audited_update_rows(actor, model, rows, action, reason=""):
     """Like audited_update, but each row carries its own values — the
-    import apply path (SCOPE.md §2.3). `rows` maps pk → {field: value}.
+    import apply path (SCOPE.md §2.4). `rows` maps pk → {field: value}.
     Fields must sit inside the write boundary; missing rows fail the
     whole batch (the diff ran moments earlier — a vanished row means
     the corpus moved under us, and half-applied batches are worse than

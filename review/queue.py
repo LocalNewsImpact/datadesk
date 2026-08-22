@@ -4,19 +4,28 @@ Automated triage flags articles it cannot use; a human decides what
 happens to them. The March 2026 backfill's gap analysis defined three
 cases, and each maps to a state the pipeline already records:
 
-- **Paywall stubs** (968 in March) — `enrichment_skipped` articles whose
-  skip reason says the stored text is a teaser or a login wall. Median
-  length 265 characters: too short for entity or geographic extraction,
-  long enough for a CIN label and a byline. All 968 carried a CIN, 639 a
+- **Paywall stubs** (981 in production) — `enrichment_skipped` whose skip
+  reason says the stored text is a teaser or a login wall. Median length
+  265 characters: too short for entity or geographic extraction, long
+  enough for a CIN label and a byline. All of them carry a CIN and most a
   byline, so excluding them loses valid observations for CIN counts,
   byline rates and publication volume.
-- **Minimal or empty captures** (198 in March) — `not_article`. A mix of
-  genuine boilerplate and real articles whose text never came through.
-  Only a human can tell them apart, and 38 of 206 carried more than 2000
-  characters, which is why the length bands are a facet and not a note.
-- **Scope mislabels** (69 in March) — the legacy `out_of_scope` status.
-  Roughly 70% were locally bylined stories that merely referenced
-  international subjects.
+- **Minimal or empty captures** — `not_article`. A mix of genuine
+  boilerplate and real articles whose text never came through. Only a
+  human can tell them apart, and 38 of 206 carried more than 2000
+  characters in March, which is why the length bands are a facet and not
+  a note.
+- **Scope mislabels** (69 in production) — scope-excluded articles kept
+  for export with their scope recorded. Roughly 70% were locally bylined
+  stories that merely referenced international subjects.
+
+WHAT THE QUEUE MUST NOT HOLD
+----------------------------
+`removed_in_march_review` (3,695 rows) is not an extraction finding. Those
+are deliberate membership removals a person already made from the March
+sheet. Surfacing them would ask an operator to re-review 3,695 decisions
+they have already taken, so they are excluded from every query here
+whatever their status.
 
 Read-only. Phase 2b adds the three dispositions as audited writes; this
 module deliberately contains no write path.
@@ -26,37 +35,36 @@ from django.db.models import Case as SQLCase
 from django.db.models import Count, F, IntegerField, Q, TextField, Value, When
 from django.db.models.functions import Coalesce, Length
 
-from explorer.models import Article, ArticleEnrichment, DatasetSource
+from explorer.models import Article, DatasetSource
 
 PAYWALL_STUB = "paywall_stub"
 MINIMAL_CAPTURE = "minimal_capture"
 SCOPE_MISLABEL = "scope_mislabel"
 
-# NOTE: the crawler's skip_reason vocabulary is not in the schema dump,
-# and the pipeline may add values. These markers are matched case-
-# insensitively as substrings, and the queue also offers the exact
-# skip_reason values present in the data, so an operator can widen the
-# selection when a reason this list does not name turns up. Confirm the
-# real vocabulary on the first run against the crawler database.
-PAYWALL_STUB_MARKERS = (
-    "paywall",
-    "stub",
-    "teaser",
-    "truncated",
-    "login",
-    "subscriber",
-    "subscription",
-    "too_short",
-    "short_text",
-    "insufficient_text",
-)
+# article_enrichment.skip_reason, as production actually holds it. Two
+# spellings mean the same thing: the bulk March update wrote
+# paywall_stub_exported_unenriched, and the live pipeline writes
+# paywall_stub (src/enrichment/orchestrator.py,
+# _GATE_VERDICT_SKIP_REASON). Both belong in the queue.
+PAYWALL_STUB_SKIP_REASONS = ("paywall_stub", "paywall_stub_exported_unenriched")
+
+# Scope exclusions kept for export with the scope recorded. The bulk
+# update wrote scope_recorded_not_excluded; the pipeline now writes
+# scope_excluded_<category> (scope_excluded_international and so on), so
+# that side is matched by prefix — none exist yet because the code
+# shipped after the bulk update.
+SCOPE_SKIP_REASONS = ("scope_recorded_not_excluded",)
+SCOPE_SKIP_REASON_PREFIX = "scope_excluded_"
+
+# Never in the queue, whatever the status: a human already decided.
+HUMAN_REMOVAL_SKIP_REASON = "removed_in_march_review"
 
 # The status each case selects on. Statuses are the pipeline's, never
 # invented here (SCOPE.md §2.2).
 CASE_STATUS = {
     PAYWALL_STUB: "enrichment_skipped",
     MINIMAL_CAPTURE: "not_article",
-    SCOPE_MISLABEL: "out_of_scope",
+    SCOPE_MISLABEL: "enrichment_skipped",
 }
 
 CASE_LABELS = {
@@ -75,8 +83,9 @@ CASE_NOTES = {
         "mixed together. Check the long bands first."
     ),
     SCOPE_MISLABEL: (
-        "Legacy automated scope exclusion. In March roughly 70% were "
-        "locally bylined stories that merely referenced a foreign subject."
+        "Scope-excluded but kept for export, scope recorded. In March "
+        "roughly 70% were locally bylined stories that merely referenced "
+        "a foreign subject."
     ),
 }
 
@@ -93,29 +102,50 @@ BANDS = (
 BAND_BOUNDS = {key: (low, high) for key, _label, low, high in BANDS}
 
 
-def _paywall_stub_q():
-    """Skip reasons that read as a paywall stub."""
-    query = Q()
-    for marker in PAYWALL_STUB_MARKERS:
-        query |= Q(enrichment__skip_reason__icontains=marker)
-    return query
-
-
 def _case_q(case):
-    """The rows one case selects, as a Q over Article."""
+    """The rows one case selects, as a Q over Article.
+
+    Exact values, not substrings: the vocabulary is closed and known, and
+    a substring match on "stub" or "scope" would have swept in
+    removed_in_march_review's neighbours as the pipeline grows.
+    """
     if case == PAYWALL_STUB:
-        return Q(status=CASE_STATUS[PAYWALL_STUB]) & _paywall_stub_q()
-    if case in CASE_STATUS:
-        return Q(status=CASE_STATUS[case])
+        return Q(status=CASE_STATUS[PAYWALL_STUB]) & Q(
+            enrichment__skip_reason__in=PAYWALL_STUB_SKIP_REASONS
+        )
+    if case == SCOPE_MISLABEL:
+        return (
+            Q(status=CASE_STATUS[SCOPE_MISLABEL])
+            & (
+                Q(enrichment__skip_reason__in=SCOPE_SKIP_REASONS)
+                | Q(enrichment__skip_reason__startswith=SCOPE_SKIP_REASON_PREFIX)
+            )
+            # SCOPE.md §2.3 names an `out_of_scope` status for these, while
+            # production carries all 69 as skip reasons on
+            # enrichment_skipped. The status is kept as an extra selector
+            # rather than dropped: if such a row exists it belongs here by
+            # the section's own rule that no automated step may exclude an
+            # article carrying a CIN label, and it cannot pull in the
+            # human removals, which _flagged_q excludes unconditionally.
+            # Delete this line once the status is confirmed unused.
+            | Q(status="out_of_scope")
+        )
+    if case == MINIMAL_CAPTURE:
+        return Q(status=CASE_STATUS[MINIMAL_CAPTURE])
     return Q()
 
 
 def _flagged_q(cases=None):
-    """Everything the queue holds, or only the named cases."""
+    """Everything the queue holds, or only the named cases.
+
+    The human-removal exclusion is applied here rather than per case, so
+    no selector anywhere in this module can reach those 3,695 rows —
+    including a status that has not been considered.
+    """
     query = Q()
     for case in cases or CASE_STATUS:
         query |= _case_q(case)
-    return query
+    return query & ~Q(enrichment__skip_reason=HUMAN_REMOVAL_SKIP_REASON)
 
 
 def base_queryset():
@@ -138,12 +168,6 @@ def base_queryset():
             enr_gate_reason=F("enrichment__content_gate_reason"),
             enr_is_news=F("enrichment__is_news_content"),
             enr_scope=F("enrichment__scope"),
-            case=SQLCase(
-                When(status=CASE_STATUS[MINIMAL_CAPTURE], then=Value(MINIMAL_CAPTURE)),
-                When(status=CASE_STATUS[SCOPE_MISLABEL], then=Value(SCOPE_MISLABEL)),
-                default=Value(PAYWALL_STUB),
-                output_field=TextField(),
-            ),
         )
         .filter(_flagged_q())
     )
@@ -275,13 +299,15 @@ def vocab():
                 .values_list("primary_label", flat=True)
                 .distinct()
             ),
-            # Only the reasons attached to skipped articles: the queue's
-            # own vocabulary, wider than the marker heuristic above.
+            # Derived from the queue itself, so every value offered
+            # returns rows — and removed_in_march_review, which the queue
+            # never holds, is never offered as a filter.
             "skip_reasons": sorted(
-                ArticleEnrichment.objects.filter(skip_reason__isnull=False)
-                .exclude(skip_reason="")
-                .values_list("skip_reason", flat=True)
+                value
+                for value in base_queryset()
+                .values_list("enrichment__skip_reason", flat=True)
                 .distinct()
+                if value
             ),
         }
     except DatabaseError:

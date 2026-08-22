@@ -1,4 +1,4 @@
-"""The corpus as a visual data source (SCOPE.md §2.6 v2).
+"""The corpus as a visual data source (SCOPE.md §2.7 v2).
 
 Charts of the research corpus need aggregation, not raw rows: "stories
 per county" over 15–20k articles is a GROUP BY, and the published

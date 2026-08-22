@@ -1,5 +1,5 @@
 """Visuals URLs. The embed lives at the root (/embed/<slug>/), matching
-SCOPE.md §2.6; everything else under /visuals/."""
+SCOPE.md §2.7; everything else under /visuals/."""
 
 from django.urls import path
 

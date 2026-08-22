@@ -1,4 +1,4 @@
-"""Import batches and saved export definitions (SCOPE.md §2.3).
+"""Import batches and saved export definitions (SCOPE.md §2.4).
 
 Application state, in Datadesk's own database — the crawler corpus is
 touched only at apply time, through the audited write path.
@@ -46,7 +46,7 @@ class ImportBatch(models.Model):
 
 class ExportDefinition(models.Model):
     """A saved export: the grid's filter params plus a column list,
-    re-runnable against current data (SCOPE.md §2.3)."""
+    re-runnable against current data (SCOPE.md §2.4)."""
 
     name = models.CharField(max_length=200, unique=True)
     created_by = models.ForeignKey(

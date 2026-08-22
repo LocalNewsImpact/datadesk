@@ -1,4 +1,4 @@
-"""The visuals surface (SCOPE.md §2.6 v1, §3).
+"""The visuals surface (SCOPE.md §2.7 v1, §3).
 
 The only unauthenticated routes in Datadesk: /embed/<slug>/ and
 /visuals/<slug>/data.json, for published visuals. The full page keeps
@@ -114,7 +114,7 @@ def index(request):
     return render(request, "visuals/index.html", {"visuals": Visual.objects.all()})
 
 
-# --- the form-driven builder (SCOPE.md §2.6 v2) -----------------------------
+# --- the form-driven builder (SCOPE.md §2.7 v2) -----------------------------
 
 
 @editor_required

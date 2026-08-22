@@ -1,4 +1,4 @@
-"""The cost dashboard's queries (SCOPE.md §2.5).
+"""The cost dashboard's queries (SCOPE.md §2.6).
 
 Two sources joined by day:
 

@@ -56,3 +56,58 @@ def test_forwarded_proto_is_trusted():
     request = RequestFactory().get("/", HTTP_X_FORWARDED_PROTO="https")
     assert request.is_secure()
     assert request.build_absolute_uri("/x/").startswith("https://")
+
+
+# --- SCOPE.md cross-references ---------------------------------------------
+#
+# Inserting §2.3 (the extraction review queue) shifted import/export,
+# dataset management, cost and visuals down one each, and every docstring
+# still cited the old numbers. These pin the sections a reader is sent to.
+
+
+def _scope_headings():
+    import re
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parent.parent / "SCOPE.md").read_text()
+    return {
+        f"§{number}": title.strip()
+        for number, title in re.findall(r"^### (2\.\d+) (.+)$", text, re.MULTILINE)
+    }
+
+
+def test_every_section_a_module_cites_exists():
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    headings = _scope_headings()
+    missing = set()
+    for path in root.glob("*/**/*.py"):
+        if ".venv" in path.parts or "migrations" in path.parts:
+            continue
+        for cited in re.findall(r"§2\.\d+", path.read_text()):
+            if cited not in headings:
+                missing.add(f"{path.relative_to(root)} cites {cited}")
+    assert missing == set()
+
+
+def test_the_sections_modules_cite_are_the_ones_they_implement():
+    headings = _scope_headings()
+    assert headings["§2.3"] == "Extraction review queue"
+    assert headings["§2.4"] == "Import and export"
+    assert headings["§2.5"] == "Dataset creation and maintenance"
+    assert headings["§2.6"] == "Cost insight"
+    assert headings["§2.7"] == "Visuals platform"
+
+    import datasets.places
+    import explorer.costs
+    import review.imports
+    import review.queue
+    import visuals.services
+
+    assert "§2.3" in review.queue.__doc__
+    assert "§2.4" in review.imports.__doc__
+    assert "§2.5" in datasets.places.__doc__
+    assert "§2.6" in explorer.costs.__doc__
+    assert "§2.7" in visuals.services.__doc__

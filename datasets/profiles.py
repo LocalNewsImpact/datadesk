@@ -1,4 +1,4 @@
-"""Enrichment-profile validation (SCOPE.md §2.4), mirroring the
+"""Enrichment-profile validation (SCOPE.md §2.5), mirroring the
 crawler's src/enrichment/profiles.py — the schema authority. The profile
 lives at datasets.metadata -> 'enrichment_profile'; a typo here fails
 the crawler's run at startup, so the editor refuses to save one.

@@ -501,7 +501,7 @@ def enrichment(request):
 
 @admin_required
 def costs(request):
-    """The cost dashboard (SCOPE.md §2.5): recorded vs billed by day,
+    """The cost dashboard (SCOPE.md §2.6): recorded vs billed by day,
     recorded by dataset and model, the cache discount as the headline."""
     recorded = recorded_costs()
     billed = billed_costs()

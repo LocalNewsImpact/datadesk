@@ -1,4 +1,4 @@
-"""GEOID rollups (SCOPE.md §2.4 geography).
+"""GEOID rollups (SCOPE.md §2.5 geography).
 
 A place GEOID is state(2) + place(5) and carries no county code, but the
 Census publishes a place-to-county crosswalk, so the county is a lookup

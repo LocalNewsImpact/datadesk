@@ -1,4 +1,4 @@
-"""The import protocol (SCOPE.md §2.3), as proven on the March CSV:
+"""The import protocol (SCOPE.md §2.4), as proven on the March CSV:
 upload → column mapping → diff report first → explicit apply.
 
 The diff classifies every proposed change per field before anything is

@@ -1,4 +1,4 @@
-"""Snapshot and publish mechanics (SCOPE.md §2.6 v1)."""
+"""Snapshot and publish mechanics (SCOPE.md §2.7 v1)."""
 
 import json
 
@@ -7,6 +7,7 @@ from django.db.models import Max
 from django.utils import timezone
 
 from audit.models import AuditLogEntry
+from visuals.dispatch import notify_published
 from visuals.models import CORPUS, GCS, INLINE, Visual, VisualSnapshot
 
 
@@ -99,6 +100,9 @@ def publish(visual, actor):
             after={"pinned_version": snapshot.version},
             reason=f"published {visual.slug} at snapshot v{snapshot.version}",
         )
+    # Outside the transaction, and best-effort: the pin is already
+    # committed, so a GitHub that cannot be reached must not undo it.
+    notify_published(visual.slug)
     return visual
 
 

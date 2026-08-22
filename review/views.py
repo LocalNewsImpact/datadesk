@@ -158,7 +158,7 @@ def revert_entry(request, entry_id):
     return redirect("review:audit_log")
 
 
-# --- import (SCOPE.md §2.3: diff report first, then explicit apply) ---------
+# --- import (SCOPE.md §2.4: diff report first, then explicit apply) ---------
 
 
 @editor_required
@@ -278,7 +278,7 @@ def import_revert(request, batch_id):
     return redirect("review:import_diff", batch.pk)
 
 
-# --- export (SCOPE.md §2.3: BOM CSVs, saved definitions) --------------------
+# --- export (SCOPE.md §2.4: BOM CSVs, saved definitions) --------------------
 
 
 @role_required

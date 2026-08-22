@@ -4,9 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Datadesk{% endblock %}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  {% comment %}
+  The typefaces are vendored (static/fonts), not linked from a font CDN:
+  an internal console should make no third-party request to render, and
+  serving them ourselves removes the fallback-font flash. The two most
+  used faces are preloaded; the rest arrive with the stylesheet.
+  {% endcomment %}
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+        href="{% static 'fonts/ibm-plex-sans-400-latin.woff2' %}">
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+        href="{% static 'fonts/ibm-plex-sans-600-latin.woff2' %}">
+  <link rel="stylesheet" href="{% static 'css/fonts.css' %}">
   <link rel="stylesheet" href="{% static 'css/datadesk.css' %}">
   <script src="{% static 'js/htmx.min.js' %}" defer></script>
 </head>

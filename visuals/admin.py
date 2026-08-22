@@ -1,4 +1,4 @@
-"""The registry's console (SCOPE.md §2.6 v1): visuals are registered,
+"""The registry's console (SCOPE.md §2.7 v1): visuals are registered,
 snapshotted, and published here; authoring stays in code."""
 
 from django.contrib import admin, messages

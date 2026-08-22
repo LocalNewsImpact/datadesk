@@ -1,4 +1,4 @@
-"""Dataset creation and maintenance (SCOPE.md §2.4). Admin role.
+"""Dataset creation and maintenance (SCOPE.md §2.5). Admin role.
 
 All corpus mutations flow through the audited write path; the forms
 enforce the invariants learned this cycle — gazetteer-validated cities,
@@ -189,7 +189,7 @@ def dataset_detail(request, slug):
         membership.gazetteer_built = stats["last_built"] if stats else None
 
     default_state = (dataset.meta or {}).get("default_state", "")
-    # SCOPE.md §2.4: when a dataset enters a new state, the missing
+    # SCOPE.md §2.5: when a dataset enters a new state, the missing
     # Geofabrik extract is flagged — no gazetteer rows in the dataset at
     # all means the offline extract likely is not staged yet.
     new_state_warning = (

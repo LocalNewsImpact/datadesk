@@ -645,9 +645,13 @@ nav.pager a { text-decoration: none; }
 .chip[data-method="focus_model"] { color: var(--tone-good); background: var(--tone-good-soft); }
 .chip[data-method="publication_place_assumed"] { color: var(--tone-warn); background: var(--tone-warn-soft); }
 
-/* Skipped by design reads differently from could not be coded. */
+/* geo_skip_reason, the complete production vocabulary. Skipped by design
+   reads differently from nothing to code, and both read differently from
+   a gazetteer miss, which is a failure worth surfacing. */
 .chip[data-skip="regional_uses_place_set"] { color: var(--tone-info); background: var(--tone-info-soft); }
-.chip[data-skip="no_codeable_geography"] { color: var(--tone-warn); background: var(--tone-warn-soft); }
+.chip[data-skip="no_codeable_geography"] { color: var(--tone-mute); background: var(--tone-mute-soft); }
+.chip[data-skip="not_scoped"] { color: var(--tone-mute); background: var(--tone-mute-soft); }
+.chip[data-skip="publication_city_not_in_census_gazetteer"] { color: var(--tone-bad); background: var(--tone-bad-soft); }
 
 .chip.plain {
   color: var(--text-2);

@@ -1,0 +1,149 @@
+# Refresh the versioned data behind published visuals.
+#
+# The third trigger in the sibling repos' model, and a distinct one: CI runs
+# on a push to any branch, Deploy runs on a merge to main, and this runs when
+# the *data* should be refreshed. Publishing is curation — it happens in the
+# console and in the database, and produces no git event of its own — so the
+# application dispatches the event rather than a commit standing in for it
+# (the pattern NewsSourceDirectory's publish-qa.yml established).
+#
+# What this does NOT do: move any pin. SCOPE.md §2.7's embed-stability rule is
+# that a published report must not change under its readers, so a scheduled
+# job may take a new snapshot version but may not decide that embeds should
+# serve it. Re-pinning is a human act in the console, or an explicit manual
+# run of this workflow with repin set and a person's name on it.
+
+name: Publish visuals
+
+on:
+  # An editor publishing in the console. The useful trigger: curation
+  # happens in the database and leaves no git event behind.
+  repository_dispatch:
+    types: [publish-visuals]
+
+  # After a deploy, because a schema or query change alters what a visual's
+  # source returns even when nobody has edited anything.
+  workflow_run:
+    workflows: [Deploy]
+    types: [completed]
+
+  # The safety net beneath both, for a signal that never arrived. The
+  # corpus is nightly-fresh (SCOPE.md §5), so this follows the BigQuery
+  # sync rather than leading it.
+  schedule:
+    - cron: "0 12 * * *"      # 07:00 Central
+
+  workflow_dispatch:
+    inputs:
+      repin:
+        description: "Also move each pin — changes what live embeds serve"
+        type: boolean
+        default: false
+      slug:
+        description: "One visual's slug, or blank for every published visual"
+        type: string
+        default: ""
+
+concurrency:
+  group: publish-visuals
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write             # to mint the WIF token
+
+env:
+  PROJECT_ID: lnic-datadesk
+  REGION: us-central1
+  SERVICE: datadesk
+  SQL_INSTANCE: mizzou-news-crawler:us-central1:mizzou-db-prod
+
+jobs:
+  publish:
+    name: Refresh snapshots
+    runs-on: ubuntu-latest
+    # Three gates, all of them "skip rather than fail":
+    #  - no WIF provider yet: bootstrap has not run (see deploy.yml)
+    #  - no publish actor: snapshots are audited and this refuses to
+    #    invent an author, so the variable must name a real admin account
+    #  - a failed deploy leaves the previous revision serving, and
+    #    publishing from it would describe a version that is not running
+    if: >-
+      vars.WIF_PROVIDER != '' && vars.PUBLISH_ACTOR != '' &&
+      (github.event_name != 'workflow_run' ||
+       github.event.workflow_run.conclusion == 'success')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: github-deploy@lnic-datadesk.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # A unix socket, not a TCP port: datadesk/settings.py builds its DSN
+      # for /cloudsql/<connection-name> and has no host/port path, so the
+      # proxy is run the way the deployed service is reached.
+      - name: Start the Cloud SQL proxy
+        run: |
+          curl -sL -o cloud-sql-proxy \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.1/cloud-sql-proxy.linux.amd64
+          chmod +x cloud-sql-proxy
+          sudo mkdir -p /cloudsql && sudo chown "$(id -u):$(id -g)" /cloudsql
+          ./cloud-sql-proxy --unix-socket /cloudsql "$SQL_INSTANCE" &
+          for _ in $(seq 1 30); do
+            [ -S "/cloudsql/$SQL_INSTANCE/.s.PGSQL.5432" ] && break
+            sleep 1
+          done
+          [ -S "/cloudsql/$SQL_INSTANCE/.s.PGSQL.5432" ] \
+            || { echo "::error::the proxy never came up"; exit 1; }
+
+      # Credentials come from Secret Manager, the same place the running
+      # service reads them, rather than a second copy kept as GitHub
+      # secrets that could drift from it.
+      - name: Read the credentials
+        run: |
+          for pair in "DB_PASSWORD:db-password" \
+                      "CRAWLER_DB_PASSWORD:crawler-ro-password"; do
+            var="${pair%%:*}"; secret="${pair#*:}"
+            value="$(gcloud secrets versions access latest \
+                       --secret="$secret" --project="$PROJECT_ID")"
+            echo "::add-mask::$value"
+            echo "$var=$value" >> "$GITHUB_ENV"
+          done
+
+      - name: Refresh the snapshots
+        env:
+          DJANGO_SECRET_KEY: publish-only
+          CLOUD_SQL_CONNECTION_NAME: mizzou-news-crawler:us-central1:mizzou-db-prod
+          DB_NAME: datadesk
+          DB_USER: datadesk
+          # The corpus a visual's source query reads, through the same
+          # proxy, as the SELECT-only role.
+          CRAWLER_DB_NAME: mizzou
+          CRAWLER_DB_USER: datadesk_ro
+        run: |
+          FLAGS="--actor ${{ vars.PUBLISH_ACTOR }}"
+
+          # The console's dispatch carries the slug it published, so a
+          # single publish refreshes one visual rather than all of them.
+          SLUG="${{ github.event.client_payload.slug || inputs.slug }}"
+          [ -n "$SLUG" ] && FLAGS="$FLAGS --slug $SLUG"
+
+          # Only ever from a deliberate manual run: no schedule, no
+          # dispatch and no post-deploy run may move what embeds serve.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
+             && [ "${{ inputs.repin }}" = "true" ]; then
+            echo "::warning::re-pinning — live embeds will change"
+            FLAGS="$FLAGS --repin"
+          fi
+
+          echo "publish_visuals $FLAGS"
+          python manage.py publish_visuals $FLAGS

@@ -1,4 +1,4 @@
-"""Exports in the standardized deliverable shape (SCOPE.md §2.3):
+"""Exports in the standardized deliverable shape (SCOPE.md §2.4):
 UTF-8 BOM CSVs, one logical row per physical line, article UUID as the
 join key."""
 

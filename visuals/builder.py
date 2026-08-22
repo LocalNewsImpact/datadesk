@@ -1,4 +1,4 @@
-"""The form-driven builder's server side (SCOPE.md §2.6 v2).
+"""The form-driven builder's server side (SCOPE.md §2.7 v2).
 
 The builder produces a config dict the chart runtime reads; the server
 whitelists its keys and validates the kind, and everything downstream —

@@ -1,4 +1,4 @@
-"""The visuals registry (SCOPE.md §2.6 v1).
+"""The visuals registry (SCOPE.md §2.7 v1).
 
 A Visual is authored as code — a renderer template in the repo plus a
 data source (a named BigQuery query or a bucket object) — and registered
@@ -54,7 +54,7 @@ class Visual(models.Model):
     # Builder visuals use "builder"; hand-authored visuals name their own.
     template = models.CharField(max_length=100, validators=[_validate_renderer])
 
-    # The form-driven builder's chart definition (SCOPE.md §2.6 v2): kind,
+    # The form-driven builder's chart definition (SCOPE.md §2.7 v2): kind,
     # column mappings, and options, read by the builder renderer runtime.
     # Empty for hand-authored visuals.
     config = models.JSONField(default=dict, blank=True)

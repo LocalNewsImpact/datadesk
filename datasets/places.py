@@ -1,4 +1,4 @@
-"""City validation against the Census place gazetteer (SCOPE.md §2.4) —
+"""City validation against the Census place gazetteer (SCOPE.md §2.5) —
 catching Grenfield/Kirskville-class typos at entry.
 
 The gazetteer is the crawler's own bundled file

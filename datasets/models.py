@@ -1,4 +1,4 @@
-"""Gazetteer build requests (SCOPE.md §2.4).
+"""Gazetteer build requests (SCOPE.md §2.5).
 
 The build itself is the crawler's offline job
 (`populate-gazetteer --dataset <slug>`, the state-extract path — never

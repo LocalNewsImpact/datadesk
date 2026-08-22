@@ -1,10 +1,16 @@
 """The extraction review queue (SCOPE.md §2.3), read-only.
 
-The fixtures reproduce the three March 2026 cases: a paywall stub whose
-text is a teaser but whose CIN label and byline are intact, a minimal
-capture flagged not_article, a full-length article wrongly flagged
-not_article (38 of 206 in March carried more than 2000 characters), and a
-legacy scope mislabel.
+The fixtures use the skip_reason vocabulary production actually holds:
+
+    removed_in_march_review              3695  human removals — NOT queued
+    paywall_stub_exported_unenriched      968  the bulk March update
+    scope_recorded_not_excluded            69  scope kept, recorded
+    paywall_stub                           13  what the pipeline writes now
+
+Both paywall spellings mean the same thing and both belong in the queue.
+`scope_excluded_<category>` is what the pipeline writes going forward and
+is matched by prefix. `removed_in_march_review` is a decision a person
+already made and must never appear.
 """
 
 from datetime import UTC, datetime
@@ -75,6 +81,19 @@ def flagged(crawler_schema):
     )
     ArticleEnrichment.objects.create(article=stub, skip_reason="paywall_stub")
 
+    # The other spelling, from the bulk March update. Same meaning.
+    bulk = _article(
+        "bulk",
+        cl1,
+        "Paywalled: county budget",
+        "enrichment_skipped",
+        text="x" * 300,
+        author="Sam Reporter",
+    )
+    ArticleEnrichment.objects.create(
+        article=bulk, skip_reason="paywall_stub_exported_unenriched"
+    )
+
     empty = _article("empty", cl1, "Photo gallery", "not_article", text="")
     ArticleEnrichment.objects.create(
         article=empty, content_gate_reason="no_body_text", is_news_content=False
@@ -90,21 +109,51 @@ def flagged(crawler_schema):
         author="Sam Byline",
     )
 
-    _article(
+    scoped = _article(
         "scoped",
         cl2,
         "Local firm wins a contract in Berlin",
-        "out_of_scope",
+        "enrichment_skipped",
         text="z" * 3000,
         author="Pat Local",
+    )
+    ArticleEnrichment.objects.create(
+        article=scoped, skip_reason="scope_recorded_not_excluded"
+    )
+
+    # What the pipeline writes for a scope exclusion from now on; matched
+    # by prefix because no such row exists yet in production.
+    future = _article(
+        "future",
+        cl2,
+        "Council debates a treaty resolution",
+        "enrichment_skipped",
+        text="q" * 700,
+        author="Alex Local",
+    )
+    ArticleEnrichment.objects.create(
+        article=future, skip_reason="scope_excluded_international"
+    )
+
+    # A decision a person already made. Never a queue item.
+    removed = _article(
+        "removed",
+        cl1,
+        "Removed from the March sheet",
+        "enrichment_skipped",
+        text="m" * 2500,
+        author="Chris Reporter",
+    )
+    ArticleEnrichment.objects.create(
+        article=removed, skip_reason="removed_in_march_review"
     )
 
     # Not flagged: an ordinary enriched article must never appear.
     _article("fine", cl1, "Ordinary story", "enriched", text="w" * 4000)
 
-    # enrichment_skipped for a reason that is not a paywall stub.
+    # enrichment_skipped for a reason the queue does not claim.
     other = _article("other", cl1, "Skipped for another reason", "enrichment_skipped")
-    ArticleEnrichment.objects.create(article=other, skip_reason="duplicate_of_earlier")
+    ArticleEnrichment.objects.create(article=other, skip_reason="some_other_reason")
 
 
 def _titles(response):
@@ -113,9 +162,12 @@ def _titles(response):
         title
         for title in (
             "Subscribers only: council votes",
+            "Paywalled: county budget",
             "Photo gallery",
             "County budget hearing draws a crowd",
             "Local firm wins a contract in Berlin",
+            "Council debates a treaty resolution",
+            "Removed from the March sheet",
             "Ordinary story",
             "Skipped for another reason",
         )
@@ -154,27 +206,31 @@ def test_queue_selects_the_three_flagged_cases_only(client, viewer, flagged):
     assert "Ordinary story" not in titles
 
 
-def test_enrichment_skipped_needs_a_paywall_stub_reason(client, viewer, flagged):
-    """enrichment_skipped alone is not a queue item; the skip reason has
-    to read as a stub."""
+def test_enrichment_skipped_needs_a_reason_the_queue_claims(client, viewer, flagged):
+    """enrichment_skipped alone is not a queue item: the skip reason has
+    to be one of the values the queue is for."""
     assert "Skipped for another reason" not in _titles(client.get(URL))
 
 
 def test_case_filter_narrows_to_one_case(client, viewer, flagged):
-    stubs = _titles(client.get(URL, {"case": "paywall_stub"}))
-    assert stubs == ["Subscribers only: council votes"]
-
-    minimal = _titles(client.get(URL, {"case": "minimal_capture"}))
-    assert set(minimal) == {"Photo gallery", "County budget hearing draws a crowd"}
-
-    mislabels = _titles(client.get(URL, {"case": "scope_mislabel"}))
-    assert mislabels == ["Local firm wins a contract in Berlin"]
+    assert set(_titles(client.get(URL, {"case": "paywall_stub"}))) == {
+        "Subscribers only: council votes",
+        "Paywalled: county budget",
+    }
+    assert set(_titles(client.get(URL, {"case": "minimal_capture"}))) == {
+        "Photo gallery",
+        "County budget hearing draws a crowd",
+    }
+    assert set(_titles(client.get(URL, {"case": "scope_mislabel"}))) == {
+        "Local firm wins a contract in Berlin",
+        "Council debates a treaty resolution",
+    }
 
 
 def test_unknown_case_is_ignored_rather_than_erroring(client, viewer, flagged):
     response = client.get(URL, {"case": "invented"})
     assert response.status_code == 200
-    assert len(_titles(response)) == 4
+    assert len(_titles(response)) == 6
 
 
 # --- the length bands -------------------------------------------------------
@@ -195,7 +251,7 @@ def test_band_facet_counts_every_band(client, viewer, flagged):
     from review.queue import band_facets
 
     counts = {band["key"]: band["count"] for band in band_facets({})}
-    assert counts == {"empty": 1, "stub": 1, "short": 0, "medium": 0, "long": 2}
+    assert counts == {"empty": 1, "stub": 2, "short": 1, "medium": 0, "long": 2}
 
 
 def test_long_band_surfaces_the_wrongly_flagged_articles(client, viewer, flagged):
@@ -232,9 +288,9 @@ def test_case_facet_counts(client, viewer, flagged):
 
     counts = {case["key"]: case["count"] for case in case_facets({})}
     assert counts == {
-        "paywall_stub": 1,
+        "paywall_stub": 2,
         "minimal_capture": 2,
-        "scope_mislabel": 1,
+        "scope_mislabel": 2,
     }
 
 
@@ -243,7 +299,11 @@ def test_case_facet_counts(client, viewer, flagged):
 
 def test_dataset_filter_follows_membership(client, viewer, flagged):
     titles = _titles(client.get(URL, {"dataset": "missouri"}))
-    assert set(titles) == {"Subscribers only: council votes", "Photo gallery"}
+    assert set(titles) == {
+        "Subscribers only: council votes",
+        "Paywalled: county budget",
+        "Photo gallery",
+    }
 
 
 def test_publisher_filter(client, viewer, flagged):
@@ -251,6 +311,7 @@ def test_publisher_filter(client, viewer, flagged):
     assert set(titles) == {
         "County budget hearing draws a crowd",
         "Local firm wins a contract in Berlin",
+        "Council debates a treaty resolution",
     }
 
 
@@ -267,9 +328,13 @@ def test_exact_skip_reason_filter(client, viewer, flagged):
 
 
 def test_skip_reason_vocabulary_comes_from_the_data(client, viewer, flagged):
+    """The filter offers the queue's own reasons, so every value returns
+    rows — and never offers one the queue does not hold."""
     content = client.get(URL).content.decode()
-    assert "paywall_stub" in content
-    assert "duplicate_of_earlier" in content
+    assert "paywall_stub_exported_unenriched" in content
+    assert "scope_recorded_not_excluded" in content
+    assert "some_other_reason" not in content
+    assert "removed_in_march_review" not in content
 
 
 # --- what the row shows -----------------------------------------------------
@@ -379,3 +444,83 @@ def test_an_unknown_wire_value_reads_as_unfinished_not_local(client, viewer, fla
     assert wire_label("local") == "Local"
     assert wire_tone("complete") == "local"
     assert wire_tone("wire") == "wire"
+
+
+# --- the skip_reason vocabulary, as production holds it ---------------------
+
+
+def test_human_removals_are_never_in_the_queue(client, viewer, flagged):
+    """removed_in_march_review is not an extraction finding: those 3,695
+    rows are membership removals a person already decided. Queuing them
+    would ask an operator to re-review decisions they have taken."""
+    assert "Removed from the March sheet" not in _titles(client.get(URL))
+    for case in ("paywall_stub", "minimal_capture", "scope_mislabel"):
+        assert "Removed from the March sheet" not in _titles(
+            client.get(URL, {"case": case})
+        )
+    # Including via the length band that would otherwise catch it.
+    assert "Removed from the March sheet" not in _titles(
+        client.get(URL, {"band": "long"})
+    )
+
+
+def test_the_exclusion_survives_a_status_the_queue_does_not_expect(
+    client, viewer, flagged
+):
+    """The exclusion is applied to the whole query, not per case, so a
+    human removal cannot reappear under a status nobody considered."""
+    from explorer.models import Article
+
+    article = Article.objects.get(id="removed")
+    article.status = "not_article"
+    article.save()
+    assert "Removed from the March sheet" not in _titles(client.get(URL))
+
+
+def test_both_paywall_spellings_are_queued(client, viewer, flagged):
+    """The bulk March update and the live pipeline write different
+    strings for the same finding."""
+    titles = _titles(client.get(URL, {"case": "paywall_stub"}))
+    assert "Subscribers only: council votes" in titles  # paywall_stub
+    assert "Paywalled: county budget" in titles  # ..._exported_unenriched
+
+
+def test_future_scope_exclusions_match_by_prefix(client, viewer, flagged):
+    """The pipeline writes scope_excluded_<category> going forward; none
+    exist in production yet, so the queue cannot enumerate them."""
+    assert "Council debates a treaty resolution" in _titles(
+        client.get(URL, {"case": "scope_mislabel"})
+    )
+
+
+def test_the_selection_is_exact_values_not_substrings(client, viewer, flagged):
+    """A substring match on "stub" or "scope" would sweep in whatever the
+    pipeline adds next. Nothing outside the known vocabulary is queued."""
+    from explorer.models import Article, ArticleEnrichment
+
+    link = Article.objects.get(id="stub").candidate_link
+    for reason in (
+        "scope_review_pending",
+        "stub_article_merged",
+        "paywalled_by_hand",
+    ):
+        article = _article(reason, link, f"Title {reason}", "enrichment_skipped")
+        ArticleEnrichment.objects.create(article=article, skip_reason=reason)
+
+    content = client.get(URL).content.decode()
+    for reason in ("scope_review_pending", "stub_article_merged", "paywalled_by_hand"):
+        assert f"Title {reason}" not in content
+
+
+def test_the_queues_vocabulary_matches_production():
+    """The values themselves, pinned. Queried from production 2026-08-22;
+    a change to the pipeline's vocabulary must update this list too."""
+    from review import queue as q
+
+    assert q.PAYWALL_STUB_SKIP_REASONS == (
+        "paywall_stub",
+        "paywall_stub_exported_unenriched",
+    )
+    assert q.SCOPE_SKIP_REASONS == ("scope_recorded_not_excluded",)
+    assert q.SCOPE_SKIP_REASON_PREFIX == "scope_excluded_"
+    assert q.HUMAN_REMOVAL_SKIP_REASON == "removed_in_march_review"

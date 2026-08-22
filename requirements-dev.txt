@@ -7,3 +7,5 @@ ruff>=0.6
 black>=24.0
 isort>=5.13
 mypy>=1.11
+# Reading .github/workflows in tests: the three triggers are a contract.
+PyYAML>=6.0

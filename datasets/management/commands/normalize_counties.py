@@ -1,7 +1,7 @@
 """Normalize publisher county names against the Census gazetteer.
 
 Reports first, applies only when asked — the same diff-then-apply
-discipline as the CSV import (SCOPE.md §2.3), and every write goes
+discipline as the CSV import (SCOPE.md §2.4), and every write goes
 through the audited path so the change is attributable and revertible.
 
     ./infra/manage.sh normalize_counties --dataset Mizzou-Missouri-State
