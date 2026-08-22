@@ -24,31 +24,20 @@
     <aside class="sidebar">
       <div class="brand"><a href="/">Datadesk</a></div>
       <nav>
-        <div class="nav-group">
-          <span class="nav-group-label">Work</span>
-          {% sections "work" as work %}
-          {% for section in work %}
-          <a class="nav-item {% nav_active section.url %}" href="{% url section.url %}">{{ section.label }}</a>
-          {% endfor %}
-          {% if role == "editor" or role == "admin" %}
-          <a class="nav-item {% nav_active 'review:proposals' %}" href="{% url 'review:proposals' %}">Proposed changes</a>
-          <a class="nav-item {% nav_active 'review:import_batches' %}" href="{% url 'review:import_batches' %}">Import</a>
-          {% endif %}
-        </div>
         {% comment %}
-        The admin group renders only for admins. That is presentation,
-        not access control: every view behind these links enforces the
-        role itself (accounts.decorators.admin_required).
+        A group renders only for roles that reach it. That is
+        presentation, not access control: every view behind these links
+        enforces its own role (accounts.decorators).
         {% endcomment %}
-        {% sections "admin" as admin_sections %}
-        {% if admin_sections %}
+        {% section_groups as nav_groups %}
+        {% for group in nav_groups %}
         <div class="nav-group">
-          <span class="nav-group-label">Admin</span>
-          {% for section in admin_sections %}
+          <span class="nav-group-label">{{ group.label }}</span>
+          {% for section in group.sections %}
           <a class="nav-item {% nav_active section.url %}" href="{% url section.url %}">{{ section.label }}</a>
           {% endfor %}
         </div>
-        {% endif %}
+        {% endfor %}
       </nav>
       <div class="sidebar-foot">Role: {{ role }}</div>
     </aside>

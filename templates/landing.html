@@ -132,28 +132,18 @@
   Driven by accounts.sections, the same list the sidebar and the access
   tests use, so this panel cannot offer a viewer a link to a 403.
   {% endcomment %}
-  {% sections "work" as work %}
+  {% section_groups as nav_groups %}
+  {% for group in nav_groups %}
+  <h3>{{ group.label }}</h3>
   <div class="section-nav">
-    {% for section in work %}
+    {% for section in group.sections %}
     <a href="{% url section.url %}">
       <span class="section-title">{{ section.label }}</span>
       <span class="section-note">{{ section.note }}</span>
     </a>
     {% endfor %}
   </div>
-
-  {% sections "admin" as admin_sections %}
-  {% if admin_sections %}
-  <h3>Admin</h3>
-  <div class="section-nav">
-    {% for section in admin_sections %}
-    <a href="{% url section.url %}">
-      <span class="section-title">{{ section.label }}</span>
-      <span class="section-note">{{ section.note }}</span>
-    </a>
-    {% endfor %}
-  </div>
-  {% endif %}
+  {% endfor %}
 
   <dl class="identity-panel">
     <dt>Signed in as</dt>

@@ -187,16 +187,14 @@ def geoid_name(geoid):
 
 
 @register.simple_tag(takes_context=True)
-def sections(context, group):
-    """The navigation entries for one sidebar group.
+def section_groups(context):
+    """The navigation groups the signed-in role sees, in order.
 
-    "admin" returns nothing unless the signed-in user holds that role —
-    a viewer sees a clean sidebar rather than links to 403s. The list is
+    A group the role cannot reach is absent rather than disabled — a
+    viewer sees a clean sidebar, not links to 403s. The list is
     accounts.sections, which is also what the access tests walk, so a
     section cannot appear here without its guard being checked.
     """
-    from accounts.sections import ADMIN_SECTIONS, WORK_SECTIONS
+    from accounts.sections import groups_for
 
-    if group == "admin":
-        return ADMIN_SECTIONS if context.get("role") == "admin" else ()
-    return WORK_SECTIONS
+    return groups_for(context.get("role"))

@@ -567,31 +567,39 @@ retrofitted — see item 7.
 - The health thresholds, and who owns them.
 - Whether `focus` is a profile step Datadesk's schema mirror is missing.
 
-## 9. The sidebar in three groups
+## 9. The sidebar in groups — done
 
-**Now:** one "Work" list and one "Admin" list, with editor-only links
-appended to Work because there is nowhere else for them.
+**Was:** one "Work" list and one "Admin" list, with editor-only links
+appended to Work because there was nowhere else for them.
 
-**Wanted:**
+**Shipped:**
 
 ```
 Data          Articles · Enrichment · Visuals
-Auditing      Review · Proposed
-Admin         Cost · Datasets · Users · Roles · Log
+Sources       Proposed changes · Import · Add a publisher
+Extraction    Review queue
+Admin         Cost · Datasets · Users · Roles · Audit log
 ```
 
-**Touches:** `accounts/sections.py`, which is the list the sidebar and
-`test_admin_access` both read, and the sidebar markup in
-`templates/base.html`.
+"Auditing" became **Sources** and **Extraction**. "Proposed changes"
+never said what it covered; under Sources it does — those are publisher
+records — and Sources is where the news-source tools reach the nav.
+Review queue is article extraction, so it sits under its own header with
+room for the operations view (item 8).
 
-**One thing the grouping changes beyond appearance:** the section list
-currently carries an invariant the tests enforce — everything in Work is
-open to any assigned role, everything in Admin is admin-only. Three
-groups need a third rule, because Auditing is neither: Review and
-Proposed are for editors and admins. So each group gains the role it
-requires, and the access test walks the groups rather than assuming two.
-That is the right shape anyway: the guard belongs beside the link, not
-in a convention about which list it sits in.
+**What the grouping changed beyond appearance:** the old list carried an
+invariant the tests enforced — everything in Work open to any assigned
+role, everything in Admin admin-only. Each group now declares the role
+it requires, and a section may raise that bar for itself: "Add a
+publisher" is admin-only inside an editor group, so an editor sees
+Sources without it. `test_admin_access` walks the groups and checks each
+section's declared role against the decorator on its view, so a link
+moved between groups whose guard does not match fails the suite.
+
+**Still open:** there is no publisher directory — sources are managed
+inside dataset detail, and `source_edit` is reachable only from there.
+A Sources index belongs in this group when item 1 lands, since who may
+see which publishers becomes a dataset-scoped question then.
 
 ## Sequence
 
@@ -608,8 +616,9 @@ in a convention about which list it sits in.
    nothing else.
 7. **Item 7** is independent and should start with measurement, not
    code. Worth doing early if the slowness is blocking daily use.
-9. **Item 9** is small and self-contained; it belongs with item 1, which
-   is when the role a link requires stops being a two-way question.
+9. **Item 9** is done. The publisher directory it leaves open belongs
+   with item 1, which is when the role a link requires stops being a
+   two-way question.
 8. **Item 8** after items 1 and 6, since the dataset selector and the
    review-task links depend on both — but its aggregates can be built
    and cached before either, and `jobs.params` already carries the

@@ -160,14 +160,19 @@ class Command(BaseCommand):
             state=ChangeProposal.PENDING
         )
         for row in rows.values_list(
-            "record_id", "field", "flag", "state",
-            "current_value", "proposed_value", "final_value",
+            "record_id",
+            "field",
+            "flag",
+            "state",
+            "current_value",
+            "proposed_value",
+            "final_value",
         ):
             record_id, field, flag, state, current, proposed, final = row
-            if state == ChangeProposal.REJECTED:
-                value = current  # kept as it was
-            else:
-                value = final or proposed  # applied over it
+            # Rejected keeps the value as it was; anything else applied
+            # a value over it.
+            rejected = state == ChangeProposal.REJECTED
+            value = current if rejected else (final or proposed)
             settled[(record_id, field)][flag].add(_settle(value or ""))
         return settled
 
