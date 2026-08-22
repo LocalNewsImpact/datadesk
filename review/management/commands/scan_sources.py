@@ -25,6 +25,11 @@ from review.proposals import ChangeProposal
 EVIDENCE_FIELDS = ("canonical_name", "city", "county", "owner", "type")
 
 
+def _settle(value):
+    """Compare field values the way a person reads them."""
+    return " ".join(str(value).split()).casefold()
+
+
 class Command(BaseCommand):
     help = "Flag publisher records that are incorrect or incomplete."
 
@@ -66,22 +71,26 @@ class Command(BaseCommand):
         evidence = self._evidence(options)
 
         # A decision already made is not asked again (REVIEW.md §4).
-        decided = set(
-            ChangeProposal.objects.filter(target="sources")
-            .exclude(state=ChangeProposal.PENDING)
-            .values_list("record_id", "flag", "field")
-        )
+        settled = self._settled()
         existing = set(
             ChangeProposal.objects.filter(
                 target="sources", state=ChangeProposal.PENDING
             ).values_list("record_id", "flag", "field")
         )
 
+        retired = self._retire_settled(sources, settled, existing, options)
+
         made = collections.Counter()
         for source in sources:
             for item in self._flags_for(source, context, evidence, options):
                 key = (source.id, item["flag"], item["field"])
-                if key in decided or key in existing:
+                if key in existing:
+                    continue
+                live = _settle(getattr(source, item["field"], "") or "")
+                ruled = settled.get((source.id, item["field"]), {})
+                # Settled while the field still reads as it did when the
+                # decision was made; a later change re-opens the question.
+                if live in ruled.get(item["flag"], ()) or live in ruled.get("", ()):
                     continue
                 made[item["flag"]] += 1
                 if not options["dry_run"]:
@@ -96,12 +105,71 @@ class Command(BaseCommand):
                     existing.add(key)
 
         total = sum(made.values())
+        if retired:
+            self.stdout.write(
+                f"{'would clear' if options['dry_run'] else 'cleared'} "
+                f"{retired} already answered"
+            )
         self.stdout.write(
             f"{len(sources)} publishers scanned; "
             f"{'would queue' if options['dry_run'] else 'queued'} {total}"
         )
         for flag, count in made.most_common():
             self.stdout.write(f"  {flag}: {count}")
+
+    def _retire_settled(self, sources, settled, existing, options):
+        """Clear questions still in the queue that have already been answered.
+
+        A queue that re-asks a settled question wastes the reviewer's
+        time whether the row was made before or after the decision, so
+        the scan sweeps as well as adds.
+        """
+        stale = []
+        by_id = {source.id: source for source in sources}
+        pending = ChangeProposal.objects.filter(
+            target="sources", state=ChangeProposal.PENDING
+        )
+        for row in pending:
+            source = by_id.get(row.record_id)
+            if source is None:
+                continue
+            ruled = settled.get((row.record_id, row.field))
+            if not ruled:
+                continue
+            live = _settle(getattr(source, row.field, "") or "")
+            if live in ruled.get(row.flag, ()) or live in ruled.get("", ()):
+                stale.append(row.pk)
+                existing.discard((row.record_id, row.flag, row.field))
+        if stale and not options["dry_run"]:
+            ChangeProposal.objects.filter(pk__in=stale).delete()
+        return len(stale)
+
+    def _settled(self):
+        """What has already been ruled on, as (record, field) -> flag -> values.
+
+        A disposition is a ruling on one field *at the value it then held*
+        (REVIEW.md §4): keeping a value settles that value, applying one
+        settles what was written. The rescan re-asks only when the field
+        no longer reads that way. Decisions taken before the flag
+        vocabulary existed carry an empty flag and settle the field
+        against every flag — the person ruled on the value, whatever we
+        called the defect at the time.
+        """
+        settled = collections.defaultdict(lambda: collections.defaultdict(set))
+        rows = ChangeProposal.objects.filter(target="sources").exclude(
+            state=ChangeProposal.PENDING
+        )
+        for row in rows.values_list(
+            "record_id", "field", "flag", "state",
+            "current_value", "proposed_value", "final_value",
+        ):
+            record_id, field, flag, state, current, proposed, final = row
+            if state == ChangeProposal.REJECTED:
+                value = current  # kept as it was
+            else:
+                value = final or proposed  # applied over it
+            settled[(record_id, field)][flag].add(_settle(value or ""))
+        return settled
 
     def _flags_for(self, source, context, evidence, options):
         """Every defect on one record, as queue items.

@@ -485,3 +485,145 @@ def test_a_defect_with_no_known_correction_offers_no_accept(crawler_schema, edit
     call_command("scan_sources", dataset="mo")
     p = ChangeProposal.objects.get(record_id="s22", flag="county_multiple")
     assert p.proposed_value == ""
+
+
+def _mo_publisher(**overrides):
+    from explorer.models import Dataset, DatasetSource
+
+    dataset = Dataset.objects.filter(slug="mo").first() or Dataset.objects.create(
+        id="d1", slug="mo", label="Missouri", meta={"default_state": "MO"}
+    )
+    fields = {
+        "id": "s20",
+        "host": "y.example",
+        "host_norm": "y.example",
+        "canonical_name": "Example Herald",
+        "city": "Columbia",
+        "county": "Boone",
+        "owner": "Example Media",
+    }
+    fields.update(overrides)
+    source = Source.objects.create(**fields)
+    DatasetSource.objects.create(id=f"ds-{source.id}", dataset=dataset, source=source)
+    return source
+
+
+def test_a_decision_taken_before_the_flags_existed_still_counts(
+    client, crawler_schema, editor
+):
+    """The vocabulary arrived after people had already answered questions,
+    so those rows carry no flag. A rescan must not re-ask them."""
+    from django.core.management import call_command
+
+    _mo_publisher(owner="")
+    ChangeProposal.objects.create(
+        target="sources",
+        record_id="s20",
+        record_label="y.example",
+        dataset="mo",
+        field="owner",
+        flag="",  # decided under the old model
+        current_value="",
+        proposed_value="Example Media",
+        state=ChangeProposal.REJECTED,
+    )
+
+    call_command("scan_sources", dataset="mo")
+    assert not ChangeProposal.objects.filter(
+        record_id="s20", field="owner", state=ChangeProposal.PENDING
+    ).exists()
+
+
+def test_a_field_that_changes_after_a_decision_is_asked_again(
+    client, crawler_schema, editor
+):
+    """A ruling covers the value it was made against. When the corpus
+    moves on, the question is genuinely new."""
+    from django.core.management import call_command
+
+    source = _mo_publisher(owner="")
+    call_command("scan_sources", dataset="mo")
+    p = ChangeProposal.objects.get(record_id="s20", flag="owner_missing")
+    client.post(URL, {f"d-{p.pk}": "reject"})
+
+    call_command("scan_sources", dataset="mo")
+    assert not ChangeProposal.objects.filter(
+        record_id="s20", flag="owner_missing", state=ChangeProposal.PENDING
+    ).exists()
+
+    # The crawler writes a county that does not exist in Missouri.
+    Source.objects.filter(pk=source.pk).update(county="Wyandotte")
+    call_command("scan_sources", dataset="mo")
+    assert ChangeProposal.objects.filter(
+        record_id="s20", field="county", state=ChangeProposal.PENDING
+    ).exists()
+
+
+def test_an_applied_decision_settles_the_value_it_wrote(client, crawler_schema, editor):
+    """Accepting writes the proposal into the corpus. The rescan reads
+    that new value and must recognise it as settled, not as a fresh
+    defect."""
+    from django.core.management import call_command
+
+    _mo_publisher(county="")
+    call_command("scan_sources", dataset="mo")
+    p = ChangeProposal.objects.get(record_id="s20", flag="county_missing")
+    client.post(URL, {f"d-{p.pk}": "accept"})
+
+    assert Source.objects.get(pk="s20").county == p.proposed_value
+    call_command("scan_sources", dataset="mo")
+    assert not ChangeProposal.objects.filter(
+        record_id="s20", field="county", state=ChangeProposal.PENDING
+    ).exists()
+
+
+def test_whitespace_and_case_do_not_reopen_a_settled_field(
+    client, crawler_schema, editor
+):
+    from django.core.management import call_command
+
+    source = _mo_publisher(owner="")
+    call_command("scan_sources", dataset="mo")
+    p = ChangeProposal.objects.get(record_id="s20", flag="owner_missing")
+    client.post(URL, {f"d-{p.pk}": "fix", f"v-{p.pk}": "Rust Communications"})
+
+    Source.objects.filter(pk=source.pk).update(owner="  Rust   Communications ")
+    call_command("scan_sources", dataset="mo")
+    assert not ChangeProposal.objects.filter(
+        record_id="s20", field="owner", state=ChangeProposal.PENDING
+    ).exists()
+
+
+def test_a_question_already_answered_is_cleared_from_the_queue(
+    client, crawler_schema, editor
+):
+    """Rows queued before the decision was recorded must leave the queue,
+    not merely stop being recreated."""
+    from django.core.management import call_command
+
+    _mo_publisher(owner="")
+    ChangeProposal.objects.create(
+        target="sources",
+        record_id="s20",
+        record_label="y.example",
+        dataset="mo",
+        field="owner",
+        flag="",
+        current_value="",
+        proposed_value="Example Media",
+        state=ChangeProposal.REJECTED,
+    )
+    stale = ChangeProposal.objects.create(
+        target="sources",
+        record_id="s20",
+        record_label="y.example",
+        dataset="mo",
+        field="owner",
+        flag="owner_missing",
+        current_value="",
+        proposed_value="Example Media",
+        state=ChangeProposal.PENDING,
+    )
+
+    call_command("scan_sources", dataset="mo")
+    assert not ChangeProposal.objects.filter(pk=stale.pk).exists()
