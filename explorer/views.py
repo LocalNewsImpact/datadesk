@@ -18,6 +18,7 @@ from django.http import Http404
 from django.shortcuts import render
 
 from accounts.decorators import role_required
+from datasets.geo import level_for_geoid, name_for_geoid
 from explorer.costs import billed_costs, recorded_costs
 from explorer.models import (
     Article,
@@ -226,6 +227,106 @@ def _rows(queryset):
         return []
 
 
+def geography_rows(article_id, enrichment):
+    """The story's geography of record, as one table.
+
+    article_geoids is the source: it holds the complete set and the
+    is_primary flag that separates the central claim from a mention.
+    Names come from the Census gazetteer, so a code never appears without
+    the place it stands for. article_places is extraction detail and
+    rides along on the row it matches rather than forming a second table.
+    """
+    geoid_rows = _rows(
+        ArticleGeoid.objects.filter(article_id=article_id).order_by("geoid")
+    )
+    places = _rows(ArticlePlace.objects.filter(article_id=article_id))
+
+    detail_by_geoid = {}
+    for place in places:
+        if place.geoid:
+            detail_by_geoid.setdefault(place.geoid, place)
+
+    claim = enrichment.point_geoid if enrichment else None
+    entries = {
+        row.geoid: {
+            "geoid": row.geoid,
+            "level": row.geoid_level,
+            "is_primary": bool(row.is_primary),
+            "source": row.source,
+        }
+        for row in geoid_rows
+    }
+
+    # Older records predate article_geoids. Rebuild the same shape from
+    # the claim and the mention list rather than showing nothing.
+    if not entries and enrichment:
+        if claim:
+            entries[claim] = {
+                "geoid": claim,
+                "level": enrichment.point_geoid_level,
+                "is_primary": True,
+                "source": enrichment.point_method,
+            }
+        for geoid in enrichment.mentioned_geoids():
+            entries.setdefault(
+                geoid,
+                {
+                    "geoid": geoid,
+                    "level": level_for_geoid(geoid),
+                    "is_primary": False,
+                    "source": "mention",
+                },
+            )
+
+    # Still nothing, but extraction did code some places: use those
+    # rather than showing an empty table. article_geoids stays
+    # authoritative wherever it has rows, so this never adds noise to a
+    # record the pipeline curated.
+    if not entries:
+        for place in places:
+            if place.geoid:
+                entries.setdefault(
+                    place.geoid,
+                    {
+                        "geoid": place.geoid,
+                        "level": place.geoid_level or level_for_geoid(place.geoid),
+                        "is_primary": False,
+                        "source": "place_extraction",
+                    },
+                )
+
+    rows = []
+    for entry in entries.values():
+        # A tract or block has no gazetteer name; for the claim the
+        # model's own point_place is the real answer.
+        fallback = (
+            enrichment.point_place if enrichment and entry["is_primary"] else None
+        )
+        name, kind = name_for_geoid(entry["geoid"], fallback=fallback)
+        rows.append(
+            {
+                **entry,
+                "name": name,
+                "name_kind": kind,
+                "detail": detail_by_geoid.get(entry["geoid"]),
+            }
+        )
+
+    # The claim leads; mentions follow alphabetically.
+    rows.sort(key=lambda row: (not row["is_primary"], row["name"] or "", row["geoid"]))
+
+    # Places extraction found but could not code have no row to ride on.
+    # They are named in a trailing note, not a second table.
+    uncoded = sorted(
+        {
+            str(place)
+            for place in places
+            if not place.geoid and (place.full_name or place.mention_text)
+        }
+    )
+    return rows, uncoded
+
+
 @role_required
 def article_detail(request, article_id):
     """The side-by-side view (SCOPE.md §2.2): stored text next to the whole
@@ -287,6 +388,8 @@ def article_detail(request, article_id):
         else {}
     )
 
+    geography, uncoded = geography_rows(article_id, enrichment)
+
     return render(
         request,
         "explorer/article_detail.html",
@@ -295,12 +398,8 @@ def article_detail(request, article_id):
             "enrichment": enrichment,
             "dimensions": dimensions,
             "extra_rationales": extra_rationales,
-            "mentioned_geoids": enrichment.mentioned_geoids() if enrichment else [],
-            "geoid_rows": _rows(
-                ArticleGeoid.objects.filter(article_id=article_id).order_by(
-                    "-is_primary", "geoid_level", "geoid"
-                )
-            ),
+            "geography": geography,
+            "uncoded_places": uncoded,
             "people": _rows(
                 ArticlePerson.objects.filter(article_id=article_id).order_by(
                     "-mention_count", "name"
@@ -310,9 +409,6 @@ def article_detail(request, article_id):
                 ArticleOrganization.objects.filter(article_id=article_id).order_by(
                     "-mention_count", "name"
                 )
-            ),
-            "places": _rows(
-                ArticlePlace.objects.filter(article_id=article_id).order_by("full_name")
             ),
             "stored_text": article.content or article.text or article.text_excerpt,
         },

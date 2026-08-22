@@ -155,6 +155,9 @@ class Article(CrawlerModel):
     text_excerpt = models.TextField(null=True)
     status = models.TextField()
     wire_check_status = models.TextField()
+    # The wire check's own findings: a JSON array naming the syndication
+    # services detected. Empty or absent on a local story.
+    wire = DecodedJSONField(null=True)
     created_at = models.DateTimeField()
     primary_label = models.TextField(null=True)
     primary_label_confidence = models.FloatField(null=True)
@@ -163,6 +166,50 @@ class Article(CrawlerModel):
 
     class Meta(CrawlerModel.Meta):
         db_table = "articles"
+
+    @property
+    def is_wire(self):
+        """True only when the check found syndication.
+
+        wire_check_status carries two passing values — 'complete' and
+        'local', the latter a legacy pass — so "not 'complete'" is not a
+        test for wire. Only 'wire', or findings in the wire column, are.
+        """
+        return self.wire_check_status == "wire" or bool(self.wire_services())
+
+    @property
+    def wire_check_concluded(self):
+        """False while the check errored or never ran."""
+        return self.wire_check_status in ("complete", "local", "wire")
+
+    def wire_services(self):
+        """Names of the syndication services the check detected.
+
+        The column's shape is the crawler's, and is not in the schema
+        dump beyond `json`; this reads a list of names, a list of objects
+        carrying a name, or a bare string, and returns [] for anything
+        else rather than raising in a template.
+        """
+        raw = self.wire
+        if not raw:
+            return []
+        if isinstance(raw, str):
+            return [raw]
+        if isinstance(raw, dict):
+            raw = [raw]
+        if not isinstance(raw, list):
+            return []
+        names = []
+        for item in raw:
+            if isinstance(item, str) and item.strip():
+                names.append(item.strip())
+            elif isinstance(item, dict):
+                for key in ("service", "name", "source", "agency", "wire"):
+                    value = item.get(key)
+                    if isinstance(value, str) and value.strip():
+                        names.append(value.strip())
+                        break
+        return names
 
 
 class ArticleEnrichment(CrawlerModel):

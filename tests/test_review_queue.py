@@ -331,3 +331,51 @@ def test_htmx_request_gets_only_the_results_fragment(client, viewer, flagged):
 def test_empty_result_says_something_useful(client, viewer, flagged):
     response = client.get(URL, {"publisher": "nowhere.example"})
     assert "Nothing flagged under these filters" in response.content.decode()
+
+
+def test_wire_status_is_mapped_for_humans(client, viewer, flagged):
+    """'complete' and 'local' both mean the check passed; the raw string
+    never reaches the screen."""
+    content = client.get(URL).content.decode()
+    assert ">Local<" in content
+    assert 'title="complete"' in content
+
+
+def test_a_syndicated_queue_row_names_the_service(client, viewer, flagged):
+    from explorer.models import Article
+
+    article = Article.objects.get(id="long")
+    article.wire_check_status = "wire"
+    article.wire = ["Associated Press"]
+    article.save()
+    content = client.get(URL).content.decode()
+    assert "Wire: Associated Press" in content
+
+
+def test_an_unfinished_check_is_not_a_local_story(client, viewer, flagged):
+    from explorer.models import Article
+
+    article = Article.objects.get(id="long")
+    article.wire_check_status = "error"
+    article.save()
+    assert "Check incomplete" in client.get(URL).content.decode()
+
+
+def test_statuses_are_labelled(client, viewer, flagged):
+    content = client.get(URL).content.decode()
+    assert "Not an article" in content
+    assert "Exported unenriched" in content
+    assert 'title="not_article"' in content
+
+
+def test_an_unknown_wire_value_reads_as_unfinished_not_local(client, viewer, flagged):
+    """Only 'complete', 'local' and 'wire' mean the check concluded. A
+    value this code does not know has not concluded, and must not be
+    presented as a local story."""
+    from explorer.templatetags.datadesk import wire_label, wire_tone
+
+    assert wire_label("some_future_state") == "Check incomplete"
+    assert wire_tone("some_future_state") == "incomplete"
+    assert wire_label("local") == "Local"
+    assert wire_tone("complete") == "local"
+    assert wire_tone("wire") == "wire"

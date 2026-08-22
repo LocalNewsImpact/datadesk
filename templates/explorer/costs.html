@@ -42,6 +42,7 @@
 
   {% if days %}
   <h2>By day (last 30)</h2>
+  <div class="table-scroll">
   <table class="grid">
     <thead>
       <tr>
@@ -57,17 +58,19 @@
       <tr>
         <td class="nowrap">{{ row.day }}</td>
         <td class="count">{{ row.articles|default:"—" }}</td>
-        <td class="count">{% if row.recorded is not None %}${{ row.recorded|floatformat:2 }}{% else %}—{% endif %}</td>
-        <td class="count">{% if row.billed is not None %}${{ row.billed|floatformat:2 }}{% else %}—{% endif %}</td>
-        <td class="count">{% if row.cache_discount is not None %}${{ row.cache_discount|floatformat:2 }}{% else %}—{% endif %}</td>
+        <td class="count money">{% if row.recorded is not None %}${{ row.recorded|floatformat:2 }}{% else %}—{% endif %}</td>
+        <td class="count money">{% if row.billed is not None %}${{ row.billed|floatformat:2 }}{% else %}—{% endif %}</td>
+        <td class="count money">{% if row.cache_discount is not None %}${{ row.cache_discount|floatformat:2 }}{% else %}—{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% endif %}
 
   {% if recorded %}
   <h2>Recorded by dataset</h2>
+  <div class="table-scroll">
   <table class="grid">
     <thead>
       <tr><th scope="col">Dataset</th><th scope="col" class="count">Articles</th><th scope="col" class="count">Cost</th></tr>
@@ -77,13 +80,15 @@
       <tr>
         <td>{{ row.label }}</td>
         <td class="count">{{ row.articles }}</td>
-        <td class="count">${{ row.cost|floatformat:2 }}</td>
+        <td class="count money">${{ row.cost|floatformat:2 }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
 
   <h2>Recorded by model</h2>
+  <div class="table-scroll">
   <table class="grid">
     <thead>
       <tr><th scope="col">Model</th><th scope="col" class="count">Articles</th><th scope="col" class="count">Cost</th></tr>
@@ -93,11 +98,12 @@
       <tr>
         <td>{{ row.model|default:"—" }}</td>
         <td class="count">{{ row.articles }}</td>
-        <td class="count">${{ row.cost|floatformat:2 }}</td>
+        <td class="count money">${{ row.cost|floatformat:2 }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% endif %}
   {% endif %}
 </section>

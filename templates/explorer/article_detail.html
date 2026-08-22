@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load datadesk %}
 {% block title %}{{ article.title|default:"Article" }} — Datadesk{% endblock %}
 
 {% block content %}
@@ -9,111 +10,60 @@
     <div><dt>Publisher</dt><dd>{{ article.candidate_link.source|default:"—" }}</dd></div>
     <div><dt>Byline</dt><dd>{{ article.author|default:"—" }}{% if role == "editor" or role == "admin" %} <a class="edit-link" href="{% url 'review:edit_field' article.id 'author' %}">edit</a>{% endif %}</dd></div>
     <div><dt>Published</dt><dd>{{ article.publish_date|date:"Y-m-d"|default:"—" }}</dd></div>
-    <div><dt>Status</dt><dd>{{ article.status }}</dd></div>
-    <div><dt>Wire</dt><dd>{{ article.wire_check_status }}</dd></div>
-    <div><dt>Label</dt><dd>{{ article.primary_label|default:"—" }}
-      {% if article.primary_label_confidence is not None %}({{ article.primary_label_confidence|floatformat:2 }}){% endif %}</dd></div>
+    <div><dt>Status</dt><dd><span class="chip" data-status="{{ article.status }}" title="{{ article.status }}">{{ article.status|status_label }}</span></dd></div>
+    <div><dt>CIN label</dt><dd>{{ article.primary_label|default:"—" }}</dd></div>
+    <div><dt>Label confidence</dt><dd>{% include "_confidence.html" with value=article.primary_label_confidence %}</dd></div>
     <div><dt>URL</dt><dd><a href="{{ article.url }}" rel="noopener noreferrer">{{ article.url|truncatechars:60 }}</a></dd></div>
   </dl>
 
-  <div class="side-by-side">
-    <section>
-      <h2>Stored text{% if role == "editor" or role == "admin" %} <a class="edit-link" href="{% url 'review:edit_field' article.id 'content' %}">edit</a>{% endif %}</h2>
-      {% if stored_text %}
-      <p class="notice">{{ stored_text|length }} characters</p>
-      <div class="stored-text">{{ stored_text|linebreaks }}</div>
-      {% else %}
-      <p class="notice">No stored text. Extraction captured nothing usable for this article.</p>
-      {% endif %}
-    </section>
+  {% if article.is_wire %}
+  <p class="callout callout-wire">
+    <strong>Wire: Yes.</strong>
+    {% if article.wire_services %}
+    Detected {{ article.wire_services|join:", " }}. This story is
+    syndicated, not original local reporting.
+    {% else %}
+    The wire check flagged this story as syndicated, not original local
+    reporting.
+    {% endif %}
+  </p>
+  {% endif %}
 
-    <section>
-      <h2>Enrichment</h2>
+  {% comment %}
+  The stored text spans the width, with its reading measure constrained
+  inside and its height bounded — a long article must not push the
+  enrichment record off the screen, and a short one must not leave a
+  column of dead space beside it.
+  {% endcomment %}
+  <section class="panel panel-text">
+    <h2>Stored text{% if role == "editor" or role == "admin" %} <a class="edit-link" href="{% url 'review:edit_field' article.id 'content' %}">edit</a>{% endif %}</h2>
+    {% if stored_text %}
+    <p class="notice">{{ stored_text|length }} characters</p>
+    <div class="stored-text">{{ stored_text|linebreaks }}</div>
+    {% else %}
+    <p class="notice">No stored text. Extraction captured nothing usable for this article.</p>
+    {% endif %}
+  </section>
+
+  <div class="panels">
+    <section class="panel wide">
+      <h2>Classification</h2>
       {% if enrichment %}
       <div class="table-scroll">
-      <table class="grid">
-        <thead><tr><th scope="col">Dimension</th><th scope="col">Value</th><th scope="col" class="count">Conf.</th></tr></thead>
-        <tbody>
-          {% for name, value, confidence, rationale in dimensions %}
-          <tr>
-            <td>{{ name }}</td>
-            <td>{{ value|default:"—" }}
-              {% if rationale %}<span class="rationale">{{ rationale }}</span>{% endif %}</td>
-            <td class="count">{% if confidence is not None %}{{ confidence|floatformat:2 }}{% else %}—{% endif %}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+        <table class="grid">
+          <thead><tr><th scope="col">Dimension</th><th scope="col">Value</th><th scope="col" class="count">Conf.</th></tr></thead>
+          <tbody>
+            {% for name, value, confidence, rationale in dimensions %}
+            <tr>
+              <td>{{ name }}</td>
+              <td>{{ value|default:"—" }}
+                {% if rationale %}<span class="rationale">{{ rationale }}</span>{% endif %}</td>
+              <td class="count">{% include "_confidence.html" with value=confidence %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
-
-      <h3>Central geography</h3>
-      {% if enrichment.has_point %}
-      <p class="notice">
-        The single central location of the story, at the most precise Census
-        rung that resolved.
-      </p>
-      <dl class="fact-row">
-        <div><dt>Place</dt><dd>{{ enrichment.point_place|default:"—" }}</dd></div>
-        <div><dt>FIPS</dt><dd class="mono-inline">{{ enrichment.point_geoid }}</dd></div>
-        <div><dt>Rung</dt><dd>{{ enrichment.point_geoid_level|default:"—" }}</dd></div>
-        <div><dt>Basis</dt><dd>{{ enrichment.point_method|default:"—" }}</dd></div>
-        <div><dt>ZCTA</dt><dd>{{ enrichment.point_zcta|default:"—" }}</dd></div>
-        <div><dt>Coordinates</dt><dd>
-          {% if enrichment.point_lat is not None %}{{ enrichment.point_lat|floatformat:5 }}, {{ enrichment.point_lon|floatformat:5 }}{% else %}—{% endif %}
-        </dd></div>
-      </dl>
-      {% else %}
-      <p class="notice">
-        No central-geography claim.
-        {% if enrichment.geo_skip_reason %}Reason recorded: <strong>{{ enrichment.geo_skip_reason }}</strong>.{% endif %}
-      </p>
-      {% endif %}
-
-      <h3>Mentioned FIPS</h3>
-      <p class="notice">
-        Geographies the story mentions. The central claim is not repeated
-        in this list.
-      </p>
-      {% if mentioned_geoids %}
-      <p class="fips-list">{% for geoid in mentioned_geoids %}<span class="mono-inline">{{ geoid }}</span>{% endfor %}</p>
-      {% else %}
-      <p class="notice">None recorded.</p>
-      {% endif %}
-
-      {% if geoid_rows %}
-      <h3>Geography rows</h3>
-      <p class="notice">
-        <code>article_geoids</code> — the superset, claim and mentions
-        together, each flagged.
-      </p>
-      <div class="table-scroll">
-      <table class="grid">
-        <thead><tr><th scope="col">FIPS</th><th scope="col">Rung</th><th scope="col">Primary</th><th scope="col">Source</th></tr></thead>
-        <tbody>
-          {% for row in geoid_rows %}
-          <tr>
-            <td class="mono-inline">{{ row.geoid }}</td>
-            <td>{{ row.geoid_level }}</td>
-            <td>{% if row.is_primary %}claim{% else %}mention{% endif %}</td>
-            <td>{{ row.source|default:"—" }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      </div>
-      {% endif %}
-
-      <h3>Record</h3>
-      <dl class="fact-row">
-        <div><dt>News content</dt><dd>{{ enrichment.is_news_content|yesno:"yes,no,—" }}
-          {% if enrichment.content_gate_reason %}({{ enrichment.content_gate_reason }}){% endif %}</dd></div>
-        <div><dt>Skip reason</dt><dd>{{ enrichment.skip_reason|default:"—" }}</dd></div>
-        <div><dt>Profile</dt><dd>{{ enrichment.profile_version|default:"—" }}</dd></div>
-        <div><dt>Model</dt><dd>{{ enrichment.model|default:"—" }}</dd></div>
-        <div><dt>Enriched</dt><dd>{{ enrichment.enriched_at|date:"Y-m-d H:i"|default:"—" }}</dd></div>
-        <div><dt>Cost</dt><dd>{% if enrichment.cost_usd is not None %}${{ enrichment.cost_usd|floatformat:4 }}{% else %}—{% endif %}</dd></div>
-      </dl>
-
       {% if extra_rationales %}
       <h3>Other rationales</h3>
       <dl class="rationales">
@@ -126,75 +76,139 @@
       <p class="notice">No enrichment record.</p>
       {% endif %}
     </section>
-  </div>
 
-  <div class="entity-columns">
-    <section>
+    <section class="panel">
+      <h2>Central geography</h2>
+      {% if enrichment.has_point %}
+      <p class="notice">
+        The single central location of the story, at the most precise
+        Census rung that resolved.
+      </p>
+      <dl class="fact-row plain">
+        <div><dt>Place</dt><dd>{{ enrichment.point_place|default:"—" }}</dd></div>
+        <div><dt>FIPS</dt><dd class="mono-inline">{{ enrichment.point_geoid }}</dd></div>
+        <div><dt>Rung</dt><dd>{{ enrichment.point_geoid_level|default:"—" }}</dd></div>
+        <div><dt>Basis</dt><dd><span class="chip" data-method="{{ enrichment.point_method }}">{{ enrichment.point_method|default:"—" }}</span></dd></div>
+        <div><dt>ZCTA</dt><dd class="mono-inline">{{ enrichment.point_zcta|default:"—" }}</dd></div>
+        <div><dt>Coordinates</dt><dd class="mono-inline">
+          {% if enrichment.point_lat is not None %}{{ enrichment.point_lat|floatformat:5 }}, {{ enrichment.point_lon|floatformat:5 }}{% else %}—{% endif %}
+        </dd></div>
+      </dl>
+      {% elif enrichment %}
+      <p class="notice">
+        No central-geography claim.
+        {% if enrichment.geo_skip_reason %}Reason recorded: <span class="chip" data-skip="{{ enrichment.geo_skip_reason }}">{{ enrichment.geo_skip_reason }}</span>{% endif %}
+      </p>
+      {% else %}
+      <p class="notice">No enrichment record.</p>
+      {% endif %}
+    </section>
+
+    <section class="panel">
+      <h2>Processing</h2>
+      {% if enrichment %}
+      <dl class="fact-row plain">
+        <div><dt>News content</dt><dd>{{ enrichment.is_news_content|yesno:"yes,no,—" }}
+          {% if enrichment.content_gate_reason %}<span class="sub">{{ enrichment.content_gate_reason }}</span>{% endif %}</dd></div>
+        <div><dt>Skip reason</dt><dd>{{ enrichment.skip_reason|default:"—" }}</dd></div>
+        <div><dt>Profile</dt><dd>{{ enrichment.profile_version|default:"—" }}</dd></div>
+        <div><dt>Model</dt><dd>{{ enrichment.model|default:"—" }}</dd></div>
+        <div><dt>Enriched</dt><dd>{{ enrichment.enriched_at|date:"Y-m-d H:i"|default:"—" }}</dd></div>
+        <div><dt>Cost</dt><dd class="mono-inline">{% if enrichment.cost_usd is not None %}${{ enrichment.cost_usd|floatformat:4 }}{% else %}—{% endif %}</dd></div>
+      </dl>
+      {% else %}
+      <p class="notice">No enrichment record.</p>
+      {% endif %}
+    </section>
+
+    <section class="panel wide">
+      <h2>Geography</h2>
+      <p class="notice">
+        The story's geography of record: the central claim and every
+        mention, each with the Census code it resolved to.
+      </p>
+      {% if geography %}
+      <div class="table-scroll">
+        <table class="grid">
+          <thead>
+            <tr>
+              <th scope="col">Place</th>
+              <th scope="col">FIPS</th>
+              <th scope="col">Rung</th>
+              <th scope="col">Role</th>
+              <th scope="col">Basis</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in geography %}
+            <tr>
+              <td>
+                {% if row.name %}{{ row.name }}{% else %}<span class="absent">not in the gazetteer</span>{% endif %}
+                {% if row.name_kind == "containing" %}<span class="sub">containing county</span>{% endif %}
+                {% if row.detail.full_name %}<span class="sub">{{ row.detail.full_name }}{% if row.detail.address %} · {{ row.detail.address }}{% endif %}</span>{% endif %}
+                {% if row.detail.mention_text %}<span class="sub">“{{ row.detail.mention_text }}”</span>{% endif %}
+              </td>
+              <td class="code">{{ row.geoid }}</td>
+              <td>{{ row.level|default:"—" }}</td>
+              <td>{% if row.is_primary %}<span class="chip" data-status="enriched">claim</span>{% else %}<span class="chip plain">mention</span>{% endif %}</td>
+              <td>{% if row.source %}<span class="chip" data-method="{{ row.source }}">{{ row.source }}</span>{% else %}<span class="absent">—</span>{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="notice">No geography recorded for this article.</p>
+      {% endif %}
+      {% if uncoded_places %}
+      <p class="notice">
+        Also mentioned, without a Census code: {{ uncoded_places|join:", " }}.
+      </p>
+      {% endif %}
+    </section>
+
+    <section class="panel">
       <h2>People</h2>
       {% if people %}
       <div class="table-scroll">
-      <table class="grid">
-        <thead><tr><th scope="col">Name</th><th scope="col">Role in story</th><th scope="col" class="count">Mentions</th></tr></thead>
-        <tbody>
-          {% for person in people %}
-          <tr>
-            <td>{{ person.name }}
-              {% if person.title or person.affiliation %}<span class="sub">{{ person.title|default:"" }}{% if person.title and person.affiliation %}, {% endif %}{{ person.affiliation|default:"" }}</span>{% endif %}</td>
-            <td>{{ person.role_in_story|default:"—" }}
-              {% if person.public_figure %}<span class="sub">public figure</span>{% endif %}</td>
-            <td class="count">{{ person.mention_count|default:"—" }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+        <table class="grid">
+          <thead><tr><th scope="col">Name</th><th scope="col">Role in story</th><th scope="col" class="count">Mentions</th></tr></thead>
+          <tbody>
+            {% for person in people %}
+            <tr>
+              <td>{{ person.name }}
+                {% if person.title or person.affiliation %}<span class="sub">{{ person.title|default:"" }}{% if person.title and person.affiliation %}, {% endif %}{{ person.affiliation|default:"" }}</span>{% endif %}</td>
+              <td>{{ person.role_in_story|default:"—" }}
+                {% if person.public_figure %}<span class="sub">public figure</span>{% endif %}</td>
+              <td class="count">{{ person.mention_count|default:"—" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
       {% else %}
       <p class="notice">None extracted.</p>
       {% endif %}
     </section>
 
-    <section>
+    <section class="panel">
       <h2>Organizations</h2>
       {% if organizations %}
       <div class="table-scroll">
-      <table class="grid">
-        <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col" class="count">Mentions</th></tr></thead>
-        <tbody>
-          {% for org in organizations %}
-          <tr>
-            <td>{{ org.name }}
-              {% if org.role_in_story %}<span class="sub">{{ org.role_in_story }}</span>{% endif %}</td>
-            <td>{{ org.org_type|default:"—" }}
-              {% if org.boundary %}<span class="sub">{{ org.boundary }}</span>{% endif %}</td>
-            <td class="count">{{ org.mention_count|default:"—" }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      </div>
-      {% else %}
-      <p class="notice">None extracted.</p>
-      {% endif %}
-    </section>
-
-    <section>
-      <h2>Places</h2>
-      {% if places %}
-      <div class="table-scroll">
-      <table class="grid">
-        <thead><tr><th scope="col">Place</th><th scope="col">Locality</th><th scope="col">FIPS</th></tr></thead>
-        <tbody>
-          {% for place in places %}
-          <tr>
-            <td>{{ place.full_name|default:place.mention_text|default:"—" }}
-              {% if place.place_type %}<span class="sub">{{ place.place_type }}</span>{% endif %}</td>
-            <td>{{ place.city|default:"—" }}{% if place.state %}, {{ place.state }}{% endif %}
-              {% if place.county %}<span class="sub">{{ place.county }}</span>{% endif %}</td>
-            <td>{% if place.geoid %}<span class="mono-inline">{{ place.geoid }}</span> <span class="sub">{{ place.geoid_level }}</span>{% else %}—{% endif %}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+        <table class="grid">
+          <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col" class="count">Mentions</th></tr></thead>
+          <tbody>
+            {% for org in organizations %}
+            <tr>
+              <td>{{ org.name }}
+                {% if org.role_in_story %}<span class="sub">{{ org.role_in_story }}</span>{% endif %}</td>
+              <td>{{ org.org_type|default:"—" }}
+                {% if org.boundary %}<span class="sub">{{ org.boundary }}</span>{% endif %}</td>
+              <td class="count">{{ org.mention_count|default:"—" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
       {% else %}
       <p class="notice">None extracted.</p>

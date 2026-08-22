@@ -1,39 +1,66 @@
-{% load static %}<!doctype html>
+{% load static datadesk %}<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Datadesk{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="{% static 'css/datadesk.css' %}">
   <script src="{% static 'js/htmx.min.js' %}" defer></script>
 </head>
 <body>
-  <header class="site-header">
-    <span class="wordmark"><a href="/">Datadesk</a></span>
-    {% if user.is_authenticated %}
-    {% if role %}
-    <nav class="primary">
-      <a href="{% url 'explorer:articles' %}">Articles</a>
-      <a href="{% url 'explorer:enrichment' %}">Enrichment</a>
-      <a href="{% url 'review:queue' %}">Queue</a>
-      <a href="{% url 'explorer:costs' %}">Costs</a>
-      <a href="{% url 'visuals:index' %}">Visuals</a>
-      {% if role == "admin" %}<a href="{% url 'datasets:list' %}">Datasets</a>{% endif %}
-      {% if role == "editor" or role == "admin" %}<a href="{% url 'review:import_batches' %}">Import</a>
-      <a href="{% url 'review:audit_log' %}">Audit</a>{% endif %}
-    </nav>
+  <div class="shell{% if not user.is_authenticated or not role %} no-sidebar{% endif %}">
+    {% if user.is_authenticated and role %}
+    <aside class="sidebar">
+      <div class="brand"><a href="/">Datadesk</a></div>
+      <nav>
+        <div class="nav-group">
+          <span class="nav-group-label">Explore</span>
+          <a class="nav-item {% nav_active 'explorer:articles' %}" href="{% url 'explorer:articles' %}">Articles</a>
+          <a class="nav-item {% nav_active 'explorer:enrichment' %}" href="{% url 'explorer:enrichment' %}">Enrichment</a>
+          <a class="nav-item {% nav_active 'explorer:costs' %}" href="{% url 'explorer:costs' %}">Costs</a>
+        </div>
+        <div class="nav-group">
+          <span class="nav-group-label">Review</span>
+          <a class="nav-item {% nav_active 'review:queue' %}" href="{% url 'review:queue' %}">Extraction queue</a>
+          {% if role == "editor" or role == "admin" %}
+          <a class="nav-item {% nav_active 'review:import_batches' %}" href="{% url 'review:import_batches' %}">Import</a>
+          <a class="nav-item {% nav_active 'review:audit_log' %}" href="{% url 'review:audit_log' %}">Audit log</a>
+          {% endif %}
+        </div>
+        <div class="nav-group">
+          <span class="nav-group-label">Publish</span>
+          <a class="nav-item {% nav_active 'visuals:index' %}" href="{% url 'visuals:index' %}">Visuals</a>
+          {% if role == "admin" %}
+          <a class="nav-item {% nav_active 'datasets:list' %}" href="{% url 'datasets:list' %}">Datasets</a>
+          {% endif %}
+        </div>
+      </nav>
+      <div class="sidebar-foot">Role: {{ role }}</div>
+    </aside>
     {% endif %}
-    <nav class="session">
-      <span class="identity">{{ user.email }}</span>
-      <form method="post" action="{% url 'account_logout' %}">
-        {% csrf_token %}
-        <button type="submit" class="linklike">Sign out</button>
-      </form>
-    </nav>
-    {% endif %}
-  </header>
-  <main>
-    {% block content %}{% endblock %}
-  </main>
+
+    <div class="content-column">
+      <header class="topbar">
+        {% if not user.is_authenticated or not role %}
+        <span class="wordmark"><a href="/">Datadesk</a></span>
+        {% endif %}
+        {% if user.is_authenticated %}
+        <nav class="session">
+          <span class="identity">{{ user.email }}</span>
+          <form method="post" action="{% url 'account_logout' %}">
+            {% csrf_token %}
+            <button type="submit" class="linklike">Sign out</button>
+          </form>
+        </nav>
+        {% endif %}
+      </header>
+      <main>
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
 </body>
 </html>

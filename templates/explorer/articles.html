@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load datadesk %}
 {% block title %}Articles — Datadesk{% endblock %}
 
 {% block content %}
@@ -29,7 +30,7 @@
       <select name="status">
         <option value="">all</option>
         {% for s in vocab.statuses %}
-        <option {% if params.status == s %}selected{% endif %}>{{ s }}</option>
+        <option value="{{ s }}" {% if params.status == s %}selected{% endif %}>{{ s|status_label }}</option>
         {% endfor %}
       </select>
     </label>
@@ -37,7 +38,7 @@
       <select name="wire">
         <option value="">all</option>
         {% for s in vocab.wire_statuses %}
-        <option {% if params.wire == s %}selected{% endif %}>{{ s }}</option>
+        <option value="{{ s }}" {% if params.wire == s %}selected{% endif %}>{{ s|wire_label }}</option>
         {% endfor %}
       </select>
     </label>
@@ -94,6 +95,9 @@
     <a class="export-link" href="{% url 'review:export' %}?{{ params.urlencode }}">Export…</a>
   </form>
 
+  {% url 'explorer:articles' as filters_endpoint %}
+  {% include "_active_filters.html" with endpoint=filters_endpoint target="#results" %}
+
   {% if role == "editor" or role == "admin" %}
   <form method="post" action="{% url 'review:bulk_disposition' %}">
     {% csrf_token %}
@@ -109,7 +113,7 @@
       <label>Wire status
         <select name="wire_status">
           <option value="">—</option>
-          {% for s in vocab.wire_statuses %}<option>{{ s }}</option>{% endfor %}
+          {% for s in vocab.wire_statuses %}<option value="{{ s }}">{{ s|wire_label }}</option>{% endfor %}
         </select>
       </label>
       <label>Reason

@@ -1,0 +1,18 @@
+{% load datadesk %}
+{% active_filters params as chips %}
+{% if chips %}
+<div class="active-filters">
+  <span class="caption">Filtered by</span>
+  {% for chip in chips %}
+  <a class="filter-chip" href="?{{ chip.without }}"
+     hx-get="{{ endpoint }}?{{ chip.without }}" hx-target="{{ target }}"
+     hx-indicator="{{ target }}" hx-push-url="true"
+     title="Remove the {{ chip.label }} filter">
+    <span class="k">{{ chip.label }}</span><span class="v">{{ chip.value }}</span><span class="x">×</span>
+  </a>
+  {% endfor %}
+  <a class="clear-filters" href="{{ endpoint }}"
+     hx-get="{{ endpoint }}" hx-target="{{ target }}" hx-indicator="{{ target }}"
+     hx-push-url="true">Clear all</a>
+</div>
+{% endif %}

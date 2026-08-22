@@ -175,3 +175,55 @@ def test_json_fields_accept_driver_decoded_values():
     # Strings still parse, for backends that hand over raw JSON text.
     assert field.from_db_value('{"state": "MO"}', None, connection) == {"state": "MO"}
     assert field.from_db_value(None, None, connection) is None
+
+
+# --- the Census gazetteer: codes and names travel together ------------------
+
+
+def test_geoid_names_resolve_by_length():
+    from datasets.geo import name_for_geoid
+
+    assert name_for_geoid("29") == ("Missouri", "state")
+    assert name_for_geoid("29019") == ("Boone County, MO", "county")
+    assert name_for_geoid("2915670")[1] == "place"
+    # The LSAD suffix the gazetteer appends is not part of the name.
+    assert "city" not in name_for_geoid("2915670")[0]
+
+
+def test_place_geoids_are_never_resolved_from_a_prefix():
+    """Place codes do not nest inside their county — county 29601 is not
+    an ancestor of place 2960176 — so a prefix must never name a place."""
+    from datasets.geo import name_for_geoid
+
+    name, kind = name_for_geoid("2960176")
+    assert kind == "place"
+    assert "County" not in (name or "")
+
+
+def test_tract_and_block_fall_back_to_the_containing_county():
+    from datasets.geo import name_for_geoid
+
+    name, kind = name_for_geoid("29019000100")
+    assert kind == "containing"
+    assert name == "Boone County, MO"
+    # The claim's own recorded place beats a county approximation.
+    assert name_for_geoid("29019000100", fallback="Columbia") == ("Columbia", "given")
+
+
+def test_unknown_code_resolves_to_nothing_rather_than_a_guess():
+    from datasets.geo import name_for_geoid
+
+    assert name_for_geoid("9999999") == (None, "unresolved")
+    assert name_for_geoid("") == (None, "unresolved")
+    assert name_for_geoid(None) == (None, "unresolved")
+
+
+def test_level_for_geoid():
+    from datasets.geo import level_for_geoid
+
+    assert level_for_geoid("29") == "state"
+    assert level_for_geoid("29019") == "county"
+    assert level_for_geoid("2915670") == "place"
+    assert level_for_geoid("29019000100") == "tract"
+    assert level_for_geoid("290190001001000") == "block"
+    assert level_for_geoid("123") is None

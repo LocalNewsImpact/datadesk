@@ -1,0 +1,1 @@
+{% load datadesk %}{% if value is not None and value != "" %}<span class="conf" data-band="{{ value|confidence_band }}"><span class="conf-bar" style="--v: {{ value|stringformat:'.2f' }}"></span><span class="conf-value">{{ value|floatformat:2 }}</span></span>{% else %}<span class="absent">—</span>{% endif %}

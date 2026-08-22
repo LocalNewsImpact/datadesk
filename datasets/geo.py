@@ -218,3 +218,95 @@ def place_county(state, name):
         if fips == county_fips:
             return name, county_fips, _COUNTY_SUFFIX.sub("", official).strip()
     return None
+
+
+# --- GEOID → name -----------------------------------------------------------
+#
+# The reverse of the lookups above: given a Census code, what place is
+# that? A column of bare codes is unreadable, so wherever the UI shows a
+# GEOID it shows the name beside it.
+#
+# Resolution is by code length, never by prefix. Place GEOIDs do NOT nest
+# inside their county — county 29601 is not an ancestor of place 2960176 —
+# so a place name may never be derived from a prefix. Only tract (11) and
+# block (15) codes carry state+county in their first five digits, and for
+# those the county is the containing county, not the place itself.
+
+_geoid_names = None
+
+_STATE_NAME_BY_CODE = {code: name.title() for name, code in _STATE_BY_NAME.items()}
+
+# The LSAD descriptors the place gazetteer appends to a name.
+_PLACE_SUFFIX = re.compile(
+    r"\s+(city|town|village|borough|municipality|CDP|"
+    r"comunidad|zona urbana|urbana|consolidated government|"
+    r"metro government|metropolitan government|unified government|"
+    r"city and borough)$",
+    re.IGNORECASE,
+)
+
+_PLACES_CSV = Path(__file__).resolve().parent / "data" / "census_places.csv"
+
+
+def _load_geoid_names():
+    """{geoid: (name, usps)} for states, counties and places."""
+    global _geoid_names
+    if _geoid_names is not None:
+        return _geoid_names
+    table = {}
+    with open(_COUNTIES, newline="") as fh:
+        for row in csv.DictReader(fh):
+            geoid, usps = row["GEOID"], row["USPS"]
+            table[geoid] = (row["NAME"], usps)
+            # A state code is the first two digits of any of its counties.
+            table.setdefault(geoid[:2], (_STATE_NAME_BY_CODE.get(usps, usps), usps))
+    with open(_PLACES_CSV, newline="") as fh:
+        for row in csv.DictReader(fh):
+            name = _PLACE_SUFFIX.sub("", row["NAME"]).strip()
+            table.setdefault(row["GEOID"], (name, row["USPS"]))
+    _geoid_names = table
+    return table
+
+
+# What each code length is.
+_LEVEL_BY_LENGTH = {2: "state", 5: "county", 7: "place", 11: "tract", 15: "block"}
+
+
+def name_for_geoid(geoid, fallback=None):
+    """(name, kind) for a Census code.
+
+    kind is "state", "county", "place", "containing" when the name names
+    the county a tract or block sits in rather than the feature itself,
+    "given" when the caller's fallback supplied it, or "unresolved" when
+    no name is available — in which case name is None and the caller
+    shows the bare code rather than an empty cell or a guess.
+    """
+    code = (geoid or "").strip()
+    if not code:
+        return None, "unresolved"
+
+    level = _LEVEL_BY_LENGTH.get(len(code))
+    if level in ("state", "county", "place"):
+        entry = _load_geoid_names().get(code)
+        if entry:
+            name, usps = entry
+            return (name if level == "state" else f"{name}, {usps}"), level
+
+    # Tract and block: the gazetteer has no name. A caller-supplied name
+    # (the claim's own point_place) is the real answer where there is one.
+    if level in ("tract", "block"):
+        if fallback:
+            return fallback, "given"
+        entry = _load_geoid_names().get(code[:5])
+        if entry:
+            name, usps = entry
+            return f"{name}, {usps}", "containing"
+
+    if fallback:
+        return fallback, "given"
+    return None, "unresolved"
+
+
+def level_for_geoid(geoid):
+    """The Census rung a code's length implies, or None."""
+    return _LEVEL_BY_LENGTH.get(len((geoid or "").strip()))

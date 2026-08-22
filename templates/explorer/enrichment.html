@@ -12,7 +12,7 @@
   </p>
   {% else %}
   <form method="get" action="{% url 'explorer:enrichment' %}" class="filter-bar"
-        hx-get="{% url 'explorer:enrichment' %}" hx-target="#results"
+        hx-get="{% url 'explorer:enrichment' %}" hx-target="#results" hx-indicator="#results"
         hx-trigger="change, submit" hx-push-url="true">
     <label>Dataset
       <select name="dataset">
@@ -68,6 +68,9 @@
     </label>
     <noscript><button type="submit">Filter</button></noscript>
   </form>
+
+  {% url 'explorer:enrichment' as filters_endpoint %}
+  {% include "_active_filters.html" with endpoint=filters_endpoint target="#results" %}
 
   <div id="results">
     {% include "explorer/_enrichment_results.html" %}

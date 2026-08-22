@@ -300,7 +300,10 @@ def test_geo_vocabularies_come_from_the_data(client, viewer, geo_corpus):
 
 def test_grid_shows_byline_presence_scope_and_central_place(client, viewer, geo_corpus):
     content = client.get(URL).content.decode()
-    assert "bylined" in content
+    # The byline column carries the name itself, truncated, and says so
+    # plainly when there is none.
+    assert "Jane Reporter" in content
+    assert ">none<" in content
     assert "no claim" in content
     assert "Columbia" in content
     assert "2915670" in content

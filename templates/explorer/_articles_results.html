@@ -1,46 +1,65 @@
+{% load datadesk %}
 {% if page is not None %}
 <p class="result-count">
-  {{ page.paginator.count }} article{{ page.paginator.count|pluralize }}
+  <strong>{{ page.paginator.count }}</strong> article{{ page.paginator.count|pluralize }}
   {% if page.paginator.num_pages > 1 %}· page {{ page.number }} of {{ page.paginator.num_pages }}{% endif %}
 </p>
-<div class="table-scroll">
-<table class="grid">
-  <thead>
-    <tr>
-      {% if role == "editor" or role == "admin" %}<th scope="col"></th>{% endif %}
-      <th scope="col">{% include "explorer/_sort_header.html" with key="date" h=headers.date %}</th>
-      <th scope="col">Title</th>
-      <th scope="col">{% include "explorer/_sort_header.html" with key="publication" h=headers.publication %}</th>
-      <th scope="col">Byline</th>
-      <th scope="col">Status</th>
-      <th scope="col">Label</th>
-      <th scope="col" class="count">Conf.</th>
-      <th scope="col">Scope</th>
-      <th scope="col">Central place</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for article in page %}
-    <tr>
-      {% if role == "editor" or role == "admin" %}<td><input type="checkbox" name="ids" value="{{ article.id }}"></td>{% endif %}
-      <td class="nowrap">{{ article.publish_date|date:"Y-m-d"|default:"—" }}</td>
-      <td class="col-title"><a href="{% url 'explorer:article_detail' article.id %}">{{ article.title|default:article.url|truncatechars:90 }}</a></td>
-      <td class="col-publisher">{{ article.candidate_link.source|default:"—" }}</td>
-      <td>{% if article.author %}<span title="{{ article.author }}">bylined</span>{% else %}<span class="absent">none</span>{% endif %}</td>
-      <td>{{ article.status }}
-        {% if article.wire_check_status != "complete" %}<span class="sub">wire: {{ article.wire_check_status }}</span>{% endif %}</td>
-      <td>{{ article.primary_label|default:"—" }}</td>
-      <td class="count">{% if article.primary_label_confidence is not None %}{{ article.primary_label_confidence|floatformat:2 }}{% else %}—{% endif %}</td>
-      <td>{{ article.enr_scope|default:"—" }}</td>
-      <td>{% if article.enr_point_geoid %}{{ article.enr_point_place|default:"—" }}
-        <span class="sub"><span class="mono-inline">{{ article.enr_point_geoid }}</span> {{ article.enr_point_level|default:"" }}</span>
-        {% else %}<span class="absent">no claim</span>{% endif %}</td>
-    </tr>
-    {% empty %}
-    <tr><td colspan="{% if role == 'editor' or role == 'admin' %}10{% else %}9{% endif %}" class="notice">No articles match these filters.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="table-viewport">
+  <table class="grid">
+    <thead>
+      <tr>
+        {% if role == "editor" or role == "admin" %}<th scope="col"></th>{% endif %}
+        <th scope="col">{% include "explorer/_sort_header.html" with key="date" h=headers.date %}</th>
+        <th scope="col">Title</th>
+        <th scope="col">{% include "explorer/_sort_header.html" with key="publication" h=headers.publication %}</th>
+        <th scope="col">Byline</th>
+        <th scope="col">Status</th>
+        <th scope="col">Wire</th>
+        <th scope="col">CIN label</th>
+        <th scope="col" class="count">Confidence</th>
+        <th scope="col">Scope</th>
+        <th scope="col">Central place</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for article in page %}
+      <tr>
+        {% if role == "editor" or role == "admin" %}<td><input type="checkbox" name="ids" value="{{ article.id }}"></td>{% endif %}
+        <td class="nowrap">{{ article.publish_date|date:"Y-m-d"|default:"—" }}</td>
+        <td class="col-title">
+          <a class="truncate" title="{{ article.title|default:article.url }}"
+             href="{% url 'explorer:article_detail' article.id %}">{{ article.title|default:article.url }}</a>
+        </td>
+        <td class="col-publisher">{{ article.candidate_link.source|default:"—" }}</td>
+        <td>{% if article.author %}<span class="truncate" title="{{ article.author }}">{{ article.author }}</span>{% else %}<span class="absent">none</span>{% endif %}</td>
+        <td class="nowrap">
+          <span class="chip" data-status="{{ article.status }}" title="{{ article.status }}">{{ article.status|status_label }}</span>
+        </td>
+        <td class="nowrap">
+          {% if article.wire_check_status != "complete" and article.wire_check_status != "local" %}
+          <span class="chip" data-wire="{{ article.wire_check_status|wire_tone }}" title="{{ article.wire_check_status }}">{{ article.wire_check_status|wire_label }}</span>
+          {% else %}<span class="absent">—</span>{% endif %}
+        </td>
+        <td>{{ article.primary_label|default:"—" }}</td>
+        <td class="count">{% include "_confidence.html" with value=article.primary_label_confidence %}</td>
+        <td>{{ article.enr_scope|default:"—" }}</td>
+        <td>
+          {% if article.enr_point_geoid %}<span class="truncate" title="{{ article.enr_point_geoid }} · {{ article.enr_point_level }}">{{ article.enr_point_place|default:"—" }} <span class="mono-inline">{{ article.enr_point_geoid }}</span></span>
+          {% else %}<span class="absent">no claim</span>{% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr class="empty-row">
+        <td colspan="{% if role == 'editor' or role == 'admin' %}11{% else %}10{% endif %}">
+          <span class="empty-state">
+            <strong>No articles match these filters.</strong>
+            Remove a filter above, or widen the date range.
+          </span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 {% if page.paginator.num_pages > 1 %}
 <nav class="pager">
@@ -48,7 +67,7 @@
   <a href="?{{ params.urlencode }}&amp;page={{ page.previous_page_number }}"
      hx-get="{% url 'explorer:articles' %}?{{ params.urlencode }}&amp;page={{ page.previous_page_number }}"
      hx-target="#results" hx-indicator="#results">← previous</a>
-  {% endif %}
+  {% else %}<span></span>{% endif %}
   {% if page.has_next %}
   <a href="?{{ params.urlencode }}&amp;page={{ page.next_page_number }}"
      hx-get="{% url 'explorer:articles' %}?{{ params.urlencode }}&amp;page={{ page.next_page_number }}"

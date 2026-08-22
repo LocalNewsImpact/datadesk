@@ -70,6 +70,9 @@
     <noscript><button type="submit">Filter</button></noscript>
   </form>
 
+  {% url 'review:queue' as filters_endpoint %}
+  {% include "_active_filters.html" with endpoint=filters_endpoint target="#queue-results" %}
+
   <div id="queue-results">
     {% include "review/_queue_results.html" %}
   </div>

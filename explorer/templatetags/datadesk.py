@@ -1,0 +1,186 @@
+"""Template helpers for the design system.
+
+Three small pieces of presentation logic that would otherwise be repeated
+in every template, or expressed as unreadable template conditionals:
+which sidebar entry is current, how confident a confidence value is, and
+which filters are currently narrowing a grid.
+"""
+
+from django.template import Library
+from django.urls import NoReverseMatch, reverse
+from django.utils.http import urlencode
+
+register = Library()
+
+
+@register.simple_tag(takes_context=True)
+def nav_active(context, url_name):
+    """ "active" when the current path is at or below `url_name`.
+
+    Prefix matching so an article detail keeps Articles marked, which is
+    what a sidebar is for — showing where you are, not only what you
+    clicked.
+    """
+    request = context.get("request")
+    if request is None:
+        return ""
+    try:
+        target = reverse(url_name)
+    except NoReverseMatch:
+        return ""
+    if request.path == target or (target != "/" and request.path.startswith(target)):
+        return "active"
+    return ""
+
+
+# A confidence value is easier to judge against a threshold than in the
+# abstract. The bands are the ones the March review used when deciding
+# which labels to re-check by hand.
+HIGH_CONFIDENCE = 0.85
+MID_CONFIDENCE = 0.65
+
+
+@register.filter
+def confidence_band(value):
+    """ "high", "mid" or "low" for a confidence value; "" when absent."""
+    if value is None or value == "":
+        return ""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if number >= HIGH_CONFIDENCE:
+        return "high"
+    if number >= MID_CONFIDENCE:
+        return "mid"
+    return "low"
+
+
+# Filter keys as an operator reads them. Keys not listed here (paging,
+# sort) are not filters and never appear as a chip.
+FILTER_LABELS = {
+    "dataset": "dataset",
+    "status": "status",
+    "wire": "wire",
+    "label": "CIN label",
+    "publisher": "publisher",
+    "scope": "scope",
+    "fips": "FIPS",
+    "geo_skip": "geo skip",
+    "skip": "skip reason",
+    "level": "rung",
+    "no_point": "no claim",
+    "byline": "byline",
+    "case": "case",
+    "band": "length",
+    "from": "from",
+    "to": "to",
+    "conf_min": "conf ≥",
+    "conf_max": "conf ≤",
+    "q": "title",
+}
+
+_NOT_A_FILTER = {"page", "sort", "dir"}
+
+
+@register.simple_tag
+def active_filters(params):
+    """The filters currently narrowing a grid, each with the query string
+    that removes it.
+
+    Returns a list of dicts rather than rendering, so a template can place
+    the chips where it wants them.
+    """
+    if not params:
+        return []
+    chips = []
+    for key in params:
+        if key in _NOT_A_FILTER:
+            continue
+        value = params.get(key)
+        if not value:
+            continue
+        remaining = [
+            (other, params.get(other))
+            for other in params
+            if other != key and params.get(other)
+        ]
+        chips.append(
+            {
+                "key": key,
+                "label": FILTER_LABELS.get(key, key),
+                "value": value,
+                "without": urlencode(remaining),
+            }
+        )
+    return chips
+
+
+# Raw enum values are the pipeline's vocabulary, not a reader's. Every
+# surface shows a human label and keeps the raw value in a title
+# attribute, where it still helps when debugging.
+STATUS_LABELS = {
+    "enriched": "Enriched",
+    "enrichment_skipped": "Exported unenriched",
+    "labeled": "Labeled",
+    "not_article": "Not an article",
+    "out_of_scope": "Out of scope",
+    "extracted": "Extracted",
+}
+
+
+@register.filter
+def status_label(value):
+    """An article status as a person reads it."""
+    if not value:
+        return "—"
+    return STATUS_LABELS.get(value, value)
+
+
+# wire_check_status has two passing values. 'complete' and 'local' both
+# mean the check ran and found no syndication — 'local' is a legacy pass
+# — so rendering the raw value produces "Wire: local", which reads as the
+# opposite of what it means. 'error' and 'processing' are checks that
+# never concluded, which is not the same as a local story.
+WIRE_LABELS = {
+    "complete": "Local",
+    "local": "Local",
+    "wire": "Wire",
+    "error": "Check incomplete",
+    "processing": "Check incomplete",
+}
+
+
+# Only three values mean the check concluded. Anything else — including a
+# value the pipeline adds later — is a check that has not finished, which
+# is a different fact from a local story and must not read as one.
+
+
+@register.filter
+def wire_label(value):
+    """A wire-check status as a person reads it."""
+    if not value:
+        return "—"
+    return WIRE_LABELS.get(value, "Check incomplete")
+
+
+@register.filter
+def wire_tone(value):
+    """The tone a wire status carries: syndicated, unfinished, or fine."""
+    if value == "wire":
+        return "wire"
+    if value in ("complete", "local"):
+        return "local"
+    return "incomplete"
+
+
+@register.filter
+def geoid_name(geoid):
+    """The place a Census code stands for, or "" when unresolved.
+
+    Wherever a FIPS code appears in the UI, its name appears with it; a
+    column of bare codes is not readable.
+    """
+    from datasets.geo import name_for_geoid
+
+    return name_for_geoid(geoid)[0] or ""
