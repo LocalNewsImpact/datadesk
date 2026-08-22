@@ -255,8 +255,10 @@
 
     let marginRight;
     if (kind === "bar") {
+      // Ordering is set through the scale domain above, not per-mark, so
+      // a percent stack can order by total rather than by segment.
       const enc = horizontal
-        ? { y: x, x: y, fill: series || stroke1, sort, inset: 0.5 }
+        ? { y: x, x: y, fill: series || stroke1, inset: 0.5 }
         : { x, y, fill: series || stroke1, sort, inset: 0.5 };
       if (series && config.stacked === false) {
         enc[horizontal ? "fy" : "fx"] = enc[horizontal ? "y" : "x"];
@@ -302,24 +304,48 @@
 
     const percentStack = kind === "bar" && config.stack === "percent" && series;
     let xScale = { label: config.xlabel || undefined, tickSize: 0 };
-    if (kind === "bar" && !config.sort) {
-      const axis = horizontal ? y : x;
+    let yDomain;
+    let marginLeft;
+    let height = 420;
+    if (kind === "bar") {
+      // The category axis: y when horizontal, x otherwise.
+      const axis = horizontal ? x : x;
       const order = [];
       for (const r of rows) if (!order.includes(r[axis])) order.push(r[axis]);
-      if (horizontal) var yDomain = order; else xScale.domain = order;
+      if (config.sort === "y") {
+        // A percent stack is all 100% wide, so "by value" means by the
+        // category's total — otherwise the ordering says nothing.
+        const totals = new Map();
+        for (const r of rows) {
+          totals.set(r[axis], (totals.get(r[axis]) || 0) + (+r[y] || 0));
+        }
+        order.sort((a, b) => (totals.get(b) || 0) - (totals.get(a) || 0));
+      }
+      if (horizontal) {
+        yDomain = order;
+        // Room for the longest label, and a band tall enough to read.
+        const longest = Math.max(...order.map((v) => String(v ?? "").length));
+        marginLeft = Math.min(220, 16 + 6.6 * longest);
+        height = Math.max(320, Math.min(1600, order.length * 22 + 90));
+      } else {
+        xScale.domain = order;
+      }
     }
 
     const plot = Plot.plot({
       width,
-      height: 420,
+      height,
+      marginLeft,
       marginRight,
       style: { background: "transparent", color: t.ink,
                fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif' },
       color,
-      x: xScale,
+      // The value axis carries the percent formatting: x when the bars
+      // run horizontally, y when they stand up.
+      x: { ...xScale, ...(percentStack && horizontal ? { percent: true } : {}) },
       y: { label: config.ylabel || undefined, tickSize: 0, grid: false,
            ...(percentStack && !horizontal ? { percent: true } : {}),
-           ...(typeof yDomain !== "undefined" ? { domain: yDomain } : {}) },
+           ...(yDomain ? { domain: yDomain } : {}) },
       marks,
     });
     el.appendChild(plot);
