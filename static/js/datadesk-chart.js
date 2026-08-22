@@ -565,20 +565,30 @@
       .attr("text-anchor", (d) => (d.angle > Math.PI ? "end" : "start"))
       .attr("dy", "0.35em").attr("fill", "currentColor")
       .text((d) => names[d.index]);
-    svg.append("g").selectAll("path").data(chords).join("path")
+    const ribbons = svg.append("g").selectAll("path").data(chords).join("path")
       .attr("d", d3.ribbon().radius(R - 2))
       .attr("fill", (d) => colors[d.source.index])
       .attr("fill-opacity", 0.7)
-      .attr("stroke", t.surface).attr("stroke-width", 0.5)
-      .append("title").text((d) =>
-        `${names[d.source.index]} → ${names[d.target.index]}: ` +
-        d.source.value.toLocaleString() +
-        (d.source.index !== d.target.index
-          ? `
-${names[d.target.index]} → ${names[d.source.index]}: ` +
-            d.target.value.toLocaleString()
-          : ""));
+      .attr("stroke", t.surface).attr("stroke-width", 0.5);
+
     el.replaceChildren(svg.node());
+    const tip = tooltip(el);
+    // Hovering a group isolates every flow touching it; a ribbon isolates
+    // that one pair.
+    interactive(groupArcs, tip, (d) =>
+      `<strong>${names[d.index]}</strong>` + tipRow("total", d.value),
+      { group: ribbons,
+        related: (target, other) =>
+          other.source.index === target.index ||
+          other.target.index === target.index });
+    interactive(ribbons, tip, (d) =>
+      `<strong>${names[d.source.index]} \u2192 ${names[d.target.index]}</strong>` +
+      tipRow("value", d.source.value) +
+      (d.source.index !== d.target.index
+        ? tipRow(`${names[d.target.index]} \u2192 ${names[d.source.index]}`,
+                 d.target.value)
+        : ""),
+      { group: ribbons, related: (target, other) => target === other });
   }
 
   // Arc diagram: nodes on a baseline, arcs above, weight as stroke width.

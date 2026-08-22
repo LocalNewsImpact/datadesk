@@ -45,7 +45,10 @@ DIMENSIONS = {
     },
     "status": {"label": "Article status", "expr": F("status")},
     "wire": {"label": "Wire state", "expr": F("wire_check_status")},
-    "label": {"label": "Classifier label", "expr": F("primary_label")},
+    # The CIN taxonomy, as the classifier records it on the article:
+    # a primary need and its runner-up. Their cross-tab is the chord.
+    "cin_primary": {"label": "CIN (primary)", "expr": F("primary_label")},
+    "cin_alternate": {"label": "CIN (alternate)", "expr": F("alternate_label")},
     "month": {"label": "Month published", "expr": TruncMonth("publish_date")},
     "year": {"label": "Year published", "expr": TruncYear("publish_date")},
     # Enrichment dimensions — the CIN taxonomy.
@@ -126,6 +129,12 @@ MEASURES = {
         "agg": lambda: Avg("enrichment__scope_confidence"),
         "combine": "mean",
         "weight": lambda: Count("enrichment__scope_confidence"),
+    },
+    "cin_confidence_avg": {
+        "label": "CIN confidence (average)",
+        "agg": lambda: Avg("primary_label_confidence"),
+        "combine": "mean",
+        "weight": lambda: Count("primary_label_confidence"),
     },
     "publishers": {
         "label": "Distinct publishers",
@@ -208,6 +217,8 @@ def _base_queryset(spec):
         qs = qs.filter(wire_check_status=wire)
     if scope := spec.get("scope"):
         qs = qs.filter(enrichment__scope=scope)
+    if cin := spec.get("cin"):
+        qs = qs.filter(primary_label=cin)
     if date_from := spec.get("from"):
         qs = qs.filter(publish_date__date__gte=date_from)
     if date_to := spec.get("to"):
