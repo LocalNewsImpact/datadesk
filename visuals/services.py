@@ -7,7 +7,7 @@ from django.db.models import Max
 from django.utils import timezone
 
 from audit.models import AuditLogEntry
-from visuals.models import GCS, INLINE, Visual, VisualSnapshot
+from visuals.models import CORPUS, GCS, INLINE, Visual, VisualSnapshot
 
 
 class DataSourceError(Exception):
@@ -20,6 +20,14 @@ def fetch_source_data(visual):
         raise DataSourceError(
             "Inline visuals refresh by uploading a new file in the builder."
         )
+    if visual.source_kind == CORPUS:
+        from visuals.corpus import CorpusSpecError, run_spec
+
+        try:
+            rows, _meta = run_spec(visual.spec or {})
+        except CorpusSpecError as exc:
+            raise DataSourceError(str(exc)) from exc
+        return rows
     if visual.source_kind == GCS:
         from google.cloud import storage
 

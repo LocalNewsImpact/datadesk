@@ -84,10 +84,18 @@ class Source(CrawlerModel):
 class DatasetSource(CrawlerModel):
     id = models.TextField(primary_key=True)
     dataset = models.ForeignKey(
-        Dataset, models.DO_NOTHING, db_column="dataset_id", db_constraint=False
+        Dataset,
+        models.DO_NOTHING,
+        db_column="dataset_id",
+        db_constraint=False,
+        related_name="memberships",
     )
     source = models.ForeignKey(
-        Source, models.DO_NOTHING, db_column="source_id", db_constraint=False
+        Source,
+        models.DO_NOTHING,
+        db_column="source_id",
+        db_constraint=False,
+        related_name="memberships",
     )
 
     class Meta(CrawlerModel.Meta):

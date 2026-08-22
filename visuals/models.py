@@ -16,6 +16,7 @@ from django.template.loader import TemplateDoesNotExist, get_template
 BIGQUERY = "bigquery"
 GCS = "gcs"
 INLINE = "inline"
+CORPUS = "corpus"
 
 
 def _validate_renderer(name):
@@ -36,6 +37,7 @@ class Visual(models.Model):
         (BIGQUERY, "BigQuery query"),
         (GCS, "bucket object"),
         (INLINE, "uploaded data"),
+        (CORPUS, "the research corpus"),
     ]
 
     slug = models.SlugField(unique=True)
@@ -56,6 +58,11 @@ class Visual(models.Model):
     # column mappings, and options, read by the builder renderer runtime.
     # Empty for hand-authored visuals.
     config = models.JSONField(default=dict, blank=True)
+
+    # For CORPUS visuals: the pivot spec (dimensions, measure, filters)
+    # that visuals.corpus runs in Postgres. Refreshing re-runs it, so a
+    # corpus visual follows the data without re-uploading anything.
+    spec = models.JSONField(default=dict, blank=True)
 
     # The embed stability rule: the pinned snapshot is what embeds serve.
     pinned_snapshot = models.ForeignKey(
