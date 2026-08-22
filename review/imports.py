@@ -165,6 +165,13 @@ def compute_diff(batch):
                 continue
             incoming = row[csv_column]
             current = getattr(article, field) or ""
+            if not str(incoming).strip() and current:
+                # An empty cell means "no value supplied", never "delete
+                # what is recorded". Sheets are full of blanks that were
+                # never meant as instructions; clearing a field is an
+                # explicit edit, made in the UI where it is visible.
+                counts["unchanged"] += 1
+                continue
             suspect = (
                 _suspect(field, incoming, validate_state) if name == "sources" else ""
             )

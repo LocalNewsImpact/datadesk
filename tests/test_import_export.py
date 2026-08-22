@@ -297,3 +297,14 @@ def test_source_import_flags_a_county_from_another_state(publishers):
     assert kinds == {"city": "edit", "county": "suspect"}
     # The good value still applies; only the suspect one is held back.
     assert diff["changes"] == {"s2": {"city": "Columbia"}}
+
+
+def test_import_never_clears_a_populated_field(publishers):
+    """A blank cell is "no value supplied", not "delete this"."""
+    from review.imports import compute_diff
+
+    diff = compute_diff(
+        _source_batch([{"source_id": "s1", "city": "", "county": "Dade"}])
+    )
+    assert diff["changes"] == {}
+    assert diff["counts"]["unchanged"] == 2
