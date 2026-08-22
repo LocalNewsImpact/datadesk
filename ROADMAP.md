@@ -258,13 +258,70 @@ more than one — carrying:
    - *Crawler heartbeat*: the crawler writes worker counts to a table
      Datadesk reads. Most accurate, needs crawler-side work.
 
-**Health indicators need defining before they are built.** Candidates the
-data supports today: extraction success rate over a window; sources
-paused by consecutive RSS failures (`sources.rss_consecutive_failures`,
-`skip_rss_until`); time since the last successful job per type; error
-concentration by host from `extraction_telemetry_v2`; articles stuck in
-a status longer than a threshold. Each needs a threshold that says
-"unhealthy", and a threshold nobody agreed to is a false alarm.
+### What health means here
+
+Healthy is: **articles are moving through the pipeline, and every
+process the dataset's job asked for is actually being applied.**
+Individual errors and questions are not health — they are the tasks
+listed underneath it, for a human to work.
+
+That definition is computable from what the pipeline already records.
+Four indicators, each with the query behind it and its reading today:
+
+**1. Flow — are articles advancing?**
+Counts by `articles.status` and `candidate_links.status` per dataset,
+with the age of the oldest row in each stage and throughput over a
+window from `jobs.records_processed`. A stage whose oldest row keeps
+ageing while its count holds steady is a stall, and a stall is the
+thing this indicator exists to catch.
+
+**2. Process completeness — is every requested step being applied?**
+The dataset's profile says which steps it wants
+(`datasets.metadata->enrichment_profile`); `article_enrichment.steps_applied`
+says which ran. The indicator is the gap between them, per step.
+
+Mizzou's profile v3 requests content_gate, scope, places, people,
+organizations and the five metadata presets. Measured today:
+
+| steps_applied | articles | reading |
+|---|---|---|
+| full set incl. places, focus | 8,365 | complete |
+| **missing `places`** | 3,212 | a requested step is not being applied |
+| full set, no focus | 2,596 | complete for the profile |
+| `{}` — nothing | 4,883 | gated out or skipped; check against `skip_reason` |
+| content_gate + scope only | 72 | stopped early |
+
+So this indicator is not hypothetical: it already reads amber for
+Mizzou on `places`.
+
+**3. Profile currency — is reprocessing owed?**
+The version-bump contract says the pipeline reprocesses articles whose
+`profile_version` is below the dataset's current version. Today Mizzou
+sits at v3 with 15,735 articles there — and 3,695 at v0 plus 24 at v2,
+so 3,719 articles are owed reprocessing. That number should trend to
+zero after a bump; if it does not, the reprocessing is not running.
+
+**4. Job completeness — did every process the job asked for run?**
+`jobs` grouped by `job_type` for the dataset: last success, last
+failure, `exit_status`, `errors_count`. A job type the dataset expects
+that has no recent success is the clearest unhealthy signal there is.
+
+**Under the indicators: the tasks.** Individual errors and questions —
+extraction failures, wire-check ambiguities, geography that could not be
+resolved, articles a reviewer must judge — link into the review queue
+filtered to that dataset (item 6). They are consequences to work, not
+measures of health.
+
+**Still to decide: the thresholds.** Each indicator needs a number that
+means "unhealthy" — how stale is a stalled stage, what share of a
+requested step missing is tolerable, how long may reprocessing lag.
+A threshold nobody agreed to becomes an alarm people learn to ignore.
+
+**Noticed while checking:** `steps_applied` contains a `focus` step that
+the profile schema Datadesk mirrors does not know
+(`datasets/profiles.py`). Either the pipeline gained a step since that
+mirror was written, or focus is derived rather than configured. The
+profile editor may reject a valid profile until this is resolved.
 
 **Touches:** a new `explorer/pipeline.py` for the aggregates, the
 extraction page and its template, item 1 for the dataset selector, item
@@ -279,6 +336,7 @@ retrofitted — see item 7.
 - What `logs_path` points at.
 - Which worker signal to use.
 - The health thresholds, and who owns them.
+- Whether `focus` is a profile step Datadesk's schema mirror is missing.
 
 ## Sequence
 
