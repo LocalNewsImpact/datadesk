@@ -308,3 +308,33 @@ def test_import_never_clears_a_populated_field(publishers):
     )
     assert diff["changes"] == {}
     assert diff["counts"]["unchanged"] == 2
+
+
+def test_owner_matches_the_corpus_vocabulary(publishers):
+    """Sheets carry degraded copies of owner names; the corpus holds the
+    clean ones, so an incoming value is matched to the corpus."""
+    from review.imports import compute_diff
+
+    Source.objects.filter(id="s1").update(owner="CherryRoad Media")
+    Source.objects.filter(id="s2").update(owner="")
+
+    diff = compute_diff(_source_batch([{"source_id": "s2", "owner": "cherryroad"}]))
+    assert diff["changes"] == {"s2": {"owner": "CherryRoad Media"}}
+
+
+def test_owner_change_on_a_populated_record_is_held(publishers):
+    from review.imports import compute_diff
+
+    Source.objects.filter(id="s1").update(owner="CherryRoad Media")
+    diff = compute_diff(_source_batch([{"source_id": "s1", "owner": "Gannett"}]))
+    assert diff["changes"] == {}
+    assert diff["report"][0]["fields"][0]["kind"] == "suspect"
+    assert "already names" in diff["report"][0]["fields"][0]["reason"]
+
+
+def test_unknown_owner_is_never_written(publishers):
+    from review.imports import compute_diff
+
+    diff = compute_diff(_source_batch([{"source_id": "s2", "owner": "some new llc"}]))
+    assert diff["changes"] == {}
+    assert "not a known owner" in diff["report"][0]["fields"][0]["reason"]

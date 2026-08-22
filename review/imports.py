@@ -79,6 +79,28 @@ def parse_csv(uploaded_file, filename):
     return list(reader.fieldnames), rows
 
 
+def _owner_finding(incoming, current, known):
+    """(value_to_write, kind, reason) for an incoming owner."""
+    from datasets.owners import canonical_owner, fold
+
+    canonical, kind = canonical_owner(incoming, known)
+    if kind == "unknown":
+        return (
+            None,
+            "suspect",
+            f"{canonical!r} is not a known owner — add it deliberately "
+            "or correct the spelling",
+        )
+    if current and fold(current) != fold(canonical):
+        return (
+            None,
+            "suspect",
+            f"record already names {current!r}; an ownership change is a "
+            "fact to confirm, not a spelling to fix",
+        )
+    return canonical, "edit", ""
+
+
 def _suspect(field, value, state):
     """Why an incoming publisher value should not be written, or ''.
 
@@ -140,6 +162,17 @@ def compute_diff(batch):
     # City and county are checked against the gazetteer when a state is
     # given, so an import cannot write what the source form would refuse.
     validate_state = (getattr(batch, "validate_state", "") or "").strip()
+    # The corpus's own owner spellings are the vocabulary an import is
+    # matched against.
+    owners = (
+        set(
+            Source.objects.exclude(owner__isnull=True)
+            .exclude(owner="")
+            .values_list("owner", flat=True)
+        )
+        if name == "sources"
+        else set()
+    )
 
     changes = {}  # pk -> {field: incoming} — what apply would write
     report = []
@@ -172,9 +205,15 @@ def compute_diff(batch):
                 # explicit edit, made in the UI where it is visible.
                 counts["unchanged"] += 1
                 continue
-            suspect = (
-                _suspect(field, incoming, validate_state) if name == "sources" else ""
-            )
+            suspect = ""
+            if name == "sources" and field == "owner" and str(incoming).strip():
+                canonical, kind, reason = _owner_finding(incoming, current, owners)
+                if kind == "suspect":
+                    suspect = reason
+                else:
+                    incoming = canonical
+            elif name == "sources":
+                suspect = _suspect(field, incoming, validate_state)
             if incoming == current:
                 kind = "unchanged"
             elif suspect:
