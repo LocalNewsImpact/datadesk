@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from accounts.decorators import editor_required, role_required
+from accounts.decorators import admin_required, editor_required, role_required
 from audit.models import AuditLogEntry
 from explorer.models import Article, ArticleEnrichment
 from explorer.views import _filtered_articles
@@ -134,7 +134,7 @@ def bulk_disposition(request):
     return redirect(back)
 
 
-@editor_required
+@admin_required
 def audit_log(request):
     """The audit trail with the revert path (SCOPE.md §2.2: every action
     is reversible from the audit record)."""

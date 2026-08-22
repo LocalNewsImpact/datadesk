@@ -21,9 +21,11 @@ URL = "/explorer/costs/"
 
 
 @pytest.fixture
-def viewer(client):
-    user = User.objects.create_user("viewer", email="viewer@localnewsimpact.org")
-    user.groups.add(Group.objects.get(name="viewer"))
+def admin(client):
+    """Cost is an Admin section (accounts.sections.ADMIN_SECTIONS); the
+    role refusal itself is covered in tests/test_admin_access.py."""
+    user = User.objects.create_user("admin", email="admin@localnewsimpact.org")
+    user.groups.add(Group.objects.get(name="admin"))
     client.force_login(user)
     return user
 
@@ -57,7 +59,7 @@ def test_requires_a_role(client):
     assert client.get(URL).status_code == 302
 
 
-def test_recorded_rollups(client, viewer, costed_corpus):
+def test_recorded_rollups(client, admin, costed_corpus):
     # The billed side would probe for GCP credentials (a slow network
     # timeout on a dev machine); pin it offline.
     with mock.patch("explorer.views.billed_costs", return_value=None):
@@ -70,7 +72,7 @@ def test_recorded_rollups(client, viewer, costed_corpus):
     assert "BigQuery not connected" in content
 
 
-def test_billed_side_joined_by_day(client, viewer, costed_corpus):
+def test_billed_side_joined_by_day(client, admin, costed_corpus):
     billed_rows = [
         {
             "day": datetime(2026, 3, 2, tzinfo=UTC).date(),
@@ -88,7 +90,7 @@ def test_billed_side_joined_by_day(client, viewer, costed_corpus):
     assert "0.50 hit rate" in content
 
 
-def test_degrades_with_neither_source(client, viewer):
+def test_degrades_with_neither_source(client, admin):
     with mock.patch("explorer.views.billed_costs", return_value=None):
         response = client.get(URL)
     assert response.status_code == 200

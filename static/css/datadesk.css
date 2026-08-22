@@ -571,7 +571,6 @@ table.grid td.col-publisher {
 /* A wide grid scrolls inside its own viewport, and its header sticks. */
 .table-viewport {
   max-height: calc(100vh - 20rem);
-  min-height: 9rem;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
@@ -1383,4 +1382,34 @@ td.count.flagged-length { color: var(--tone-warn); font-weight: 600; }
   border: none;
   background: none;
   margin-bottom: 0;
+}
+
+/* --- roles and messages --- */
+.chip[data-role="admin"] { color: var(--tone-bad); background: var(--tone-bad-soft); }
+.chip[data-role="editor"] { color: var(--tone-info); background: var(--tone-info-soft); }
+.chip[data-role="viewer"] { color: var(--tone-mute); background: var(--tone-mute-soft); }
+
+.role-form { display: flex; flex-wrap: wrap; gap: var(--s-2); align-items: center; margin: 0; }
+.role-form input[type="text"] { min-width: 12rem; }
+
+.messages { list-style: none; margin: 0 auto var(--s-4); padding: 0; max-width: 46rem; }
+.card-wide ~ .messages, .messages { max-width: none; }
+.message {
+  padding: var(--s-2) var(--s-3);
+  margin-bottom: var(--s-2);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  font-size: var(--fs-sm);
+}
+.message.success { border-left-color: var(--tone-good); }
+.message.error { border-left-color: var(--tone-bad); color: var(--tone-bad); }
+.message.warning { border-left-color: var(--tone-warn); }
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }

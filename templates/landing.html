@@ -120,41 +120,41 @@
   <p class="notice">
     Enriched counts articles carrying a recorded cost; cost is
     <code>article_enrichment.cost_usd</code>, what the pipeline believed it
-    spent. The billed side lives on <a href="{% url 'explorer:costs' %}">Costs</a>.
+    spent.{% if role == "admin" %} The billed side lives on
+    <a href="{% url 'explorer:costs' %}">Cost</a>.{% endif %}
   </p>
 </section>
 {% endif %}
 
 <section class="card card-wide">
   <h2>Sections</h2>
+  {% comment %}
+  Driven by accounts.sections, the same list the sidebar and the access
+  tests use, so this panel cannot offer a viewer a link to a 403.
+  {% endcomment %}
+  {% sections "work" as work %}
   <div class="section-nav">
-    <a href="{% url 'explorer:articles' %}">
-      <span class="section-title">Articles</span>
-      <span class="section-note">The corpus, filtered by dataset, status, label, scope and geography.</span>
+    {% for section in work %}
+    <a href="{% url section.url %}">
+      <span class="section-title">{{ section.label }}</span>
+      <span class="section-note">{{ section.note }}</span>
     </a>
-    <a href="{% url 'explorer:enrichment' %}">
-      <span class="section-title">Enrichment</span>
-      <span class="section-note">Enrichment records by scope, FIPS claim and skip reason.</span>
-    </a>
-    <a href="{% url 'review:queue' %}">
-      <span class="section-title">Review queue</span>
-      <span class="section-note">Articles automated triage could not use, awaiting a person's decision.</span>
-    </a>
-    <a href="{% url 'explorer:costs' %}">
-      <span class="section-title">Costs</span>
-      <span class="section-note">Recorded against billed, the cache discount, per dataset and model.</span>
-    </a>
-    <a href="{% url 'visuals:index' %}">
-      <span class="section-title">Visuals</span>
-      <span class="section-note">Published charts and maps, their embeds and pinned snapshots.</span>
-    </a>
-    {% if role == "admin" %}
-    <a href="{% url 'datasets:list' %}">
-      <span class="section-title">Datasets</span>
-      <span class="section-note">Dataset and source records, enrichment profiles, gazetteer status.</span>
-    </a>
-    {% endif %}
+    {% endfor %}
   </div>
+
+  {% sections "admin" as admin_sections %}
+  {% if admin_sections %}
+  <h3>Admin</h3>
+  <div class="section-nav">
+    {% for section in admin_sections %}
+    <a href="{% url section.url %}">
+      <span class="section-title">{{ section.label }}</span>
+      <span class="section-note">{{ section.note }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <dl class="identity-panel">
     <dt>Signed in as</dt>
     <dd>{{ user.email }}</dd>

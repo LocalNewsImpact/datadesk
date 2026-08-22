@@ -17,7 +17,7 @@ from django.db.models import F
 from django.http import Http404
 from django.shortcuts import render
 
-from accounts.decorators import role_required
+from accounts.decorators import admin_required, role_required
 from datasets.geo import level_for_geoid, name_for_geoid
 from explorer.costs import billed_costs, recorded_costs
 from explorer.models import (
@@ -499,7 +499,7 @@ def enrichment(request):
     return render(request, template, context)
 
 
-@role_required
+@admin_required
 def costs(request):
     """The cost dashboard (SCOPE.md §2.5): recorded vs billed by day,
     recorded by dataset and model, the cache discount as the headline."""

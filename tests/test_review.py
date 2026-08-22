@@ -225,11 +225,19 @@ def test_open_redirect_is_refused(client, editor, corpus):
 # --- the audit page and revert endpoint -------------------------------------
 
 
-def test_audit_page_lists_and_reverts(client, editor, article):
+def test_audit_page_lists_entries(client, editor, article):
+    """The log itself is an Admin section; the revert it links to stays an
+    editor action (SCOPE.md §2.2)."""
+    audited_update(editor, [article], {"author": "Wrong"}, "edit:author")
+    admin = User.objects.create_user("auditor", email="auditor@localnewsimpact.org")
+    admin.groups.add(Group.objects.get(name="admin"))
+    client.force_login(admin)
+    assert "edit:author" in client.get("/review/audit/").content.decode()
+
+
+def test_an_editor_may_revert_from_the_audit_record(client, editor, article):
     audited_update(editor, [article], {"author": "Wrong"}, "edit:author")
     entry = AuditLogEntry.objects.get()
-    page = client.get("/review/audit/")
-    assert "edit:author" in page.content.decode()
     response = client.post(f"/review/audit/{entry.pk}/revert/")
     assert response.status_code == 302
     article.refresh_from_db()

@@ -177,15 +177,15 @@ def test_datasets_table_without_costs():
     assert table[0]["cost"] == 0
 
 
-def test_navigation_reaches_every_section(client, viewer, corpus):
+def test_navigation_reaches_every_work_section(client, viewer, corpus):
+    """A viewer's dashboard offers the everyday surface and nothing it
+    would be refused at; the Admin sections are covered in
+    tests/test_admin_access.py."""
     content = _content(client)
-    for url in (
-        "/explorer/articles/",
-        "/explorer/enrichment/",
-        "/explorer/costs/",
-        "/review/queue/",
-    ):
+    for url in ("/explorer/articles/", "/explorer/enrichment/", "/review/queue/"):
         assert url in content
+    assert "/explorer/costs/" not in content
+    assert "/manage/" not in content
 
 
 def test_status_rows_link_into_the_filtered_grid(client, viewer, corpus):

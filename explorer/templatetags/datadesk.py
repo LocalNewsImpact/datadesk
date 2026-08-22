@@ -184,3 +184,19 @@ def geoid_name(geoid):
     from datasets.geo import name_for_geoid
 
     return name_for_geoid(geoid)[0] or ""
+
+
+@register.simple_tag(takes_context=True)
+def sections(context, group):
+    """The navigation entries for one sidebar group.
+
+    "admin" returns nothing unless the signed-in user holds that role —
+    a viewer sees a clean sidebar rather than links to 403s. The list is
+    accounts.sections, which is also what the access tests walk, so a
+    section cannot appear here without its guard being checked.
+    """
+    from accounts.sections import ADMIN_SECTIONS, WORK_SECTIONS
+
+    if group == "admin":
+        return ADMIN_SECTIONS if context.get("role") == "admin" else ()
+    return WORK_SECTIONS

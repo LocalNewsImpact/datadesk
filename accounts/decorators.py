@@ -1,4 +1,11 @@
-"""View guards for the three-role model (SCOPE.md §2.1)."""
+"""View guards for the three-role model (SCOPE.md §2.1).
+
+Each guard marks the view it wraps (`requires_role`, `requires_editor`,
+`requires_admin`). Hiding a navigation link is not access control, so the
+marks let a test walk the URL configuration and prove that every view
+behind an admin section actually carries the check — adding a page and
+forgetting the decorator fails the suite rather than shipping.
+"""
 
 from functools import wraps
 
@@ -24,6 +31,7 @@ def role_required(view):
             raise PermissionDenied("No role assigned")
         return view(request, *args, **kwargs)
 
+    wrapped.requires_role = True
     return wrapped
 
 
@@ -39,6 +47,7 @@ def editor_required(view):
             raise PermissionDenied("Editor role required")
         return view(request, *args, **kwargs)
 
+    wrapped.requires_editor = True
     return wrapped
 
 
@@ -54,4 +63,5 @@ def admin_required(view):
             raise PermissionDenied("Admin role required")
         return view(request, *args, **kwargs)
 
+    wrapped.requires_admin = True
     return wrapped

@@ -17,26 +17,29 @@
       <div class="brand"><a href="/">Datadesk</a></div>
       <nav>
         <div class="nav-group">
-          <span class="nav-group-label">Explore</span>
-          <a class="nav-item {% nav_active 'explorer:articles' %}" href="{% url 'explorer:articles' %}">Articles</a>
-          <a class="nav-item {% nav_active 'explorer:enrichment' %}" href="{% url 'explorer:enrichment' %}">Enrichment</a>
-          <a class="nav-item {% nav_active 'explorer:costs' %}" href="{% url 'explorer:costs' %}">Costs</a>
-        </div>
-        <div class="nav-group">
-          <span class="nav-group-label">Review</span>
-          <a class="nav-item {% nav_active 'review:queue' %}" href="{% url 'review:queue' %}">Extraction queue</a>
+          <span class="nav-group-label">Work</span>
+          {% sections "work" as work %}
+          {% for section in work %}
+          <a class="nav-item {% nav_active section.url %}" href="{% url section.url %}">{{ section.label }}</a>
+          {% endfor %}
           {% if role == "editor" or role == "admin" %}
           <a class="nav-item {% nav_active 'review:import_batches' %}" href="{% url 'review:import_batches' %}">Import</a>
-          <a class="nav-item {% nav_active 'review:audit_log' %}" href="{% url 'review:audit_log' %}">Audit log</a>
           {% endif %}
         </div>
+        {% comment %}
+        The admin group renders only for admins. That is presentation,
+        not access control: every view behind these links enforces the
+        role itself (accounts.decorators.admin_required).
+        {% endcomment %}
+        {% sections "admin" as admin_sections %}
+        {% if admin_sections %}
         <div class="nav-group">
-          <span class="nav-group-label">Publish</span>
-          <a class="nav-item {% nav_active 'visuals:index' %}" href="{% url 'visuals:index' %}">Visuals</a>
-          {% if role == "admin" %}
-          <a class="nav-item {% nav_active 'datasets:list' %}" href="{% url 'datasets:list' %}">Datasets</a>
-          {% endif %}
+          <span class="nav-group-label">Admin</span>
+          {% for section in admin_sections %}
+          <a class="nav-item {% nav_active section.url %}" href="{% url section.url %}">{{ section.label }}</a>
+          {% endfor %}
         </div>
+        {% endif %}
       </nav>
       <div class="sidebar-foot">Role: {{ role }}</div>
     </aside>
@@ -58,6 +61,13 @@
         {% endif %}
       </header>
       <main>
+        {% if messages %}
+        <ul class="messages">
+          {% for message in messages %}
+          <li class="message {{ message.tags }}">{{ message }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
         {% block content %}{% endblock %}
       </main>
     </div>
