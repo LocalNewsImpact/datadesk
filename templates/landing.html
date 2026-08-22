@@ -3,42 +3,181 @@
 
 {% block content %}
 {% if user.is_authenticated %}
+{% if role %}
+
+<section class="card card-wide">
+  <h1>Datadesk</h1>
+  <p class="lede">
+    A research console over the LNIC corpus. Datadesk owns no research
+    data: it reads the crawler's database and writes back only through
+    audited review actions.
+  </p>
+
+  {% if not crawler_connected %}
+  <p class="notice">
+    <strong>Crawler database not connected.</strong>
+    The read-only connection is not configured: set CRAWLER_DB_USER and
+    run the Cloud SQL Auth Proxy locally. Every corpus figure reads from
+    that connection; the rest of the application works without it.
+  </p>
+  {% elif not summary %}
+  <p class="notice">Connected — the corpus is empty.</p>
+  {% else %}
+
+  <div class="stat-row">
+    <div class="stat">
+      <span class="stat-label">Articles</span>
+      <span class="stat-value">{{ summary.total }}</span>
+      <span class="stat-detail">collected and extracted</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Enriched</span>
+      <span class="stat-value">{{ summary.enriched }}</span>
+      <span class="stat-detail">
+        {% if summary.coverage is not None %}{{ summary.coverage|floatformat:1 }}% of the corpus{% else %}—{% endif %}
+      </span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Exported unenriched</span>
+      <span class="stat-value">{{ summary.exported_unenriched }}</span>
+      <span class="stat-detail">CIN label and byline intact</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Central FIPS claimed</span>
+      <span class="stat-value">{{ summary.with_claim }}</span>
+      <span class="stat-detail">
+        {% if summary.claim_share is not None %}{{ summary.claim_share|floatformat:1 }}% of {{ summary.enrichment_rows }} enrichment records{% else %}—{% endif %}
+      </span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Awaiting review</span>
+      <span class="stat-value"><a href="{% url 'review:queue' %}">{{ summary.flagged }}</a></span>
+      <span class="stat-detail">flagged by extraction</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Recorded cost</span>
+      <span class="stat-value">{% if recorded_total %}${{ recorded_total|floatformat:2 }}{% else %}—{% endif %}</span>
+      <span class="stat-detail">article_enrichment.cost_usd</span>
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+{% if crawler_connected and summary %}
+<section class="card card-wide">
+  <h2>Articles by status</h2>
+  <table class="grid">
+    <thead>
+      <tr>
+        <th scope="col">Status</th>
+        <th scope="col" class="count">Articles</th>
+        <th scope="col" class="count">Share</th>
+        <th scope="col">Meaning</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in summary.by_status %}
+      <tr>
+        <td><a href="{% url 'explorer:articles' %}?status={{ row.status }}">{{ row.status }}</a></td>
+        <td class="count">{{ row.articles }}</td>
+        <td class="count">{% if row.share is not None %}{{ row.share|floatformat:1 }}%{% else %}—{% endif %}</td>
+        <td class="notice">{{ row.note }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4" class="notice">No articles.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card card-wide">
+  <h2>Datasets</h2>
+  <table class="grid">
+    <thead>
+      <tr>
+        <th scope="col">Dataset</th>
+        <th scope="col" class="count">Articles</th>
+        <th scope="col" class="count">Enriched</th>
+        <th scope="col" class="count">Recorded cost</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in datasets %}
+      <tr>
+        <td>
+          <a href="{% url 'explorer:articles' %}?dataset={{ row.slug }}">{{ row.label }}</a>
+          <span class="slug">{{ row.slug }}</span>
+        </td>
+        <td class="count">{{ row.articles }}</td>
+        <td class="count">{{ row.enriched }}</td>
+        <td class="count">${{ row.cost|floatformat:2 }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4" class="notice">Connected — no datasets found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="notice">
+    Enriched counts articles carrying a recorded cost; cost is
+    <code>article_enrichment.cost_usd</code>, what the pipeline believed it
+    spent. The billed side lives on <a href="{% url 'explorer:costs' %}">Costs</a>.
+  </p>
+</section>
+{% endif %}
+
+<section class="card card-wide">
+  <h2>Sections</h2>
+  <div class="section-nav">
+    <a href="{% url 'explorer:articles' %}">
+      <span class="section-title">Articles</span>
+      <span class="section-note">The corpus, filtered by dataset, status, label, scope and geography.</span>
+    </a>
+    <a href="{% url 'explorer:enrichment' %}">
+      <span class="section-title">Enrichment</span>
+      <span class="section-note">Enrichment records by scope, FIPS claim and skip reason.</span>
+    </a>
+    <a href="{% url 'review:queue' %}">
+      <span class="section-title">Review queue</span>
+      <span class="section-note">Articles automated triage could not use, awaiting a person's decision.</span>
+    </a>
+    <a href="{% url 'explorer:costs' %}">
+      <span class="section-title">Costs</span>
+      <span class="section-note">Recorded against billed, the cache discount, per dataset and model.</span>
+    </a>
+    <a href="{% url 'visuals:index' %}">
+      <span class="section-title">Visuals</span>
+      <span class="section-note">Published charts and maps, their embeds and pinned snapshots.</span>
+    </a>
+    {% if role == "admin" %}
+    <a href="{% url 'datasets:list' %}">
+      <span class="section-title">Datasets</span>
+      <span class="section-note">Dataset and source records, enrichment profiles, gazetteer status.</span>
+    </a>
+    {% endif %}
+  </div>
+  <dl class="identity-panel">
+    <dt>Signed in as</dt>
+    <dd>{{ user.email }}</dd>
+    <dt>Role</dt>
+    <dd>{{ role }}</dd>
+  </dl>
+</section>
+
+{% else %}
 <section class="card">
   <h1>Datadesk</h1>
   <dl class="identity-panel">
     <dt>Signed in as</dt>
     <dd>{{ user.email }}</dd>
     <dt>Role</dt>
-    <dd>{% if role %}{{ role }}{% else %}none assigned{% endif %}</dd>
+    <dd>none assigned</dd>
   </dl>
-</section>
-{% if role %}
-<section class="card">
-  <h2>Datasets</h2>
-  {% if not crawler_connected %}
   <p class="notice">
-    Crawler database not connected. Set CRAWLER_DB_USER (and run the Cloud
-    SQL Auth Proxy locally) to see live row counts.
+    An administrator assigns a role before the corpus becomes visible.
   </p>
-  {% elif not dataset_counts %}
-  <p class="notice">Connected — no datasets found.</p>
-  {% else %}
-  <table class="dataset-counts">
-    <thead>
-      <tr><th scope="col">Dataset</th><th scope="col">Articles</th></tr>
-    </thead>
-    <tbody>
-      {% for row in dataset_counts %}
-      <tr>
-        <td>{{ row.label }} <span class="slug">{{ row.slug }}</span></td>
-        <td class="count">{{ row.articles }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
 </section>
 {% endif %}
+
 {% else %}
 <section class="card">
   <h1>Datadesk</h1>
