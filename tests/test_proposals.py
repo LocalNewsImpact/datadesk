@@ -1,0 +1,123 @@
+"""The proposal queue: grouped by record, decided in a session, applied
+as one audited batch."""
+
+import pytest
+from django.contrib.auth.models import Group, User
+
+from audit.models import AuditLogEntry
+from explorer.models import Source
+from review.proposals import ChangeProposal
+
+pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
+
+URL = "/review/proposals/"
+
+
+@pytest.fixture
+def editor(client):
+    user = User.objects.create_user("editor", email="editor@localnewsimpact.org")
+    user.groups.add(Group.objects.get(name="editor"))
+    client.force_login(user)
+    return user
+
+
+@pytest.fixture
+def publisher(crawler_schema):
+    return Source.objects.create(
+        id="s1",
+        host="tribune.example",
+        host_norm="tribune.example",
+        canonical_name="Tribune",
+        city="Columbia",
+        county="Boone",
+        owner="",
+    )
+
+
+def _proposal(publisher, field, current, proposed, **kwargs):
+    return ChangeProposal.objects.create(
+        target="sources",
+        record_id=publisher.id,
+        record_label=publisher.host_norm,
+        origin="test sheet",
+        field=field,
+        current_value=current,
+        proposed_value=proposed,
+        finding=kwargs.pop("finding", ChangeProposal.READY),
+        **kwargs,
+    )
+
+
+def test_one_record_is_one_card(client, editor, publisher):
+    """Four fields on one publisher are one decision, not four rows in a
+    file the reviewer has to reassemble."""
+    for field, value in (
+        ("owner", "CherryRoad Media"),
+        ("city", "Columbia"),
+        ("canonical_name", "Columbia Tribune"),
+    ):
+        _proposal(publisher, field, "", value)
+    content = client.get(URL).content.decode()
+    assert content.count('class="rec"') == 1
+    assert content.count('class="prop"') == 3
+
+
+def test_submitting_applies_accepted_and_leaves_rejected(client, editor, publisher):
+    accept = _proposal(publisher, "owner", "", "CherryRoad Media")
+    reject = _proposal(publisher, "canonical_name", "Tribune", "The Tribune")
+    client.post(URL, {f"d-{accept.pk}": "accept", f"d-{reject.pk}": "reject"})
+
+    publisher.refresh_from_db()
+    assert publisher.owner == "CherryRoad Media"
+    assert publisher.canonical_name == "Tribune"
+    accept.refresh_from_db()
+    reject.refresh_from_db()
+    assert accept.state == ChangeProposal.ACCEPTED
+    assert reject.state == ChangeProposal.REJECTED
+    assert accept.decided_by == editor
+    entry = AuditLogEntry.objects.get(action="proposal:apply")
+    assert entry.before == {"s1": {"owner": ""}}
+    assert accept.audit_entry == entry
+
+
+def test_a_fix_writes_the_reviewers_value(client, editor, publisher):
+    p = _proposal(publisher, "city", "Columbia", "Colombia")
+    client.post(URL, {f"d-{p.pk}": "fix", f"v-{p.pk}": "Columbia Heights"})
+    publisher.refresh_from_db()
+    assert publisher.city == "Columbia Heights"
+    p.refresh_from_db()
+    assert p.state == ChangeProposal.FIXED
+    assert p.final_value == "Columbia Heights"
+
+
+def test_a_fix_without_a_value_stays_pending(client, editor, publisher):
+    p = _proposal(publisher, "city", "Columbia", "Colombia")
+    client.post(URL, {f"d-{p.pk}": "fix", f"v-{p.pk}": "   "})
+    p.refresh_from_db()
+    assert p.state == ChangeProposal.PENDING
+    publisher.refresh_from_db()
+    assert publisher.city == "Columbia"
+
+
+def test_duplicates_and_missing_records_are_not_offered(client, editor, publisher):
+    """Nothing safe to accept: the file disagrees with itself, or names a
+    record that is not there."""
+    dupe = _proposal(
+        publisher,
+        "owner",
+        "",
+        "Gannett",
+        finding=ChangeProposal.DUPLICATE,
+        why="the file has two rows for this record",
+    )
+    assert dupe.actionable is False
+    content = client.get(URL).content.decode()
+    assert "Not offered for a decision" in content
+    assert "two rows for this record" in content
+
+
+def test_viewers_cannot_reach_the_queue(client, publisher):
+    user = User.objects.create_user("viewer", email="v@localnewsimpact.org")
+    user.groups.add(Group.objects.get(name="viewer"))
+    client.force_login(user)
+    assert client.get(URL).status_code == 403

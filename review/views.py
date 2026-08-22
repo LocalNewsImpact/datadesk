@@ -383,3 +383,140 @@ def queue(request):
         else "review/queue.html"
     )
     return render(request, template, context)
+
+
+# --- the proposal queue (SCOPE.md §2.2) -------------------------------------
+
+
+def _proposal_groups(proposals):
+    """Group proposals by record, because one publisher is one decision."""
+    groups = {}
+    for p in proposals:
+        g = groups.setdefault(
+            p.record_id,
+            {
+                "record_id": p.record_id,
+                "label": p.record_label,
+                "dataset": p.dataset,
+                "origin": p.origin,
+                "fields": [],
+                "blocked": [],
+            },
+        )
+        (g["fields"] if p.actionable else g["blocked"]).append(p)
+    for g in groups.values():
+        g["actionable"] = bool(g["fields"])
+    return sorted(groups.values(), key=lambda g: (not g["actionable"], g["label"]))
+
+
+@editor_required
+def proposals(request):
+    """Review proposed changes, decide, then submit the session at once."""
+    from review.proposals import ChangeProposal
+
+    if request.method == "POST":
+        return _submit_proposals(request)
+
+    finding = request.GET.get("finding") or ""
+    state = request.GET.get("state") or ChangeProposal.PENDING
+    qs = ChangeProposal.objects.filter(target="sources")
+    if state != "all":
+        qs = qs.filter(state=state)
+    if finding:
+        qs = qs.filter(finding=finding)
+
+    counts = {
+        key: ChangeProposal.objects.filter(
+            target="sources", state=ChangeProposal.PENDING, finding=key
+        ).count()
+        for key, _label in ChangeProposal.FINDINGS
+    }
+    return render(
+        request,
+        "review/proposals.html",
+        {
+            "groups": _proposal_groups(list(qs)),
+            "findings": [
+                (k, label, counts.get(k, 0)) for k, label in ChangeProposal.FINDINGS
+            ],
+            "finding": finding,
+            "state": state,
+            "pending_total": ChangeProposal.objects.filter(
+                target="sources", state=ChangeProposal.PENDING
+            ).count(),
+            "receipt": request.session.pop("proposal_receipt", None),
+        },
+    )
+
+
+def _submit_proposals(request):
+    """Apply a session of decisions as one audited batch per record set."""
+    from django.utils import timezone
+
+    from explorer.models import Source
+    from review.proposals import ChangeProposal
+
+    decisions = {}
+    for key, value in request.POST.items():
+        if not key.startswith("d-") or not value:
+            continue
+        decisions[int(key[2:])] = value
+    if not decisions:
+        return redirect("review:proposals")
+
+    proposals_by_id = ChangeProposal.objects.in_bulk(list(decisions))
+    writes = {}  # record pk -> {field: value}
+    accepted, rejected, fixed = [], [], []
+    for pid, verb in decisions.items():
+        p = proposals_by_id.get(pid)
+        if p is None or p.state != ChangeProposal.PENDING:
+            continue
+        if verb == "reject":
+            rejected.append(p)
+            continue
+        value = (
+            request.POST.get(f"v-{pid}", "").strip()
+            if verb == "fix"
+            else p.proposed_value
+        )
+        if verb == "fix" and not value:
+            # A fix without a value is not a decision; leave it pending.
+            continue
+        writes.setdefault(p.record_id, {})[p.field] = value
+        p.final_value = value
+        (fixed if verb == "fix" else accepted).append(p)
+
+    entry = None
+    if writes:
+        entry = audited_update_rows(
+            request.user,
+            Source,
+            writes,
+            action="proposal:apply",
+            reason=f"{len(accepted) + len(fixed)} reviewed changes",
+        )
+
+    now = timezone.now()
+    for group, state in (
+        (accepted, ChangeProposal.ACCEPTED),
+        (fixed, ChangeProposal.FIXED),
+        (rejected, ChangeProposal.REJECTED),
+    ):
+        for p in group:
+            p.state = state
+            p.decided_by = request.user
+            p.decided_at = now
+            if state != ChangeProposal.REJECTED:
+                p.audit_entry = entry
+        ChangeProposal.objects.bulk_update(
+            group,
+            ["state", "decided_by", "decided_at", "final_value", "audit_entry"],
+        )
+
+    request.session["proposal_receipt"] = {
+        "accepted": len(accepted),
+        "fixed": len(fixed),
+        "rejected": len(rejected),
+        "entry": entry.pk if entry else None,
+    }
+    return redirect("review:proposals")

@@ -20,6 +20,7 @@ urlpatterns = [
     path("import/<int:batch_id>/revert/", views.import_revert, name="import_revert"),
     path("export/", views.export, name="export"),
     path("export/<int:definition_id>/run/", views.export_run, name="export_run"),
+    path("proposals/", views.proposals, name="proposals"),
     path("audit/", views.audit_log, name="audit_log"),
     path("audit/<int:entry_id>/revert/", views.revert_entry, name="revert"),
 ]

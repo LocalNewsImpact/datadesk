@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Proposed changes — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide queue">
+  <header class="queue-head">
+    <h1>Proposed changes</h1>
+    <p class="notice">Changes something proposed for publisher records —
+    an imported sheet, a normalization pass — with what the checks found.
+    Decide as you read; nothing is written until you submit.</p>
+  </header>
+
+  {% if receipt %}
+  <p class="receipt-line">
+    Submitted: {{ receipt.accepted }} accepted, {{ receipt.fixed }} fixed,
+    {{ receipt.rejected }} rejected.
+    {% if receipt.entry %}<a href="{% url 'review:audit_log' %}">Audit entry {{ receipt.entry }}</a> reverts the batch.{% endif %}
+  </p>
+  {% endif %}
+
+  <nav class="queue-facets" aria-label="What the checks found">
+    <a href="?state={{ state }}" class="facet-chip {% if not finding %}on{% endif %}">
+      All pending <span>{{ pending_total }}</span>
+    </a>
+    {% for key, label, count in findings %}
+      {% if count %}
+      <a href="?finding={{ key }}&state={{ state }}"
+         class="facet-chip {% if finding == key %}on{% endif %}">{{ label }} <span>{{ count }}</span></a>
+      {% endif %}
+    {% endfor %}
+    <a href="?finding={{ finding }}&state=all" class="facet-chip {% if state == 'all' %}on{% endif %}">Everything</a>
+  </nav>
+
+  <form method="post" id="queue-form">
+    {% csrf_token %}
+    {% for group in groups %}
+    <article class="rec" data-record="{{ group.record_id }}">
+      <header class="rec-head">
+        <h2>{{ group.label }}</h2>
+        <span class="rec-src">{{ group.origin }}</span>
+      </header>
+
+      {% if group.fields %}
+      <table class="rec-table">
+        <thead>
+          <tr><th scope="col">Field</th><th scope="col">Now</th>
+              <th scope="col">Proposed</th><th scope="col">Decision</th></tr>
+        </thead>
+        <tbody>
+        {% for p in group.fields %}
+          <tr class="prop" data-id="{{ p.pk }}">
+            <th scope="row">{{ p.field }}</th>
+            <td class="val">{% if p.current_value %}{{ p.current_value }}{% else %}<span class="none">empty</span>{% endif %}</td>
+            <td class="val proposed">{{ p.proposed_value }}</td>
+            <td class="decide">
+              <div class="verbs">
+                <button type="button" class="verb accept" data-verb="accept">
+                  <b>Accept</b><i>use proposed</i></button>
+                <button type="button" class="verb reject" data-verb="reject">
+                  <b>Keep</b><i>leave as is</i></button>
+                <button type="button" class="verb fix" data-verb="fix">
+                  <b>Fix</b><i>another value</i></button>
+              </div>
+              <input type="hidden" name="d-{{ p.pk }}" value="">
+              <input type="text" class="fixval" name="v-{{ p.pk }}" hidden
+                     placeholder="the right value" value="{{ p.current_value }}">
+              {% if p.why %}<p class="finding {{ p.finding }}">{{ p.why }}</p>{% endif %}
+              {% if p.suggestion %}<p class="sugg">{{ p.suggestion }}</p>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+
+      {% if group.blocked %}
+      <div class="blocked">
+        <h3>Not offered for a decision</h3>
+        <ul>
+          {% for p in group.blocked %}
+          <li><b>{{ p.field }}</b> → {{ p.proposed_value|default:"empty" }} — {{ p.why }}
+            {% if p.suggestion %}<span class="sugg">{{ p.suggestion }}</span>{% endif %}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+    </article>
+    {% empty %}
+    <p class="notice empty-queue">Nothing pending here.</p>
+    {% endfor %}
+  </form>
+</section>
+
+<div class="queue-dock">
+  <span class="tally"><b id="t-accept">0</b> accept</span>
+  <span class="tally"><b id="t-reject">0</b> keep</span>
+  <span class="tally"><b id="t-fix">0</b> fix</span>
+  <button type="button" class="linklike" id="q-clear">Clear</button>
+  <button type="submit" form="queue-form" class="q-submit" id="q-submit" disabled>Submit</button>
+</div>
+
+<script>
+(function () {
+  const form = document.getElementById("queue-form");
+  if (!form) return;
+  const counts = {accept: 0, reject: 0, fix: 0};
+
+  function recount() {
+    counts.accept = counts.reject = counts.fix = 0;
+    let incomplete = 0;
+    form.querySelectorAll(".prop").forEach((row) => {
+      const verb = row.querySelector('input[type="hidden"]').value;
+      if (!verb) return;
+      counts[verb] += 1;
+      if (verb === "fix" && !row.querySelector(".fixval").value.trim()) incomplete += 1;
+    });
+    document.getElementById("t-accept").textContent = counts.accept;
+    document.getElementById("t-reject").textContent = counts.reject;
+    document.getElementById("t-fix").textContent = counts.fix;
+    const total = counts.accept + counts.reject + counts.fix;
+    const submit = document.getElementById("q-submit");
+    submit.disabled = total === 0 || incomplete > 0;
+    submit.textContent = incomplete
+      ? incomplete + (incomplete > 1 ? " fixes need a value" : " fix needs a value")
+      : total ? "Submit " + total + (total > 1 ? " decisions" : " decision") : "Submit";
+  }
+
+  form.addEventListener("click", (event) => {
+    const button = event.target.closest(".verb");
+    if (!button) return;
+    const row = button.closest(".prop");
+    const store = row.querySelector('input[type="hidden"]');
+    const verb = button.dataset.verb;
+    const chosen = store.value === verb ? "" : verb;
+    store.value = chosen;
+    row.classList.toggle("decided", Boolean(chosen));
+    row.dataset.verb = chosen;
+    row.querySelectorAll(".verb").forEach((b) =>
+      b.setAttribute("aria-pressed", b.dataset.verb === chosen));
+    row.querySelector(".fixval").hidden = chosen !== "fix";
+    if (chosen === "fix") row.querySelector(".fixval").focus();
+    recount();
+  });
+  form.addEventListener("input", (event) => {
+    if (event.target.classList.contains("fixval")) recount();
+  });
+  document.getElementById("q-clear").onclick = () => {
+    form.querySelectorAll(".prop").forEach((row) => {
+      row.querySelector('input[type="hidden"]').value = "";
+      row.classList.remove("decided");
+      row.dataset.verb = "";
+      row.querySelectorAll(".verb").forEach((b) => b.setAttribute("aria-pressed", "false"));
+      row.querySelector(".fixval").hidden = true;
+    });
+    recount();
+  };
+  recount();
+})();
+</script>
+{% endblock %}

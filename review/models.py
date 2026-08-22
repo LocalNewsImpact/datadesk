@@ -63,3 +63,8 @@ class ExportDefinition(models.Model):
 
     def __str__(self):
         return self.name
+
+
+# The proposal queue lives in its own module; import it here so Django
+# discovers the model.
+from review.proposals import ChangeProposal  # noqa: E402,F401
