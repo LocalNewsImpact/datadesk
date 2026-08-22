@@ -23,12 +23,12 @@ class ChangeProposal(models.Model):
     DUPLICATE = "duplicate"
     NO_MATCH = "no_match"
     FINDINGS = [
-        (READY, "Passes every check"),
-        (OWNER_CONFLICT, "Names a different owner"),
-        (UNKNOWN_OWNER, "Owner not recognised"),
-        (GAZETTEER, "Not a place or county here"),
-        (DUPLICATE, "Source file disagrees with itself"),
-        (NO_MATCH, "No such record"),
+        (READY, "Nothing wrong with it"),
+        (OWNER_CONFLICT, "A different owner is already recorded"),
+        (UNKNOWN_OWNER, "That owner is new to us"),
+        (GAZETTEER, "No such place or county"),
+        (DUPLICATE, "The file says two different things"),
+        (NO_MATCH, "No publisher with that id"),
     ]
 
     PENDING = "pending"

@@ -44,9 +44,9 @@
       <table class="rec-table">
         <thead>
           <tr><th scope="col">Field</th>
-              <th scope="col">Proposed</th>
-              <th scope="col">Now</th>
-              <th scope="col">Something else</th></tr>
+              <th scope="col">Proposed value</th>
+              <th scope="col">Current value</th>
+              <th scope="col">A different value</th></tr>
         </thead>
         <tbody>
         {% for p in group.fields %}
@@ -63,25 +63,22 @@
             </th>
             <td class="option{% if p.check_failed %} rejected-value{% endif %}">
               <span class="val proposed">{{ p.proposed_value|default:"—" }}</span>
-              {% if p.check_failed %}
-              <button type="button" class="verb accept override" data-verb="accept">
-                <b>Accept anyway</b><i>overrule the check</i></button>
-              {% else %}
-              <button type="button" class="verb accept" data-verb="accept">
-                <b>Accept</b><i>use this</i></button>
-              {% endif %}
+              {% if p.check_failed %}<span class="flagchip">flagged</span>{% endif %}
+              <button type="button" class="verb accept{% if p.check_failed %} override{% endif %}"
+                      data-verb="accept">
+                <b>Accept proposal</b><i>write this value</i></button>
             </td>
             <td class="option">
               <span class="val">{% if p.current_value %}{{ p.current_value }}{% else %}<span class="none">empty</span>{% endif %}</span>
               <button type="button" class="verb reject" data-verb="reject">
-                <b>Keep</b><i>leave as is</i></button>
+                <b>Keep current</b><i>no change</i></button>
             </td>
             <td class="option">
               <input type="text" class="fixval" name="v-{{ p.pk }}"
                      placeholder="{{ p.useful_suggestion|default:'another value' }}"
                      value="" aria-label="A different value for {{ p.field }}">
               <button type="button" class="verb fix" data-verb="fix">
-                <b>Fix</b><i>use what I typed</i></button>
+                <b>Use my value</b><i>write what I typed</i></button>
               <input type="hidden" name="d-{{ p.pk }}" value="">
             </td>
           </tr>
@@ -149,25 +146,24 @@
     const verb = row.querySelector('input[type="hidden"]').value;
     const note = form.querySelector(`.prop-note[data-for="${row.dataset.id}"] .outcome-line`);
     if (!note) return;
-    const proposed = row.dataset.proposed || "(empty)";
+    const proposed = row.dataset.proposed || "(nothing)";
     const current = row.dataset.current || "(empty)";
     const typed = row.querySelector(".fixval").value.trim();
+    const flagged = row.dataset.failed === "1";
+    // One vocabulary across the three columns: a value is written, or
+    // nothing changes.
     if (verb === "accept") {
-      note.textContent = row.dataset.failed === "1"
-        ? `Writing ${proposed} over ${current}, against the check: ${row.dataset.why}`
-        : `Writing ${proposed} over ${current}.`;
-      note.className = row.dataset.failed === "1"
-        ? "outcome-line on override" : "outcome-line on accept";
+      note.textContent = flagged
+        ? `Will write ${proposed} over ${current} — although ${row.dataset.why}.`
+        : `Will write ${proposed} over ${current}.`;
+      note.className = flagged ? "outcome-line on override" : "outcome-line on accept";
     } else if (verb === "reject") {
-      note.textContent = `Leaving ${current} as it is. The proposal is dismissed.`;
+      note.textContent = `No change. ${current} stays.`;
       note.className = "outcome-line on reject";
     } else if (verb === "fix") {
-      note.textContent = typed
-        ? `Writing ${typed} — neither the proposal nor what is recorded.`
-        : "Type the value to write.";
+      note.textContent = typed ? `Will write ${typed}.` : "Type the value to write.";
       note.className = "outcome-line on fix";
     } else {
-      // No decision yet: back to what the checks suggested.
       note.textContent = row.dataset.suggestion || "";
       note.className = "outcome-line";
     }
