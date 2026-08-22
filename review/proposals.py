@@ -96,6 +96,24 @@ class ChangeProposal(models.Model):
         return f"{self.record_label}.{self.field}: {self.proposed_value!r}"
 
     @property
+    def useful_suggestion(self):
+        """The check's own value, when it is genuinely a third option.
+
+        A suggestion equal to what is recorded is what Keep already
+        does, and one equal to the proposal is what Accept already does.
+        Offering either as a separate button puts the same value on
+        screen twice and asks the reviewer to tell them apart.
+        """
+        value = (self.suggested_value or "").strip()
+        if not value:
+            return ""
+        if value == (self.current_value or "").strip():
+            return ""
+        if value == (self.proposed_value or "").strip():
+            return ""
+        return value
+
+    @property
     def check_failed(self):
         """Did a check reject the proposed value?
 

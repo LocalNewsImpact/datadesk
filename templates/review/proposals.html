@@ -46,7 +46,7 @@
           <tr><th scope="col">Field</th>
               <th scope="col">Proposed</th>
               <th scope="col">Now</th>
-              <th scope="col">What the check says</th></tr>
+              <th scope="col">Something else</th></tr>
         </thead>
         <tbody>
         {% for p in group.fields %}
@@ -54,7 +54,7 @@
               data-current="{{ p.current_value }}"
               data-proposed="{{ p.proposed_value }}"
               data-suggestion="{{ p.suggestion }}"
-              data-suggested="{{ p.suggested_value }}"
+              data-suggested="{{ p.useful_suggestion }}"
               data-why="{{ p.why }}"
               data-failed="{% if p.check_failed %}1{% else %}0{% endif %}">
             <th scope="row">
@@ -77,15 +77,9 @@
                 <b>Keep</b><i>leave as is</i></button>
             </td>
             <td class="option">
-              {% if p.suggested_value %}
-              <span class="val suggested">{{ p.suggested_value }}</span>
-              <button type="button" class="verb suggest" data-verb="suggest"
-                      data-value="{{ p.suggested_value }}">
-                <b>Use this</b><i>what the check says</i></button>
-              {% endif %}
               <input type="text" class="fixval" name="v-{{ p.pk }}"
-                     placeholder="another value" value=""
-                     aria-label="A different value for {{ p.field }}">
+                     placeholder="{{ p.useful_suggestion|default:'another value' }}"
+                     value="" aria-label="A different value for {{ p.field }}">
               <button type="button" class="verb fix" data-verb="fix">
                 <b>Fix</b><i>use what I typed</i></button>
               <input type="hidden" name="d-{{ p.pk }}" value="">
@@ -164,9 +158,6 @@
         : `Writing ${proposed} over ${current}.`;
       note.className = row.dataset.failed === "1"
         ? "outcome-line on override" : "outcome-line on accept";
-    } else if (verb === "suggest") {
-      note.textContent = `Writing ${row.dataset.suggested} — the value the check says is right.`;
-      note.className = "outcome-line on accept";
     } else if (verb === "reject") {
       note.textContent = `Leaving ${current} as it is. The proposal is dismissed.`;
       note.className = "outcome-line on reject";
@@ -196,16 +187,7 @@
       b.setAttribute("aria-pressed", b.dataset.verb === chosen));
     const fixval = row.querySelector(".fixval");
     if (chosen === "fix" && !fixval.value.trim()) fixval.focus();
-    if (chosen === "suggest") {
-      // The suggestion is written the same way a fix is: a value the
-      // reviewer chose, which is neither the proposal nor what is there.
-      fixval.value = button.dataset.value;
-      store.value = "fix";
-      row.dataset.verb = "fix";
-      row.classList.add("decided");
-      row.querySelectorAll(".verb").forEach((b) =>
-        b.setAttribute("aria-pressed", b.dataset.verb === "suggest"));
-    }
+
     describe(row);
     recount();
   });

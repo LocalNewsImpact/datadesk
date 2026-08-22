@@ -141,8 +141,29 @@ def test_a_rejected_value_is_not_the_ordinary_path(client, editor, publisher):
     content = client.get(URL).content.decode()
     assert "Accept anyway" in content
     assert "overrule the check" in content
-    assert 'data-verb="suggest"' in content
     assert "Rock Port" in content
+    # The gazetteer's spelling is what the record already holds, so Keep
+    # is the answer; nothing repeats it.
+    assert p.useful_suggestion == ""
+
+
+def test_the_checked_value_is_offered_when_it_differs_from_both(
+    client, editor, publisher
+):
+    p = _proposal(
+        publisher,
+        "city",
+        "Rockport",
+        "Rockpot",
+        finding=ChangeProposal.GAZETTEER,
+        why="Rockpot is not a Missouri place",
+        suggested_value="Rock Port",
+    )
+    assert p.useful_suggestion == "Rock Port"
+    content = client.get(URL).content.decode()
+    # Offered as the field's placeholder, not a button that duplicates
+    # what Accept or Keep already do.
+    assert 'placeholder="Rock Port"' in content
 
 
 def test_a_passing_proposal_keeps_the_plain_accept(client, editor, publisher):
@@ -162,3 +183,21 @@ def test_a_proposal_that_changes_nothing_is_not_a_question(client, editor, publi
     content = client.get(URL).content.decode()
     assert content.count('class="prop"') == 1
     assert f'data-id="{real.pk}"' in content
+
+
+def test_a_suggestion_is_only_offered_when_it_is_a_third_option(
+    client, editor, publisher
+):
+    """A suggestion equal to what is recorded is what Keep already does;
+    showing it again puts the same value on screen twice."""
+    same_as_current = _proposal(
+        publisher,
+        "canonical_name",
+        "KMBZ",
+        "KFTK",
+        finding=ChangeProposal.OWNER_CONFLICT,
+        suggested_value="KMBZ",
+    )
+    assert same_as_current.useful_suggestion == ""
+    content = client.get(URL).content.decode()
+    assert 'placeholder="another value"' in content
