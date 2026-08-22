@@ -253,3 +253,19 @@ def test_bulk_disposition_is_revertible(client, editor, corpus):
     client.post(f"/review/audit/{entry.pk}/revert/")
     assert Article.objects.get(id="a0").status == "labeled"
     assert Article.objects.get(id="a1").status == "labeled"
+
+
+def test_human_scope_decision_clears_the_model_confidence(editor, article):
+    """A person's answer has no model confidence; writing 1.0 would make
+    human corrections look like the model's surest predictions."""
+    from explorer.models import ArticleEnrichment
+    from review.services import set_scope
+
+    enrichment = ArticleEnrichment.objects.create(
+        article=article, scope="national", scope_confidence=0.71
+    )
+    entry = set_scope(editor, [enrichment], "city_municipality", reason="local story")
+    enrichment.refresh_from_db()
+    assert enrichment.scope == "city_municipality"
+    assert enrichment.scope_confidence is None
+    assert entry.before == {"a1": {"scope": "national", "scope_confidence": 0.71}}

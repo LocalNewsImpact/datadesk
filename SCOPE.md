@@ -239,7 +239,7 @@ Decided 2026-08-21:
    | Table | Grant |
    |---|---|
    | `articles` | UPDATE (author, title, content, text, status, wire_check_status) |
-   | `article_enrichment` | UPDATE (skip_reason, geo_skip_reason) |
+   | `article_enrichment` | UPDATE (skip_reason, geo_skip_reason, scope, scope_confidence) — a reviewer correcting a wrongly scoped article; the confidence is erased, never set high |
    | `sources` | UPDATE (canonical_name, city, county, owner, type); INSERT (creation columns) — Phase 4 |
    | `datasets` | INSERT (id, slug, label, name, description, metadata, cron_enabled); UPDATE (name, description, metadata, cron_enabled) — Phase 4 |
    | `dataset_sources` | INSERT, DELETE (membership is a mapping, not a record) — Phase 4 |

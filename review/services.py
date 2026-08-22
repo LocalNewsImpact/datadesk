@@ -23,7 +23,15 @@ class BoundaryViolation(Exception):
 # The app-side mirror of infra/sql/create_crawler_write_role.sql.
 WRITABLE = {
     Article: ("author", "title", "content", "text", "status", "wire_check_status"),
-    ArticleEnrichment: ("skip_reason", "geo_skip_reason"),
+    ArticleEnrichment: (
+        "skip_reason",
+        "geo_skip_reason",
+        # A reviewer can correct a scope the model got wrong. Use
+        # set_scope() rather than writing these directly, so the
+        # confidence is cleared with the value.
+        "scope",
+        "scope_confidence",
+    ),
     Source: ("canonical_name", "city", "county", "owner", "type"),
     Dataset: ("name", "description", "meta", "cron_enabled"),
 }
@@ -66,9 +74,8 @@ def audited_update(actor, instances, changes, action, reason=""):
             f"{model.__name__} fields outside the write boundary: {sorted(outside)}"
         )
 
-    pk_name = model._meta.pk.name
     before = {
-        str(getattr(obj, pk_name)): {field: getattr(obj, field) for field in changes}
+        str(obj.pk): {field: getattr(obj, field) for field in changes}
         for obj in instances
     }
 
@@ -105,14 +112,13 @@ def revert(actor, entry, reason=""):
         return _revert_deletion(actor, entry, model, reason)
 
     write_alias = router.db_for_write(model)
-    pk_name = model._meta.pk.name
     missing = []
     reverted_ids = []
     before = {}
 
     with transaction.atomic(using=write_alias):
         for pk, values in (entry.before or {}).items():
-            obj = model.objects.filter(**{pk_name: pk}).first()
+            obj = model.objects.filter(pk=pk).first()
             if obj is None:
                 missing.append(pk)
                 continue
@@ -169,12 +175,11 @@ def audited_update_rows(actor, model, rows, action, reason=""):
     if not rows:
         raise ValueError("Nothing to update")
 
-    pk_name = model._meta.pk.name
     write_alias = router.db_for_write(model)
     before = {}
     with transaction.atomic(using=write_alias):
         for pk, values in rows.items():
-            obj = model.objects.filter(**{pk_name: pk}).first()
+            obj = model.objects.filter(pk=pk).first()
             if obj is None:
                 raise ValueError(f"Row {pk} no longer exists")
             before[pk] = {field: getattr(obj, field) for field in values}
@@ -211,12 +216,11 @@ def audited_create(actor, instances, action, reason=""):
     if model not in CREATABLE:
         raise BoundaryViolation(f"{model.__name__} is not creatable")
 
-    pk_name = model._meta.pk.name
     write_alias = router.db_for_write(model)
     with transaction.atomic(using=write_alias):
         for obj in instances:
             obj.save(using=write_alias, force_insert=True)
-        after = {str(getattr(o, pk_name)): _row_values(o) for o in instances}
+        after = {str(o.pk): _row_values(o) for o in instances}
         entry = AuditLogEntry.objects.create(
             actor=actor,
             action=action,
@@ -239,9 +243,8 @@ def audited_delete(actor, instances, action, reason=""):
     if model not in DELETABLE:
         raise BoundaryViolation(f"{model.__name__} is not deletable")
 
-    pk_name = model._meta.pk.name
     write_alias = router.db_for_write(model)
-    before = {str(getattr(o, pk_name)): _row_values(o) for o in instances}
+    before = {str(o.pk): _row_values(o) for o in instances}
     with transaction.atomic(using=write_alias):
         for obj in instances:
             obj.delete(using=write_alias)
@@ -265,8 +268,7 @@ def _revert_creation(actor, entry, model, reason):
             f"Cannot revert a {model.__name__} creation: the write boundary "
             "has no DELETE there. Correct the row instead."
         )
-    pk_name = model._meta.pk.name
-    instances = list(model.objects.filter(**{f"{pk_name}__in": entry.target_ids}))
+    instances = list(model.objects.filter(pk__in=entry.target_ids))
     return audited_delete(
         actor,
         instances,
@@ -283,4 +285,22 @@ def _revert_deletion(actor, entry, model, reason):
         instances,
         action=f"revert:{entry.action}",
         reason=reason or f"revert of audit entry {entry.pk}",
+    )
+
+
+def set_scope(actor, enrichment_rows, scope, reason=""):
+    """Record a human's scope decision on enrichment records.
+
+    The confidence is cleared, not set high. `scope_confidence` is the
+    model's estimate of its own answer; a person's answer has no such
+    number, and writing 1.0 would make every human correction look like
+    the model's most certain prediction wherever confidence is filtered
+    or charted.
+    """
+    return audited_update(
+        actor,
+        enrichment_rows,
+        {"scope": scope, "scope_confidence": None},
+        action="review:set_scope",
+        reason=reason,
     )

@@ -306,13 +306,16 @@ the pipeline. If instead Datadesk reset `articles.status` or
 `candidate_links.status` itself, it would be running the pipeline by
 hand from a web form, and two systems would own the same state.
 
-**One boundary gap this exposes:** fixing a scope mislabel means writing
-`article_enrichment.scope`, which `datadesk_rw` cannot currently do —
-the enrichment grant covers `skip_reason` and `geo_skip_reason` only.
-Either the grant widens to `scope` (and `scope_confidence`, since a
-human-set scope has no model confidence), or a scope fix is expressed as
-a disposition the pipeline applies. The first is simpler and honest
-about who decided; the second keeps every enrichment value the model's.
+**Done (2026-08-22):** correcting a wrongly scoped article means
+changing the `scope` value on its enrichment record. The database user
+Datadesk writes with could not change that column, so the permission now
+covers `scope` and `scope_confidence` as well.
+
+`scope_confidence` is the model's own estimate of how sure it was. When
+a person sets the scope, that number is erased rather than set to a high
+value — a person's decision is not a prediction, and leaving a high
+number there would make every human correction look like the model's
+most confident guess in any chart or filter that uses confidence.
 
 ### Where a review is recorded
 

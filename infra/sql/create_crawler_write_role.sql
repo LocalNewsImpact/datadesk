@@ -40,7 +40,13 @@ ALTER DEFAULT PRIVILEGES FOR ROLE mizzou_user IN SCHEMA public
 -- The boundary. Everything not listed here stays impossible.
 GRANT UPDATE (author, title, content, text, status, wire_check_status)
   ON articles TO datadesk_rw;
-GRANT UPDATE (skip_reason, geo_skip_reason)
+-- scope and scope_confidence are here so a reviewer can correct a
+-- mislabelled scope from the review queue. When a person sets the
+-- scope, scope_confidence is written as NULL: confidence is the model's
+-- estimate of its own answer, and a human answer does not have one.
+-- Writing 1.0 instead would make human decisions look like the model's
+-- most certain predictions in every confidence filter and chart.
+GRANT UPDATE (skip_reason, geo_skip_reason, scope, scope_confidence)
   ON article_enrichment TO datadesk_rw;
 GRANT UPDATE (canonical_name, city, county, owner, type)
   ON sources TO datadesk_rw;
