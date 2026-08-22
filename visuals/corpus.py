@@ -387,11 +387,13 @@ def run_story_map(spec):
         row["lat"] = float(row["lat"]) if row["lat"] is not None else None
         row["lon"] = float(row["lon"]) if row["lon"] is not None else None
 
-    # The shaded layer: every place a story mentions, not just the one
-    # it is centred on and not only the regional ones — a county is
-    # shaded by how many stories mention any place inside it. Narrowing
-    # to a single scope stays available but is not the default.
-    area_scope = spec.get("area_scope") or None
+    # The shaded layer, as the March map defines it: regional stories
+    # only. A regional story has no central point by design (the
+    # pipeline records geo_skip_reason "regional_uses_place_set"), so
+    # its geography is the place set — the counties it names. This is
+    # deliberately not every mention: the dots carry the centrals, the
+    # shading carries the geography the dots do not claim.
+    area_scope = spec.get("area_scope", "regional") or None
     area_qs = base.exclude(enrichment__geoids__isnull=True)
     if area_scope:
         area_qs = area_qs.filter(enrichment__scope=area_scope)

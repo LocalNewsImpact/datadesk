@@ -854,9 +854,8 @@
         const n = byCounty.get(String(f.id));
         return `<strong>${f.properties.name || f.id}</strong>` +
           tipRow("county FIPS", f.id) +
-          tipRow(`${payload.meta && payload.meta.area_scope
-            ? payload.meta.area_scope + " stories" : "stories mentioning"}`,
-            n || 0);
+          tipRow(`${payload.meta && payload.meta.area_scope || "place-set"}` +
+            " stories", n || 0);
       }, { group: counties, related: (target, other) => target === other });
       interactive(dots, tip, (p) =>
         `<strong>${p.place || p.geoid}</strong>` +
@@ -882,9 +881,8 @@
         const scale = document.createElement("span");
         scale.className = "dd-ramp";
         scale.append(document.createTextNode(
-          (payload.meta && payload.meta.area_scope
-            ? payload.meta.area_scope + " stories"
-            : "stories mentioning a place here") + ":"));
+          ((payload.meta && payload.meta.area_scope) || "place-set") +
+          " stories touching each county:"));
         [["0", t.missing], ["1\u20132", ramp[1]], ["3\u20135", ramp[2]],
          ["6\u20139", ramp[3]], ["10+", ramp[4]]].forEach(([label, color]) => {
           const chip = document.createElement("span");
