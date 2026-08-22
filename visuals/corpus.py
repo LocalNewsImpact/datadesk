@@ -387,8 +387,11 @@ def run_story_map(spec):
         row["lat"] = float(row["lat"]) if row["lat"] is not None else None
         row["lon"] = float(row["lon"]) if row["lon"] is not None else None
 
-    # The shaded layer: which counties each place-set story touches.
-    area_scope = spec.get("area_scope", "regional")
+    # The shaded layer: every place a story mentions, not just the one
+    # it is centred on and not only the regional ones — a county is
+    # shaded by how many stories mention any place inside it. Narrowing
+    # to a single scope stays available but is not the default.
+    area_scope = spec.get("area_scope") or None
     area_qs = base.exclude(enrichment__geoids__isnull=True)
     if area_scope:
         area_qs = area_qs.filter(enrichment__scope=area_scope)
