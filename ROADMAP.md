@@ -567,6 +567,32 @@ retrofitted — see item 7.
 - The health thresholds, and who owns them.
 - Whether `focus` is a profile step Datadesk's schema mirror is missing.
 
+## 9. The sidebar in three groups
+
+**Now:** one "Work" list and one "Admin" list, with editor-only links
+appended to Work because there is nowhere else for them.
+
+**Wanted:**
+
+```
+Data          Articles · Enrichment · Visuals
+Auditing      Review · Proposed
+Admin         Cost · Datasets · Users · Roles · Log
+```
+
+**Touches:** `accounts/sections.py`, which is the list the sidebar and
+`test_admin_access` both read, and the sidebar markup in
+`templates/base.html`.
+
+**One thing the grouping changes beyond appearance:** the section list
+currently carries an invariant the tests enforce — everything in Work is
+open to any assigned role, everything in Admin is admin-only. Three
+groups need a third rule, because Auditing is neither: Review and
+Proposed are for editors and admins. So each group gains the role it
+requires, and the access test walks the groups rather than assuming two.
+That is the right shape anyway: the guard belongs beside the link, not
+in a convention about which list it sits in.
+
 ## Sequence
 
 1. **Item 1** first: items 5 and 6 both need dataset-scoped roles, and
@@ -582,6 +608,8 @@ retrofitted — see item 7.
    nothing else.
 7. **Item 7** is independent and should start with measurement, not
    code. Worth doing early if the slowness is blocking daily use.
+9. **Item 9** is small and self-contained; it belongs with item 1, which
+   is when the role a link requires stops being a two-way question.
 8. **Item 8** after items 1 and 6, since the dataset selector and the
    review-task links depend on both — but its aggregates can be built
    and cached before either, and `jobs.params` already carries the

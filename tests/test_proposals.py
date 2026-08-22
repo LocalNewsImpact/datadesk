@@ -140,7 +140,9 @@ def test_a_rejected_value_is_not_the_ordinary_path(client, editor, publisher):
     assert p.check_failed is True
     content = client.get(URL).content.decode()
     assert "Accept Proposal" in content
-    assert 'class="flagchip"' in content
+    # The finding is said in the line beneath, not coloured onto the
+    # button: Accept is the affirmative action in every row.
+    assert p.why in content
     assert "Rock Port" in content
     # The gazetteer's spelling is what the record already holds, so Keep
     # is the answer; nothing repeats it.
@@ -171,7 +173,6 @@ def test_a_passing_proposal_keeps_the_plain_accept(client, editor, publisher):
     assert p.check_failed is False
     content = client.get(URL).content.decode()
     assert "Accept Proposal" in content
-    assert 'class="flagchip"' not in content
 
 
 def test_a_proposal_that_changes_nothing_is_not_a_question(client, editor, publisher):
