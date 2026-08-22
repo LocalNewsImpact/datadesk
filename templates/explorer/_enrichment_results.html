@@ -3,6 +3,7 @@
   {{ page.paginator.count }} record{{ page.paginator.count|pluralize }}
   {% if page.paginator.num_pages > 1 %}· page {{ page.number }} of {{ page.paginator.num_pages }}{% endif %}
 </p>
+<div class="table-scroll">
 <table class="grid">
   <thead>
     <tr>
@@ -33,6 +34,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% if page.paginator.num_pages > 1 %}
 <nav class="pager">
   {% if page.has_previous %}

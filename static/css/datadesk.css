@@ -34,6 +34,8 @@ html { color-scheme: light dark; }
 
 * { box-sizing: border-box; }
 
+a { color: var(--accent); }
+
 body {
   margin: 0;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -56,13 +58,17 @@ body {
 .session { display: flex; gap: 1rem; align-items: baseline; }
 .identity { color: var(--muted); font-size: 0.9rem; }
 
-main { max-width: 40rem; margin: 3rem auto; padding: 0 1.5rem; }
+/* main is fluid; each card sets its own measure and centres itself, so
+   a card-wide grid is not clamped to the reading width. */
+main { max-width: 76rem; margin: 3rem auto; padding: 0 1.5rem; }
 
 .card {
   background: var(--surface);
   border: 1px solid var(--rule);
   border-radius: 6px;
   padding: 2rem;
+  max-width: 44rem;
+  margin-inline: auto;
 }
 
 h1 { margin-top: 0; font-size: 1.5rem; }
@@ -103,7 +109,7 @@ h2 { font-size: 1.15rem; margin-top: 0; }
 .card-wide { max-width: 72rem; }
 
 .wordmark a { color: inherit; text-decoration: none; }
-nav.primary { margin-left: 2rem; margin-right: auto; }
+nav.primary { display: flex; flex-wrap: wrap; gap: 0 1.1rem; margin-left: 2rem; margin-right: auto; }
 nav.primary a { color: inherit; text-decoration: none; font-size: 0.95rem; }
 nav.primary a:hover { text-decoration: underline; }
 
@@ -267,7 +273,6 @@ a.sort.active { font-weight: 600; }
 td.count.flag { color: var(--accent); font-weight: 600; }
 
 /* --- dashboard --- */
-main { max-width: 40rem; }
 .card + .card { margin-top: 1.5rem; }
 .section-nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
 .section-nav a { display: block; padding: 0.7rem 0.9rem; border: 1px solid var(--border); border-radius: 6px; text-decoration: none; color: inherit; }
@@ -276,3 +281,37 @@ main { max-width: 40rem; }
 .section-note { display: block; color: var(--muted); font-size: 0.8rem; margin-top: 0.15rem; }
 .stat-value a { color: inherit; }
 .slug { color: var(--muted); font-size: 0.8rem; margin-left: 0.4rem; }
+
+/* --- loading state ---
+   Requests name their results container as hx-indicator, so htmx marks
+   it .htmx-request while a filter, sort or page fetch is in flight. On a
+   large corpus that wait is long enough to read as a broken click. */
+#results.htmx-request,
+#queue-results.htmx-request { opacity: 0.5; cursor: progress; }
+#results.htmx-request::before,
+#queue-results.htmx-request::before {
+  content: "Loading…";
+  display: block;
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 0.35rem 0;
+}
+
+/* --- grid column measures ---
+   A headline needs room to read; codes and dates must not wrap at all.
+   Without these the browser divides the width evenly and the one column
+   carrying prose gets four words a line. */
+table.grid td.col-title { min-width: 18rem; }
+table.grid td.col-publisher { min-width: 11rem; }
+table.grid th.count, table.grid td.count { white-space: nowrap; }
+/* A dense grid can be wider than its card; scroll the table, not the
+   page, so the filter bar above it stays put. */
+.table-scroll { overflow-x: auto; }
+
+/* Grid children default to min-width:auto, which lets a wide table push
+   its column past the track and out of the card. */
+.side-by-side > *, .entity-columns > * { min-width: 0; }
+
+/* A bare URL has a very wide min-content, and a flex item will not
+   shrink below that — enough to push a card past the viewport. */
+.fact-row dd, .fact-row dd a { overflow-wrap: anywhere; }

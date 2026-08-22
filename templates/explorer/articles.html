@@ -12,7 +12,7 @@
   </p>
   {% else %}
   <form method="get" action="{% url 'explorer:articles' %}" class="filter-bar"
-        hx-get="{% url 'explorer:articles' %}" hx-target="#results"
+        hx-get="{% url 'explorer:articles' %}" hx-target="#results" hx-indicator="#results"
         hx-trigger="change, submit" hx-push-url="true">
     {# Sort is chosen from the column headers; carry it through a filter change. #}
     <input type="hidden" name="sort" value="{{ sort }}">

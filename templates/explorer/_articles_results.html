@@ -3,6 +3,7 @@
   {{ page.paginator.count }} article{{ page.paginator.count|pluralize }}
   {% if page.paginator.num_pages > 1 %}· page {{ page.number }} of {{ page.paginator.num_pages }}{% endif %}
 </p>
+<div class="table-scroll">
 <table class="grid">
   <thead>
     <tr>
@@ -23,8 +24,8 @@
     <tr>
       {% if role == "editor" or role == "admin" %}<td><input type="checkbox" name="ids" value="{{ article.id }}"></td>{% endif %}
       <td class="nowrap">{{ article.publish_date|date:"Y-m-d"|default:"—" }}</td>
-      <td><a href="{% url 'explorer:article_detail' article.id %}">{{ article.title|default:article.url|truncatechars:90 }}</a></td>
-      <td>{{ article.candidate_link.source|default:"—" }}</td>
+      <td class="col-title"><a href="{% url 'explorer:article_detail' article.id %}">{{ article.title|default:article.url|truncatechars:90 }}</a></td>
+      <td class="col-publisher">{{ article.candidate_link.source|default:"—" }}</td>
       <td>{% if article.author %}<span title="{{ article.author }}">bylined</span>{% else %}<span class="absent">none</span>{% endif %}</td>
       <td>{{ article.status }}
         {% if article.wire_check_status != "complete" %}<span class="sub">wire: {{ article.wire_check_status }}</span>{% endif %}</td>
@@ -40,17 +41,18 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% if page.paginator.num_pages > 1 %}
 <nav class="pager">
   {% if page.has_previous %}
   <a href="?{{ params.urlencode }}&amp;page={{ page.previous_page_number }}"
      hx-get="{% url 'explorer:articles' %}?{{ params.urlencode }}&amp;page={{ page.previous_page_number }}"
-     hx-target="#results">← previous</a>
+     hx-target="#results" hx-indicator="#results">← previous</a>
   {% endif %}
   {% if page.has_next %}
   <a href="?{{ params.urlencode }}&amp;page={{ page.next_page_number }}"
      hx-get="{% url 'explorer:articles' %}?{{ params.urlencode }}&amp;page={{ page.next_page_number }}"
-     hx-target="#results">next →</a>
+     hx-target="#results" hx-indicator="#results">next →</a>
   {% endif %}
 </nav>
 {% endif %}

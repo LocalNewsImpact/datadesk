@@ -29,7 +29,7 @@
   </div>
 
   <form method="get" action="{% url 'review:queue' %}" class="filter-bar"
-        hx-get="{% url 'review:queue' %}" hx-target="#queue-results"
+        hx-get="{% url 'review:queue' %}" hx-target="#queue-results" hx-indicator="#queue-results"
         hx-trigger="change, submit" hx-push-url="true">
     <input type="hidden" name="case" value="{{ params.case|default:'' }}">
     <input type="hidden" name="band" value="{{ params.band|default:'' }}">

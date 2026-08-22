@@ -5,7 +5,7 @@
   <a class="band{% if band.selected %} selected{% endif %}"
      href="?{{ band_params.urlencode }}{% if not band.selected %}&amp;band={{ band.key }}{% endif %}"
      hx-get="{% url 'review:queue' %}?{{ band_params.urlencode }}{% if not band.selected %}&amp;band={{ band.key }}{% endif %}"
-     hx-target="#queue-results">
+     hx-target="#queue-results" hx-indicator="#queue-results">
     <span class="band-count">{{ band.count }}</span>
     <span class="band-label">{{ band.label }}</span>
   </a>
@@ -29,6 +29,7 @@
   {% if page.paginator.num_pages > 1 %}· page {{ page.number }} of {{ page.paginator.num_pages }}{% endif %}
   · longest captures first
 </p>
+<div class="table-scroll">
 <table class="grid">
   <thead>
     <tr>
@@ -48,8 +49,8 @@
     <tr>
       <td class="count{% if article.text_length >= 2000 %} flag{% endif %}">{{ article.text_length }}</td>
       <td class="nowrap">{{ article.publish_date|date:"Y-m-d"|default:"—" }}</td>
-      <td><a href="{% url 'explorer:article_detail' article.id %}">{{ article.title|default:article.url|truncatechars:80 }}</a></td>
-      <td>{{ article.candidate_link.source|default:"—" }}</td>
+      <td class="col-title"><a href="{% url 'explorer:article_detail' article.id %}">{{ article.title|default:article.url|truncatechars:80 }}</a></td>
+      <td class="col-publisher">{{ article.candidate_link.source|default:"—" }}</td>
       <td>{{ article.status }}</td>
       <td>{{ article.enr_skip_reason|default:"—" }}
         {% if article.enr_gate_reason %}<span class="sub">gate: {{ article.enr_gate_reason }}</span>{% endif %}</td>
@@ -62,17 +63,18 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% if page.paginator.num_pages > 1 %}
 <nav class="pager">
   {% if page.has_previous %}
   <a href="?{{ params.urlencode }}&amp;page={{ page.previous_page_number }}"
      hx-get="{% url 'review:queue' %}?{{ params.urlencode }}&amp;page={{ page.previous_page_number }}"
-     hx-target="#queue-results">← previous</a>
+     hx-target="#queue-results" hx-indicator="#queue-results">← previous</a>
   {% endif %}
   {% if page.has_next %}
   <a href="?{{ params.urlencode }}&amp;page={{ page.next_page_number }}"
      hx-get="{% url 'review:queue' %}?{{ params.urlencode }}&amp;page={{ page.next_page_number }}"
-     hx-target="#queue-results">next →</a>
+     hx-target="#queue-results" hx-indicator="#queue-results">next →</a>
   {% endif %}
 </nav>
 {% endif %}

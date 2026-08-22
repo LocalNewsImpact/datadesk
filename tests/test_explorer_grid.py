@@ -354,3 +354,12 @@ def test_empty_results_say_so(client, viewer, corpus):
     row exactly when it was wanted."""
     response = client.get(URL, {"publisher": "nowhere.example"})
     assert "No articles match these filters." in response.content.decode()
+
+
+@pytest.mark.parametrize("path", [URL, "/explorer/articles/a1/", "/review/queue/", "/"])
+def test_no_template_syntax_reaches_the_page(client, viewer, corpus, path):
+    """`{# #}` cannot span lines: a multi-line one is not a comment, and
+    its text renders into the page. This caught it in a column header."""
+    content = client.get(path).content.decode()
+    for marker in ("{#", "#}", "{%", "%}", "{{", "}}"):
+        assert marker not in content, f"{marker} leaked into {path}"
