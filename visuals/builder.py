@@ -19,6 +19,7 @@ CHART_KINDS = (
     "arc",
     "choropleth",
     "points",
+    "storymap",
 )
 
 _STRING_KEYS = (

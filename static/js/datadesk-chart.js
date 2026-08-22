@@ -221,6 +221,7 @@
     if (kind === "choropleth" || kind === "points") {
       return renderMap(el, config, rows, opts, t, width);
     }
+    if (kind === "storymap") return renderStoryMap(el, config, rows, opts, t, width);
     if (kind === "donut") return renderDonut(el, config, rows, t, width);
     if (kind === "chord") return renderChord(el, config, rows, t, width);
     if (kind === "arc") return renderArc(el, config, rows, t, width);
@@ -748,6 +749,120 @@
          related: (target, r) =>
            fold(r[from]) === target || fold(r[to]) === target });
     void arcSpan;
+  }
+
+  // The story map: two layers over one payload (see visuals/corpus.py).
+  //   counties shaded by how many place-set ("regional") stories touch them
+  //   dots at each story central, sized by story count, coloured by the
+  //   precision the model actually claimed — place / block / county.
+  // Both layers are hover-isolating and tappable.
+  const PRECISION = { place: 0, block: 1, county: 2, state: 3, tract: 4 };
+
+  function renderStoryMap(el, config, data, opts, t, width) {
+    const d3 = global.d3;
+    const payload = Array.isArray(data) ? { points: data, areas: [] } : (data || {});
+    const points = payload.points || [];
+    const areas = payload.areas || [];
+    if (!points.length && !areas.length) {
+      el.textContent = "No mapped stories.";
+      return;
+    }
+
+    // States in play come from both layers, so a single-state corpus
+    // draws that state rather than the whole country.
+    const ids = [
+      ...areas.map((a) => String(a.county || "")),
+      ...points.map((p) => String(p.geoid || "")),
+    ].filter(Boolean);
+    const states = new Set(ids.map((id) => id.slice(0, 2)).filter((s2) => /^\d\d$/.test(s2)));
+
+    boundaries(opts.geoBase, "counties", ids).then((features) => {
+      const inScope = features.filter((f) => states.has(String(f.id).slice(0, 2)));
+      const shown = inScope.length ? inScope : features;
+      const byCounty = new Map(areas.map((a) => [String(a.county), a.stories]));
+      const max = d3.max(areas, (a) => a.stories) || 0;
+      const ramp = quantizeRamp(t.seqLow, t.seqHigh, 5);
+      // Thresholds mirror the March map's legend: 0 · 1-2 · 3-5 · 6-9 · 10+
+      const shadeFor = (n) =>
+        !n ? t.missing : n <= 2 ? ramp[1] : n <= 5 ? ramp[2] : n <= 9 ? ramp[3] : ramp[4];
+
+      const projection = d3.geoAlbersUsa().fitSize(
+        [width, Math.round(width * 0.62)],
+        { type: "FeatureCollection", features: shown });
+      const path = d3.geoPath(projection);
+      const height = Math.round(width * 0.62);
+      const svg = d3.create("svg")
+        .attr("width", width).attr("height", height)
+        .attr("viewBox", [0, 0, width, height])
+        .attr("style",
+          'max-width:100%;height:auto;display:block;font-family:system-ui,' +
+          '-apple-system,"Segoe UI",sans-serif;font-size:12px');
+
+      const counties = svg.append("g").selectAll("path").data(shown).join("path")
+        .attr("d", path)
+        .attr("fill", (f) => shadeFor(byCounty.get(String(f.id))))
+        .attr("stroke", t.boundary).attr("stroke-width", 0.6);
+
+      const r = d3.scaleSqrt()
+        .domain([0, d3.max(points, (p) => p.stories) || 1])
+        .range([2.5, Math.max(9, width / 45)]);
+      const placed = points.filter(
+        (p) => p.lon != null && p.lat != null && projection([p.lon, p.lat]));
+      const dots = svg.append("g").selectAll("circle").data(placed).join("circle")
+        .attr("transform", (p) => `translate(${projection([p.lon, p.lat])})`)
+        .attr("r", (p) => r(p.stories))
+        .attr("fill", (p) => t.series[PRECISION[p.level] ?? 5])
+        .attr("fill-opacity", 0.85)
+        .attr("stroke", t.surface).attr("stroke-width", 1);
+
+      el.replaceChildren(svg.node());
+      const tip = tooltip(el);
+      interactive(counties, tip, (f) => {
+        const n = byCounty.get(String(f.id));
+        return `<strong>${f.properties.name || f.id}</strong>` +
+          tipRow("county FIPS", f.id) +
+          tipRow(`${payload.meta && payload.meta.area_scope
+            ? payload.meta.area_scope : "place-set"} stories`, n || 0);
+      }, { group: counties, related: (target, other) => target === other });
+      interactive(dots, tip, (p) =>
+        `<strong>${p.place || p.geoid}</strong>` +
+        tipRow("FIPS", p.geoid) +
+        tipRow("precision", p.level) +
+        tipRow("stories", p.stories) +
+        tipRow("publishers", p.publishers),
+        { group: dots, related: (target, other) => target === other });
+
+      // Two legends: the dot precisions and the shading thresholds.
+      const legend = document.createElement("div");
+      legend.className = "dd-legend";
+      for (const level of ["place", "block", "county"]) {
+        if (!placed.some((p) => p.level === level)) continue;
+        const item = document.createElement("span");
+        const dot = document.createElement("span");
+        dot.className = "dd-swatch round";
+        dot.style.background = t.series[PRECISION[level]];
+        item.append(dot, level);
+        legend.appendChild(item);
+      }
+      if (max) {
+        const scale = document.createElement("span");
+        scale.className = "dd-ramp";
+        scale.append(document.createTextNode(
+          (payload.meta && payload.meta.area_scope
+            ? payload.meta.area_scope : "place-set") + " stories per county:"));
+        [["0", t.missing], ["1\u20132", ramp[1]], ["3\u20135", ramp[2]],
+         ["6\u20139", ramp[3]], ["10+", ramp[4]]].forEach(([label, color]) => {
+          const chip = document.createElement("span");
+          const sw = document.createElement("span");
+          sw.className = "dd-swatch";
+          sw.style.background = color;
+          chip.append(sw, label);
+          scale.appendChild(chip);
+        });
+        legend.appendChild(scale);
+      }
+      el.prepend(legend);
+    }).catch(() => { el.textContent = "Boundary data unavailable."; });
   }
 
   // Two half-ramps meeting at the neutral midpoint (odd n keeps it center).

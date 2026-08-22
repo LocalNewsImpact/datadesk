@@ -174,3 +174,7 @@ label.stacked input, label.stacked textarea { display: block; width: 100%; margi
 @media (prefers-color-scheme: dark) {
   .dd-tip { background: #1a1a19; color: #fff; border-color: rgba(255,255,255,0.14); }
 }
+
+.dd-swatch.round { border-radius: 50%; }
+.dd-ramp { display: inline-flex; align-items: center; gap: 0.5rem; color: var(--muted); }
+.dd-ramp span { display: inline-flex; align-items: center; gap: 0.25rem; }

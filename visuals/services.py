@@ -21,10 +21,13 @@ def fetch_source_data(visual):
             "Inline visuals refresh by uploading a new file in the builder."
         )
     if visual.source_kind == CORPUS:
-        from visuals.corpus import CorpusSpecError, run_spec
+        from visuals.corpus import CorpusSpecError, run_spec, run_story_map
 
+        spec = visual.spec or {}
         try:
-            rows, _meta = run_spec(visual.spec or {})
+            if spec.get("shape") == "story_map":
+                return run_story_map(spec)
+            rows, _meta = run_spec(spec)
         except CorpusSpecError as exc:
             raise DataSourceError(str(exc)) from exc
         return rows

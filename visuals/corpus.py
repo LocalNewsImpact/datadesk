@@ -337,3 +337,92 @@ def run_spec(spec):
         "rows_used": qs.count() if total_before is not None else None,
     }
     return out, meta
+
+
+# --- the story map (the March Story Geography shape) ------------------------
+#
+# Two layers over one payload, because they answer different questions
+# about the same stories:
+#
+#   points — each story's single claimed central location, at the
+#            precision the model claimed it (place / block / county),
+#            sized by how many stories share it.
+#   areas  — counties shaded by how many *regional* stories mention a
+#            place inside them. Regional stories deliberately have no
+#            point (the pipeline records geo_skip_reason
+#            "regional_uses_place_set"); their geography is the place
+#            set in `geoids`, which is exactly what this layer draws.
+#
+# The place set is exploded in Python rather than SQL: it is a text
+# column holding JSON, the corpus yields ~12k pairs, and doing it here
+# keeps the sqlite test path identical to production.
+
+STORY_MAP_LEVELS = ("place", "block", "county", "state", "tract")
+
+
+def run_story_map(spec):
+    """Return {'points': [...], 'areas': [...]} plus meta for a story map."""
+    import json as _json
+
+    from datasets.geo import to_county
+
+    base = _base_queryset(spec)
+
+    points = list(
+        base.filter(enrichment__point_lat__isnull=False)
+        .values(
+            geoid=F("enrichment__point_geoid"),
+            level=F("enrichment__point_geoid_level"),
+            place=F("enrichment__point_place"),
+            lat=F("enrichment__point_lat"),
+            lon=F("enrichment__point_lon"),
+        )
+        .annotate(
+            stories=Count("id", distinct=True),
+            publishers=Count("candidate_link__source_id", distinct=True),
+        )
+        .order_by("-stories")[:MAX_GROUPS]
+    )
+    for row in points:
+        row["lat"] = float(row["lat"]) if row["lat"] is not None else None
+        row["lon"] = float(row["lon"]) if row["lon"] is not None else None
+
+    # The shaded layer: which counties each place-set story touches.
+    area_scope = spec.get("area_scope", "regional")
+    area_qs = base.exclude(enrichment__geoids__isnull=True)
+    if area_scope:
+        area_qs = area_qs.filter(enrichment__scope=area_scope)
+    by_county = {}
+    considered = 0
+    unresolved = set()
+    for article_id, raw in area_qs.values_list("id", "enrichment__geoids")[
+        :MAX_RAW_GROUPS
+    ]:
+        try:
+            places = _json.loads(raw) if raw else []
+        except (TypeError, ValueError):
+            continue
+        if not places:
+            continue
+        considered += 1
+        for place in places:
+            county = to_county(str(place), "place")
+            if county is None:
+                unresolved.add(str(place))
+                continue
+            # A story touching three places in one county counts once.
+            by_county.setdefault(county, set()).add(article_id)
+    areas = [
+        {"county": county, "stories": len(ids)}
+        for county, ids in sorted(by_county.items(), key=lambda kv: -len(kv[1]))
+    ]
+
+    meta = {
+        "points": len(points),
+        "point_stories": sum(p["stories"] for p in points),
+        "areas": len(areas),
+        "area_scope": area_scope,
+        "area_stories": considered,
+        "unresolved_places": len(unresolved),
+    }
+    return {"points": points, "areas": areas, "meta": meta}
