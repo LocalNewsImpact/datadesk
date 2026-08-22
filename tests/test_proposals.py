@@ -222,3 +222,102 @@ def test_the_three_columns_share_one_vocabulary(client, editor, publisher):
         assert phrase in content, phrase
     for gone in ("Accept anyway", "overrule the check", "Leave as is"):
         assert gone not in content, gone
+
+
+# --- what a session does and does not carry ---------------------------------
+
+
+def test_deciding_some_leaves_the_rest_in_the_queue(client, editor, publisher):
+    """A reviewer works ten and submits; the rest stay for next time."""
+    decided = [
+        _proposal(publisher, "city", "Columbia", "Ashland"),
+        _proposal(publisher, "owner", "", "CherryRoad Media"),
+    ]
+    untouched = _proposal(publisher, "canonical_name", "Tribune", "The Tribune")
+
+    client.post(
+        URL,
+        {f"d-{decided[0].pk}": "accept", f"d-{decided[1].pk}": "reject"},
+    )
+
+    untouched.refresh_from_db()
+    assert untouched.state == ChangeProposal.PENDING
+    assert f'data-id="{untouched.pk}"' in client.get(URL).content.decode()
+    for p in decided:
+        p.refresh_from_db()
+        assert p.state != ChangeProposal.PENDING
+
+
+def test_a_fix_with_nothing_typed_does_not_block_the_others(client, editor, publisher):
+    """An abandoned fix stays in the queue; the decisions around it go
+    through rather than being held hostage to it."""
+    started = _proposal(publisher, "city", "Columbia", "Ashland")
+    finished = _proposal(publisher, "owner", "", "CherryRoad Media")
+
+    client.post(
+        URL,
+        {
+            f"d-{started.pk}": "fix",
+            f"v-{started.pk}": "  ",
+            f"d-{finished.pk}": "accept",
+        },
+    )
+
+    started.refresh_from_db()
+    finished.refresh_from_db()
+    assert started.state == ChangeProposal.PENDING
+    assert finished.state == ChangeProposal.ACCEPTED
+    publisher.refresh_from_db()
+    assert publisher.owner == "CherryRoad Media"
+    assert publisher.city == "Columbia"
+
+
+def test_reloading_the_file_does_not_ask_about_decided_fields(
+    client, editor, publisher, tmp_path
+):
+    """Reloading re-created proposals for fields already decided, so the
+    same rows kept coming back after every reload."""
+    from django.core.management import call_command
+
+    csv_path = tmp_path / "findings.csv"
+    csv_path.write_text(
+        "source_id,host_norm,field,current,proposed,suggested_value,finding,why,suggestion\n"
+        f"{publisher.id},tribune.example,city,Columbia,Ashland,,apply,,apply\n"
+    )
+    call_command("load_source_proposals", path=str(csv_path), origin="sheet")
+    proposal = ChangeProposal.objects.get(field="city")
+    client.post(URL, {f"d-{proposal.pk}": "reject"})
+
+    call_command("load_source_proposals", path=str(csv_path), origin="sheet")
+    assert ChangeProposal.objects.filter(field="city").count() == 1
+    assert (
+        ChangeProposal.objects.filter(
+            field="city", state=ChangeProposal.PENDING
+        ).count()
+        == 0
+    )
+
+
+def test_two_pending_rows_for_one_field_ask_once(client, editor, publisher):
+    _proposal(publisher, "city", "Columbia", "Ashland")
+    _proposal(publisher, "city", "Columbia", "Ashland")
+    assert ChangeProposal.objects.filter(field="city").count() == 2
+    assert client.get(URL).content.decode().count('class="prop"') == 1
+
+
+def test_a_decision_records_who_made_it_and_when(client, editor, publisher):
+    p = _proposal(publisher, "city", "Columbia", "Ashland")
+    client.post(URL, {f"d-{p.pk}": "accept"})
+    p.refresh_from_db()
+    assert p.decided_by == editor
+    assert p.decided_at is not None
+    assert p.audit_entry is not None
+    assert p.audit_entry.actor == editor
+
+
+def test_decided_rows_leave_the_pending_queue(client, editor, publisher):
+    p = _proposal(publisher, "city", "Columbia", "Ashland")
+    client.post(URL, {f"d-{p.pk}": "accept"})
+    assert f'data-id="{p.pk}"' not in client.get(URL).content.decode()
+    # Still findable when asked for explicitly.
+    assert f'data-id="{p.pk}"' in client.get(URL + "?state=all").content.decode()

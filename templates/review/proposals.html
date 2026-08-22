@@ -14,6 +14,7 @@
   <p class="receipt-line">
     Submitted: {{ receipt.accepted }} accepted, {{ receipt.fixed }} fixed,
     {{ receipt.rejected }} rejected.
+    {% if receipt.incomplete %}{{ receipt.incomplete }} left in the queue with nothing typed.{% endif %}
     {% if receipt.entry %}<a href="{% url 'review:audit_log' %}">Audit entry {{ receipt.entry }}</a> reverts the batch.{% endif %}
   </p>
   {% endif %}
@@ -31,7 +32,7 @@
     <a href="?finding={{ finding }}&state=all" class="facet-chip {% if state == 'all' %}on{% endif %}">Everything</a>
   </nav>
 
-  <form method="post" id="queue-form">
+  <form method="post" id="queue-form" autocomplete="off">
     {% csrf_token %}
     {% for group in groups %}
     <article class="rec" data-record="{{ group.record_id }}">
@@ -110,6 +111,7 @@
   <span class="tally"><b id="t-accept">0</b> accept</span>
   <span class="tally"><b id="t-reject">0</b> keep</span>
   <span class="tally"><b id="t-fix">0</b> fix</span>
+  <span class="tally warn" id="q-incomplete"></span>
   <button type="button" class="linklike" id="q-clear">Clear</button>
   <button type="submit" form="queue-form" class="q-submit" id="q-submit" disabled>Submit</button>
 </div>
@@ -132,12 +134,17 @@
     document.getElementById("t-accept").textContent = counts.accept;
     document.getElementById("t-reject").textContent = counts.reject;
     document.getElementById("t-fix").textContent = counts.fix;
-    const total = counts.accept + counts.reject + counts.fix;
+    const ready = counts.accept + counts.reject + counts.fix - incomplete;
     const submit = document.getElementById("q-submit");
-    submit.disabled = total === 0 || incomplete > 0;
-    submit.textContent = incomplete
-      ? incomplete + (incomplete > 1 ? " fixes need a value" : " fix needs a value")
-      : total ? "Submit " + total + (total > 1 ? " decisions" : " decision") : "Submit";
+    submit.disabled = ready === 0;
+    submit.textContent = ready
+      ? "Submit " + ready + (ready > 1 ? " decisions" : " decision")
+      : "Submit";
+    const warn = document.getElementById("q-incomplete");
+    warn.textContent = incomplete
+      ? incomplete + (incomplete > 1 ? " fixes have" : " fix has") +
+        " no value and will stay in the queue"
+      : "";
   }
 
   function describe(row) {
@@ -217,6 +224,16 @@
     });
     recount();
   };
+  // A refresh can restore the hidden decision fields, so a session that
+  // looks new would carry decisions nobody made in it. Start clean.
+  form.querySelectorAll(".prop").forEach((row) => {
+    row.querySelector('input[type="hidden"]').value = "";
+    row.querySelector(".fixval").value = "";
+    row.classList.remove("decided");
+    row.dataset.verb = "";
+    row.querySelectorAll(".verb").forEach((b) => b.setAttribute("aria-pressed", "false"));
+    describe(row);
+  });
   recount();
 })();
 </script>

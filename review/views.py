@@ -389,6 +389,23 @@ def queue(request):
 # --- the proposal queue (SCOPE.md §2.2) -------------------------------------
 
 
+def _one_per_field(qs):
+    """One question per field.
+
+    Loading a file twice could leave two pending proposals for the same
+    field; asking about both is asking the same question twice, and
+    deciding one leaves the other behind to reappear.
+    """
+    seen, out = set(), []
+    for p in qs.order_by("record_label", "field", "-created_at"):
+        key = (p.record_id, p.field)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(p)
+    return out
+
+
 def _proposal_groups(proposals):
     """Group proposals by record, because one publisher is one decision."""
     groups = {}
@@ -441,7 +458,7 @@ def proposals(request):
         request,
         "review/proposals.html",
         {
-            "groups": _proposal_groups(list(qs)),
+            "groups": _proposal_groups(_one_per_field(qs)),
             "findings": [
                 (k, label, counts.get(k, 0)) for k, label in ChangeProposal.FINDINGS
             ],
@@ -475,6 +492,7 @@ def _submit_proposals(request):
     proposals_by_id = ChangeProposal.objects.in_bulk(list(decisions))
     writes = {}  # record pk -> {field: value}
     accepted, rejected, fixed = [], [], []
+    incomplete = 0
     for pid, verb in decisions.items():
         p = proposals_by_id.get(pid)
         if p is None or p.state != ChangeProposal.PENDING:
@@ -488,7 +506,9 @@ def _submit_proposals(request):
             else p.proposed_value
         )
         if verb == "fix" and not value:
-            # A fix without a value is not a decision; leave it pending.
+            # A fix with nothing typed is not a decision. It stays in the
+            # queue; the decisions around it still go through.
+            incomplete += 1
             continue
         writes.setdefault(p.record_id, {})[p.field] = value
         p.final_value = value
@@ -525,6 +545,7 @@ def _submit_proposals(request):
         "accepted": len(accepted),
         "fixed": len(fixed),
         "rejected": len(rejected),
+        "incomplete": incomplete,
         "entry": entry.pk if entry else None,
     }
     return redirect("review:proposals")

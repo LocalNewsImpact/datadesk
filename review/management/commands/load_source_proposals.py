@@ -55,7 +55,7 @@ class Command(BaseCommand):
             ).delete()
             self.stdout.write(f"cleared {removed} pending from {origin!r}")
 
-        made, skipped, noop = 0, 0, 0
+        made, skipped, noop, decided = 0, 0, 0, 0
         for row in rows:
             record_id = (row.get("source_id") or "").strip()
             field = (row.get("field") or "").strip()
@@ -66,6 +66,18 @@ class Command(BaseCommand):
                 continue
             current = (row.get("current") or "").strip()
             proposed = (row.get("proposed") or "").strip()
+            if (
+                ChangeProposal.objects.filter(
+                    target="sources", record_id=record_id, field=field
+                )
+                .exclude(state=ChangeProposal.PENDING)
+                .exists()
+            ):
+                # Someone already decided this field. Reloading the file
+                # must not ask them again — that is how the same rows
+                # kept reappearing after a reload.
+                decided += 1
+                continue
             if proposed == current:
                 # Nothing to decide. A sheet spelling that resolves to
                 # what is already recorded — "cherryroad" for
@@ -92,7 +104,8 @@ class Command(BaseCommand):
             made += 1
 
         self.stdout.write(
-            f"loaded {made} proposals; {noop} already correct; {skipped} unusable rows"
+            f"loaded {made} proposals; {noop} already correct; "
+            f"{decided} already decided; {skipped} unusable rows"
         )
         for key, label in ChangeProposal.FINDINGS:
             n = ChangeProposal.objects.filter(
