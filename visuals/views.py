@@ -22,7 +22,7 @@ from accounts.decorators import editor_required, role_required
 from accounts.roles import role_for_user
 from audit.models import AuditLogEntry
 from visuals.builder import CHART_KINDS, BuilderError, config_from_form, parse_upload
-from visuals.models import BIGQUERY, GCS, INLINE, Visual
+from visuals.models import BIGQUERY, CORPUS, GCS, INLINE, Visual
 from visuals.services import (
     DataSourceError,
     fetch_source_data,
@@ -199,9 +199,7 @@ def builder_edit(request, slug):
             elif form == "pivot":
                 spec = {
                     "shape": request.POST.get("shape") or "",
-                    "dimensions": [
-                        d for d in request.POST.getlist("dimensions") if d
-                    ],
+                    "dimensions": [d for d in request.POST.getlist("dimensions") if d],
                     "measure": request.POST.get("measure") or "articles",
                     "dataset": request.POST.get("f_dataset") or "",
                     "scope": request.POST.get("f_scope") or "",
@@ -261,9 +259,7 @@ def builder_edit(request, slug):
                 {"key": k, "label": v["label"], "note": v.get("note", "")}
                 for k, v in DIMENSIONS.items()
             ],
-            "measures": [
-                {"key": k, "label": v["label"]} for k, v in MEASURES.items()
-            ],
+            "measures": [{"key": k, "label": v["label"]} for k, v in MEASURES.items()],
             "datasets": _dataset_choices(),
             "error": error,
         },
