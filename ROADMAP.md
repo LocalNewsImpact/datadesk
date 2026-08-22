@@ -183,22 +183,36 @@ What it does not yet do is let a reviewer *finish* an item.
    already in `CASE_NOTES`; it belongs on the row, not only above the
    list.
 
-2. **What can be done about it**, as named actions rather than a form to
-   interpret. Per case, the dispositions are known:
+2. **What can be done about it.** Whatever the case, the question put to
+   the reviewer is the same one: *the app flagged this — do you agree,
+   disagree, or fix it?* Three verbs, everywhere, so a reviewer learns
+   the queue once rather than per case.
 
-   | Case | Actions |
-   |---|---|
-   | Paywall stub | Accept as-is (text unusable, label kept) · Re-extract · Mark out of scope |
-   | Minimal capture | Accept as-is · Re-extract · Confirm not an article |
-   | Scope mislabel | Accept the recorded scope · Correct the scope · Mark out of scope |
+   | | Agree | Disagree | Fix |
+   |---|---|---|---|
+   | **Paywall stub** | the text really is a teaser; keep the skip, keep the byline and label | it is a real article; clear the skip so it enriches normally | re-extract to get the actual text |
+   | **Minimal capture** | genuinely boilerplate; it stays `not_article` | it is an article whose text never arrived; return it to the pipeline | re-extract |
+   | **Scope mislabel** | the exclusion is right | the scope is wrong; the article belongs in scope | set the correct scope |
 
-   Every one of them ends the item's presence in the queue.
+   Agree and disagree are one click. Fix opens the edit — the text, the
+   scope, or a re-extraction request — because a fix is a change and a
+   change is reviewed like any other write.
 
-**Accept is the common case and must be one click.** A checkbox per row
-and an "accept selected" action on the page, or a single button on the
-row — "the current state is correct, stop asking me". Accepting records
-a disposition through the audited path so the decision is attributable
-and revertible, and the row leaves the queue.
+   All three end the item's presence in the queue. Agree and disagree are
+   both decisions; only "fix" is deferred work, and it leaves the queue
+   because it has become a task with an owner rather than a question.
+
+**Agree is the common case and must be one click.** A checkbox per row
+and an "agree with selected" action on the page — "the app was right,
+stop asking me". It records a disposition through the audited path, so
+the decision carries a name and a time and can be reverted like any
+other write, and the row leaves the queue.
+
+**Disagree is the valuable case.** It is the reviewer saying the
+pipeline was wrong, and it is the only signal that tells anyone whether
+a flag is worth keeping. A case whose items are 90% disagreed is a
+broken rule, not a queue; the disposition counts should be visible per
+case so that shows up rather than being absorbed by patient reviewers.
 
 **Leaving the queue is a recorded fact, not a filter trick.** The queue
 already excludes `removed_in_march_review` unconditionally — a human
@@ -212,10 +226,16 @@ false flags); selecting a band and accepting it in one action is the
 difference between a queue that gets worked and one that does not.
 
 **Still open:**
-- Where an accept is recorded: a new column on the enrichment record, a
-  Datadesk-side disposition table, or an existing skip_reason value. The
-  first two survive reprocessing; a skip_reason may be overwritten by
-  the pipeline.
+- Where the disposition is recorded: a new column on the enrichment
+  record, a Datadesk-side disposition table, or an existing skip_reason
+  value. The first two survive reprocessing; a skip_reason may be
+  overwritten by the pipeline. Whatever it is, it has to hold all three
+  verbs — "a human agreed" and "a human disagreed" are different facts,
+  and collapsing them loses the only measure of whether the flag works.
+- Does a disagreement feed back to the pipeline automatically (clear the
+  skip and let it re-enrich), or only record the judgement? Automatic is
+  what a reviewer expects; it also means a wrong click changes the
+  corpus, so it wants the audited path and a visible revert.
 - Can a reviewer see the whole queue for their dataset, or only items
   assigned to them?
 - Does accepting a batch of proposals produce one audit entry or one per
