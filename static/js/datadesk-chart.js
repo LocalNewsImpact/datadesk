@@ -431,6 +431,97 @@
     });
   }
 
+  // A pointer-driven tooltip: hover on desktop, tap on touch, click to
+  // pin so a value stays readable. One per chart container.
+  function tooltip(el) {
+    if (getComputedStyle(el).position === "static") el.style.position = "relative";
+    let node = el.querySelector(".dd-tip");
+    if (!node) {
+      node = document.createElement("div");
+      node.className = "dd-tip";
+      node.hidden = true;
+      el.appendChild(node);
+    }
+    let pinned = false;
+    const place = (event) => {
+      const box = el.getBoundingClientRect();
+      const x = event.clientX - box.left;
+      const y = event.clientY - box.top;
+      node.style.left =
+        Math.max(4, Math.min(x + 14, box.width - node.offsetWidth - 8)) + "px";
+      node.style.top = Math.max(4, y - node.offsetHeight - 12) + "px";
+    };
+    return {
+      show(html, event) {
+        if (pinned) return;
+        node.innerHTML = html;
+        node.hidden = false;
+        place(event);
+      },
+      move(event) { if (!pinned) place(event); },
+      hide() { if (!pinned) node.hidden = true; },
+      pin(html, event) {
+        pinned = false;
+        this.show(html, event);
+        pinned = true;
+        node.classList.add("pinned");
+      },
+      unpin() {
+        pinned = false;
+        node.classList.remove("pinned");
+        node.hidden = true;
+      },
+      isPinned() { return pinned; },
+      node,
+    };
+  }
+
+  const fmt = (v) =>
+    typeof v === "number"
+      ? (Number.isInteger(v)
+          ? v.toLocaleString()
+          : v.toLocaleString(undefined, { maximumFractionDigits: 4 }))
+      : String(v == null ? "\u2014" : v);
+
+  function tipRow(label, value) {
+    return `<span class="dd-tip-k">${label}</span>` +
+           `<span class="dd-tip-v">${fmt(value)}</span>`;
+  }
+
+  // Hover/tap/pin plus sibling dimming for a d3 selection. The tooltip
+  // node is kept out of the way of replaceChildren by callers.
+  function interactive(sel, tip, html, opts) {
+    const group = (opts && opts.group) || null;
+    const related = (opts && opts.related) || null;
+    const undim = () => group && group.style("opacity", null);
+    const isolate = (target) => {
+      if (group && related) {
+        group.style("opacity", (other) => (related(target, other) ? 1 : 0.15));
+      }
+    };
+    sel
+      .style("cursor", "pointer")
+      .on("pointerenter pointermove", function (event, d) {
+        tip.show(html(d, this), event);
+        tip.move(event);
+        if (!tip.isPinned()) isolate(d);
+      })
+      .on("pointerleave", () => {
+        tip.hide();
+        if (!tip.isPinned()) undim();
+      })
+      .on("click", function (event, d) {
+        event.stopPropagation();
+        if (tip.isPinned()) {
+          tip.unpin();
+          undim();
+        } else {
+          tip.pin(html(d, this), event);
+          isolate(d);
+        }
+      });
+  }
+
   // Per-slice label ink: black or white by the fill's relative luminance.
   function inkOn(hex) {
     const [r, g, b] = [1, 3, 5].map((i) =>
@@ -490,13 +581,10 @@
     const svg = svgRoot(width, 2 * R + 16, t);
     const arcs = d3.pie().value((e) => e[1]).sort(null).padAngle(0.01)(entries);
     const shape = d3.arc().innerRadius(R * 0.62).outerRadius(R);
-    svg.append("g").selectAll("path").data(arcs).join("path")
+    const slices = svg.append("g").selectAll("path").data(arcs).join("path")
       .attr("d", shape)
       .attr("fill", (d, i) => colors[i])
-      .attr("stroke", t.surface).attr("stroke-width", 2)
-      .append("title").text((d) =>
-        `${d.data[0]}: ${d.data[1].toLocaleString()} ` +
-        `(${(100 * d.data[1] / total).toFixed(1)}%)`);
+      .attr("stroke", t.surface).attr("stroke-width", 2);
     const labelAt = d3.arc().innerRadius(R * 0.81).outerRadius(R * 0.81);
     svg.append("g").selectAll("text")
       .data(arcs.filter((d) => d.endAngle - d.startAngle > 0.35)).join("text")
@@ -512,6 +600,12 @@
     el.replaceChildren();
     htmlLegend(el, domain, colors);
     el.appendChild(svg.node());
+    const tip = tooltip(el);
+    interactive(slices, tip, (d) =>
+      `<strong>${d.data[0]}</strong>` +
+      tipRow(config.ylabel || "value", d.data[1]) +
+      tipRow("share", (100 * d.data[1] / total).toFixed(1) + "%"),
+      { group: slices, related: (target, other) => target === other });
   }
 
   // Shared: fold a from/to edge list to at most eight named groups.
@@ -547,16 +641,18 @@
       const a = index.get(fold(r[from])), b = index.get(fold(r[to]));
       if (a != null && b != null) matrix[a][b] += +r[value] || 0;
     }
-    const size = Math.min(width, 560);
-    const R = size / 2 - 70;
+    // Room for the labels that ring the diagram; the longest name sets it.
+    const longest = Math.max(...names.map((n) => String(n).length));
+    const labelRoom = Math.min(150, 22 + 6.2 * Math.min(longest, 22));
+    const size = Math.min(width, 620);
+    const R = size / 2 - labelRoom;
     const chords = d3.chord().padAngle(0.04)
       .sortSubgroups(d3.descending)(matrix);
     const svg = svgRoot(size, size, t);
     const group = svg.append("g").selectAll("g").data(chords.groups).join("g");
-    group.append("path")
+    const groupArcs = group.append("path")
       .attr("d", d3.arc().innerRadius(R).outerRadius(R + 12))
-      .attr("fill", (d) => colors[d.index])
-      .append("title").text((d) => `${names[d.index]}: ${d.value.toLocaleString()}`);
+      .attr("fill", (d) => colors[d.index]);
     group.append("text")
       .each((d) => { d.angle = (d.startAngle + d.endAngle) / 2; })
       .attr("transform", (d) =>
@@ -564,7 +660,11 @@
         (d.angle > Math.PI ? " rotate(180)" : ""))
       .attr("text-anchor", (d) => (d.angle > Math.PI ? "end" : "start"))
       .attr("dy", "0.35em").attr("fill", "currentColor")
-      .text((d) => names[d.index]);
+      // Truncated only in the ring; the tooltip carries the full name.
+      .text((d) => {
+        const name = String(names[d.index]);
+        return name.length > 22 ? name.slice(0, 21) + "\u2026" : name;
+      });
     const ribbons = svg.append("g").selectAll("path").data(chords).join("path")
       .attr("d", d3.ribbon().radius(R - 2))
       .attr("fill", (d) => colors[d.source.index])
@@ -620,9 +720,8 @@
       .attr("fill", "none")
       .attr("stroke", (r) => colors[index.get(fold(r[from]))])
       .attr("stroke-opacity", 0.55)
-      .attr("stroke-width", (r) => w(value ? +r[value] || 0 : 1))
-      .append("title").text((r) =>
-        `${r[from]} → ${r[to]}` + (value ? `: ${r[value]}` : ""));
+      .attr("stroke-width", (r) => w(value ? +r[value] || 0 : 1));
+    const arcPaths = svg.selectAll("path");
     const node = svg.append("g").selectAll("g").data(names).join("g")
       .attr("transform", (n) => `translate(${xAt(n)},${Y})`);
     node.append("circle").attr("r", 5)
@@ -632,6 +731,22 @@
       .attr("x", 4).attr("y", 14).attr("fill", "currentColor")
       .text((n) => n);
     el.replaceChildren(svg.node());
+    const tip = tooltip(el);
+    interactive(arcPaths, tip, (r) =>
+      `<strong>${r[from]} \u2192 ${r[to]}</strong>` +
+      (value ? tipRow(value, r[value]) : ""),
+      { group: arcPaths, related: (target, other) => target === other });
+    interactive(node.select("circle"), tip, (n) => {
+      const touching = rows.filter(
+        (r) => fold(r[from]) === n || fold(r[to]) === n);
+      const total = value
+        ? touching.reduce((a, r) => a + (+r[value] || 0), 0)
+        : touching.length;
+      return `<strong>${n}</strong>` +
+        tipRow("connections", touching.length) + tipRow("total", total);
+    }, { group: arcPaths,
+         related: (target, r) =>
+           fold(r[from]) === target || fold(r[to]) === target });
     void arcSpan;
   }
 
