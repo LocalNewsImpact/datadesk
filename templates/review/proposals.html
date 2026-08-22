@@ -62,9 +62,13 @@
               {% if p.detail %}<span class="finding">{{ p.detail }}</span>{% endif %}
             </th>
             <td class="option">
-              <span class="val proposed">{{ p.proposed_value|default:"—" }}</span>
+              {% if p.proposed_value %}
+              <span class="val proposed">{{ p.proposed_value }}</span>
               <button type="button" class="verb accept" data-verb="accept">
                 <b>Accept Proposal</b><i>Update it</i></button>
+              {% else %}
+              <span class="val none">nothing to propose</span>
+              {% endif %}
             </td>
             <td class="option">
               <span class="val">{% if p.current_value %}{{ p.current_value }}{% else %}<span class="none">empty</span>{% endif %}</span>

@@ -401,3 +401,87 @@ def test_a_rescan_does_not_ask_again_about_a_decision(client, crawler_schema, ed
         ChangeProposal.objects.filter(record_id="s12", flag="owner_missing").count()
         == 1
     )
+
+
+def test_the_proposed_column_holds_the_value_we_believe_correct(crawler_schema, editor):
+    """The record says Kirksville; a file says Kirskville, which is not a
+    Missouri place. Proposing the misspelling under "Accept" would ask a
+    reviewer to write a value the app has just called wrong."""
+    from django.core.management import call_command
+
+    from explorer.models import Dataset, DatasetSource
+
+    dataset = Dataset.objects.create(
+        id="d1", slug="mo", label="Missouri", meta={"default_state": "MO"}
+    )
+    source = Source.objects.create(
+        id="s20",
+        host="kirksville.example",
+        host_norm="kirksville.example",
+        canonical_name="Daily Express",
+        city="Kirksville",
+        county="Adair",
+        owner="CherryRoad Media",
+    )
+    DatasetSource.objects.create(id="ds20", dataset=dataset, source=source)
+
+    evidence = "host_norm,city\nkirksville.example,Kirskville\n"
+    path = "/tmp/dd_evidence_kirks.csv"
+    with open(path, "w") as fh:
+        fh.write(evidence)
+    call_command("scan_sources", dataset="mo", evidence=path)
+
+    assert not ChangeProposal.objects.filter(record_id="s20", field="city").exists()
+
+
+def test_a_misspelled_record_is_proposed_the_gazetteer_spelling(crawler_schema, editor):
+    """When the record itself is wrong, the proposal is the correction —
+    that column always holds the better value."""
+    from django.core.management import call_command
+
+    from explorer.models import Dataset, DatasetSource
+
+    dataset = Dataset.objects.create(
+        id="d1", slug="mo", label="Missouri", meta={"default_state": "MO"}
+    )
+    source = Source.objects.create(
+        id="s21",
+        host="vedette.example",
+        host_norm="vedette.example",
+        canonical_name="Vedette",
+        city="Grenfield",
+        county="Dade",
+        owner="CherryRoad Media",
+    )
+    DatasetSource.objects.create(id="ds21", dataset=dataset, source=source)
+
+    call_command("scan_sources", dataset="mo")
+    p = ChangeProposal.objects.get(record_id="s21", flag="city_unknown")
+    assert p.current_value == "Grenfield"
+    assert p.proposed_value == "Greenfield"
+
+
+def test_a_defect_with_no_known_correction_offers_no_accept(crawler_schema, editor):
+    """ "Jasper and Newton" names two counties; which was meant is the
+    reviewer's call, so nothing is proposed and Accept is absent."""
+    from django.core.management import call_command
+
+    from explorer.models import Dataset, DatasetSource
+
+    dataset = Dataset.objects.create(
+        id="d1", slug="mo", label="Missouri", meta={"default_state": "MO"}
+    )
+    source = Source.objects.create(
+        id="s22",
+        host="four.example",
+        host_norm="four.example",
+        canonical_name="Four States",
+        city="Joplin",
+        county="Jasper and Newton",
+        owner="CherryRoad Media",
+    )
+    DatasetSource.objects.create(id="ds22", dataset=dataset, source=source)
+
+    call_command("scan_sources", dataset="mo")
+    p = ChangeProposal.objects.get(record_id="s22", flag="county_multiple")
+    assert p.proposed_value == ""

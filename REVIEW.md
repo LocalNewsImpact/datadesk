@@ -64,6 +64,32 @@ after a human has ruled on it.
 Deciding is not required in bulk. A reviewer may act on ten of ninety
 and submit; the rest stay flagged.
 
+## The rule the columns follow
+
+The queue shows three columns and they mean one thing each:
+
+| Proposed change | Current text | Something else |
+|---|---|---|
+| the value we believe is correct | what the record holds now | a field for anything else |
+| Accept Proposal · Update it | Keep · No Change | Fix · Use this |
+
+**The proposed column always holds the better value.** It is what a
+check says the field should be, or a candidate from a file that passes
+the same checks. A value the app has just called wrong is never
+proposed: offering "Kirskville" under Accept, while the record holds
+"Kirksville", asks the reviewer to write the misspelling the flag was
+raised about.
+
+Where nothing is known to be better — a county field naming two
+counties, an owner nobody recognises — the column is empty and Accept
+is not offered. Keep and Fix remain, which is the honest set of
+options.
+
+Evidence that disagrees with a sound record is only worth queueing when
+the evidence itself is sound. A file proposing a misspelling against a
+correct record is the file's problem, not a change to put in front of a
+reviewer.
+
 ## What this rules out
 
 - Queue items that mean "an import proposed something" rather than

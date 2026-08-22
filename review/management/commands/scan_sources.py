@@ -104,33 +104,54 @@ class Command(BaseCommand):
             self.stdout.write(f"  {flag}: {count}")
 
     def _flags_for(self, source, context, evidence, options):
-        """Every defect on one record, as queue items."""
+        """Every defect on one record, as queue items.
+
+        The proposed value is always the one we believe correct: what a
+        check says it should be, or a candidate from a file that passes
+        the same checks. A candidate that fails them is not proposed —
+        offering it under "Accept" would ask the reviewer to write a
+        value the app has just called wrong.
+        """
         items = []
         for flag in FLAGS:
-            flagged, detail = flag.check(source, context)
+            flagged, detail, better = flag.check(source, context)
             if not flagged:
                 continue
             field = flag.field.split(".")[0]
+            current = (
+                (getattr(source, field, "") or "") if hasattr(source, field) else ""
+            )
             candidate = evidence.get((source.host_norm, field), {})
+            proposed = better
+            origin = "corpus scan"
+            if not proposed and candidate:
+                value = candidate.get("value", "").strip()
+                if (
+                    value
+                    and value != current
+                    and self._acceptable(field, value, source, context)
+                ):
+                    proposed, origin = value, candidate["origin"]
             items.append(
                 {
                     "flag": flag.key,
                     "field": field,
                     "detail": detail,
-                    "current_value": (
-                        (getattr(source, field, "") or "")
-                        if hasattr(source, field)
+                    "current_value": current,
+                    "proposed_value": proposed,
+                    "suggestion": (
+                        f"suggested by {origin}"
+                        if proposed and origin != "corpus scan"
                         else ""
                     ),
-                    "proposed_value": candidate.get("value", ""),
-                    "suggested_value": candidate.get("suggested", ""),
-                    "suggestion": candidate.get("note", ""),
-                    "origin": candidate.get("origin", "corpus scan"),
+                    "origin": origin,
                 }
             )
 
-        # Evidence that disagrees with a record is itself a defect worth
-        # a look, even where the record passes every check.
+        # Evidence that disagrees with a record the checks are happy with
+        # is worth a look — but only when the file's value is itself
+        # sound. A file proposing a misspelling against a correct record
+        # is the file's problem, not a change to offer.
         flagged_fields = {item["field"] for item in items}
         for field in EVIDENCE_FIELDS:
             candidate = evidence.get((source.host_norm, field))
@@ -139,6 +160,8 @@ class Command(BaseCommand):
             current = (getattr(source, field, "") or "").strip()
             value = candidate.get("value", "").strip()
             if not value or value == current:
+                continue
+            if not self._acceptable(field, value, source, context):
                 continue
             items.append(
                 {
@@ -154,12 +177,28 @@ class Command(BaseCommand):
                     ),
                     "current_value": current,
                     "proposed_value": value,
-                    "suggested_value": candidate.get("suggested", ""),
-                    "suggestion": candidate.get("note", ""),
+                    "suggestion": f"from {candidate['origin']}",
                     "origin": candidate["origin"],
                 }
             )
         return items
+
+    def _acceptable(self, field, value, source, context):
+        """Would this value pass the checks that guard the field?"""
+        state = context["state_of"](source)
+        if field == "county":
+            from datasets.geo import canonical_county
+
+            return bool(canonical_county(state, value)[1]) if state else True
+        if field == "city":
+            from datasets.places import validate_city
+
+            return validate_city(state, value)[0] if state else True
+        if field == "owner":
+            from datasets.owners import canonical_owner
+
+            return canonical_owner(value, context["owners"])[1] != "unknown"
+        return True
 
     def _evidence(self, options):
         """Candidate values from a file, keyed by (host, field)."""

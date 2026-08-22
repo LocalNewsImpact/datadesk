@@ -27,13 +27,18 @@ class Flag:
 
 # --- the checks -------------------------------------------------------------
 #
-# Each returns (flagged, detail). `detail` is what makes this record's
-# instance of the defect specific, in the reviewer's words.
+# Each returns (flagged, detail, better).
+#
+#   detail  what makes this record's instance of the defect specific
+#   better  the value we believe is correct, where the check knows it —
+#           empty where it does not. This is what the queue offers as
+#           the proposed change, because a column headed "Proposed
+#           change" must hold the value that would improve the record.
 
 
 def _missing(field):
     def check(source, context):
-        return not (getattr(source, field) or "").strip(), "no value recorded"
+        return not (getattr(source, field) or "").strip(), "no value recorded", ""
 
     return check
 
@@ -41,16 +46,22 @@ def _missing(field):
 def _county_unknown(source, context):
     value = (source.county or "").strip()
     if not value:
-        return False, ""
-    from datasets.geo import canonical_county, states_with_county
+        return False, "", ""
+    from datasets.geo import canonical_county, states_with_county, suggest_counties
 
     state = context["state_of"](source)
     if canonical_county(state, value)[1]:
-        return False, ""
+        return False, "", ""
     elsewhere = states_with_county(value)
+    hints = suggest_counties(state, value)
+    better = hints[0] if hints else ""
     if elsewhere:
-        return True, f"{value} is a county in {', '.join(elsewhere)}, not {state}"
-    return True, f"{value} is not a county in {state}"
+        return (
+            True,
+            f"{value} is a county in {', '.join(elsewhere)}, not {state}",
+            better,
+        )
+    return True, f"{value} is not a county in {state}", better
 
 
 def _county_multiple(source, context):
@@ -59,46 +70,56 @@ def _county_multiple(source, context):
     value = (source.county or "").strip()
     parts = [p for p in re.split(r"\s*(?:,|/|;|&|\band\b)\s*", value, flags=re.I) if p]
     if len(parts) < 2:
-        return False, ""
-    return True, f"names {len(parts)} counties: {', '.join(parts)}"
+        return False, "", ""
+    # Which of the counties is meant is the reviewer's call, so nothing
+    # is proposed.
+    return True, f"names {len(parts)} counties: {', '.join(parts)}", ""
 
 
 def _city_unknown(source, context):
     value = (source.city or "").strip()
     if not value:
-        return False, ""
+        return False, "", ""
     from datasets.places import validate_city
 
     state = context["state_of"](source)
     if not state:
-        return False, ""
+        return False, "", ""
     known, hints = validate_city(state, value)
     if known:
-        return False, ""
+        return False, "", ""
     detail = f"{value} is not a place in {state}"
     if hints:
         detail += f"; the gazetteer has {', '.join(hints)}"
-    return True, detail
+    return True, detail, (hints[0] if hints else "")
 
 
 def _owner_unknown(source, context):
     value = (source.owner or "").strip()
     if not value:
-        return False, ""
+        return False, "", ""
     from datasets.owners import canonical_owner, fold
 
     canonical, kind = canonical_owner(value, context["owners"])
     if kind == "unknown":
-        return True, f"{value} matches no owner the corpus records elsewhere"
+        return True, f"{value} matches no owner the corpus records elsewhere", ""
     if fold(canonical) != fold(value):
-        return True, f"recorded as {value}; elsewhere the corpus writes {canonical}"
-    return False, ""
+        return (
+            True,
+            f"recorded as {value}; elsewhere the corpus writes {canonical}",
+            canonical,
+        )
+    return False, "", ""
 
 
 def _city_without_state(source, context):
     if not (source.city or "").strip():
-        return False, ""
-    return not context["state_of"](source), "a city with no state cannot be checked"
+        return False, "", ""
+    return (
+        not context["state_of"](source),
+        "a city with no state cannot be checked",
+        "",
+    )
 
 
 FLAGS = (
