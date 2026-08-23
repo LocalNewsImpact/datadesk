@@ -209,6 +209,17 @@ EVIDENCE_FLAGS = (
         check=None,
     ),
     Flag(
+        key="reported",
+        label="Somebody reported a change",
+        defect=(
+            "A person who can see this record says a field is out of date, and "
+            "said where they got it. Nothing has been written; the record "
+            "decides whether to take it."
+        ),
+        field="",
+        check=None,
+    ),
+    Flag(
         key="evidence_conflict",
         label="A source file offers two values",
         defect=(

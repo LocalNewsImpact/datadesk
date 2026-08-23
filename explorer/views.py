@@ -608,3 +608,27 @@ def costs(request):
             "days": days,
         },
     )
+
+
+@requires(READ)
+def sources(request):
+    """The publisher records in the datasets this person may read.
+
+    The dataset admin is where sources are managed, and that is an
+    administration surface. This is the other half: somebody with a viewer
+    grant can find a record and say what they know is wrong with it, which
+    is the only action open to them here.
+    """
+    from explorer.models import Source
+    from explorer.scoping import narrow
+
+    query = (request.GET.get("q") or "").strip()
+    qs = narrow(Source.objects.all(), request.user, READ, source_path="id")
+    if query:
+        qs = qs.filter(canonical_name__icontains=query)
+    qs = qs.order_by("canonical_name", "host")[:200]
+    return render(
+        request,
+        "explorer/sources.html",
+        {"sources": qs, "q": query},
+    )

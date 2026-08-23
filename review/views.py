@@ -1,7 +1,7 @@
 """Review and cleanup views (SCOPE.md §2.2). Editor role throughout."""
 
 from django.core.paginator import Paginator
-from django.db.models import Count, F
+from django.db.models import Count, F, Q
 from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -414,6 +414,24 @@ def _one_per_field(qs):
     return out
 
 
+def _within_reach(qs, user):
+    """Proposals on datasets this person may write.
+
+    A proposal with no dataset is one nothing could place -- a scan of the
+    corpus, an import that matched no membership. Those stay visible to
+    anyone who reviews, because hiding them would leave them decided by
+    nobody.
+    """
+    from accounts.access import ALL_SCOPES
+    from accounts.privileges import WRITE
+    from explorer.scoping import scopes_for
+
+    scopes = scopes_for(user, WRITE)
+    if scopes is ALL_SCOPES:
+        return qs
+    return qs.filter(Q(dataset__in=scopes) | Q(dataset=""))
+
+
 def _proposal_groups(proposals):
     """Group proposals by record, because one publisher is one decision."""
     groups = {}
@@ -425,6 +443,15 @@ def _proposal_groups(proposals):
                 "label": p.record_label,
                 "dataset": p.dataset,
                 "origin": p.origin,
+                # A person's report is weighed differently from a scan's: the
+                # reviewer is deciding on somebody's word, so the name and the
+                # evidence belong on the record rather than in a column.
+                "reported_by": (
+                    (p.proposed_by.get_full_name() or p.proposed_by.email)
+                    if p.proposed_by_id
+                    else ""
+                ),
+                "citation": p.citation,
                 "fields": [],
             },
         )
@@ -443,15 +470,19 @@ def proposals(request):
 
     flag = request.GET.get("flag") or ""
     state = request.GET.get("state") or ChangeProposal.PENDING
-    qs = ChangeProposal.objects.filter(target="sources")
+    # A proposal is reviewed by whoever may write the dataset it belongs
+    # to. Without this every reviewer sees every dataset's queue, and the
+    # first person through decides other people's records.
+    qs = _within_reach(ChangeProposal.objects.filter(target="sources"), request.user)
     qs = qs.exclude(proposed_value=F("current_value"), flag="value_disputed")
     if state != "all":
         qs = qs.filter(state=state)
     if flag:
         qs = qs.filter(flag=flag)
 
-    pending = ChangeProposal.objects.filter(
-        target="sources", state=ChangeProposal.PENDING
+    pending = _within_reach(
+        ChangeProposal.objects.filter(target="sources", state=ChangeProposal.PENDING),
+        request.user,
     )
     counts = dict(
         pending.values_list("flag").annotate(n=Count("id")).values_list("flag", "n")

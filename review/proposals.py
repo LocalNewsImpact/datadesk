@@ -46,6 +46,22 @@ class ChangeProposal(models.Model):
     detail = models.TextField(blank=True, default="")
     suggestion = models.TextField(blank=True, default="")
 
+    # A machine-generated proposal has no proposer; a reported one must.
+    # An edit offered to somebody else's dataset is only worth as much as
+    # knowing who offered it, so the person is named rather than folded into
+    # `origin`, which is free text a command sets.
+    proposed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+    # Where the fact came from: a URL, a filing, a phone call. Required of a
+    # person, absent from a scan -- a reviewer deciding on somebody else's
+    # word needs to see the word.
+    citation = models.TextField(blank=True, default="")
+
     state = models.CharField(max_length=20, choices=STATES, default=PENDING)
     decided_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

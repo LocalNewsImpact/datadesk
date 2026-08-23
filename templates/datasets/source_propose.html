@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Propose a change — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card">
+  <p class="breadcrumb"><a href="{% url 'datasets:list' %}">← Datasets</a></p>
+  <h1>Propose a change to {{ source }}</h1>
+  <p class="notice">Nothing here is written to the record. Change the fields
+  you know to be out of date and say where that came from; the change goes to
+  the <a href="{% url 'review:proposals' %}">proposals queue</a>, where
+  somebody with write access on this dataset decides.</p>
+  {% for error in errors %}<p class="error">{{ error }}</p>{% endfor %}
+
+  <form method="post">
+    {% csrf_token %}
+    <label class="stacked">Canonical name
+      <input type="text" name="canonical_name" value="{{ values.canonical_name|default:'' }}"></label>
+    <div class="action-bar">
+      <label>City <input type="text" name="city" value="{{ values.city|default:'' }}"></label>
+      <label>State <input type="text" name="state" maxlength="2" value="{{ values.state|default:'' }}" style="width:4rem"></label>
+      <label>County <input type="text" name="county" value="{{ values.county|default:'' }}"></label>
+    </div>
+    <div class="action-bar">
+      <label>Owner <input type="text" name="owner" value="{{ values.owner|default:'' }}"></label>
+      <label>Type <input type="text" name="type" value="{{ values.type|default:'' }}"></label>
+    </div>
+
+    <label class="stacked">Where this came from
+      <input type="text" name="citation" required
+             value="{{ citation|default:'' }}"
+             placeholder="https://… , an FCC filing, a call with the publisher"></label>
+    <label class="stacked">Anything the reviewer should know
+      <textarea name="detail" rows="3"
+                placeholder="The Chamber took over the three papers in March; the sale was announced in the Advance."></textarea></label>
+
+    <div class="action-bar">
+      <button type="submit" class="primary">Propose</button>
+      <a class="button" href="{% url 'datasets:list' %}">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

@@ -12,7 +12,8 @@ from django.db.models import Count, Max
 from django.http import Http404
 from django.shortcuts import redirect, render
 
-from accounts.decorators import requires_admin
+from accounts.decorators import requires, requires_admin
+from accounts.privileges import READ, WRITE
 
 # Decided 2026-08-23, not yet built: an editor sees the datasets they
 # hold in `dataset_list` and may change anything inside their own,
@@ -90,8 +91,15 @@ def dataset_create(request):
     return render(request, "datasets/create.html", {"error": error})
 
 
-def _get_dataset(slug):
-    dataset = Dataset.objects.filter(slug=slug).first()
+def _get_dataset(user, slug, privilege=READ):
+    """The dataset, if this person may exercise `privilege` on it.
+
+    Scoped rather than fetched: an unscoped lookup here would let anyone
+    with a grant on any dataset open every other one by URL.
+    """
+    from explorer.scoping import datasets_for
+
+    dataset = datasets_for(user, privilege).filter(slug=slug).first()
     if dataset is None:
         raise Http404("No such dataset")
     return dataset
@@ -99,7 +107,7 @@ def _get_dataset(slug):
 
 @requires_admin
 def dataset_detail(request, slug):
-    dataset = _get_dataset(slug)
+    dataset = _get_dataset(request.user, slug)
     meta = dataset.meta or {}
     error = request.session.pop("datasets_error", None)
 
@@ -305,9 +313,15 @@ def source_create(request):
     return render(request, "datasets/source_form.html", context)
 
 
-@requires_admin
+@requires(WRITE)
 def source_edit(request, source_id):
-    source = Source.objects.filter(pk=source_id).first()
+    """Editing a source is a dataset privilege, not an application one.
+
+    A 404 rather than a 403 for a source outside the person's datasets:
+    telling somebody a record exists but is not theirs to edit says more
+    than the guard is willing to.
+    """
+    source = _reachable(request.user, source_id, WRITE)
     if source is None:
         raise Http404("No such source")
     context = {
@@ -337,3 +351,107 @@ def source_edit(request, source_id):
         )
         return redirect("datasets:list")
     return render(request, "datasets/source_form.html", context)
+
+
+def _reachable(user, source_id, privilege):
+    """The source, if this person may exercise `privilege` on a dataset it
+    belongs to. `narrow` reaches a source through DatasetSource; from a
+    Source queryset that path is the row's own key."""
+    from explorer.scoping import narrow
+
+    qs = narrow(Source.objects.filter(pk=source_id), user, privilege, source_path="id")
+    return qs.first()
+
+
+@requires(READ)
+def source_propose(request, source_id):
+    """Offer a change to a source without writing one.
+
+    Anyone who can see a record can know something true about it -- an
+    owner who sold, a paper that folded -- and until now had nowhere to put
+    it: editing was an application-admin action. This writes proposals, not
+    the corpus, and they land in the same queue as every machine-generated
+    finding, where a person with write access decides.
+    """
+    source = _reachable(request.user, source_id, READ)
+    if source is None:
+        raise Http404("No such source")
+
+    current = {
+        "canonical_name": source.canonical_name or "",
+        "city": source.city or "",
+        "county": source.county or "",
+        "owner": source.owner or "",
+        "type": source.type or "",
+        "state": (source.meta or {}).get("state", ""),
+    }
+    context = {"source": source, "values": dict(current), "errors": []}
+
+    if request.method == "POST":
+        from review.proposals import ChangeProposal
+
+        citation = (request.POST.get("citation") or "").strip()
+        # Only fields the form actually sent. Reading a missing key as ""
+        # turns a partial submission into a proposal to blank everything it
+        # left out.
+        submitted = {
+            f: (request.POST.get(f) or "").strip() for f in current if f in request.POST
+        }
+        changed = {f: v for f, v in submitted.items() if v != current[f]}
+
+        errors = []
+        if not changed:
+            errors.append("Nothing is different from what the record holds.")
+        if not citation:
+            errors.append("Say where this came from — a URL, a filing, a call.")
+        if errors:
+            context["errors"] = errors
+            context["values"] = submitted
+            context["citation"] = citation
+            return render(request, "datasets/source_propose.html", context, status=400)
+
+        # One proposal per field: the queue groups them back into a single
+        # decision per record, and a reviewer may take the owner and leave
+        # the county.
+        # Which dataset's queue this lands in: the one the proposer reaches
+        # the source through. A source in several datasets the proposer can
+        # read is ambiguous only in principle -- the queue groups by record,
+        # so naming the first by slug keeps one row per decision.
+        from accounts.access import ALL_SCOPES
+        from explorer.models import DatasetSource
+        from explorer.scoping import scopes_for
+
+        memberships = DatasetSource.objects.filter(source_id=source.pk)
+        scopes = scopes_for(request.user, READ)
+        if scopes is not ALL_SCOPES:
+            memberships = memberships.filter(dataset__slug__in=scopes)
+        slug = (
+            memberships.order_by("dataset__slug")
+            .values_list("dataset__slug", flat=True)
+            .first()
+            or ""
+        )
+
+        ChangeProposal.objects.bulk_create(
+            [
+                ChangeProposal(
+                    target="sources",
+                    record_id=source.pk,
+                    record_label=source.canonical_name or source.host,
+                    field=field,
+                    current_value=current[field],
+                    proposed_value=value,
+                    flag="reported",
+                    origin="reported",
+                    dataset=slug,
+                    citation=citation,
+                    proposed_by=request.user,
+                    detail=(request.POST.get("detail") or "").strip(),
+                    state=ChangeProposal.PENDING,
+                )
+                for field, value in changed.items()
+            ]
+        )
+        return redirect("datasets:list")
+
+    return render(request, "datasets/source_propose.html", context)
