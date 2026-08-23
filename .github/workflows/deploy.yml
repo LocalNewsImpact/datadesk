@@ -77,10 +77,43 @@ jobs:
       # Tagging it with a hash of that file makes "has anything changed?" a
       # registry lookup rather than a guess; an application-only deploy then
       # pushes a few megabytes instead of reinstalling every library.
+      # The newest released tag of the Source Directory, read from the
+      # public API. That package installs into this image; pinning it in
+      # requirements.txt meant a pull request here every time it released,
+      # and the ruleset requires somebody to approve one -- the manual step
+      # moved rather than removed.
+      #
+      # A tag, never a branch: releasing is a version bump in that
+      # repository's own reviewed pull request, so an unfinished main
+      # cannot walk into this image.
+      - name: Resolve the Source Directory
+        id: directory
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # sort -V, not sort: v0.10.0 has to beat v0.9.0.
+          VERSION="$(gh api repos/LocalNewsImpact/NewsSourceDirectory/tags \
+            --jq '.[].name' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+          if [ -z "$VERSION" ]; then
+            echo "::error::No release tag on NewsSourceDirectory"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "installing the Source Directory at $VERSION"
+
       - name: Dependency image
         id: base
+        env:
+          DIRECTORY_VERSION: ${{ steps.directory.outputs.version }}
         run: |
-          HASH="$(sha256sum requirements.txt | cut -c1-12)"
+          # The resolved version is part of the cache key. Without it a new
+          # release would not change requirements.txt, the base image would
+          # be reused, and the new code would never reach the image -- the
+          # failure that is easiest to miss, because everything reports
+          # success.
+          HASH="$(cat requirements.txt <(echo "$DIRECTORY_VERSION") \
+            | sha256sum | cut -c1-12)"
           BASE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${SERVICE}-base:${HASH}"
           echo "BASE=$BASE" >> "$GITHUB_ENV"
           gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
@@ -89,7 +122,9 @@ jobs:
             echo "reusing $HASH — dependencies unchanged"
           else
             echo "building $HASH — requirements.txt changed"
-            docker build -f Dockerfile.base -t "$BASE" .
+            docker build -f Dockerfile.base \
+              --build-arg "DIRECTORY_VERSION=$DIRECTORY_VERSION" \
+              -t "$BASE" .
             docker push "$BASE"
           fi
 

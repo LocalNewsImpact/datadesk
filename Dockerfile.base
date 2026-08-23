@@ -19,15 +19,33 @@ FROM python:3.11-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 
-# git is here because requirements.txt installs the Source Directory
-# from a git tag and python:slim carries no git. Builder stage only: the
-# runtime image copies /install and never sees it.
+# git is here because the Source Directory installs from a git tag and
+# python:slim carries no git. Builder stage only: the runtime image copies
+# /install and never sees it.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential libpq-dev git \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --prefix=/install -r requirements.txt
+
+# The Source Directory, resolved to a released tag by the deploy rather
+# than written into requirements.txt.
+#
+# A pinned line in git meant a pull request every time that package
+# released, and a pull request this repository's ruleset requires somebody
+# to approve -- which is the manual step moved, not removed. The deploy
+# reads the newest tag instead.
+#
+# Still a tag, never a branch: a release happens because somebody bumped
+# the version in that repository's own reviewed pull request, so an
+# unfinished main cannot walk into this image. And the built image records
+# exactly which tag, while the deploy references the image by digest, so
+# what runs is reproducible even though the resolution is not pinned here.
+ARG DIRECTORY_VERSION
+RUN test -n "$DIRECTORY_VERSION" \
+ && pip install --prefix=/install \
+      "news-source-directory @ git+https://github.com/LocalNewsImpact/NewsSourceDirectory@${DIRECTORY_VERSION}"
 
 
 FROM python:3.11-slim AS base
