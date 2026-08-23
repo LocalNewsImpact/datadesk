@@ -72,19 +72,23 @@ class Command(BaseCommand):
 
         # A decision already made is not asked again (REVIEW.md §4).
         settled = self._settled()
-        existing = set(
-            ChangeProposal.objects.filter(
+        pending_rows = {
+            (row.record_id, row.flag, row.field): row
+            for row in ChangeProposal.objects.filter(
                 target="sources", state=ChangeProposal.PENDING
-            ).values_list("record_id", "flag", "field")
-        )
+            )
+        }
+        existing = set(pending_rows)
 
         retired = self._retire_settled(sources, settled, existing, options)
 
         made = collections.Counter()
+        refreshed = 0
         for source in sources:
             for item in self._flags_for(source, context, evidence, options):
                 key = (source.id, item["flag"], item["field"])
                 if key in existing:
+                    refreshed += self._refresh(pending_rows[key], item, options)
                     continue
                 live = _settle(getattr(source, item["field"], "") or "")
                 ruled = settled.get((source.id, item["field"]), {})
@@ -105,6 +109,11 @@ class Command(BaseCommand):
                     existing.add(key)
 
         total = sum(made.values())
+        if refreshed:
+            self.stdout.write(
+                f"{'would answer' if options['dry_run'] else 'answered'} "
+                f"{refreshed} that had nothing to propose"
+            )
         if retired:
             self.stdout.write(
                 f"{'would clear' if options['dry_run'] else 'cleared'} "
@@ -269,6 +278,30 @@ class Command(BaseCommand):
 
             return canonical_owner(value, context["owners"])[1] != "unknown"
         return True
+
+    def _refresh(self, row, item, options):
+        """Give a queued question the answer evidence has since supplied.
+
+        A flag can be raised before anything is known to propose — "no
+        owner recorded" with no candidate anywhere is a research task,
+        not a decision. When a later reading of a directory offers a
+        value, the question already in the queue should carry it rather
+        than staying blank while a duplicate is refused as a duplicate.
+
+        Only an empty proposal is filled. A row a reviewer is already
+        looking at does not have its proposed value changed underneath
+        them.
+        """
+        offered = (item.get("proposed_value") or "").strip()
+        if not offered or (row.proposed_value or "").strip():
+            return 0
+        if not options["dry_run"]:
+            row.proposed_value = offered
+            row.detail = item.get("detail", row.detail)
+            row.suggestion = item.get("suggestion", row.suggestion)
+            row.origin = item.get("origin", row.origin)
+            row.save(update_fields=["proposed_value", "detail", "suggestion", "origin"])
+        return 1
 
     @staticmethod
     def _evidence_detail(candidate, current):
