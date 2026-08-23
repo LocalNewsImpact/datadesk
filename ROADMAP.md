@@ -780,6 +780,54 @@ settings in `NewsSourceDirectory`; and, for step 3, whichever service
 becomes the identity store, plus item 1, since a role means nothing
 until both applications read it from the same place.
 
+## 13. Sign-in for accounts outside the hosted domain
+
+**Now:** the only gate is the Google hosted domain.
+`accounts/adapters.py` refuses any login whose email is unverified or
+outside `ALLOWED_AUTH_DOMAINS`, so membership of localnewsimpact.org
+*is* authorisation. That is simple and it is why there is no invite
+flow: everyone who may sign in already has an account by virtue of the
+domain.
+
+**Wanted:** an admin creates a person directly, and that person signs in
+with whatever Google account they have — a personal Gmail, a university
+address, a newsroom's Workspace. Consortium research runs across
+institutions; requiring an localnewsimpact.org mailbox to look at the
+data does not survive contact with that.
+
+**What changes, and the part to get right:** the gate moves from "which
+domain is this" to "is there already an account for this verified
+address". The mechanism mostly exists — `SOCIALACCOUNT_EMAIL_AUTHENTICATION`
+already attaches a Google identity to an account created ahead of the
+first sign-in, which is how an editor can be added before they have ever
+logged in. What has to change is the adapter: today an outside address
+is refused before that lookup happens.
+
+The risk is that the check inverts from a closed set to an open one. It
+must stay closed: **an account must already exist**, created by an
+admin, and the address must be one Google has verified. Self-signup
+stays off. Getting this wrong turns a domain-gated console into one
+anybody with a Gmail can enter, and the failure is silent — it looks
+like it works.
+
+**Also needed:** a create-user screen. There is a users list and a role
+assignment screen; there is no "add a person" form, because the domain
+made one unnecessary.
+
+**One good consequence of item 12:** identity is shared now, so this is
+defined once and both consoles inherit it. Before tonight it would have
+been two adapters, two user tables and two chances to disagree about who
+is allowed in.
+
+**Touches:** `accounts/adapters.py`, `ALLOWED_AUTH_DOMAINS` (which stops
+being the authorisation boundary and becomes at most a hint to Google's
+account chooser), the users screens, and the directory's
+`directory/auth.py`, which carries its own copy of the same rule and
+should stop.
+
+**Wants item 1 first**, or close to it: once anyone can be added, which
+datasets they may see stops being answerable by "they work here".
+
 ## Sequence
 
 1. **Item 1** first: items 5 and 6 both need dataset-scoped roles, and
@@ -809,6 +857,8 @@ until both applications read it from the same place.
 11. **Item 11** after 10's inventory, never before it. It also wants
     item 1 settled, so membership is resolved in one place rather than
     two.
+13. **Item 13** after item 1. Adding people from outside the organisation
+    and having no per-dataset scoping is the combination to avoid.
 12. **Item 12's first two steps** are independent of everything else and
     can be done in an afternoon. Its third — one identity store — should
     come *before* item 1 rather than after, so roles are designed once
