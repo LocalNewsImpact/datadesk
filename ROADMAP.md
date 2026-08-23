@@ -1582,21 +1582,26 @@ author sees under this design — a good default chart is the difference
 between adjusting and configuring. The palette should be settled before
 or alongside this, not after.
 
-**Decide before building:**
+**The preview is the embed, decided 2026-08-23.** What the author sees
+while editing has to be what the page ships. Not a similar rendering in
+the editor and the real one in the iframe — the same thing, so "it looked
+right in the editor" cannot happen. That constrains the design rather
+than decorating it: every control has to change the visual by changing
+what the embed renders from, which means the editor edits `config` and
+`spec` and then re-renders exactly as the public route does.
 
-- **Build or adopt.** A direct-manipulation chart editor is a large piece
-  of front-end work. Whether the renderers stay hand-written or move to a
-  charting library with an editing layer is the first question, and it
-  decides most of the rest.
-- **Where the preview renders.** In the page against the current
-  unsaved state, or in the same embed iframe the public gets. The second
-  is honest about what will ship; the first is faster to interact with.
-  They can differ, and the difference is where "it looked right in the
-  editor" comes from.
-- **How much of the ninety-one survives.** Some of those controls exist
-  because a renderer needs them. The audit — which settings are load
-  bearing, which are there because a form was the only way to express
-  them — is the first concrete step and can start now.
+**Nothing to decide about the charting library.** The charts are drawn by
+`static/js/datadesk-chart.js` over D3 and Observable Plot, and there are
+two renderer templates totalling eighty lines. There is no off-the-shelf
+editor to adopt: Flourish and Datawrapper are products rather than
+components, and the editor components that do exist — Plotly's, Vega's —
+are forms, which is the thing being escaped. The editing layer is ours
+either way, and the rendering can stay where it is.
+
+**First step, and it needs no decision:** read the ninety-one controls
+against the renderers and separate the ones a chart genuinely needs from
+the ones that exist because a form was the only way to offer them. That
+list is what the new design is built around.
 
 **Touches:** `templates/visuals/builder_edit.html` and
 `builder_new.html`, `visuals/builder.py`, the renderers under
