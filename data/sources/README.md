@@ -2,6 +2,15 @@
 
 Outside records about publishers, kept as dated readings.
 
+**Nothing in this directory is committed.** `.gitignore` keeps the
+readings local and tracks only this file. They are other people's data,
+gathered under someone else's terms, and this repository is public — the
+convention and the command that fetches them belong here, the data does
+not.
+
+Add further documents here as they are gathered. Each is a dated
+reading, named for its source, and is never edited in place.
+
 A reviewer disposing of a conflict months from now needs to see what a
 directory said **on the day it was read**, not what it says today. So
 each reading is a file named for its date and is never edited in place:
@@ -16,11 +25,14 @@ record without a person deciding it in the review queue (`REVIEW.md`).
 ## Missouri Press Association
 
 `mopress-<date>.json` — the machine-readable reading, what
-`scan_sources --evidence` consumes.
+`scan_sources --evidence` consumes. Because the readings are not in the
+image, `match_mopress` runs from a working copy against the production
+database rather than as a Cloud Run job.
 `mopress-<date>.csv` — the same records flat, for opening while deciding
 whether to believe a proposal.
 
-Read with `manage.py fetch_mopress --fetched <YYYY-MM-DD>` from
+Fetch a fresh reading locally with
+`manage.py fetch_mopress --fetched <YYYY-MM-DD>` from
 <https://mopress.jumbl.app/contactmanager/contact/publicdirectory>,
 including each entry's "More Information" drawer.
 

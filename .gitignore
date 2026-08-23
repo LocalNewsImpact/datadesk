@@ -10,3 +10,10 @@ staticfiles/
 crawler.sqlite3
 .mypy_cache/
 .playwright-mcp/
+
+# Source documents are read, kept and consulted locally. They are other
+# people's data — the Missouri Press directory is republished by nobody
+# but MPA — so the repository holds the convention and the command that
+# fetches them, never the readings themselves.
+data/sources/*
+!data/sources/README.md

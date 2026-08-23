@@ -52,7 +52,12 @@ class Command(BaseCommand):
             folder = Path(settings.BASE_DIR) / "data" / "sources"
             readings = sorted(folder.glob("mopress-*.json"))
             if not readings:
-                raise CommandError("No mopress reading in data/sources")
+                raise CommandError(
+                    "No mopress reading in data/sources. The readings are "
+                    "not committed and so are absent from the deployed "
+                    "image — fetch one with `manage.py fetch_mopress "
+                    "--fetched <date>` and run this from a working copy."
+                )
             path = readings[-1]
         document, records = mopress.load(path)
         self.stdout.write(
