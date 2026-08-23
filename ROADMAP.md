@@ -1035,7 +1035,35 @@ all one application suite and should not diverge by accident.
    `HistoryRequestMiddleware` joins Datadesk's stack. Middleware unions
    cleanly — the directory's list is Datadesk's plus that one entry.
 
-### 15. Paywalled sources, and credentials scoped to the person who owns them
+### Sequence
+
+1. Move the directory's root `templates/` into `directory/templates/`
+   and drop the `DIRS` entry, so they travel with the app.
+2. Give NewsSourceDirectory a build system in its `pyproject.toml` —
+   it has one already, but only for ruff, pytest and coverage — and
+   publish `directory` (plus `checks` and `feed` if either is needed at
+   runtime) with its templates as package data.
+3. Sort the install credential — a token in the Datadesk build, or an
+   Artifact Registry Python repository.
+7. Fold the two adapters into one and namespace the sign-in template.
+7. Extend `SERVICE_ROLE` to select among the front ends, and give each
+   deployment its own value.
+7. Add `directory` to Datadesk's `INSTALLED_APPS`; one `migrate` from
+   one place.
+7. **Delete item 12's scaffolding**, which is the payoff: the router
+   guarding against a shadow `auth_user`, `SHARED_IDENTITY`, the
+   search-path plumbing, the shared-`SECRET_KEY` arrangement, and the
+   split `SITE_ID`. A process sharing its own tables is not sharing.
+
+Keep the `directory` schema. It costs nothing and moves no rows.
+
+### Still before items 1 and 13
+
+Two users with matching ids and five migrations today; a people-facing
+migration once dataset roles and outside accounts exist. Nothing on this
+list makes it cheaper by waiting.
+
+## 15. Paywalled sources, and credentials scoped to the person who owns them
 
 **Now:** paywalls are detected and abandoned. `articles.status` carries
 `paywall`, enrichment carries `skip_reason="paywall_stub"`, and 968
@@ -1108,33 +1136,127 @@ crawler, which holds the Selenium session that would use them —
 per-user scoping in the suite, and it should be built on the grant model
 rather than inventing a second notion of who may do what.
 
-## Sequence
+## 16. Publish visuals statically to news-maps
 
-1. Move the directory's root `templates/` into `directory/templates/`
-   and drop the `DIRS` entry, so they travel with the app.
-2. Give NewsSourceDirectory a build system in its `pyproject.toml` —
-   it has one already, but only for ruff, pytest and coverage — and
-   publish `directory` (plus `checks` and `feed` if either is needed at
-   runtime) with its templates as package data.
-2. Sort the install credential — a token in the Datadesk build, or an
-   Artifact Registry Python repository.
-3. Fold the two adapters into one and namespace the sign-in template.
-4. Extend `SERVICE_ROLE` to select among the front ends, and give each
-   deployment its own value.
-5. Add `directory` to Datadesk's `INSTALLED_APPS`; one `migrate` from
-   one place.
-6. **Delete item 12's scaffolding**, which is the payoff: the router
-   guarding against a shadow `auth_user`, `SHARED_IDENTITY`, the
-   search-path plumbing, the shared-`SECRET_KEY` arrangement, and the
-   split `SITE_ID`. A process sharing its own tables is not sharing.
+**Now:** a published visual is served by Datadesk itself.
+`datadesk.localnewsimpact.org/embed/<slug>/` and
+`/visuals/<slug>/data.json` are public — they return 404 for an unknown
+slug rather than redirecting to sign-in — and both are rendered by the
+`visuals` app on every request. Versioning already exists:
+`VisualSnapshot` holds numbered versions, `publish_visuals refresh`
+takes one, and pinning decides which an embed serves, so refreshing data
+does not silently change a published embed.
 
-Keep the `directory` schema. It costs nothing and moves no rows.
+**Wanted:** the pinned snapshot is rendered to static files and served
+from `LocalNewsImpact/news-maps`, updated on a cadence, when a visual
+changes, and on request from Datadesk.
 
-### Still before items 1 and 13
+**Why:** a public embed served by the admin console shares its fate.
+A bad deploy or an outage takes down every embed on every site that has
+iframed one, and each view costs a Cloud Run request against the same
+service that serves authenticated traffic. Static files survive
+Datadesk being down, cache at the edge, and cost nothing to serve.
 
-Two users with matching ids and five migrations today; a people-facing
-migration once dataset roles and outside accounts exist. Nothing on this
-list makes it cheaper by waiting.
+**`news-maps` is currently an empty repository.** It carries the
+description "Auto-updating data visuals for LNIC research — static pages
++ nightly data refresh from BigQuery", no files, and no licence. Nothing
+in Datadesk references it. It is the intended target and has never been
+wired up.
+
+**Not to be confused with `gs://mizzou-news-maps-data`**, which shares
+the name and is an *input*: `visuals/services.py` reads a visual's
+`bucket_path` from it as a data source. Rendered output has never been
+written anywhere.
+
+### What gets published
+
+Per visual, per pinned version: the embed document and its `data.json`.
+Both are already the public surface, so the shapes exist; what changes
+is where they are served from.
+
+### Decided
+
+- **Served from Firebase Hosting at `maps.localnewsimpact.org`.**
+  Automatic managed certificate on a custom domain, a real CDN, and
+  `firebase deploy` writes in seconds — which is what the "on request
+  from Datadesk" trigger needs. No load balancer.
+
+  The alternatives and why not: **GitHub Pages** is free and serves a
+  custom domain, but allows roughly ten builds an hour and queues rather
+  than fails beyond that, so a few people clicking republish looks like
+  nothing happening. **A public bucket behind Cloud CDN** costs a
+  standing ~$18–25 a month for the HTTPS load balancer before a byte
+  moves, and a bare bucket cannot serve a custom domain over HTTPS at
+  all without one. At consortium traffic that is paying a fixed annual
+  fee for what a free tier covers.
+
+- **The embed code UI lives in Datadesk, not on the public site.** The
+  people who need it are the ones publishing, and the pinned version is
+  already on the visuals index. A public gallery on
+  `maps.localnewsimpact.org` would make the full list of published
+  visuals public, which is an editorial decision rather than a technical
+  one and can be taken later on its own terms.
+
+  `templates/visuals/builder_edit.html` currently hardcodes an embed
+  pointing at `datadesk.localnewsimpact.org`, and only builder-template
+  visuals show one at all. Once embeds serve from `maps.`, an
+  already-copied code still resolves — two live copies drifting apart is
+  worse than one that breaks — so this moves with the endpoint rather
+  than after it.
+
+### Decide before building
+
+- **The URL, and whether it is versioned in the path.** An embed that
+  someone has iframed must keep working forever, so its URL cannot carry
+  a version that later moves. A stable path serving the pinned version,
+  with versioned paths beside it for citation, is the shape that
+  satisfies both — the pin already exists to make that safe.
+- **What Datadesk's public routes become.** Once embeds are served
+  statically, `/embed/<slug>/` is either the authoring preview, a
+  redirect to the static copy, or a fallback. Leaving all three live and
+  authoritative is how two copies drift.
+
+### The cadence, and what makes it safe
+
+**Decided:** a nightly refresh runs, and there are three triggers in all
+— the nightly run, publishing a change to an existing visual, and
+publishing a new one. The last two take effect immediately rather than
+waiting for the next night.
+
+A nightly rebuild and a pinned snapshot only conflict if a visual is
+vague about the period it covers. **The date range is what separates
+them**, and it is why every visual needs one explicitly:
+
+- **A closed range** — "January to June 2026" — is historical. New
+  articles arriving tonight do not belong in it, so a refresh produces
+  the same data and there is nothing to republish. Most visuals are
+  these.
+- **An open or relative range** — "the last 30 days", "to date" — is
+  current by definition. Refreshing it is the point, so the nightly run
+  takes a new snapshot and pins it, because "latest" means the latest.
+
+Without a declared range the two cases are indistinguishable and a
+nightly job has to guess: refresh everything and historical charts
+silently move, or refresh nothing and current ones go stale.
+
+**`Visual` has no date range today.** It carries `query`, `config` and
+`spec`, so a range is either a new field or a required key in `spec`,
+and every existing visual needs one before the cadence can run. That is
+the first piece of work in this item, ahead of any publishing
+machinery.
+
+### Touches
+
+`visuals/services.py` and `publish_visuals`; the existing
+`publish.yml` workflow, which already runs on the console's
+`repository_dispatch` and is the natural place to add a render-and-deploy
+step; a licence and a README on `news-maps`, plus its Firebase config and
+a deploy credential; the embed routes in `visuals/urls.py`; and
+`templates/visuals/builder_edit.html`, which hardcodes the current host.
+
+**Related:** item 2 pushes the same pinned snapshot to Google Sheets on
+publish. Same trigger, different target — they should share one publish
+path rather than growing two.
 
 ## Sequence
 
@@ -1167,6 +1289,9 @@ list makes it cheaper by waiting.
     two.
 13. **Item 13** after item 1. Adding people from outside the organisation
     and having no per-dataset scoping is the combination to avoid.
+16. **Item 16** is independent and can start whenever. Its first step is
+    giving every visual a date range; the URL decision comes next and
+    cannot be revisited once anyone has embedded a visual.
 15. **Item 15** after item 1, and not before the unattended-crawl
     question is answered — a credential feature that only works when a
     person is watching is not the feature.
