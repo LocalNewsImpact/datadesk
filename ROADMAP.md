@@ -447,36 +447,52 @@ crawler change is far off.
 false flags); selecting a band and accepting it in one action is the
 difference between a queue that gets worked and one that does not.
 
-**Still open:**
-- When a fix is a re-extraction rather than a text edit, the resolution
-  is asynchronous: the request goes to the crawler and the article
-  changes minutes or hours later. Does the item leave the queue on
-  request, or stay in a "fix requested" state until the re-extraction
-  lands and the condition clears? The second is honest and needs a state
-  the first does not.
-- Is `review_reason` free text or a controlled vocabulary? Free text
-  reads well and aggregates badly; a vocabulary is the opposite. A short
-  list per case plus an optional note is the usual compromise, and the
-  cases already have their language in `CASE_NOTES`.
+**Decided 2026-08-23:**
+
+- **A requested re-extraction keeps the item.** It moves to a *fix
+  requested* state and stays there until the re-extraction lands and the
+  condition clears. The queue never claims something is resolved while the
+  article is unchanged, and two people cannot request the same fix. This
+  needs a state the leave-on-request model does not, and that is the cost
+  of being honest about an asynchronous resolution.
+- **`review_reason` is a short list per case, plus an optional note.** The
+  vocabulary aggregates — "why do reviewers reject this case" is
+  answerable — and the note carries the unusual thing without forcing it
+  into the nearest wrong bucket. The cases already have their language in
+  `CASE_NOTES`, so the lists are written, not invented.
+- **A disagreement feeds back to the pipeline.** Disagreeing clears the
+  skip and lets the article re-enrich, which is what a reviewer expects to
+  happen. It also means a wrong click changes the corpus, so it goes
+  through the audited path: SCOPE.md's append-only log records it and
+  revert-as-compensating-action undoes it, both of which already exist.
+  Not a separate second action the reviewer has to remember.
+- **Pending decisions are server-side drafts.** A review session spans
+  pages, because paging is how the queue gets worked, and a closed tab
+  should not cost an hour. That buys a table and a rule for cleaning up
+  abandoned sessions, which is a smaller price than losing work.
+
+**Follows from those, and from item 1:**
+
+- **A reviewer sees the whole queue for the datasets they hold**, not a
+  personal assignment list. Item 1 scopes access per dataset and has no
+  notion of assigning a row to a person; adding one would be a feature
+  rather than a filter, and nothing here needs it yet.
+- **One audit entry per submitted session**, since a session is now a real
+  object rather than whatever fitted on a page. The log stays readable and
+  a batch reverts as a unit; revert already restores per row inside it, so
+  the finer grain is available without being the default.
+
+**Still open, and genuinely a judgement:**
+
 - Does a reviewed item resurface when the profile version advances past
-  `reviewed_profile_version`? It should be possible; whether it is the
-  default is a judgement about how much churn a reviewer will tolerate.
-- Does a disagreement feed back to the pipeline automatically (clear the
-  skip and let it re-enrich), or only record the judgement? Automatic is
-  what a reviewer expects; it also means a wrong click changes the
-  corpus, so it wants the audited path and a visible revert.
-- Can a reviewer see the whole queue for their dataset, or only items
-  assigned to them?
-- Pending decisions in the page or as server-side drafts? Drafts let a
-  session span pages, which is how the queue gets worked, at the cost of
-  a table and a cleanup rule for abandoned sessions.
-- One audit entry per submitted session, or one per row? One per session
-  keeps the log readable and reverts the batch as a unit; revert already
-  restores per row inside it. Per row only helps if reverting a single
-  decision from a session is a real need.
+  `reviewed_profile_version`? It should be *possible* — a reviewer's
+  answer was about a particular version of the pipeline's reasoning, and a
+  new version can invalidate it. Whether it is the default is a question
+  about how much churn a reviewer will tolerate, and that is better
+  answered after watching one profile change than before. Default to not
+  resurfacing, make it available per case, and revisit with evidence.
 
-**Depends on:** item 1.
-
+**Depends on:** item 1, which is decided.
 ## 7. Navigation performance on data-heavy pages
 
 **Now:** moving between data-heavy tabs is slow. Each page renders its
@@ -671,9 +687,16 @@ extraction page and its template, item 1 for the dataset selector, item
 it should be built precomputed or cached from the start rather than
 retrofitted — see item 7.
 
+**Two of these are answered by item 19**, which builds the same panels
+across all datasets and should build them first:
+
+- `logs_path` points at Cloud Logging in the crawler's project, which
+  Datadesk's runtime account cannot read yet — one grant, named in 19.
+- The worker signal is the Kubernetes API on `mizzou-cluster`, not a
+  database column, which is why 19 calls it the only piece with a real
+  dependency.
+
 **Still open:**
-- What `logs_path` points at.
-- Which worker signal to use.
 - The health thresholds, and who owns them.
 - Whether `focus` is a profile step Datadesk's schema mirror is missing.
 
@@ -706,10 +729,13 @@ Sources without it. `test_admin_access` walks the groups and checks each
 section's declared role against the decorator on its view, so a link
 moved between groups whose guard does not match fails the suite.
 
-**Still open:** there is no publisher directory — sources are managed
-inside dataset detail, and `source_edit` is reachable only from there.
-A Sources index belongs in this group when item 1 lands, since who may
-see which publishers becomes a dataset-scoped question then.
+**Resolved by item 14.** There is a publisher directory: the Source
+Directory, and the Sources group links to it at
+`sources.localnewsimpact.org`. What remains is narrower than the original
+note — `source_edit` is still reachable only from inside dataset detail,
+so editing a publisher from Datadesk means finding a dataset it belongs
+to first. Item 1 decides who may, and item 10 decides which of the two
+records is authoritative; the link is no longer the missing piece.
 
 ## 10. One source of truth: merge the crawler's sources into the directory
 
