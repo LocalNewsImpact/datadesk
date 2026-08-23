@@ -1258,6 +1258,54 @@ a deploy credential; the embed routes in `visuals/urls.py`; and
 publish. Same trigger, different target — they should share one publish
 path rather than growing two.
 
+## 17. `random_page_cost` on the shared Cloud SQL instance
+
+**After item 14.** The merge changes which process runs these queries
+and is the larger change; a planner flag tuned around the current shape
+would have to be re-tested afterwards anyway.
+
+**The observation.** Datadesk's cost rollup joins
+`article_enrichment` → `articles` → `candidate_links`. The planner
+chooses a nested loop doing **15,759 single-row index lookups at ~0.9ms
+each — 8,027ms**. Forcing a hash join with `enable_nestloop = off` runs
+the same query in **669ms**.
+
+**Nothing is missing.** The indexes exist and are used —
+`articles_pkey`, `candidate_links_pkey` — and the row estimate is close
+(6,537 planned against 5,253 actual). The planner is not wrong about the
+data; it is wrong about the hardware. `random_page_cost` defaults to 4.0
+against an assumption of local disk, and a random read on
+network-attached storage costs far more than that relative to a
+sequential one. A plan built from many small random reads therefore
+looks cheap and is not.
+
+**Why it is not fixed in Datadesk.** It is an instance-level flag on
+`mizzou-news-crawler:us-central1:mizzou-db-prod`, which the crawler,
+Datadesk and the Source Directory all share. Changing it changes plans
+for every query in every one of them — likely for the better, since the
+same storage economics apply to all, but that is a claim to test rather
+than assume. A flag set for one consumer's dashboard is the wrong way to
+tune a shared instance.
+
+**How to test it, rather than flip it:**
+
+1. Collect the slowest real queries from each consumer, not only this
+   one. `pg_stat_statements` if it is enabled; otherwise the crawler's
+   own known-slow list, which its migrations already document — one
+   records a 39.5s query fixed by `ix_article_entities_created_at`.
+2. Compare plans and timings at the current 4.0 against candidate
+   values, per query, in a session. `SET random_page_cost` is
+   session-scoped and needs no instance change to evaluate.
+3. Only then decide, recording before and after for each query so a
+   regression is attributable to the change.
+
+**Related:** the missing `articles.publish_date` index is a separate and
+simpler matter — MizzouNewsCrawler #462, where nothing is tuned, only
+added.
+
+**Touches:** nothing in this repository. The change, if made, is a
+database flag on the shared instance and belongs with whoever owns it.
+
 ## Sequence
 
 1. **Item 1** first: items 5 and 6 both need dataset-scoped roles, and
@@ -1292,6 +1340,9 @@ path rather than growing two.
 16. **Item 16** is independent and can start whenever. Its first step is
     giving every visual a date range; the URL decision comes next and
     cannot be revisited once anyone has embedded a visual.
+17. **Item 17** after item 14. The merge changes which process issues
+    these queries, so a planner flag tuned to the current shape would
+    need re-testing regardless.
 15. **Item 15** after item 1, and not before the unattended-crawl
     question is answered — a credential feature that only works when a
     person is watching is not the feature.
