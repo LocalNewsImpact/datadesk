@@ -33,7 +33,15 @@ class ChangeProposal(models.Model):
     origin = models.CharField(max_length=120, default="")
 
     target = models.CharField(max_length=20, default="sources")
-    record_id = models.TextField()
+    # Empty when the proposal is that a publisher exists which the corpus
+    # has never heard of. There is no record to name yet -- accepting the
+    # proposal is what makes one.
+    record_id = models.TextField(blank=True, default="")
+    # One submitted form, so the fields of a publisher that does not exist
+    # yet group into a single decision. Grouping those by record_id would
+    # collapse every pending new publisher into one, since they all share
+    # the empty string.
+    submission = models.UUIDField(null=True, blank=True, db_index=True)
     record_label = models.TextField(blank=True, default="")
     dataset = models.CharField(max_length=100, blank=True, default="")
 
@@ -45,6 +53,22 @@ class ChangeProposal(models.Model):
     # What makes this record's instance of the defect specific.
     detail = models.TextField(blank=True, default="")
     suggestion = models.TextField(blank=True, default="")
+
+    # A machine-generated proposal has no proposer; a reported one must.
+    # An edit offered to somebody else's dataset is only worth as much as
+    # knowing who offered it, so the person is named rather than folded into
+    # `origin`, which is free text a command sets.
+    proposed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+    # Where the fact came from: a URL, a filing, a phone call. Required of a
+    # person, absent from a scan -- a reviewer deciding on somebody else's
+    # word needs to see the word.
+    citation = models.TextField(blank=True, default="")
 
     state = models.CharField(max_length=20, choices=STATES, default=PENDING)
     decided_by = models.ForeignKey(
@@ -81,6 +105,17 @@ class ChangeProposal(models.Model):
 
     def __str__(self):
         return f"{self.record_label}.{self.field}: {self.proposed_value!r}"
+
+    @property
+    def creates_a_record(self):
+        """No record to change: accepting this makes one."""
+        return not self.record_id
+
+    @property
+    def group_key(self):
+        """What the queue groups by. A record if there is one, otherwise the
+        submission that proposed it."""
+        return self.record_id or f"new:{self.submission}"
 
     @property
     def flag_label(self):

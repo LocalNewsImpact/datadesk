@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Report a publisher — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card">
+  <p class="breadcrumb"><a href="{% url 'explorer:sources' %}">← Publishers</a></p>
+  <h1>Report a publisher we do not have</h1>
+  <p class="notice">Nothing is created here. This goes to the review queue as
+  a proposal that the record should exist; whoever reviews that dataset
+  decides, and accepting it is what makes the record.</p>
+  {% for error in errors %}<p class="error">{{ error }}</p>{% endfor %}
+
+  <form method="post">
+    {% csrf_token %}
+    <label class="stacked">Name
+      <input type="text" name="canonical_name" required
+             value="{{ values.canonical_name|default:'' }}"
+             placeholder="The Santa Fe Times"></label>
+    <label class="stacked">Host
+      <input type="text" name="host" required
+             value="{{ values.host|default:'' }}"
+             placeholder="santafetimes.com"></label>
+    <div class="action-bar">
+      <label>City <input type="text" name="city" value="{{ values.city|default:'' }}"></label>
+      <label>State <input type="text" name="state" maxlength="2" value="{{ values.state|default:'' }}" style="width:4rem"></label>
+      <label>County <input type="text" name="county" value="{{ values.county|default:'' }}"></label>
+    </div>
+    <div class="action-bar">
+      <label>Owner <input type="text" name="owner" value="{{ values.owner|default:'' }}"></label>
+      <label>Type <input type="text" name="type" value="{{ values.type|default:'' }}"></label>
+    </div>
+
+    {% if datasets %}
+    <label class="stacked">Which dataset it belongs to
+      <select name="dataset">
+        <option value="">—</option>
+        {% for d in datasets %}<option value="{{ d.slug }}">{{ d.label }}</option>{% endfor %}
+      </select></label>
+    {% endif %}
+
+    <label class="stacked">Where this came from
+      <input type="text" name="citation" required value="{{ citation|default:'' }}"
+             placeholder="https://… , an FCC filing, a call with the publisher"></label>
+    <label class="stacked">Anything the reviewer should know
+      <textarea name="detail" rows="3"></textarea></label>
+
+    <div class="action-bar">
+      <button type="submit" class="primary">Report it</button>
+      <a class="button" href="{% url 'explorer:sources' %}">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

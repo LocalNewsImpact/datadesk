@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Sources — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h1>Sources</h1>
+  <p class="notice">The publisher records in the datasets you can see. If one
+  is out of date — an owner who sold, a paper that folded — propose the change
+  and it goes to that dataset's review queue.</p>
+
+  <form method="get" class="action-bar">
+    <label>Name <input type="text" name="q" value="{{ q }}" placeholder="The Higginsville Advance"></label>
+    <button type="submit">Search</button>
+    <a class="button" href="{% url 'datasets:source_propose_new' %}">Report one we do not have</a>
+  </form>
+
+  <table class="rec-table">
+    <thead>
+      <tr><th scope="col">Name</th><th scope="col">Owner</th>
+          <th scope="col">City</th><th scope="col"></th></tr>
+    </thead>
+    <tbody>
+    {% for source in sources %}
+      <tr>
+        <td>{{ source.canonical_name|default:source.host }}</td>
+        <td>{{ source.owner|default:"—" }}</td>
+        <td>{{ source.city|default:"—" }}</td>
+        <td><a href="{% url 'datasets:source_propose' source.id %}">Propose a change</a></td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="4">No sources in the datasets you can see.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

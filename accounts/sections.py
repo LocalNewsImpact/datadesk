@@ -57,6 +57,17 @@ SECTION_GROUPS = (
                 ),
             },
             {
+                "url": "explorer:sources",
+                # Not "Sources": that is the editor group's own name, and a
+                # viewer seeing a section with the group's label would read
+                # as the group leaking into a sidebar that hides it.
+                "label": "Publishers",
+                "note": (
+                    "Publisher records in the datasets you can see, and the "
+                    "form for reporting one that is out of date."
+                ),
+            },
+            {
                 "url": "explorer:enrichment",
                 "label": "Enrichment",
                 "note": "Enrichment records by scope, FIPS claim and skip reason.",

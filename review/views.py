@@ -1,7 +1,7 @@
 """Review and cleanup views (SCOPE.md §2.2). Editor role throughout."""
 
 from django.core.paginator import Paginator
-from django.db.models import Count, F
+from django.db.models import Count, F, Q
 from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -403,10 +403,15 @@ def _one_per_field(qs):
     Loading a file twice could leave two pending proposals for the same
     field; asking about both is asking the same question twice, and
     deciding one leaves the other behind to reappear.
+
+    Keyed on the group, not the record. Two reported publishers both have
+    an empty record_id, so keying on that made the second one's fields
+    dedupe away the first's -- and which survived depended on alphabetical
+    order of the names.
     """
     seen, out = set(), []
     for p in qs.order_by("record_label", "field", "-created_at"):
-        key = (p.record_id, p.flag, p.field)
+        key = (p.group_key, p.flag, p.field)
         if key in seen:
             continue
         seen.add(key)
@@ -414,17 +419,45 @@ def _one_per_field(qs):
     return out
 
 
+def _within_reach(qs, user):
+    """Proposals on datasets this person may write.
+
+    A proposal with no dataset is one nothing could place -- a scan of the
+    corpus, an import that matched no membership. Those stay visible to
+    anyone who reviews, because hiding them would leave them decided by
+    nobody.
+    """
+    from accounts.access import ALL_SCOPES
+    from accounts.privileges import WRITE
+    from explorer.scoping import scopes_for
+
+    scopes = scopes_for(user, WRITE)
+    if scopes is ALL_SCOPES:
+        return qs
+    return qs.filter(Q(dataset__in=scopes) | Q(dataset=""))
+
+
 def _proposal_groups(proposals):
     """Group proposals by record, because one publisher is one decision."""
     groups = {}
     for p in proposals:
         g = groups.setdefault(
-            p.record_id,
+            p.group_key,
             {
                 "record_id": p.record_id,
+                "creates_a_record": p.creates_a_record,
                 "label": p.record_label,
                 "dataset": p.dataset,
                 "origin": p.origin,
+                # A person's report is weighed differently from a scan's: the
+                # reviewer is deciding on somebody's word, so the name and the
+                # evidence belong on the record rather than in a column.
+                "reported_by": (
+                    (p.proposed_by.get_full_name() or p.proposed_by.email)
+                    if p.proposed_by_id
+                    else ""
+                ),
+                "citation": p.citation,
                 "fields": [],
             },
         )
@@ -443,15 +476,19 @@ def proposals(request):
 
     flag = request.GET.get("flag") or ""
     state = request.GET.get("state") or ChangeProposal.PENDING
-    qs = ChangeProposal.objects.filter(target="sources")
+    # A proposal is reviewed by whoever may write the dataset it belongs
+    # to. Without this every reviewer sees every dataset's queue, and the
+    # first person through decides other people's records.
+    qs = _within_reach(ChangeProposal.objects.filter(target="sources"), request.user)
     qs = qs.exclude(proposed_value=F("current_value"), flag="value_disputed")
     if state != "all":
         qs = qs.filter(state=state)
     if flag:
         qs = qs.filter(flag=flag)
 
-    pending = ChangeProposal.objects.filter(
-        target="sources", state=ChangeProposal.PENDING
+    pending = _within_reach(
+        ChangeProposal.objects.filter(target="sources", state=ChangeProposal.PENDING),
+        request.user,
     )
     counts = dict(
         pending.values_list("flag").annotate(n=Count("id")).values_list("flag", "n")
@@ -474,6 +511,81 @@ def proposals(request):
     )
 
 
+def _create_proposed_sources(user, creates, proposals_by_id):
+    """Make the publishers a reviewer accepted that did not exist.
+
+    An ordinary proposal names a record and changes a field on it. This
+    names none, because the proposal *is* that the record should exist. The
+    reviewer decides field by field as everywhere else, so a rejected city
+    simply does not reach the new row.
+
+    The host is the exception. It is the record's only unique column, and a
+    source without one cannot be crawled, so rejecting the host rejects the
+    publisher and nothing is created.
+
+    Returns (created, refused) for the receipt. A refusal is not an error a
+    reviewer can act on twice -- if the host is already taken, the record
+    they wanted exists, and the change belongs on it.
+    """
+    import uuid
+
+    from explorer.models import Dataset, DatasetSource, Source
+    from review.services import audited_create
+
+    made, refused = 0, 0
+    for submission, fields in creates.items():
+        host = (fields.get("host") or "").strip().lower()
+        if not host:
+            refused += 1
+            continue
+        # Not a name match -- the schema's own uniqueness. A second row for
+        # one host cannot be written, and the reviewer wanting this
+        # publisher already has it.
+        if Source.objects.filter(host_norm=host).exists():
+            refused += 1
+            continue
+
+        state = (fields.get("state") or "").strip().upper()
+        source = Source(
+            id=str(uuid.uuid4()),
+            host=host,
+            host_norm=host,
+            canonical_name=(fields.get("canonical_name") or "").strip() or None,
+            city=(fields.get("city") or "").strip() or None,
+            county=(fields.get("county") or "").strip() or None,
+            owner=(fields.get("owner") or "").strip() or None,
+            type=(fields.get("type") or "").strip() or None,
+            meta={"state": state} if state else {},
+        )
+        audited_create(
+            user,
+            [source],
+            action="proposal:create_source",
+            reason=f"accepted a reported publisher: {host}",
+        )
+
+        # Into the dataset whose queue it was reviewed in, so an accepted
+        # publisher is a member of something rather than an orphan row.
+        slug = next(
+            (
+                proposals_by_id[pid].dataset
+                for pid in proposals_by_id
+                if proposals_by_id[pid].submission == submission
+                and proposals_by_id[pid].dataset
+            ),
+            "",
+        )
+        if slug and (dataset := Dataset.objects.filter(slug=slug).first()):
+            audited_create(
+                user,
+                [DatasetSource(id=str(uuid.uuid4()), dataset=dataset, source=source)],
+                action="dataset:add_source",
+                reason=f"{host} into {slug} on accepting a report",
+            )
+        made += 1
+    return made, refused
+
+
 def _submit_proposals(request):
     """Apply a session of decisions as one audited batch per record set."""
     from django.utils import timezone
@@ -491,6 +603,7 @@ def _submit_proposals(request):
 
     proposals_by_id = ChangeProposal.objects.in_bulk(list(decisions))
     writes = {}  # record pk -> {field: value}
+    creates = {}  # submission -> {field: value}, for publishers not yet known
     accepted, rejected, fixed = [], [], []
     incomplete = 0
     for pid, verb in decisions.items():
@@ -510,7 +623,10 @@ def _submit_proposals(request):
             # queue; the decisions around it still go through.
             incomplete += 1
             continue
-        writes.setdefault(p.record_id, {})[p.field] = value
+        if p.creates_a_record:
+            creates.setdefault(p.submission, {})[p.field] = value
+        else:
+            writes.setdefault(p.record_id, {})[p.field] = value
         p.final_value = value
         (fixed if verb == "fix" else accepted).append(p)
 
@@ -523,6 +639,8 @@ def _submit_proposals(request):
             action="proposal:apply",
             reason=f"{len(accepted) + len(fixed)} reviewed changes",
         )
+
+    made, refused = _create_proposed_sources(request.user, creates, proposals_by_id)
 
     now = timezone.now()
     for group, state in (
@@ -546,6 +664,8 @@ def _submit_proposals(request):
         "fixed": len(fixed),
         "rejected": len(rejected),
         "incomplete": incomplete,
+        "created": made,
+        "refused": refused,
         "entry": entry.pk if entry else None,
     }
     return redirect("review:proposals")

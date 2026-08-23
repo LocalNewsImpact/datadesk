@@ -143,12 +143,20 @@ def _all_patterns(resolver=None, prefix=""):
 
 def test_every_view_under_manage_is_guarded():
     """/manage/ is the administrative mount. Nothing unguarded may live
-    there, whether or not the sidebar links to it."""
+    there, whether or not the sidebar links to it.
+
+    Guarded, not necessarily by `requires_admin`. Editing a source is a
+    dataset privilege — an editor holds it on their own datasets, and an
+    application admin is not required to correct a county. Proposing a
+    change is weaker still, and deliberately open to anyone who can see the
+    record. What must never appear here is a view that asks for nothing.
+    """
     unguarded = [
         route
         for route, pattern in _all_patterns()
         if route.startswith("manage/")
         and not getattr(pattern.callback, "requires_admin", False)
+        and getattr(pattern.callback, "required_privilege", None) is None
     ]
     assert unguarded == []
 

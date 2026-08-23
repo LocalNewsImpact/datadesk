@@ -304,3 +304,177 @@ def test_place_to_county_uses_the_place_internal_point():
     from datasets.geo import county_for_place
 
     assert county_for_place("2938000") == ("29095", 4)
+
+
+# --- proposing a change without the right to make it -------------------------
+#
+# Editing a source is a dataset privilege: an admin or an editor changes the
+# record. A viewer who knows something true about it -- an owner who sold, a
+# paper that folded -- has no write, and until there was a form for it had
+# nowhere to put what they knew.
+
+
+@pytest.fixture
+def viewer(client):
+    user = User.objects.create_user("looker", email="looker@localnewsimpact.org")
+    Grant.objects.create(user=user, app=DATADESK, scope="missouri", role="viewer")
+    client.force_login(user)
+    return user
+
+
+@pytest.fixture
+def member_source(dataset):
+    source = Source.objects.create(
+        id="s-lex",
+        host="lexingtonnews.example",
+        host_norm="lexingtonnews.example",
+        canonical_name="The Lexington News",
+        owner="Independent",
+        meta={"state": "MO"},
+    )
+    DatasetSource.objects.create(id="ds1", dataset=dataset, source=source)
+    return source
+
+
+def test_a_viewer_cannot_edit_the_record(client, viewer, member_source):
+    """The write path is unchanged and still refuses them."""
+    response = client.post(
+        f"/manage/sources/{member_source.id}/",
+        {"owner": "Lexington Area Chamber of Commerce", "state": "MO"},
+    )
+    assert response.status_code in (302, 403)
+    member_source.refresh_from_db()
+    assert member_source.owner == "Independent"
+
+
+def test_a_viewer_proposes_and_the_corpus_is_untouched(client, viewer, member_source):
+    """The whole point: what they know is recorded, and nothing is written."""
+    from review.proposals import ChangeProposal
+
+    response = client.post(
+        f"/manage/sources/{member_source.id}/propose/",
+        {
+            "canonical_name": "The Lexington News",
+            "city": "",
+            "county": "",
+            "owner": "Lexington Area Chamber of Commerce",
+            "type": "",
+            "state": "MO",
+            "citation": "https://example.test/chamber-buys-papers",
+            "detail": "Announced in the Advance in March.",
+        },
+    )
+    assert response.status_code == 302
+
+    member_source.refresh_from_db()
+    assert member_source.owner == "Independent", "proposing must not write"
+
+    proposals = list(ChangeProposal.objects.filter(record_id=member_source.id))
+    assert [p.field for p in proposals] == ["owner"], "only what differs"
+    (owner,) = proposals
+    assert owner.current_value == "Independent"
+    assert owner.proposed_value == "Lexington Area Chamber of Commerce"
+    assert owner.state == ChangeProposal.PENDING
+    assert owner.flag == "reported"
+
+
+def test_a_proposal_names_the_person_and_the_evidence(client, viewer, member_source):
+    """An edit offered to somebody else's dataset is worth what knowing who
+    offered it is worth."""
+    from review.proposals import ChangeProposal
+
+    client.post(
+        f"/manage/sources/{member_source.id}/propose/",
+        {
+            "owner": "Lexington Area Chamber of Commerce",
+            "state": "MO",
+            "citation": "https://example.test/chamber-buys-papers",
+        },
+    )
+    proposal = ChangeProposal.objects.get(record_id=member_source.id)
+    assert proposal.proposed_by == viewer
+    assert proposal.citation == "https://example.test/chamber-buys-papers"
+
+
+def test_a_proposal_without_evidence_is_refused(client, viewer, member_source):
+    """A reviewer deciding on somebody's word needs to see the word."""
+    from review.proposals import ChangeProposal
+
+    response = client.post(
+        f"/manage/sources/{member_source.id}/propose/",
+        {"owner": "Lexington Area Chamber of Commerce", "state": "MO"},
+    )
+    assert response.status_code == 400
+    assert not ChangeProposal.objects.filter(record_id=member_source.id).exists()
+
+
+def test_a_proposal_that_changes_nothing_is_refused(client, viewer, member_source):
+    """An empty proposal is a queue item somebody has to read and dismiss."""
+    from review.proposals import ChangeProposal
+
+    response = client.post(
+        f"/manage/sources/{member_source.id}/propose/",
+        {
+            "canonical_name": "The Lexington News",
+            "owner": "Independent",
+            "state": "MO",
+            "citation": "https://example.test/nothing-changed",
+        },
+    )
+    assert response.status_code == 400
+    assert not ChangeProposal.objects.filter(record_id=member_source.id).exists()
+
+
+def test_the_proposal_lands_in_the_datasets_queue(client, viewer, member_source):
+    """'In their dataset': the proposal carries the dataset the proposer
+    reaches the source through, so it is reviewed by that dataset's people
+    rather than by whoever opens the queue first."""
+    from review.proposals import ChangeProposal
+
+    client.post(
+        f"/manage/sources/{member_source.id}/propose/",
+        {
+            "owner": "Lexington Area Chamber of Commerce",
+            "state": "MO",
+            "citation": "https://example.test/chamber-buys-papers",
+        },
+    )
+    assert ChangeProposal.objects.get(record_id=member_source.id).dataset == "missouri"
+
+
+def test_a_source_outside_the_readable_datasets_cannot_be_proposed_on(
+    client, viewer, crawler_schema
+):
+    """A 404 rather than a 403: telling somebody a record exists but is not
+    theirs says more than the guard is willing to."""
+    other = Source.objects.create(
+        id="s-other", host="elsewhere.example", host_norm="elsewhere.example"
+    )
+    response = client.get(f"/manage/sources/{other.id}/propose/")
+    assert response.status_code == 404
+
+
+def test_a_viewer_reaches_the_form_from_the_publisher_list(
+    client, viewer, member_source
+):
+    """A form nobody can navigate to is not a feature. The dataset admin is
+    an administration surface and stays one; this is the read surface a
+    viewer already has."""
+    page = client.get("/explorer/sources/")
+    assert page.status_code == 200
+    body = page.content.decode()
+    assert "The Lexington News" in body
+    assert f"/manage/sources/{member_source.id}/propose/" in body
+
+
+def test_the_publisher_list_shows_only_readable_datasets(client, viewer, member_source):
+    """The same scoping as everything else: no grant, no record."""
+    Source.objects.create(
+        id="s-hidden",
+        host="hidden.example",
+        host_norm="hidden.example",
+        canonical_name="Not Yours",
+    )
+    body = client.get("/explorer/sources/").content.decode()
+    assert "The Lexington News" in body
+    assert "Not Yours" not in body
