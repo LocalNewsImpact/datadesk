@@ -1545,29 +1545,55 @@ what they made.
 controls are what you reach for when you want to change the thing you are
 looking at.
 
-**What that actually means, concretely:**
+**The shape, taken from Flourish (screenshots reviewed 2026-08-23):**
 
-- **Data first, and visible.** The first thing on screen is the rows, in
-  a table, so the author can see what they are working with. Datawrapper
-  opens on the data and will not let you past it until it parses.
-- **The chart type is a picture, not a dropdown.** A row of thumbnails
-  showing what each one looks like. Someone choosing a chart is choosing
-  a shape, and a `<select>` of names asks them to translate.
-- **Sensible defaults, then direct manipulation.** Pick a type and get a
-  reasonable chart immediately, from the data, with no configuration.
-  Everything after that is adjusting something already on screen — click
-  the axis to change the axis, click a series to recolour it.
-- **Progressive disclosure.** The ninety-one settings do not disappear;
-  they stop being the first thing. Most authors will touch five. The rest
-  live behind "more", per panel, in the order someone actually needs
-  them.
-- **A live preview, not a submitted one.** Today the preview follows a
-  form post. It should follow the control, immediately, so the loop
-  between changing something and seeing it is instant rather than a round
-  trip.
-- **Steps that end in publish.** Data → chart → annotate → publish, with
-  the state of each visible. Datawrapper's four steps are the reason a
-  first-time author finishes.
+**Two tabs, not one page.** `Preview` and `Data`. Half of the ninety-one
+problem is that everything lives on one screen; separating what the chart
+looks like from what it is made of halves it before a single control is
+redesigned.
+
+**Chart type first, from a gallery — or last, after the data.** Flourish
+lets an author start either way, and swap at any point: pick a type and
+then bring data to it, or load data and try types against it to see which
+works. A `<select>` of names cannot do that, because choosing a chart is
+choosing a shape and a list of words asks the author to translate. The
+type is named and versioned at the top of the settings rail ("Projection
+map, v22.1.0"), so it is always clear what is being edited.
+
+**Swapping the type keeps the data and the bindings.** This is what makes
+"try three and see" possible rather than "start again three times", and
+it is the requirement that most constrains the design: column bindings
+have to be expressed in terms the next chart type can also read.
+
+**Columns are bound to roles, visibly.** The Data tab shows the rows as a
+spreadsheet with lettered, type-badged columns, and beside it a short list
+of what the chart needs — ID, Name, Label, Colour by, Group, Info for
+popups. Each is a coloured chip carrying a column letter, and the same
+colour tints that column's header in the grid. So the mapping between
+"this column" and "this role in the chart" is visible in both directions
+at once. **`Auto set columns`** does the obvious assignment in one click,
+which is what makes the first chart appear without configuring anything.
+
+That list — the roles a chart needs — is the honest replacement for most
+of the ninety-one dropdowns. It is short because it is per chart type,
+and it is what the type declares rather than a union of everything any
+type might want.
+
+**Settings grouped by the part of the visual they affect, and collapsed.**
+The right rail is an accordion: Projection, Regions layer, Points layer,
+Region groups layer, Controls, Popups & panels, Search, Legend, Zoom,
+Layout. Grouped by *layer*, not by form-field category, and closed until
+opened. Today's seven fieldsets are all open at once, which is why it
+reads as a wall.
+
+**The chart stays on screen even in the data view.** A live thumbnail sits
+in the corner of the Data tab, so changing a binding shows its effect
+without switching back. Nothing an author does should require them to go
+and look somewhere else to find out what it did.
+
+**Changing focus is a setting, not a rebuild.** State instead of county,
+bar instead of stacked. These are one control on an already-drawn chart,
+which only works if the data and bindings survive the change.
 
 **What this does not change.** The data model is sound and stays:
 `Visual` already separates `source_kind`, `query`, `template`, `config`
@@ -1600,8 +1626,11 @@ either way, and the rendering can stay where it is.
 
 **First step, and it needs no decision:** read the ninety-one controls
 against the renderers and separate the ones a chart genuinely needs from
-the ones that exist because a form was the only way to offer them. That
-list is what the new design is built around.
+the ones that exist because a form was the only way to offer them. Then
+write, per chart type, the short list of roles it needs a column for —
+the ID/Name/Colour-by list. Those two lists are what the new design is
+built around, and the second is what makes swapping a type possible
+without starting again.
 
 **Touches:** `templates/visuals/builder_edit.html` and
 `builder_new.html`, `visuals/builder.py`, the renderers under
