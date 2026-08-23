@@ -1461,6 +1461,73 @@ exist in `review/` and now serve both
 applications' records. Building it twice before the merge would mean merging
 two of them afterwards.
 
+## 19. Production: is the pipeline running, and is it healthy
+
+**Now:** nothing in Datadesk says whether the crawler is running. The
+corpus dashboard counts what exists; the extraction queue lists what needs
+a person. Both describe the result of a pipeline run without describing
+the run. Answering "is it working right now" means opening the GCP
+console, and answering "did last night go well" means reading logs nobody
+has surfaced.
+
+**Wanted:** a **Production** section in the sidebar (item 9's grouped
+headers), carrying:
+
+- status of the extraction and processing jobs, per dataset
+- live logs of current activity
+- warnings and errors picked out of those logs rather than buried in them
+- basic statistics for the current run
+- how many GKE workers are active
+- how many stories sit in each stage of processing, and their disposition
+
+**Where this stops and item 8 starts.** Item 8 is one page per dataset,
+answering "how is this dataset doing" — counts by status, health, cost,
+the review tasks outstanding. This is the operator's view across all of
+them: is anything running, is it failing, how far has it got. They share
+their sources and should share their queries; they answer different
+questions and belong on different pages. Item 8's "current logs for that
+dataset and job" and "workers running" are this item seen through one
+dataset, and should be built once here and reused there.
+
+**Who sees it.** Editors and admins. Not viewers, and the same reasoning
+as cost visibility: production state is a management fact. The open
+question is whether it is a privilege test (`write`, which reviewers also
+hold) or a role test (`editor`/`admin`, the set that already gates
+imports). Recommend the role test — the reason reviewers are excluded
+from imports is that a reviewer's remit is one record at a time, and the
+same argument applies to a page about the machinery.
+
+**What exists to build on, and what does not:**
+
+- **Stage counts and dispositions** — the crawler database has them:
+  `articles` and `candidate_links` carry status, and Datadesk already
+  reads that corpus through `datadesk_ro`. This part needs queries and a
+  page, nothing more.
+- **Run statistics** — `extraction_telemetry_v2` records per-extraction
+  outcomes and is already the source for the extraction views.
+- **Live logs** — Cloud Logging, in the `mizzou-news-crawler` project.
+  Datadesk's runtime service account has no read access there today. That
+  is one IAM grant (`roles/logging.viewer`), and it is the first thing to
+  check rather than assume.
+- **GKE worker counts** — the cluster is `mizzou-cluster`, also in the
+  crawler's project. Reading it needs `roles/container.viewer` on that
+  project, and a client: the Kubernetes API rather than a database. This
+  is the piece with a real dependency, and the one to scope first, because
+  it is the only item on the list that is not a query against something
+  Datadesk can already reach.
+
+**Worth knowing before building:** production is stopped and started
+deliberately and often. A page that reports a stopped pipeline as a
+failure will cry wolf the way the smoke tests did — every liveness figure
+on it needs to distinguish "not running because nobody asked it to" from
+"not running because something broke". The suspended state of the
+cronjobs is the signal that separates them.
+
+**Touches:** the sidebar (`accounts/sections.py`), a new app or a section
+of `explorer/`, the crawler read role, and — for logs and workers — IAM in
+the crawler's project. Item 1 gates the section; item 8 shares its
+queries.
+
 ## Sequence
 
 1. **Item 1** first: items 5 and 6 both need dataset-scoped roles, and
@@ -1511,3 +1578,8 @@ two of them afterwards.
 12. **Item 12 is done**, all three steps. The third — one identity store
     — landed before item 1 as intended, so roles are designed once
     against one user table instead of twice against two.
+19. **Item 19** after item 1, which gates the section, and alongside
+    item 8, which shares its queries. Its worker and log panels want
+    two IAM grants in the crawler's project and should be scoped
+    before the rest is built — everything else on it is a query
+    against a corpus Datadesk already reads.
