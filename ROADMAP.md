@@ -413,12 +413,48 @@ up front.
 **Wanted:** the page frame arrives immediately and the heavy region
 fills in.
 
+### Measured 2026-08-23 — it is the query, and it is one missing index
+
+The article grid's default sort is `publish_date DESC NULLS LAST,
+created_at DESC`. There is **no index on `publish_date`**. Explaining the
+first page against production:
+
+    Limit  (actual time=4491.563..4497.427 rows=50)
+      Buffers: shared hit=4294 read=57496
+      ->  Gather Merge  (Workers Launched: 2)
+            ->  Sort  Sort Key: publish_date DESC NULLS LAST, created_at DESC
+                  Sort Method: top-N heapsort
+
+**4.5 seconds to return fifty rows**, by sequentially scanning all
+164,570 articles and reading 57,496 blocks off disk to sort them. Every
+visit to the grid pays it, and so does every page of it.
+
+This settles the order of the work below. **Deferring the region would
+only move 4.5 seconds behind a spinner**; the frame would arrive fast
+and the data would not. The index is the fix, and it is item 4 in the
+list below rather than item 2.
+
+    CREATE INDEX CONCURRENTLY ix_articles_publish_date_created
+      ON articles (publish_date DESC NULLS LAST, created_at DESC);
+
+Matching the ORDER BY exactly is what makes it usable; 2,352 of the rows
+have a null `publish_date`, so the NULLS LAST is not cosmetic.
+
+**Owned elsewhere.** `articles` lives in the crawler's database, which
+Datadesk reads read-only. The index has to be added by
+`MizzouNewsCrawler`, so this is a request to that repository rather than
+a change here — and worth doing there before any of the work below.
+
+Still to measure the same way: the enrichment grid, the review queue,
+the dashboard and the cost page.
+
 **Approach, cheapest first:**
 
 1. **Measure before changing anything.** Which pages, and is the time in
-   the query, the render, or the payload? The corpus is 164k articles
-   across a shared Cloud SQL instance; a missing index and a slow
-   template look identical from a stopwatch.
+   the query, the render, or the payload? A missing index and a slow
+   template look identical from a stopwatch — as the measurement above
+   shows, where the answer turned out to be neither rendering nor
+   payload.
 2. **Defer the heavy region.** The frame renders with the filters and a
    placeholder; the grid body arrives over htmx, which is already in the
    page. The pattern is the one the articles grid uses for filtering.
