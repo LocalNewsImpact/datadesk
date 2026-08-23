@@ -44,5 +44,8 @@ body.auth-page {
 .auth-card .errorlist { color: var(--tone-bad); font-size: .85rem;
   margin: 0; padding-left: 1.1rem; }
 .auth-card label { font-size: .82rem; color: var(--text-2); }
+/* The way out is a footnote, not a call to action. */
 .auth-foot { font-size: .8rem; color: var(--text-2); }
+.auth-foot a { color: var(--text-2); text-decoration: none; }
+.auth-foot a:hover { color: var(--text); text-decoration: underline; }
 .auth-note { font-size: .82rem; color: var(--text-2); line-height: 1.5; }
