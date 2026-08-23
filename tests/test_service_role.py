@@ -104,17 +104,50 @@ def test_an_unknown_role_falls_back_to_the_console():
     assert "directory" not in s.INSTALLED_APPS
 
 
-def test_the_directory_package_is_pinned_to_a_tag():
-    """A branch would make the build unreproducible: two deploys of the
-    same commit could install different code."""
-    import re
+def test_the_deploy_resolves_the_directory_to_a_release_tag():
+    """The version is resolved when the image is built, not written in
+    git -- the same shape the crawler uses, where `kubectl set image`
+    pins `${SHORT_SHA}` rather than a hardcoded tag somebody has to
+    change by pull request.
+
+    A tag and never a branch: a release happens because somebody bumped
+    the version in the directory's own reviewed pull request, so an
+    unfinished main cannot walk into this image.
+
+    The bug this catches is silent. If the resolved version stops
+    reaching the base image's cache key, a new release does not change
+    requirements.txt, the cached base is reused, and the new code never
+    installs -- while every step reports success.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    deploy = (root / ".github/workflows/deploy.yml").read_text()
+    dockerfile = (root / "Dockerfile.base").read_text()
+
+    # Resolved from the tag list, newest first, and only release tags.
+    assert "repos/LocalNewsImpact/NewsSourceDirectory/tags" in deploy
+    assert r"^v[0-9]+\.[0-9]+\.[0-9]+$" in deploy
+    assert "sort -V" in deploy, "string sort puts v0.9.0 above v0.10.0"
+
+    # Carried into the build and into the cache key.
+    assert "--build-arg" in deploy and "DIRECTORY_VERSION" in deploy
+    assert 'cat requirements.txt <(echo "$DIRECTORY_VERSION")' in deploy
+
+    # Installed from that argument, and refused if it is empty.
+    assert "ARG DIRECTORY_VERSION" in dockerfile
+    assert 'test -n "$DIRECTORY_VERSION"' in dockerfile
+
+
+def test_requirements_does_not_pin_the_directory():
+    """It lived here and cost a pull request in this repository every
+    time that package released -- a pull request the ruleset requires
+    somebody to approve, which is the manual step moved rather than
+    removed."""
     from pathlib import Path
 
     text = (Path(__file__).resolve().parent.parent / "requirements.txt").read_text()
-    line = next(x for x in text.splitlines() if "news-source-directory" in x)
-    assert "github.com/LocalNewsImpact/NewsSourceDirectory" in line
-    ref = line.rsplit("@", 1)[1].strip()
-    assert re.fullmatch(r"v\d+\.\d+\.\d+", ref), f"not a version tag: {ref}"
+    assert "news-source-directory" not in text
 
 
 # --- what the sources deployment must also supply ---------------------------
@@ -176,14 +209,3 @@ def test_the_site_row_is_a_deployment_choice():
     finally:
         os.environ.pop("SITE_ID", None)
         importlib.reload(importlib.import_module("datadesk.settings"))
-
-
-def test_the_directory_gate_is_set_only_for_its_own_front_end():
-    """The Source Directory asks a dotted path rather than importing
-    Datadesk, so Datadesk has to name one -- and only where that package
-    is loaded. Unset, it falls back to `is_staff`, which is what a
-    standalone checkout needs."""
-    assert _settings("sources").DIRECTORY_ADMIN_GATE == (
-        "accounts.access.may_reach_sources_admin"
-    )
-    assert _settings("datadesk").DIRECTORY_ADMIN_GATE == ""

@@ -12,4 +12,3 @@ whitenoise>=6.7
 # to a tag rather than a branch: a moving dependency makes a build
 # unreproducible, and the tag is what `version` in that repository's
 # pyproject declares. Public, so no credential is involved.
-news-source-directory @ git+https://github.com/LocalNewsImpact/NewsSourceDirectory@v0.1.0
