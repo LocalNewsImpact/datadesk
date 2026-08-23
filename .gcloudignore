@@ -1,0 +1,18 @@
+# What `gcloud builds submit` uploads. The build needs the Dockerfiles, the
+# application source and requirements.txt; everything below is either
+# rebuilt in the image, irrelevant to it, or large enough to slow every
+# deploy for nothing.
+.git
+.github
+.venv
+node_modules
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+htmlcov
+.coverage
+docs
+infra
+sources
+*.md

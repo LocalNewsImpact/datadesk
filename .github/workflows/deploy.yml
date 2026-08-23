@@ -1,9 +1,14 @@
 # Runs only on main, after CI has passed and a reviewer has approved — branch
 # protection guarantees both, so this workflow does not re-check them.
 #
-# Ported from NewsSourceDirectory's deploy.yml (the proven shape: dependency
-# image keyed to a requirements hash, migrate before traffic, prove a
-# no-traffic candidate revision, then shift).
+# This workflow decides *whether* to deploy and resolves the versions; the
+# building and the rollout are gcp/cloudbuild/cloudbuild-datadesk.yaml. That
+# split is MizzouNewsCrawler's, adopted so all three repositories keep their
+# deploy logic in one place and one shape.
+#
+# The rollout itself is unchanged and still NewsSourceDirectory's proven
+# shape: dependency image keyed to a requirements hash, migrate before
+# traffic, prove a no-traffic candidate revision, then shift.
 #
 # The Workload Identity provider path contains the GCP project number, which
 # does not exist until infra/bootstrap.sh has run. It therefore lives in the
@@ -73,19 +78,16 @@ jobs:
           gcloud auth list --filter=status:ACTIVE --format='value(account)'
           echo "project: ${PROJECT_ID}"
 
-      # The dependency image is rebuilt only when requirements.txt changes.
-      # Tagging it with a hash of that file makes "has anything changed?" a
-      # registry lookup rather than a guess; an application-only deploy then
-      # pushes a few megabytes instead of reinstalling every library.
-      # The newest released tag of the Source Directory, read from the
-      # public API. That package installs into this image; pinning it in
-      # requirements.txt meant a pull request here every time it released,
-      # and the ruleset requires somebody to approve one -- the manual step
-      # moved rather than removed.
+      # The newest released tag of the Source Directory, read from the API.
+      # That package installs into this image; pinning it in requirements.txt
+      # meant a pull request here every time it released, and the ruleset
+      # requires somebody to approve one -- the manual step moved rather than
+      # removed.
       #
-      # A tag, never a branch: releasing is a version bump in that
-      # repository's own reviewed pull request, so an unfinished main
-      # cannot walk into this image.
+      # Resolved here rather than in the build because Cloud Build has no
+      # token for that repository. A tag, never a branch: releasing is a
+      # version bump in that repository's own reviewed pull request, so an
+      # unfinished main cannot walk into this image.
       - name: Resolve the Source Directory
         id: directory
         env:
@@ -102,224 +104,25 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "installing the Source Directory at $VERSION"
 
-      - name: Dependency image
-        id: base
-        env:
-          DIRECTORY_VERSION: ${{ steps.directory.outputs.version }}
-        run: |
-          # The resolved version is part of the cache key. Without it a new
-          # release would not change requirements.txt, the base image would
-          # be reused, and the new code would never reach the image -- the
-          # failure that is easiest to miss, because everything reports
-          # success.
-          HASH="$(cat requirements.txt <(echo "$DIRECTORY_VERSION") \
-            | sha256sum | cut -c1-12)"
-          BASE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${SERVICE}-base:${HASH}"
-          echo "BASE=$BASE" >> "$GITHUB_ENV"
-          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
-
-          if gcloud artifacts docker images describe "$BASE" >/dev/null 2>&1; then
-            echo "reusing $HASH — dependencies unchanged"
-          else
-            echo "building $HASH — requirements.txt changed"
-            docker build -f Dockerfile.base \
-              --build-arg "DIRECTORY_VERSION=$DIRECTORY_VERSION" \
-              -t "$BASE" .
-            docker push "$BASE"
-          fi
-
-      - name: Build and push the image
-        run: |
-          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${SERVICE}:${GITHUB_SHA::7}"
-          docker build --build-arg "BASE_IMAGE=$BASE" -t "$IMAGE" .
-          docker push "$IMAGE"
-          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
-
-      # Migrations run before traffic shifts, never as a side effect of the
-      # service starting — two revisions racing to migrate is a bad night.
-      - name: Migrate
-        run: |
-          gcloud run jobs deploy "${SERVICE}-release" \
-            --image "$IMAGE" --region "$REGION" --project "$PROJECT_ID" \
-            --command /bin/sh \
-            --args "^|^-c|python manage.py migrate --noinput && python manage.py createcachetable && python manage.py configure_site --domain $ADMIN_HOST" \
-            --set-secrets DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest \
-            --set-env-vars "CLOUD_SQL_CONNECTION_NAME=$SQL_INSTANCE,DB_NAME=datadesk,DB_USER=datadesk" \
-            --set-cloudsql-instances $SQL_INSTANCE \
-            --service-account datadesk-run@lnic-datadesk.iam.gserviceaccount.com
-          gcloud run jobs execute "${SERVICE}-release" \
-            --region "$REGION" --project "$PROJECT_ID" --wait
-
-      # Warming is its own job because it needs the crawler database, which
-      # the release job above has no credentials for. Deployed with every
-      # release so the image stays in step; Cloud Scheduler runs it.
-      - name: Deploy the cache-warming job
-        run: |
-          gcloud run jobs deploy "${SERVICE}-warm" \
-            --image "$IMAGE" --region "$REGION" --project "$PROJECT_ID" \
-            --command /bin/sh \
-            --args "^|^-c|python manage.py warm_caches --force" \
-            --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_DB_PASSWORD=crawler-ro-password:latest" \
-            --set-env-vars "^@^CLOUD_SQL_CONNECTION_NAME=$SQL_INSTANCE@DB_NAME=datadesk@DB_USER=datadesk@CRAWLER_DB_NAME=mizzou@CRAWLER_DB_USER=datadesk_ro" \
-            --set-cloudsql-instances $SQL_INSTANCE \
-            --service-account datadesk-run@lnic-datadesk.iam.gserviceaccount.com
-          gcloud run jobs execute "${SERVICE}-warm" \
-            --region "$REGION" --project "$PROJECT_ID" --wait
-
-      # There is no staging environment. Instead the revision is deployed with
-      # no traffic and proved on its own tagged URL first, so a broken build
-      # never serves a request: if the check below fails, traffic stays put.
-      # The very first deploy is the exception — Cloud Run refuses
-      # --no-traffic when creating a service, so the bootstrap revision
-      # takes traffic directly and the smoke test is its gate.
-      - name: Deploy the revision without traffic
-        run: |
-          if gcloud run services describe "$SERVICE" --region "$REGION" \
-              --project "$PROJECT_ID" >/dev/null 2>&1; then
-            TRAFFIC_FLAGS="--no-traffic --tag=candidate"
-          else
-            echo "first deploy: service does not exist; deploying with traffic"
-            TRAFFIC_FLAGS=""
-          fi
-          gcloud run deploy "$SERVICE" \
-            $TRAFFIC_FLAGS \
-            --image "$IMAGE" --region "$REGION" --project "$PROJECT_ID" \
-            --service-account datadesk-run@lnic-datadesk.iam.gserviceaccount.com \
-            --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_DB_PASSWORD=crawler-ro-password:latest,CRAWLER_RW_DB_PASSWORD=crawler-rw-password:latest,GOOGLE_OAUTH_CLIENT_ID=google-oauth-client-id:latest,GOOGLE_OAUTH_CLIENT_SECRET=google-oauth-client-secret:latest" \
-            --set-env-vars "^@^CLOUD_SQL_CONNECTION_NAME=$SQL_INSTANCE@DB_NAME=datadesk@DB_USER=datadesk@CRAWLER_DB_NAME=mizzou@CRAWLER_DB_USER=datadesk_ro@CRAWLER_RW_DB_USER=datadesk_rw@ALLOWED_AUTH_DOMAINS=localnewsimpact.org@DJANGO_ALLOWED_HOSTS=$ADMIN_HOST,.run.app@DJANGO_CSRF_TRUSTED_ORIGINS=https://$ADMIN_HOST@SESSION_COOKIE_DOMAIN=.localnewsimpact.org" \
-            --set-cloudsql-instances $SQL_INSTANCE \
-            --ingress all --allow-unauthenticated --min-instances 0
-
-      # gcloud reports a failed IAM binding as a warning and still exits zero,
-      # so a deploy can report success while leaving the service unreachable.
-      # That is what the directory's first real deploy did: Domain Restricted
-      # Sharing refused the public invoker binding and every request got a 403
-      # before reaching Django. Check, don't hope.
-      - name: The service is reachable
-        run: |
-          policy="$(gcloud run services get-iam-policy "$SERVICE" \
-                     --region "$REGION" --project "$PROJECT_ID" --format=json)"
-          if ! echo "$policy" | grep -q 'run.invoker'; then
-            echo "::error::No invoker binding — deployed but nobody can reach it."
-            echo "Domain Restricted Sharing blocks this unless the project has an exception."
-            echo "See infra/README.md, 'Public ingress'."
-            exit 1
-          fi
-          echo "invoker binding present"
-
-      - name: Prove the candidate before it serves anyone
-        run: |
-          URL="$(gcloud run services describe "$SERVICE" --region "$REGION" \
-                  --project "$PROJECT_ID" --format=json \
-                  | jq -r '.status.traffic[] | select(.tag == "candidate") | .url // empty')"
-          if [ -z "$URL" ]; then
-            # First deploy: no candidate tag exists; prove the live URL.
-            URL="$(gcloud run services describe "$SERVICE" --region "$REGION" \
-                    --project "$PROJECT_ID" --format='value(status.url)')"
-          fi
-          [ -n "$URL" ] || { echo "::error::no URL to check"; exit 1; }
-          code=""
-          for _ in $(seq 1 10); do
-            code="$(curl -s -o /dev/null -w '%{http_code}' "$URL/_health" || true)"
-            [ "$code" = "200" ] && break
-            sleep 3
-          done
-          echo "candidate $URL/_health -> $code"
-          [ "$code" = "200" ] || { echo "::error::candidate failed its health check; traffic not shifted"; exit 1; }
-
-      - name: Shift traffic to it
-        run: |
-          gcloud run services update-traffic "$SERVICE" \
-            --region "$REGION" --project "$PROJECT_ID" --to-latest
-
-      - name: Smoke test what the public now gets
-        run: |
-          URL="$(gcloud run services describe "$SERVICE" --region "$REGION" \
-                  --project "$PROJECT_ID" --format='value(status.url)')"
-          code="$(curl -s -o /dev/null -w '%{http_code}' "$URL/_health")"
-          echo "$URL/_health -> $code"
-          [ "$code" = "200" ] || { echo "::error::smoke test failed after traffic shift"; exit 1; }
-
-      # --- The Source Directory front end -------------------------------
+      # Building and rolling out both consoles is gcp/cloudbuild/, not steps
+      # here -- the same split MizzouNewsCrawler uses, so all three
+      # repositories keep their deploy logic in one shape and versions travel
+      # as substitutions rather than as edits to a file.
       #
-      # One image, two front ends (ROADMAP item 14). Everything above serves
-      # Datadesk; everything below serves the same image as sources-admin with
-      # SERVICE_ROLE=sources, in a different project.
+      # `builds submit` rather than a trigger: it uploads this checkout, so
+      # the build is of exactly this commit with no repository connection to
+      # configure. A trigger can be layered on later without changing the
+      # config file.
       #
-      # It runs after Datadesk's own rollout is proved, so a bad image is
-      # caught on one console before it reaches the other.
-      #
-      # NewsSourceDirectory no longer deploys or migrates this service — it
-      # ships as a package pinned in requirements.txt, and the version that
-      # serves is whichever tag this image was built with.
-
-      # `migrate directory`, not `migrate`. Both consoles share one ledger in
-      # public.django_migrations, but this job runs with
-      # search_path=directory,public, so an unqualified CREATE TABLE from some
-      # *other* app's unapplied migration would put its table in the directory
-      # schema. Naming the app is what makes that impossible, and it replaces
-      # the router NewsSourceDirectory needed for the same reason.
-      - name: Migrate the Source Directory
+      # The build runs as github-deploy, the identity this workflow already
+      # federates to, which holds run.developer and serviceAccountUser in both
+      # projects. No second identity, and no cross-project grant to keep in
+      # step with this one.
+      - name: Build and deploy
         run: |
-          gcloud run jobs deploy sources-admin-release \
-            --image "$IMAGE" --region "$REGION" --project "$SOURCES_PROJECT" \
-            --command /bin/sh \
-            --args "^|^-c|python manage.py migrate directory --noinput && python manage.py configure_site --domain $SOURCES_HOST && python manage.py check_data" \
-            --set-secrets DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest \
-            --set-env-vars "^@^SERVICE_ROLE=sources@CLOUD_SQL_CONNECTION_NAME=$SQL_INSTANCE@DB_NAME=datadesk@DB_USER=directory@DB_SEARCH_PATH=directory,public@SITE_ID=2" \
-            --set-cloudsql-instances $SQL_INSTANCE \
-            --service-account directory-run@lnic-source-directory.iam.gserviceaccount.com
-          gcloud run jobs execute sources-admin-release \
-            --region "$REGION" --project "$SOURCES_PROJECT" --wait
-
-      - name: Deploy the Source Directory without traffic
-        run: |
-          gcloud run deploy sources-admin \
-            --no-traffic --tag=candidate \
-            --image "$IMAGE" --region "$REGION" --project "$SOURCES_PROJECT" \
-            --service-account directory-run@lnic-source-directory.iam.gserviceaccount.com \
-            --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,GOOGLE_OAUTH_CLIENT_ID=google-oauth-client-id:latest,GOOGLE_OAUTH_CLIENT_SECRET=google-oauth-client-secret:latest" \
-            --set-env-vars "^@^SERVICE_ROLE=sources@CLOUD_SQL_CONNECTION_NAME=$SQL_INSTANCE@DB_NAME=datadesk@DB_USER=directory@DB_SEARCH_PATH=directory,public@SITE_ID=2@ALLOWED_AUTH_DOMAINS=localnewsimpact.org@DJANGO_ALLOWED_HOSTS=$SOURCES_HOST,.run.app@DJANGO_CSRF_TRUSTED_ORIGINS=https://$SOURCES_HOST@SESSION_COOKIE_DOMAIN=.localnewsimpact.org" \
-            --set-cloudsql-instances $SQL_INSTANCE \
-            --ingress all --allow-unauthenticated --min-instances 0
-
-      # Same reason as above: gcloud reports a failed IAM binding as a warning
-      # and exits zero. This check left NewsSourceDirectory with its deploy and
-      # belongs to whoever deploys, which is now here.
-      - name: The Source Directory is reachable
-        run: |
-          policy="$(gcloud run services get-iam-policy sources-admin \
-                     --region "$REGION" --project "$SOURCES_PROJECT" --format=json)"
-          if ! echo "$policy" | grep -q 'run.invoker'; then
-            echo "::error::No invoker binding on sources-admin — deployed but nobody can reach it."
-            exit 1
-          fi
-          echo "invoker binding present"
-
-      - name: Prove the Source Directory candidate
-        run: |
-          URL="$(gcloud run services describe sources-admin --region "$REGION" \
-                  --project "$SOURCES_PROJECT" --format=json \
-                  | jq -r '.status.traffic[] | select(.tag == "candidate") | .url // empty')"
-          [ -n "$URL" ] || { echo "::error::no candidate URL for sources-admin"; exit 1; }
-          code=""
-          for _ in $(seq 1 10); do
-            code="$(curl -s -o /dev/null -w '%{http_code}' "$URL/_health" || true)"
-            [ "$code" = "200" ] && break
-            sleep 3
-          done
-          echo "candidate $URL/_health -> $code"
-          [ "$code" = "200" ] || { echo "::error::sources-admin candidate failed its health check; traffic not shifted"; exit 1; }
-
-      - name: Shift the Source Directory to it
-        run: |
-          gcloud run services update-traffic sources-admin \
-            --region "$REGION" --project "$SOURCES_PROJECT" --to-latest
-
-      - name: Smoke test the Source Directory
-        run: |
-          URL="$(gcloud run services describe sources-admin --region "$REGION" \
-                  --project "$SOURCES_PROJECT" --format='value(status.url)')"
-          code="$(curl -s -o /dev/null -w '%{http_code}' "$URL/_health")"
-          echo "$URL/_health -> $code"
-          [ "$code" = "200" ] || { echo "::error::sources-admin smoke test failed after traffic shift"; exit 1; }
+          gcloud builds submit \
+            --config=gcp/cloudbuild/cloudbuild-datadesk.yaml \
+            --project="$PROJECT_ID" \
+            --region="$REGION" \
+            --service-account="projects/$PROJECT_ID/serviceAccounts/github-deploy@$PROJECT_ID.iam.gserviceaccount.com" \
+            --substitutions="_SHORT_SHA=${GITHUB_SHA::7},_DIRECTORY_VERSION=${{ steps.directory.outputs.version }}"

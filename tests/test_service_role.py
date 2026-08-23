@@ -123,16 +123,24 @@ def test_the_deploy_resolves_the_directory_to_a_release_tag():
 
     root = Path(__file__).resolve().parent.parent
     deploy = (root / ".github/workflows/deploy.yml").read_text()
+    build = (root / "gcp/cloudbuild/cloudbuild-datadesk.yaml").read_text()
     dockerfile = (root / "Dockerfile.base").read_text()
 
-    # Resolved from the tag list, newest first, and only release tags.
+    # Resolved in the workflow, which holds a token for that repository --
+    # from the tag list, newest first, and only release tags.
     assert "repos/LocalNewsImpact/NewsSourceDirectory/tags" in deploy
     assert r"^v[0-9]+\.[0-9]+\.[0-9]+$" in deploy
     assert "sort -V" in deploy, "string sort puts v0.9.0 above v0.10.0"
 
+    # Handed to the build as a substitution, the crawler's mechanism for the
+    # same problem, and refused there if it did not arrive.
+    assert "_DIRECTORY_VERSION=" in deploy
+    assert "_DIRECTORY_VERSION" in build
+    assert 'if [ -z "${_DIRECTORY_VERSION}" ]; then' in build
+
     # Carried into the build and into the cache key.
-    assert "--build-arg" in deploy and "DIRECTORY_VERSION" in deploy
-    assert 'cat requirements.txt <(echo "$DIRECTORY_VERSION")' in deploy
+    assert "--build-arg" in build and "DIRECTORY_VERSION" in build
+    assert 'cat requirements.txt <(echo "${_DIRECTORY_VERSION}")' in build
 
     # Installed from that argument, and refused if it is empty.
     assert "ARG DIRECTORY_VERSION" in dockerfile
