@@ -19,8 +19,11 @@ FROM python:3.11-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 
+# git is here because requirements.txt installs the Source Directory
+# from a git tag and python:slim carries no git. Builder stage only: the
+# runtime image copies /install and never sees it.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends build-essential libpq-dev \
+ && apt-get install -y --no-install-recommends build-essential libpq-dev git \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
