@@ -963,16 +963,22 @@ other owns. Both kinds, now:
    wanted; the tiles are the question. `index.html` counts outlets and
    coverage records, which is a directory dashboard rather than a suite
    one, and it needs to either widen or move behind a heading.
-3. **`templates/account/login.html` exists in both** — a genuine path
-   collision. In the merged world there is one sign-in for one identity,
-   so one of them is deleted rather than namespaced.
+3. ~~**`templates/account/login.html` exists in both.**~~ **Resolves
+   itself.** Datadesk keeps `TEMPLATES["DIRS"]`, which Django searches
+   ahead of every app directory, so its project-level copy wins over the
+   directory's app-level one. Verified below.
 4. **Templates are not in the app.** The directory keeps them at the
    repository root and finds them through `TEMPLATES["DIRS"]`, so they
    would not ship inside a package at all. They have to move to
    `directory/templates/` first.
-5. **Two `SOCIALACCOUNT_ADAPTER`s** — `directory.auth` and
-   `accounts.adapters`, the same rule implemented twice. One process has
-   one. Fold together; item 13 rewrites it anyway.
+5. ~~**Two `SOCIALACCOUNT_ADAPTER`s.**~~ **Not a collision.**
+   `SOCIALACCOUNT_ADAPTER` is a settings value, and settings belong to
+   the project. Nothing inside the `directory` package imports
+   `directory.auth` — only its own `config/settings.py` names it — so a
+   consuming project names its own adapter and the directory's is simply
+   unused. Item 13 still folds the two implementations together, since
+   the same rule written twice will drift; that is a tidiness question
+   rather than a blocker here.
 6. **`ROOT_URLCONF` and `LOGIN_REDIRECT_URL`** differ per front end
    (`/` against `/admin/`), so both move into the `SERVICE_ROLE` switch.
 7. **Build credentials, and only until launch.** Every LNIC repository
@@ -1034,6 +1040,34 @@ all one application suite and should not diverge by accident.
    every render in the process, and the directory's
    `HistoryRequestMiddleware` joins Datadesk's stack. Middleware unions
    cleanly — the directory's list is Datadesk's plus that one entry.
+
+### Verified by installing the package into Datadesk
+
+The wheel was installed into Datadesk's environment and Django started
+with `directory` added to `INSTALLED_APPS`:
+
+| check | result |
+|---|---|
+| `django check` | no issues |
+| app labels | all load; `accounts` and `account` coexist |
+| `admin.site` | 21 models across 7 apps in one registry |
+| migration graph | 53 nodes, consistent |
+| Datadesk's test suite | passes unchanged |
+| `pip check` | no broken requirements |
+
+Template resolution, observed rather than predicted:
+
+| template | resolves to |
+|---|---|
+| `account/login.html` | **Datadesk** — project `DIRS` beats app dirs |
+| `admin/base_site.html` | directory package |
+| `admin/index.html` | directory package |
+| `base_auth.html` | directory package — only the directory uses it |
+
+**The admin templates are the whole of the remaining work.**
+`base_site.html` carries the LNIC bar, which suits a suite-wide admin.
+`index.html` counts outlets and coverage records, which is a directory
+dashboard sitting on an admin that now holds 21 models from 7 apps.
 
 ### Sequence
 
