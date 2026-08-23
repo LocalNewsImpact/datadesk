@@ -1035,7 +1035,80 @@ all one application suite and should not diverge by accident.
    `HistoryRequestMiddleware` joins Datadesk's stack. Middleware unions
    cleanly — the directory's list is Datadesk's plus that one entry.
 
-### Sequence
+### 15. Paywalled sources, and credentials scoped to the person who owns them
+
+**Now:** paywalls are detected and abandoned. `articles.status` carries
+`paywall`, enrichment carries `skip_reason="paywall_stub"`, and 968
+March articles are teasers or login walls stored as though they were
+text. Nothing gets past one.
+
+**Wanted:**
+
+- A source can be marked **paywalled**, per dataset, from the source
+  list.
+- A review queue task collects credentials for a paywalled source.
+- A credential is **usable only by the account that entered it**, so one
+  publication may hold several — one per subscriber — and which is used
+  depends on who triggered the crawl.
+
+**Why the per-user restriction is a requirement rather than a
+preference.** Most publisher terms forbid sharing a subscription, and a
+consortium-wide login used by a crawler is the clearest possible breach
+of them. Binding a credential to the person whose subscription it is
+keeps every authenticated fetch attributable to a subscriber who is
+entitled to make it. It is the design that makes the feature defensible,
+not a hardening detail to add later.
+
+### Two existing paths would leak these, and neither may be used
+
+- **The audit log stores values verbatim.** `AuditLogEntry.before` and
+  `.after` are `JSONField`s holding the old and new value of every
+  audited write. A credential written through `audited_update` lands in
+  the audit table in plaintext, permanently, by design — the audit log
+  is append-only and never edited.
+- **The review queue stores values verbatim.** `ChangeProposal`
+  carries `current_value`, `proposed_value` and `final_value` as plain
+  text, and the queue renders them on screen and into CSV exports.
+
+So credentials never travel through either. The queue task holds a
+*reference* — a source, a user, and the id of a secret — and the secret
+itself lives in Secret Manager or under a KMS envelope, written once and
+never read back into Datadesk. What the queue shows is whether a
+credential exists, who owns it, and whether it last worked.
+
+### Decide before building
+
+- **A nightly crawl has no triggering user.** Scheduled runs are the
+  normal case and they are exactly what has no `request.user`. Either
+  paywalled sources are skipped on unattended runs, or each carries a
+  nominated owner whose credential the schedule uses, or a job records a
+  "run as" identity. This is the central question: without an answer the
+  feature works only for manually triggered crawls.
+- **Is `paywalled` a property of the source or of the pair?** A paywall
+  belongs to the publication, not to a dataset's view of it. Per dataset
+  makes sense if datasets crawl the same publication to different
+  depths; otherwise the flag belongs on the source and the checkbox
+  merely lives in the dataset's source list.
+- **Second factors and CAPTCHAs.** Many paywalls now require one. A
+  stored username and password may simply not be able to sign in, and
+  no amount of credential plumbing fixes that. Worth testing against
+  two or three real targets before building the store.
+
+### Touches
+
+`explorer.models.Source` and `DatasetSource` for the flag; a new
+credential-reference model; the review queue's flag vocabulary
+(`REVIEW.md`) for "paywalled, no credential" and "credential stopped
+working"; the write boundary in `review/services.py`, which must refuse
+these fields outright; the export column list, likewise; and the
+crawler, which holds the Selenium session that would use them —
+`selenium-stealth` is already a dependency there.
+
+**Wants item 1 first.** A credential is the sharpest case of
+per-user scoping in the suite, and it should be built on the grant model
+rather than inventing a second notion of who may do what.
+
+## Sequence
 
 1. Move the directory's root `templates/` into `directory/templates/`
    and drop the `DIRS` entry, so they travel with the app.
@@ -1094,6 +1167,9 @@ list makes it cheaper by waiting.
     two.
 13. **Item 13** after item 1. Adding people from outside the organisation
     and having no per-dataset scoping is the combination to avoid.
+15. **Item 15** after item 1, and not before the unattended-crawl
+    question is answered — a credential feature that only works when a
+    person is watching is not the feature.
 14. **Item 14 is decided and goes first**, before items 1 and 13. It
     costs nothing in data and everything in timing: two users and five
     migrations today, a people-facing migration once roles and outside
