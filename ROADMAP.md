@@ -126,22 +126,31 @@ still records the actor).
 **Who sees a visual, and who may change it, decided 2026-08-23.** Two
 questions, not one.
 
-*Seeing.* A **published** visual is visible to anyone signed in. It is
-already public at its embed and in the bucket it is exported to, so
-hiding it in the admin protects nothing and only makes it hard to find.
-A **draft** is visible to its author, to the owner of any dataset it is
-wired to, and to an admin.
+*Seeing* follows dataset access, and for a plainer reason than
+permission: the admin never puts somebody in front of a dataset they do
+not hold, so a visual drawn from it is not something they would be
+looking at. Visible if they can **read** a dataset it is wired to, or
+they made it, or they are an admin.
 
-*Acting* — editing, refreshing, publishing — needs one of those three
-regardless of status. Holding `design` says somebody builds visuals; it
-does not say they build *this* one, so seeing a published visual is never
-permission to change it.
+**Publishing does not widen that.** A published visual is public at its
+embed and in the bucket it is exported to — a different surface, reached
+without signing in at all. Publishing does not put another team's dataset
+into somebody's console.
+
+*Acting* — editing, refreshing, publishing — is narrower: they made it,
+they **own** a dataset it is wired to, or they are an admin. Holding
+`design` says somebody builds visuals; it does not say they build *this*
+one. Owning is `write` on the dataset, so a viewer sees a dataset's
+visuals and changes none of them.
 
 A union, not an intersection. Requiring access to every dataset a visual
-draws on would hide a cross-dataset chart from every one of the owners
-who contributed to it. "Owns" is `write` on the dataset — the editor who
-started it; a viewer on a dataset does not get its drafts, because seeing
-the data and being answerable for unfinished work are different things.
+draws on would hide a cross-dataset chart from every one of the
+contributors.
+
+Putting the rule on dataset access rather than on the visual's status is
+what makes item 10's public-dataset flag widen this for free when it
+exists: a public dataset becomes readable, and its visuals become
+visible, with nothing here to change.
 
 This is also what revocation looks like in practice: the author keeps
 seeing their published visual exactly as any viewer does, and can no

@@ -52,33 +52,49 @@ def may_act_on(user, visual):
 def visible_to(user, visual):
     """May this person see this visual inside Datadesk?
 
-    **A published visual is visible to anyone signed in.** It is already
-    public at its embed and in the bucket it is exported to, so hiding it
-    in the admin protects nothing and only makes it hard to find.
+    Visibility in the admin follows dataset access, and does so for a
+    plainer reason than permission: the admin never puts somebody in front
+    of a dataset they do not hold, so a visual drawn from that dataset is
+    not something they would be looking at in the first place.
 
-    A *draft* is narrower. Four ways in, and any one is enough
-    (ROADMAP item 1):
+    Three ways in, any one enough (ROADMAP item 1):
 
-    - it is published
+    - they can read a dataset it is wired to
     - they made it
-    - they own a dataset it is wired to
     - they are an application admin
 
-    A union, not an intersection. Requiring access to every dataset a
+    A union, not an intersection. Requiring access to *every* dataset a
     visual draws on would hide a cross-dataset chart from every one of the
-    owners who contributed to it, which is the opposite of what a shared
-    corpus is for.
+    contributors, which is the opposite of what a shared corpus is for.
 
-    "Owns" means holds `write` on the dataset -- an editor, the person who
-    started it. A viewer on a dataset does not see *drafts* built from it;
-    seeing the data and being answerable for unfinished work are different
-    things.
+    **Published does not widen this.** A published visual is public at its
+    embed and in the bucket it is exported to -- that is a different
+    surface, reached without signing in at all. The admin stays scoped to
+    what somebody works with; publishing does not put another team's
+    dataset into their console.
+
+    A dataset's public flag (ROADMAP item 10) is what will widen "can
+    read" when it exists, and it widens it here for free -- which is the
+    point of putting the rule on dataset access rather than on the
+    visual's status.
     """
+    from accounts.access import ALL_SCOPES, is_application_admin, permitted_scopes
+    from accounts.decorators import APP
+    from accounts.privileges import READ
+
     if not user.is_authenticated:
         return False
-    if visual.status == visual.PUBLISHED:
+    if is_application_admin(user, APP):
         return True
-    return may_act_on(user, visual)
+    if visual.created_by_id == user.pk:
+        return True
+    wired = set(visual.datasets or ())
+    if not wired:
+        return False
+    readable = permitted_scopes(user, APP, READ)
+    if readable is ALL_SCOPES:
+        return True
+    return bool(wired & set(readable))
 
 
 def scopes_of(visual):
