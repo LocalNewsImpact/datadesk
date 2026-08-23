@@ -116,10 +116,14 @@ class ChangeProposal(models.Model):
 
     @property
     def actionable(self):
-        """Can a reviewer decide this here?
+        """Every flagged field is decidable.
 
-        A file that contradicts itself offers nothing safe to accept:
-        which of its values was meant is a question for whoever wrote
-        it, not a guess to make in a queue.
+        There was a category here for "a file contradicts itself", held
+        back from the queue on the grounds that no value was safe to
+        accept. That confused two things: not knowing which value to
+        propose, which is ordinary and handled by leaving the proposed
+        column empty, and the reviewer not being able to answer, which
+        was never true — Keep and Fix always apply, and the person
+        reading the record usually knows exactly which value is meant.
         """
-        return self.flag != "evidence_conflict"
+        return True

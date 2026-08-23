@@ -244,13 +244,10 @@ class Command(BaseCommand):
                         else "value_disputed"
                     ),
                     "field": field,
-                    "detail": (
-                        f"{candidate['origin']} says {value}; the record says "
-                        f"{current or 'nothing'}"
-                    ),
+                    "detail": self._evidence_detail(candidate, current),
                     "current_value": current,
                     "proposed_value": value,
-                    "suggestion": f"from {candidate['origin']}",
+                    "suggestion": "",
                     "origin": candidate["origin"],
                 }
             )
@@ -273,32 +270,60 @@ class Command(BaseCommand):
             return canonical_owner(value, context["owners"])[1] != "unknown"
         return True
 
+    @staticmethod
+    def _evidence_detail(candidate, current):
+        """What the file said, in one sentence a person can act on."""
+        origin = candidate["origin"]
+        held = (
+            f"the record says \u201c{current}\u201d"
+            if current
+            else ("the record has no value")
+        )
+        found = candidate.get("candidates") or [candidate.get("value", "")]
+        if len(found) > 1:
+            listed = " and ".join(f"\u201c{v}\u201d" for v in found)
+            return (
+                f"{origin} gives more than one value here — {listed} — "
+                f"so neither is proposed; {held}"
+            )
+        return f"{origin} says \u201c{found[0]}\u201d; {held}"
+
     def _evidence(self, options):
-        """Candidate values from a file, keyed by (host, field)."""
+        """Candidate values from a file, keyed by (host, field).
+
+        Every distinct value is kept, not the last row's. Two rows for
+        one host is ordinary — a section of a paper shares its parent's
+        domain — and says nothing about whether the file disagrees with
+        itself. Only two different values for the *same field* do, and
+        even then the reviewer can decide: the candidates are named and
+        neither is proposed.
+        """
         if not options["evidence"]:
             return {}
         text = self._read(options["evidence"])
         rows = list(csv.DictReader(io.StringIO(text)))
         name = options["evidence_name"]
-        seen = collections.Counter(
-            (r.get("host_norm") or "").strip().lower() for r in rows
-        )
-        out = {}
+
+        values = collections.defaultdict(list)
         for row in rows:
             host = (row.get("host_norm") or "").strip().lower()
             if not host:
                 continue
             for field in EVIDENCE_FIELDS:
                 value = (row.get(field) or "").strip()
-                if not value:
-                    continue
-                out[(host, field)] = {
-                    "value": value,
-                    "origin": name,
-                    "conflicting": seen[host] > 1,
-                    "note": f"from {name}",
-                }
-        return out
+                if value and value not in values[(host, field)]:
+                    values[(host, field)].append(value)
+
+        return {
+            key: {
+                "value": found[0] if len(found) == 1 else "",
+                "candidates": found,
+                "origin": name,
+                "conflicting": len(found) > 1,
+                "note": f"from {name}",
+            }
+            for key, found in values.items()
+        }
 
     def _read(self, path):
         if path.startswith("gs://"):

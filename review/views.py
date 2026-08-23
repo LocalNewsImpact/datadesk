@@ -418,13 +418,10 @@ def _proposal_groups(proposals):
                 "dataset": p.dataset,
                 "origin": p.origin,
                 "fields": [],
-                "blocked": [],
             },
         )
-        (g["fields"] if p.actionable else g["blocked"]).append(p)
-    for g in groups.values():
-        g["actionable"] = bool(g["fields"])
-    return sorted(groups.values(), key=lambda g: (not g["actionable"], g["label"]))
+        g["fields"].append(p)
+    return sorted(groups.values(), key=lambda g: g["label"])
 
 
 @editor_required
