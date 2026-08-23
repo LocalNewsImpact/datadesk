@@ -882,27 +882,48 @@ included. But a publisher record is not inside one dataset — the same
 outlet sits in several, and an edit made by one owner would silently
 rewrite what the others see. Two rules follow.
 
-**An edit to a shared publisher is a proposal to the other datasets that
-hold it.** The owner making the change sees it applied in their own
-dataset immediately; every other dataset holding that publisher gets a
-proposal its own owner accepts or rejects. Nobody's dataset changes
-underneath them, and nobody has to ask permission to fix their own.
+**Do not version the publisher. Split its fields by who owns the truth.**
 
-This is the shape item 6 already builds — a proposal is an audit entry
-before it is applied — so the machinery is shared rather than invented
-twice. What differs is who it is addressed to: item 6's proposals come
-from an import, these come from another dataset's owner.
+An earlier draft of this said an edit becomes a proposal to the other
+dataset owners, each accepting or rejecting in their own dataset. That
+forks the record: one dataset says "Daily Star", another says "The Daily
+Star", and now every publisher needs a version per dataset and a rule for
+which one the public sees. The way out is not to manage the fork better,
+it is not to create it.
 
-**Datasets carry a public flag, and it is what makes any of this
-meaningful.** A public dataset exposes basic publisher information to any
-viewer: who the outlet is, where it is, what medium. Without it, datasets
-are isolated — an editor cannot see that the outlet they are editing also
-appears elsewhere, no proposal has an audience, and reconciliation is a
-mechanism with nothing to reconcile.
+There are three kinds of fact wearing one name:
 
-So the flag is not a nicety bolted on for sharing. It is the thing that
-turns a set of private corpora into one directory with several views of
-it, which is what this item is called.
+| | Lives on | Who decides | Copies |
+|---|---|---|---|
+| **Identity** — name, domain, city, county, medium, owner, state, founded and closed dates | the directory's outlet | the directory, via proposals | one, always |
+| **Dataset-scoped** — whether this outlet is in scope for *my* study, my notes, my classification of it | the membership row (`dataset_sources`) | that dataset's owner alone | one per dataset, and they never compete |
+| **Curation state** — `needs_review`, `review_note`, `is_published` | the directory's outlet | directory curators | not a dataset's business |
+
+An editor correcting a name is proposing a fix to **the directory** — one
+recipient, not one per dataset that happens to hold the outlet. The other
+owners accept nothing, because they never had their own copy to
+reconcile. An owner who disagrees with the directory's value either
+persuades it or records their own view on their membership row; what they
+cannot do is fork the outlet.
+
+`dataset_sources` is `id, dataset_id, source_id` and two legacy columns
+today — the place for dataset-scoped facts exists and is empty, which is
+why this costs a column rather than a redesign.
+
+Item 6's proposal machinery still applies, unchanged: a proposal is an
+audit entry before it is applied. Only the address changes, and it
+changes to something simpler than the draft had.
+
+**The public flag exposes membership, not a second copy of anything.**
+Once identity lives in one place, a public dataset is saying one thing:
+*this outlet is in this study*. Who the outlet is was never private — it
+is the directory's, and the directory is the shared record. So there is
+no owner version and no public version to keep in step, because the
+shared half has a single copy and the private half is never shared.
+
+That is what the flag is worth. Without it an editor cannot see that the
+outlet they are correcting also appears elsewhere, and a corpus that
+nobody can see the shape of is not a directory.
 
 **What has to be decided when this is built:**
 
@@ -910,9 +931,9 @@ it, which is what this item is called.
   county, medium and owner are the obvious set — the directory's own
   columns. Coverage records, review notes and data-quality issues are
   editorial and are not.
-- Whether a public dataset exposes its *membership* — that this outlet is
-  in that dataset — or only the outlet. Membership is how somebody knows
-  who to send a proposal to, so probably yes, but it also says what
+- Whether membership is public at the level of the dataset or the
+  outlet. "This outlet is studied by somebody" and "this outlet is in
+  the Missouri set" are different disclosures, and the second says what
   another team is researching.
 - Whether a rejected proposal is remembered. Rejecting the same change
   three times because three datasets keep proposing it is the failure to
