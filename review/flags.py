@@ -209,6 +209,16 @@ EVIDENCE_FLAGS = (
         check=None,
     ),
     Flag(
+        key="no_match",
+        label="A publisher we do not have",
+        defect=(
+            "Somebody reports an outlet the corpus has no record of. Nothing "
+            "is changed by accepting it -- a record is created."
+        ),
+        field="",
+        check=None,
+    ),
+    Flag(
         key="reported",
         label="Somebody reported a change",
         defect=(

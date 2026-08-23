@@ -806,3 +806,155 @@ def test_a_proposal_already_offering_a_value_is_left_alone(
     )
     row.refresh_from_db()
     assert row.proposed_value == "Example Media"
+
+
+# --- publishers the corpus has never heard of --------------------------------
+#
+# An ordinary proposal names a record and changes a field on it. These name
+# none: the proposal is that the record should exist, and accepting it is
+# what creates one.
+
+
+def _reported_publisher(user, dataset="", **overrides):
+    import uuid
+
+    from review.proposals import ChangeProposal
+
+    fields = {
+        "canonical_name": "The Santa Fe Times",
+        "host": "santafetimes.example",
+        "city": "Alma",
+        "county": "Lafayette",
+        "state": "MO",
+        "owner": "Lexington Area Chamber of Commerce",
+    }
+    fields.update(overrides)
+    submission = uuid.uuid4()
+    ChangeProposal.objects.bulk_create(
+        [
+            ChangeProposal(
+                target="sources",
+                record_id="",
+                submission=submission,
+                record_label=fields["canonical_name"],
+                field=field,
+                proposed_value=value,
+                flag="no_match",
+                origin="reported",
+                dataset=dataset,
+                citation="https://example.test/chamber",
+                proposed_by=user,
+            )
+            for field, value in fields.items()
+        ]
+    )
+    return submission
+
+
+def test_two_reported_publishers_are_two_decisions(client, editor, crawler_schema):
+    """Both have an empty record_id. Grouping on that would collapse every
+    pending publisher in the queue into one row."""
+    _reported_publisher(editor)
+    _reported_publisher(editor, canonical_name="The Odessan", host="odessan.example")
+    body = client.get("/review/proposals/").content.decode()
+    assert "The Santa Fe Times" in body
+    assert "The Odessan" in body
+
+
+def test_accepting_a_reported_publisher_creates_the_record(
+    client, editor, crawler_schema
+):
+    from explorer.models import Source
+    from review.proposals import ChangeProposal
+
+    _reported_publisher(editor)
+    decisions = {
+        f"d-{p.pk}": "accept"
+        for p in ChangeProposal.objects.filter(state=ChangeProposal.PENDING)
+    }
+    client.post("/review/proposals/", decisions)
+
+    source = Source.objects.get(host_norm="santafetimes.example")
+    assert source.canonical_name == "The Santa Fe Times"
+    assert source.owner == "Lexington Area Chamber of Commerce"
+    assert source.county == "Lafayette"
+    assert (source.meta or {}).get("state") == "MO"
+
+
+def test_rejecting_the_host_rejects_the_publisher(client, editor, crawler_schema):
+    """The host is the record's only unique column and the crawler's only way
+    in. Without it there is nothing to create."""
+    from explorer.models import Source
+    from review.proposals import ChangeProposal
+
+    _reported_publisher(editor)
+    decisions = {}
+    for p in ChangeProposal.objects.filter(state=ChangeProposal.PENDING):
+        decisions[f"d-{p.pk}"] = "reject" if p.field == "host" else "accept"
+    client.post("/review/proposals/", decisions)
+
+    assert not Source.objects.filter(canonical_name="The Santa Fe Times").exists()
+
+
+def test_a_reported_publisher_joins_the_dataset_it_was_reviewed_in(
+    client, editor, crawler_schema
+):
+    """Accepted and orphaned is not much better than not accepted."""
+    from explorer.models import Dataset, DatasetSource, Source
+    from review.proposals import ChangeProposal
+
+    dataset = Dataset.objects.create(id="d-lex", slug="missouri", label="Missouri")
+    _reported_publisher(editor, dataset=dataset.slug)
+    client.post(
+        "/review/proposals/",
+        {
+            f"d-{p.pk}": "accept"
+            for p in ChangeProposal.objects.filter(state=ChangeProposal.PENDING)
+        },
+    )
+    source = Source.objects.get(host_norm="santafetimes.example")
+    assert DatasetSource.objects.filter(dataset=dataset, source=source).exists()
+
+
+def test_a_host_already_taken_is_refused_not_duplicated(client, editor, crawler_schema):
+    """The reviewer wanting this publisher already has it; the change belongs
+    on the record that exists."""
+    from explorer.models import Source
+    from review.proposals import ChangeProposal
+
+    Source.objects.create(
+        id="s-existing",
+        host="santafetimes.example",
+        host_norm="santafetimes.example",
+        canonical_name="Santa Fe Times",
+    )
+    _reported_publisher(editor)
+    client.post(
+        "/review/proposals/",
+        {
+            f"d-{p.pk}": "accept"
+            for p in ChangeProposal.objects.filter(state=ChangeProposal.PENDING)
+        },
+    )
+    assert Source.objects.filter(host_norm="santafetimes.example").count() == 1
+
+
+def test_a_reviewer_can_correct_a_field_while_accepting_the_publisher(
+    client, editor, crawler_schema
+):
+    """Fix applies to a create exactly as it does to a change."""
+    from explorer.models import Source
+    from review.proposals import ChangeProposal
+
+    _reported_publisher(editor)
+    decisions = {}
+    for p in ChangeProposal.objects.filter(state=ChangeProposal.PENDING):
+        if p.field == "owner":
+            decisions[f"d-{p.pk}"] = "fix"
+            decisions[f"v-{p.pk}"] = "Lexington Area Chamber of Commerce, Inc."
+        else:
+            decisions[f"d-{p.pk}"] = "accept"
+    client.post("/review/proposals/", decisions)
+
+    source = Source.objects.get(host_norm="santafetimes.example")
+    assert source.owner == "Lexington Area Chamber of Commerce, Inc."

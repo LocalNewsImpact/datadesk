@@ -38,6 +38,11 @@
         <h2>{{ group.label }}</h2>
         <span class="rec-src">{{ group.origin }}</span>
       </header>
+        {% if group.creates_a_record %}
+        <p class="notice">This publisher has no record. Accepting these fields
+        creates one; rejecting the host rejects the publisher, because a source
+        without one cannot be crawled.</p>
+        {% endif %}
         {% if group.reported_by %}
         <p class="notice">Reported by {{ group.reported_by }}{% if group.citation %} — {{ group.citation }}{% endif %}</p>
         {% endif %}

@@ -11,6 +11,7 @@
   <form method="get" class="action-bar">
     <label>Name <input type="text" name="q" value="{{ q }}" placeholder="The Higginsville Advance"></label>
     <button type="submit">Search</button>
+    <a class="button" href="{% url 'datasets:source_propose_new' %}">Report one we do not have</a>
   </form>
 
   <table class="rec-table">

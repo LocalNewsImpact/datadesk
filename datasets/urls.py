@@ -11,6 +11,11 @@ urlpatterns = [
     path("datasets/new/", views.dataset_create, name="create"),
     path("datasets/<slug:slug>/", views.dataset_detail, name="detail"),
     path("sources/new/", views.source_create, name="source_create"),
+    path(
+        "sources/propose-new/",
+        views.source_propose_new,
+        name="source_propose_new",
+    ),
     path("sources/<str:source_id>/", views.source_edit, name="source_edit"),
     path(
         "sources/<str:source_id>/propose/",

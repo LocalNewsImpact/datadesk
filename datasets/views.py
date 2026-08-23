@@ -455,3 +455,87 @@ def source_propose(request, source_id):
         return redirect("datasets:list")
 
     return render(request, "datasets/source_propose.html", context)
+
+
+@requires(READ)
+def source_propose_new(request):
+    """Report a publisher the corpus has never heard of.
+
+    The other propose form changes a record that exists. This one is the
+    proposal that a record should exist at all: it writes fields with no
+    record_id, and accepting them in the queue is what creates the source.
+
+    Open to read for the same reason as the other: somebody who can see a
+    dataset is usually the person who notices a paper missing from it.
+    """
+    from explorer.scoping import datasets_for
+
+    FIELDS = ("canonical_name", "host", "city", "county", "state", "owner", "type")
+    context = {
+        "values": {},
+        "errors": [],
+        "datasets": datasets_for(request.user, READ),
+    }
+
+    if request.method == "POST":
+        import uuid as _uuid
+
+        from review.proposals import ChangeProposal
+
+        values = {f: (request.POST.get(f) or "").strip() for f in FIELDS}
+        values["host"] = values["host"].lower()
+        values["state"] = values["state"].upper()
+        citation = (request.POST.get("citation") or "").strip()
+        slug = (request.POST.get("dataset") or "").strip()
+
+        errors = []
+        if not values["host"]:
+            errors.append("A host is required — it is how the crawler reaches it.")
+        elif Source.objects.filter(host_norm=values["host"]).exists():
+            errors.append(
+                f"A record for {values['host']} already exists. Propose a change "
+                "to it instead of a new publisher."
+            )
+        if not values["canonical_name"]:
+            errors.append("A name is required.")
+        if not citation:
+            errors.append("Say where this came from — a URL, a filing, a call.")
+        if slug and not datasets_for(request.user, READ).filter(slug=slug).exists():
+            errors.append("That is not a dataset you can see.")
+
+        if errors:
+            context["errors"] = errors
+            context["values"] = values
+            context["citation"] = citation
+            return render(
+                request, "datasets/source_propose_new.html", context, status=400
+            )
+
+        # One submission, so the queue groups these into a single decision
+        # rather than seven unrelated rows sharing an empty record id.
+        submission = _uuid.uuid4()
+        ChangeProposal.objects.bulk_create(
+            [
+                ChangeProposal(
+                    target="sources",
+                    record_id="",
+                    submission=submission,
+                    record_label=values["canonical_name"],
+                    field=field,
+                    current_value="",
+                    proposed_value=value,
+                    flag="no_match",
+                    origin="reported",
+                    dataset=slug,
+                    citation=citation,
+                    proposed_by=request.user,
+                    detail=(request.POST.get("detail") or "").strip(),
+                    state=ChangeProposal.PENDING,
+                )
+                for field, value in values.items()
+                if value
+            ]
+        )
+        return redirect("explorer:sources")
+
+    return render(request, "datasets/source_propose_new.html", context)
