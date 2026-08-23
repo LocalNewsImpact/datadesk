@@ -11,7 +11,10 @@ The head matches base.html so the typefaces and stylesheet are the same.
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block head_title %}Sign in{% endblock %} — Datadesk</title>
+  {# One account signs in to every console in the suite, and this page is
+     served on each of their hostnames, so it names the suite rather than
+     whichever console the reader happened to arrive at. #}
+  <title>{% block head_title %}Sign in{% endblock %} — Local News Impact Consortium</title>
   <link rel="preload" as="font" type="font/woff2" crossorigin
         href="{% static 'fonts/ibm-plex-sans-400-latin.woff2' %}">
   <link rel="preload" as="font" type="font/woff2" crossorigin
@@ -24,10 +27,10 @@ The head matches base.html so the typefaces and stylesheet are the same.
 <body class="auth-page">
   <main class="auth-shell">
     <div class="auth-card">
-      <p class="auth-brand">Datadesk</p>
+      <p class="auth-brand">Local News Impact Consortium</p>
       {% block content %}{% endblock %}
     </div>
-    <p class="auth-foot">Console for LNIC research data.</p>
+    <p class="auth-foot">Consoles for LNIC research data.</p>
   </main>
   {% block extra_body %}{% endblock %}
 </body>
