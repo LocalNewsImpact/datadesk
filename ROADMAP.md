@@ -1545,6 +1545,64 @@ what they made.
 controls are what you reach for when you want to change the thing you are
 looking at.
 
+**The UI is the deliverable. Chart coverage is not.** A v1 with six chart
+types and an editor someone can use is a success; a v1 with twenty types
+behind the current wall is the same failure at greater cost. Everything
+below is scoped to that: enough types and dimensions to be genuinely
+useful and to exercise the interface across the shapes it has to handle,
+and no more.
+
+**Which means one architectural requirement outranks the rest.** Adding a
+chart type afterwards must cost a declaration and a renderer — the list
+of roles it needs a column for, and the code that draws it — and nothing
+else. No new editor screen, no new settings panel written by hand, no
+change to the pivot. If adding the eighth type means touching the
+builder, the design is wrong and v1 is the moment to find out, not the
+twentieth type.
+
+**A v1 set that covers the shapes:**
+
+| Type | Shape it exercises | Available |
+|---|---|---|
+| Bar | one dimension, one measure | today |
+| Stacked bar | two dimensions, one measure | today |
+| Table | the pivot's own output, rendered plainly | today |
+| Radar | two dimensions again, drawn differently | today |
+| Choropleth map | a geographic dimension | today |
+| Dot map | points with coordinates | today |
+
+Six types, five distinct shapes, and every one of them runs on
+`run_spec()` or `run_story_map()` as they already exist. Nothing on this
+list waits for the pivot to change.
+
+Bar, stacked, table and radar deliberately share one shape. That is the
+point rather than an accident: they are what proves the type can be
+swapped with the data and bindings intact, which is the interaction that
+makes the tool feel like a tool. If those four swap cleanly, the design
+holds.
+
+**Deferred to v2, with the reason:** chord needs a pair query beside
+`run_spec()`, and scatter needs the spec to carry two measures. Both are
+contained pieces of work and both are wanted; neither should hold up an
+editor, and neither teaches us anything about the interface that the six
+above do not.
+
+**A v1 set of channels.** Not all twenty-three dimensions — enough to ask
+real questions:
+
+- **Story** — dataset, CIN primary, user need, status, month, year
+- **Publisher** — publisher, owner, medium
+- **Place** — publisher county, story county, state
+- **Measures** — articles, publishers, cost summed
+
+Owner and medium come from the directory and do not exist as dimensions
+yet; they are the two most worth adding, because ownership and platform
+are the questions this corpus can newly answer since item 14 and the
+directory has them clean.
+
+The rest of the twenty-three stay available to the pivot and simply are
+not offered in the picker until someone wants them. Adding one is a row.
+
 **The screenshots are examples of a pattern, not a specification.** What
 they show is the shape of the task — pick a form, get data into it, see
 the result immediately, refine, publish — and the shape is right. The
@@ -1589,6 +1647,105 @@ and is already correct.
    because neither knows what the data means.
 4. **Refine, annotate, lay out.**
 5. **Publish and embed.**
+
+**The chart types wanted, and what each needs from the pivot.** These are
+examples rather than a closed list, but they are enough to size the work,
+and four of the seven need something that does not exist yet.
+
+| Wanted | Shape | Status |
+|---|---|---|
+| Choropleth map | 1 geographic dimension + 1 measure | **Works today.** `geo_state`, `geo_county`, `geo_place`, `publisher_county` |
+| Dot map | points with coordinates | **Works today.** `run_story_map()` already returns `points` and `areas` |
+| Stacked chart — CIN by publisher or county | 2 dimensions + 1 measure | **Works today.** `cin_primary` × `publisher` or × `geo_county` |
+| Radar — CIN across counties or publishers | 2 dimensions + 1 measure | **Works today.** Same shape as the stacked chart, drawn differently — entity on one axis, CIN values around the other |
+| Bar — bylines by platform type | 1 dimension + 1 measure | **Two dimensions missing**, data present |
+| Chord — CIN to CIN, or user need to user need | pairs, not groups | **New query shape** |
+| Scatter | 1 dimension + **2** measures | **The pivot takes one measure** |
+| Table of raw rows | rows, not aggregates | **Conflicts with the design** — see below |
+
+**Bylines and platform type: the columns exist, the dimensions do not.**
+`Article.author` is the byline. For platform type there are two candidates
+and they are not equal — see below. Adding a dimension is a row each in
+`corpus.py`, and it is the cheapest thing on this list.
+
+**Three places hold this data, and since item 14 they are one database.**
+The pivot reads the crawler corpus today. It no longer has to.
+
+- **The crawler's articles** — the measures and everything about a story:
+  CIN codings, confidence, cost, status, wire, dates, the geographies.
+- **The crawler's `sources`** — host, city, county, owner, type. Free
+  text, and the older of the two records.
+- **The directory's outlets** — 2,809 rows with `medium_id`, `owner_id`,
+  `state_id`, city, county, status, founded, closed date, Newsbank
+  availability. Normalised, curated, and reviewed. Plus 277 owners,
+  231,389 places, and 8,561 coverage records.
+
+Item 10 is the work of making the directory the single source of truth
+for a publisher. Charting should assume its outcome rather than encode
+the current split: **publisher attributes come from the directory, story
+attributes from the crawler.**
+
+**Platform type is the example that proves it.** The directory's
+`medium` is a normalised table of six values — Newspaper 1636, Online
+449, Radio 262, Television 155, Magazine 52, Public Broadcasting 27 —
+reached by a foreign key. The crawler's `sources.type` is free text
+holding `digital native` (902), `print native` (148), `newspaper` (20),
+`audio_broadcast` (16), `video_broadcast` (15), `broadcast` (10),
+`digital_native` (4), and 31 nulls: two spellings of one category, a
+`broadcast` that overlaps the two qualified ones, and a different
+vocabulary from the directory's entirely.
+
+A bar chart of bylines by platform type should therefore be drawn from
+`directory_medium`, and the question of what `sources.type` is *for*
+belongs to item 10. Charting from the messy column and cleaning it later
+would build the chart twice.
+
+**And it opens dimensions nobody listed.** Ownership is the obvious one:
+277 owners, with Adams Publishing Group at 38 outlets, Forum
+Communications at 24, Metric Media at 19. Stories per owner, CIN by
+owner, or coverage concentration by owner are questions this corpus can
+now answer and could not before item 14. Founded and closed dates give a
+time dimension on the publisher rather than the story.
+
+**Chord is not a pivot.** A group-by returns counts per category; a chord
+diagram needs *edges* — how often CIN primary X co-occurs with alternate
+Y, or which user needs appear together. The corpus has the columns for it
+(`cin_primary` and `cin_alternate` sit on the same row, so the pair is a
+`GROUP BY` over two columns of one article), but it is a different result
+shape from everything else here and wants its own function beside
+`run_spec()` and `run_story_map()`.
+
+**Scatter needs two measures at once.** `run_spec()` folds a single
+`measure_key`. A scatter of counties plotting articles against cost is
+one dimension and two measures, which the spec cannot express. It is a
+contained change — a list where there is now one key — but it touches the
+fold, so it is not free.
+
+**Raw-row tables are a different feature, and the corpus module says so.**
+`corpus.py` opens by explaining why it aggregates: fifteen to twenty
+thousand articles is a `GROUP BY`, and a published snapshot should hold a
+few hundred aggregated rows rather than every story, or each embed
+downloads megabytes to draw one map. A table *of the pivot's output* is
+free and should exist. A table of raw stories is the explorer, which
+already does it, and putting it behind an embed would ship the corpus to
+whoever loads the page. Worth deciding deliberately rather than
+discovering when a snapshot gets large.
+
+**External data is the exception that needs the matching surface.** Almost
+everything charted here comes from our own apps; occasionally something
+external is layered in — population, household income — to normalise a
+count or provide a denominator. That is the one case with keys that can
+fail to match, and it is exactly what Datawrapper's `Match` and
+`Check ⚠` tabs are for. So the key-matching design is not wasted, it is
+just scoped to the small case rather than being the front door: our data
+arrives already joined, and only the layered-in file has to be reconciled
+against a geography.
+
+That also decides what the join key is. External sources for places come
+keyed by GEOID far more reliably than by name, the corpus already carries
+GEOIDs, and the directory holds 231,389 places to resolve against — so a
+layered file should be matched on GEOID, with name matching as the
+fallback that reports what it could not resolve.
 
 **Coverage replaces key matching, and is a better version of it.**
 Datawrapper prefills a table with every county so a missing value is
