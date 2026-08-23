@@ -7,6 +7,7 @@ name = "datadesk"
 version = "0.1.0"
 description = "Django console and visuals platform for LNIC research data"
 requires-python = ">=3.11"
+license = { text = "AGPL-3.0-or-later" }
 
 [tool.black]
 line-length = 88
