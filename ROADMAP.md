@@ -1146,6 +1146,36 @@ Per visual, per pinned version: the embed document and its `data.json`.
 Both are already the public surface, so the shapes exist; what changes
 is where they are served from.
 
+### Decided
+
+- **Served from Firebase Hosting at `maps.localnewsimpact.org`.**
+  Automatic managed certificate on a custom domain, a real CDN, and
+  `firebase deploy` writes in seconds — which is what the "on request
+  from Datadesk" trigger needs. No load balancer.
+
+  The alternatives and why not: **GitHub Pages** is free and serves a
+  custom domain, but allows roughly ten builds an hour and queues rather
+  than fails beyond that, so a few people clicking republish looks like
+  nothing happening. **A public bucket behind Cloud CDN** costs a
+  standing ~$18–25 a month for the HTTPS load balancer before a byte
+  moves, and a bare bucket cannot serve a custom domain over HTTPS at
+  all without one. At consortium traffic that is paying a fixed annual
+  fee for what a free tier covers.
+
+- **The embed code UI lives in Datadesk, not on the public site.** The
+  people who need it are the ones publishing, and the pinned version is
+  already on the visuals index. A public gallery on
+  `maps.localnewsimpact.org` would make the full list of published
+  visuals public, which is an editorial decision rather than a technical
+  one and can be taken later on its own terms.
+
+  `templates/visuals/builder_edit.html` currently hardcodes an embed
+  pointing at `datadesk.localnewsimpact.org`, and only builder-template
+  visuals show one at all. Once embeds serve from `maps.`, an
+  already-copied code still resolves — two live copies drifting apart is
+  worse than one that breaks — so this moves with the endpoint rather
+  than after it.
+
 ### Decide before building
 
 - **The URL, and whether it is versioned in the path.** An embed that
@@ -1153,13 +1183,6 @@ is where they are served from.
   a version that later moves. A stable path serving the pinned version,
   with versioned paths beside it for citation, is the shape that
   satisfies both — the pin already exists to make that safe.
-- **Where it is served.** GitHub Pages on `news-maps` is free and caches
-  well but publishes from a branch, which makes every republish a
-  commit. A public bucket avoids the commit churn and needs a CDN in
-  front to cache as well. Pages also fixes the domain at
-  `localnewsimpact.github.io/news-maps/` unless a custom one is mapped,
-  and a custom subdomain — `maps.` or `visuals.` — is a decision of its
-  own.
 - **What happens to Datadesk's public routes.** Once embeds are served
   statically, `/embed/<slug>/` is either the authoring preview, a
   redirect to the static copy, or a fallback. Leaving all three live and
@@ -1174,9 +1197,10 @@ is where they are served from.
 
 `visuals/services.py` and `publish_visuals`; the existing
 `publish.yml` workflow, which already runs on the console's
-`repository_dispatch` and is the natural place to add a render-and-push
-step; a licence and a README on `news-maps`; and the embed routes in
-`visuals/urls.py`.
+`repository_dispatch` and is the natural place to add a render-and-deploy
+step; a licence and a README on `news-maps`, plus its Firebase config and
+a deploy credential; the embed routes in `visuals/urls.py`; and
+`templates/visuals/builder_edit.html`, which hardcodes the current host.
 
 **Related:** item 2 pushes the same pinned snapshot to Google Sheets on
 publish. Same trigger, different target — they should share one publish
