@@ -67,3 +67,17 @@ def test_a_failure_is_reported_and_not_raised(monkeypatch):
     out, err = _run()
     assert "crawler unreachable" in err
     assert "could not be warmed" in out
+
+
+def test_a_read_that_caches_nothing_is_a_failure(monkeypatch, crawler_schema):
+    """The bug this catches: every dashboard read swallows a
+    DatabaseError and returns None so the page degrades to one banner.
+    A warm run against a job with no crawler credentials therefore
+    "succeeded" for every entry while the cache table stayed empty."""
+    import explorer.crawler
+
+    monkeypatch.setattr(explorer.crawler, "dataset_row_counts", lambda: None)
+    cache.delete("explorer.dataset_row_counts")
+    out, err = _run()
+    assert "returned nothing to cache" in err
+    assert "could not be warmed" in out

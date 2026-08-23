@@ -53,6 +53,25 @@ class Command(BaseCommand):
                 self.stderr.write(self.style.WARNING(f"{label}: {exc}"))
                 continue
             elapsed = time.perf_counter() - started
+
+            # Ask the cache, rather than trusting that the call returned.
+            #
+            # Each of these swallows a DatabaseError and returns None so
+            # the dashboard degrades to one banner instead of five empty
+            # panels. That means a call can "succeed" having cached
+            # nothing at all — which is exactly what happened when this
+            # first ran from a job with no crawler credentials, and it
+            # reported every entry warm while the cache table stayed
+            # empty.
+            if cache.get(key) is None:
+                failures += 1
+                self.stderr.write(
+                    self.style.WARNING(
+                        f"{label}: returned nothing to cache after "
+                        f"{elapsed:.2f}s — is the crawler database reachable?"
+                    )
+                )
+                continue
             self.stdout.write(f"{label}: {elapsed:.2f}s")
 
         if failures:
