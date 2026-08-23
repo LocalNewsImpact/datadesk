@@ -20,6 +20,9 @@ COPY review/ ./review/
 COPY visuals/ ./visuals/
 COPY templates/ ./templates/
 COPY static/ ./static/
+# Dated readings of outside directories. The image carries them because
+# comparing the corpus to one is a job that runs here, not locally.
+COPY data/ ./data/
 
 # Static files are baked in and served by WhiteNoise; without this the admin
 # renders unstyled on Cloud Run. The dummy secret never reaches the runtime

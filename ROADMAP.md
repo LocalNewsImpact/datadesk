@@ -601,6 +601,86 @@ inside dataset detail, and `source_edit` is reachable only from there.
 A Sources index belongs in this group when item 1 lands, since who may
 see which publishers becomes a dataset-scoped question then.
 
+## 10. One source of truth: merge the crawler's sources into the directory
+
+**Now:** two tables describe the same publishers. The crawler's
+`sources` is what the pipeline runs against and what Datadesk reads and
+writes through the column boundary. The Source Directory
+(`NewsSourceDirectory`, its own repository and database) is the record
+of record, with the fields research needs and a public widget over it.
+A publisher edited in one is unchanged in the other.
+
+**Wanted:** the directory holds the publisher record; the crawler reads
+it rather than keeping its own.
+
+**Why it is not a migration script:** the directory's schema does not
+carry what the pipeline needs. Scoping has to answer, per column on
+`sources`, one of three things — the directory already has it under
+another name, the directory needs it added, or it is pipeline state
+that does not belong in a record of publishers at all and should stay
+crawler-side keyed by publisher id. `host_norm`, discovery
+configuration, per-source crawl state and health are the ones to argue
+about first.
+
+**Sequence within the item:**
+
+1. Column-by-column inventory of crawler `sources` against the
+   directory's model. Produce the three-way classification above; that
+   document is the actual deliverable of the scoping step.
+2. Add the columns the directory is missing, in its own repository.
+3. Backfill and reconcile — this is where every conflict the review
+   queue has been collecting gets used, since the two tables disagree
+   and a person has already ruled on many of those disagreements.
+4. Point the crawler at the directory, keeping `sources` as a read
+   view until the pipeline is proven against it.
+
+**Touches:** `NewsSourceDirectory` (schema and API), the crawler's
+source access, and Datadesk's `explorer.models.Source` plus the write
+boundary in `review/services.py` — the boundary would move to the
+directory's API rather than Postgres column grants, which is a real
+change to how the guarantee is enforced and should be decided
+deliberately, not inherited.
+
+**Feeds on:** the Missouri Press readings in `data/sources`, which are
+already the outside evidence for the fields the directory would own.
+
+## 11. Datasets in the directory, so a job can name one
+
+**Now:** a dataset is a Datadesk and crawler concept —
+`explorer.models.Dataset` with `DatasetSource` membership rows against
+the crawler's `sources`. The directory has no idea datasets exist. So
+the crawler cannot ask the directory for "the publishers in Missouri
+Missouri-State" and run a job over them; membership only exists on the
+side that is meant to stop being the record of record.
+
+**Wanted:** the directory carries dataset membership, and the crawler
+calls it to resolve a job's publishers.
+
+**Why it needs investigation before design:** the crawler's coupling to
+`sources` is tight and not only through membership — job parameters,
+discovery and per-source state all reach into that table. The questions
+to answer before proposing a schema:
+
+- What does the crawler actually read from `sources` when starting a
+  job, and which of those reads are membership as opposed to state?
+- Is dataset membership a property of the publisher, a join table, or
+  a query over publisher attributes? Today it is a join table; if
+  Missouri membership is really "publishers in Missouri", an attribute
+  query is closer to the truth and does not need maintaining.
+- Can a publisher belong to more than one dataset, and does the crawler
+  assume it cannot?
+- What happens to a running job when membership changes underneath it?
+
+**Sequence:** this is item 10's second half and should not start before
+10's column inventory, since membership is one of the columns that
+inventory has to classify. Doing them in the other order means
+designing dataset membership against a schema that is about to move.
+
+**Touches:** the crawler's job start path, `explorer.models.Dataset`
+and `DatasetSource`, and item 1 — dataset-scoped roles resolve
+membership too, so if membership moves, both resolve it from the same
+place or they will disagree.
+
 ## Sequence
 
 1. **Item 1** first: items 5 and 6 both need dataset-scoped roles, and
@@ -623,3 +703,10 @@ see which publishers becomes a dataset-scoped question then.
    review-task links depend on both — but its aggregates can be built
    and cached before either, and `jobs.params` already carries the
    dataset, so nothing here waits on the crawler.
+10. **Item 10's inventory step** can start now and should, because it is
+    reading and arguing rather than building, and because every other
+    item that touches a publisher record gets easier once the answer
+    exists. The rest of 10 waits on that document.
+11. **Item 11** after 10's inventory, never before it. It also wants
+    item 1 settled, so membership is resolved in one place rather than
+    two.

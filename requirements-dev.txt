@@ -9,3 +9,7 @@ isort>=5.13
 mypy>=1.11
 # Reading .github/workflows in tests: the three triggers are a contract.
 PyYAML>=6.0
+
+# Reading outside directories into data/sources. A development-time tool:
+# the readings are committed, so nothing at runtime parses HTML.
+beautifulsoup4>=4.12
