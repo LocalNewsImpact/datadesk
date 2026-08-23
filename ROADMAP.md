@@ -2243,6 +2243,104 @@ Points to settle while building:
 
 Display only — no migration, no new field, no change to what is written.
 
+## 22. The embed is a fixed-height iframe, and it needs to be a script
+
+`visuals/admin.py` hands out one snippet:
+
+```html
+<iframe src="https://.../embed/<slug>/" width="100%" height="480"></iframe>
+```
+
+480 pixels regardless of what the visual is. A tall choropleth is cut off; a
+short bar chart sits in dead space; a legend that wraps on a phone is simply
+gone. The person embedding it has no way to know the right number, because it
+depends on the reader's screen.
+
+**What Flourish does, and why it is the right shape.** The published snippet
+is a placeholder `div` plus a script tag. The script creates the frame, and
+the framed page reports its own rendered height back to the parent, which
+resizes to match. Nothing is hardcoded, and the same snippet works in a
+narrow column and a full-width page.
+
+Three forms are needed, because the constraint is the host, not the chart:
+
+| Form | When |
+|---|---|
+| **Responsive script** | The default. The host allows a script tag. |
+| **Plain iframe** | The CMS strips scripts — WordPress without an HTML block, most newsletters. Needs a stated height, so the builder should offer the one that fits the visual rather than 480. |
+| **AMP iframe** | An AMP page, which forbids arbitrary script and requires `amp-iframe` with its own attributes. |
+
+**What to build.**
+
+- An embed script served from the same origin as the visual, small and
+  cacheable, that finds its own placeholder, creates the frame and listens
+  for height messages.
+- The embed page posts its height on load, on resize and whenever the visual
+  redraws. `ResizeObserver` on the chart container rather than a timer.
+- `postMessage` with the visual's origin checked on both ends. The embed page
+  is already framed only by the allowlist (`visuals/views.py`); the height
+  channel must not be looser than the framing rule.
+- The admin offers all three snippets, with the iframe form carrying a height
+  measured from the visual rather than a constant.
+- A visual that fails to load must leave something readable in the placeholder
+  — a link to the visual's own page. An embed that silently renders nothing is
+  worse than one that renders a link.
+
+Points to settle while building:
+
+- **Reader privacy.** The script runs on somebody else's site. It must not set
+  cookies, must not carry analytics, and should be the smallest thing that
+  resizes a frame.
+- **Versioning.** Item 16 versions published visuals into a bucket. The embed
+  snippet should name a version, so a page does not silently change when a
+  visual is republished, with an explicit "latest" for those who want it.
+- **Caching.** The script wants a long TTL and the payload a short one, which
+  is the split the directory's feed already uses.
+
+
+## 23. First map: central Missouri coverage, from Boone County outward
+
+The first real target for the builder in item 20, and concrete enough to
+judge the builder against. A vague "support maps" is not reviewable; this is.
+
+**What it shows.** Centred on Boone County, expanding to whatever extent of
+Missouri contains the coverage:
+
+- **Dots** at the geolocated point of each article, from `point_geoid` on the
+  enrichment record, for articles published by outlets located in Boone
+  County. Twelve publishers are in Boone today — the Missourian, the Tribune,
+  KOMU, KBIA, the Maneater, Missouri Business Alert, CoMoBuzz, ABC 17, the
+  Boone County Journal and others.
+- **A county choropleth** underneath, shading each Missouri county by how many
+  of those articles are about it. That is the regional-coverage question:
+  where does reporting from one county actually land.
+- **Interactive.** Hovering a county gives its name and article count;
+  hovering a dot gives the article. Both are the same question at two
+  resolutions, so they belong on one map rather than two.
+
+**What the data already supports.** `point_geoid` is hierarchical, so a county
+is a five-character prefix and the choropleth is a prefix aggregation, not a
+join to anything new. `point_geoid_level` says how precise a claim is, which
+is what decides whether a record is a dot or only a shade — an article
+resolved to a county has no honest point to draw.
+
+Points to settle while building:
+
+- **Extent.** "As wide as necessary to include all coverage" is a computed
+  bounding box over the geoids present, not a fixed viewport. It has to cope
+  with a single outlier pulling the frame to the state's edge — clamp to
+  Missouri and note the count outside rather than zooming out to nothing.
+- **Two encodings, one legend.** A dot layer and a shade layer both keyed to
+  article count would say the same thing twice. The dots are individual
+  articles; the shading is a count per county. The legend must make that
+  split obvious.
+- **Counties with none.** Zero and no-data look identical on a choropleth
+  unless they are drawn differently. Every Missouri county is in the corpus's
+  gazetteer, so zero is a real value and should read as one.
+- **Where the boundaries come from.** County geometry is universal reference
+  data, not a dataset anybody owns — the case item 1's `UNIVERSAL` scope
+  exists for.
+
 ## Sequence
 
 1. **Item 1** first: items 5 and 6 both need dataset-scoped roles, and
