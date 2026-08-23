@@ -1545,6 +1545,64 @@ what they made.
 controls are what you reach for when you want to change the thing you are
 looking at.
 
+**The screenshots are examples of a pattern, not a specification.** What
+they show is the shape of the task — pick a form, get data into it, see
+the result immediately, refine, publish — and the shape is right. The
+steps themselves have to be expressed in the data Datadesk actually has,
+which is not a spreadsheet someone uploads.
+
+**What a visual here is made from.** `visuals/corpus.py` is already a
+pivot over the research corpus: **23 dimensions**, **6 measures**, and
+filters. Dataset, publisher, publisher city and county, status, wire,
+CIN primary and alternate, month, year, scope, subject, topic, format,
+timeframe, user need, model, the skip reasons, and the geographies —
+state, county, place, point place. Measured as articles, publishers, cost
+summed or averaged, or a confidence average. `Visual.source_kind` also
+allows a BigQuery query, a bucket object and uploaded data, but the
+corpus is the case that matters and the one the builder exists for.
+
+**So the upload step does not exist for us, and that is the important
+difference.** Datawrapper's steps 1 and 2 are "select your map" and "add
+your data", because it has no data of its own. Ours already does. Those
+two steps collapse into one question with a different shape:
+
+> What am I counting, how am I cutting it, and over which datasets?
+
+A measure, one or two dimensions, and filters. That is the whole of it,
+and it is a far smaller thing to ask than "upload a CSV and match its
+keys". The author is choosing a slice of something that already exists
+and is already correct.
+
+**The steps, in our terms:**
+
+1. **Choose the slice.** Measure, dimension or two, filters, datasets.
+   The result is a small table — the pivot already returns a few hundred
+   aggregated rows rather than every story, which is what keeps an embed
+   from downloading megabytes to draw one map.
+2. **See the table, and what it will not draw.** Same place, immediately.
+   This is where the coverage report belongs.
+3. **Choose a chart type that fits the shape** — and the shape is known,
+   because the pivot returned it. One dimension and a measure is a bar or
+   a column; a geographic dimension is a map; two dimensions is a stacked
+   bar or a heatmap. The gallery can offer the types that *work* for the
+   slice and grey the rest, which neither Flourish nor Datawrapper can do
+   because neither knows what the data means.
+4. **Refine, annotate, lay out.**
+5. **Publish and embed.**
+
+**Coverage replaces key matching, and is a better version of it.**
+Datawrapper prefills a table with every county so a missing value is
+visible. Our equivalent is stronger, because the corpus knows why a row
+is missing rather than only that it is: `corpus.py` already restricts the
+county dimension to county, tract and block codings **and says how many
+rows that drops**, because a place GEOID is state plus place and contains
+no county code. `qualifying_values()` already applies group thresholds.
+
+So step 2 does not ask "did your keys match" — it says "this slice covers
+N of M counties, and drops K rows because they are coded to a place that
+cannot roll up to a county." That is a sentence no upload-based tool can
+write, and it is the one an author here most needs.
+
 **The shape, taken from Flourish (screenshots reviewed 2026-08-23):**
 
 **Two tabs, not one page.** `Preview` and `Data`. Half of the ninety-one
@@ -1689,13 +1747,14 @@ the ID/Name/Colour-by list. Those two lists are what the new design is
 built around, and the second is what makes swapping a type possible
 without starting again.
 
-**Second step, and the one with the most value per hour:** the key list
-and its match report. For every geography a visual can be drawn on,
-Datadesk already knows the full set of keys — it is the same corpus the
-explorer counts. Prefilling the table with them, and saying plainly
-which rows have values and which do not, turns a silent empty map into
-something an author can see and fix. It is useful on its own, before any
-of the editor is rebuilt.
+**Second step, and the one with the most value per hour:** the coverage
+report. For a given slice, say how many of the geography's units it
+covers, how many rows are dropped, and why. Most of the arithmetic
+exists — `corpus.py` already counts what the county rollup drops, and
+`qualifying_values()` already applies the group thresholds. What is
+missing is saying it to the author instead of only to the query. It is
+useful on its own, before any of the editor is rebuilt, because it turns
+a silently empty map into a sentence.
 
 **Touches:** `templates/visuals/builder_edit.html` and
 `builder_new.html`, `visuals/builder.py`, the renderers under
