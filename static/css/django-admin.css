@@ -20,6 +20,13 @@
 
 /* --- the admin's variables, in console terms ---------------------------- */
 
+/* All three of the admin's theme states, because "auto" is its default
+   and the toggle stamps the other two. The tokens themselves already
+   answer prefers-color-scheme, so mapping under every state lets the OS
+   setting decide — the one gap being an explicit light choice made on a
+   dark OS, where the admin's chrome would follow the toggle and the
+   tokens would not. The Source Directory ships with the toggle on auto. */
+html[data-theme="auto"],
 html[data-theme="light"],
 html[data-theme="dark"],
 :root {
@@ -192,6 +199,30 @@ a.button {
   font-size: var(--fs-sm);
   font-weight: 500;
   text-shadow: none;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* The admin shouts in capitals in five places, each at a specificity the
+   rules above do not reach. Matched selector for selector rather than
+   with !important, so an admin upgrade that drops one of these simply
+   stops needing the override. */
+.submit-row input.default,
+.object-tools a:link,
+.object-tools a:visited,
+#user-tools,
+#logout-form button,
+thead th,
+.module caption,
+.inline-group h2 {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.object-tools a:link,
+.object-tools a:visited {
+  font-size: var(--fs-xs);
+  border-radius: var(--r-sm);
 }
 
 .submit-row {
