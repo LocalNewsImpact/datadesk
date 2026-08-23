@@ -75,7 +75,13 @@ the datasets the person can read instead of being all-or-nothing.
 **The roles are per dataset, so one person holds several.** The common
 case is exactly the one that motivates a designer: viewer or designer
 across the datasets someone browses and builds visuals from, editor or
-admin on the one they own. `Grant` is keyed on (user, app, scope) with
+admin on the one they own.
+
+**An editor may change anything inside their own dataset**, publishers
+included. A publisher is shared between datasets, so an edit to one
+becomes a proposal to the other datasets holding it, and a dataset's
+public flag decides whether its publishers are visible outside it at
+all — see item 10, where both live. `Grant` is keyed on (user, app, scope) with
 one role per scope, so that is the ordinary arrangement rather than a
 special case — and no precedence rule is needed, because the scopes
 differ.
@@ -117,12 +123,28 @@ the review queue (item 6), the cost dashboard (item 5), the visuals
 registry (a visual belongs to a dataset), the audit log (unchanged —
 still records the actor).
 
-**Decided:** a visual belongs to whichever datasets its author had
-access to when building it. The visual records that set, and a viewer
-needs access to all of them to see it inside Datadesk. A *published*
-visual is public at its embed regardless — publishing is the act that
-makes it so, which is why publishing is a privilege (`design`) rather
-than a side effect of authoring.
+**Decided, clarified 2026-08-23: a visual belongs to the datasets it is
+wired to, and is owned by the account that made it.** Not "the datasets
+its author could reach" — that was the earlier wording and it was wrong,
+because it would attach a visual to datasets it never touches. What it
+records is its own wiring.
+
+Ownership does the constraining, and does it naturally: an author can
+only wire a visual to data they can already read, so the set a visual
+carries is a subset of what its owner held at the time. Nothing has to
+check that twice.
+
+A *published* visual is public at its embed regardless — publishing is
+the act that makes it so, which is why publishing is a privilege
+(`design`) rather than a side effect of authoring.
+
+**Universal data belongs to no dataset.** FIPS codes, census tables,
+demographics — reference data that is not anybody's corpus and is mostly
+not loaded yet. A visual wired only to that is wired to no dataset, and
+scoping must read that as "unconstrained" rather than as "no access".
+The empty case means the opposite thing here than it does for a person's
+grants, which is exactly the kind of inversion that is easy to get
+backwards and worth stating before either is built.
 
 **A visual belongs to a person first and to datasets second, decided
 2026-08-23.** Someone can only build a visual from datasets they have
@@ -274,14 +296,29 @@ Datadesk then groups by it.
 - Cost before the labelling date is unattributable. The dashboard needs
   a "from" date and should say what predates it.
 
-**Still open:**
-- **Which cost lines count as attributable?** Compute and storage
-  clearly; the Cloud SQL instance and the load balancer are shared
-  overhead, so either excluded or spread by a stated rule.
-- Is billing export already enabled to BigQuery, and in which project?
+**Decided 2026-08-23: compute and storage, per dataset, close enough
+rather than exact.** Both count as attributable and both are wanted.
+Where a figure has to be estimated it may be, provided it is close and
+provided the page says which numbers are measured and which are not — a
+research budget needs to know what a dataset costs to about the right
+order, not to the cent.
 
-**Touches:** a new `costs` module reading the billing export, the
-dashboard, dataset-scoped access from item 1.
+The shared lines stay shared. The Cloud SQL instance and the load
+balancer serve everything, so they go in the bucket the dashboard shows
+separately rather than being divided by a rule nobody would defend.
+
+**What the whole cost picture is, across items 4 and 5:**
+
+| | Source | State |
+|---|---|---|
+| Model spend, billed | OpenRouter, via `openrouter_traces` | Query broken; see item 4 |
+| Model spend, recorded | `article_enrichment.cost_usd` | Works, and is per dataset today |
+| Compute | GCP billing export, by Kubernetes label | Labelling not started |
+| Storage | GCP billing export | Not started |
+| Shared overhead | Cloud SQL, load balancer | Shown separately, never divided |
+
+Billed is the number wanted for model spend; recorded becomes the
+comparison, which is item 4's own framing.
 
 ## 6. Review queue scoped to access, and a reviewer role
 
@@ -836,6 +873,50 @@ about first.
    and a person has already ruled on many of those disagreements.
 4. Point the crawler at the directory, keeping `sources` as a read
    view until the pipeline is proven against it.
+
+**A publisher belongs to several datasets, and that is the whole
+problem, decided 2026-08-23.**
+
+An editor may change anything inside the dataset they own, publishers
+included. But a publisher record is not inside one dataset — the same
+outlet sits in several, and an edit made by one owner would silently
+rewrite what the others see. Two rules follow.
+
+**An edit to a shared publisher is a proposal to the other datasets that
+hold it.** The owner making the change sees it applied in their own
+dataset immediately; every other dataset holding that publisher gets a
+proposal its own owner accepts or rejects. Nobody's dataset changes
+underneath them, and nobody has to ask permission to fix their own.
+
+This is the shape item 6 already builds — a proposal is an audit entry
+before it is applied — so the machinery is shared rather than invented
+twice. What differs is who it is addressed to: item 6's proposals come
+from an import, these come from another dataset's owner.
+
+**Datasets carry a public flag, and it is what makes any of this
+meaningful.** A public dataset exposes basic publisher information to any
+viewer: who the outlet is, where it is, what medium. Without it, datasets
+are isolated — an editor cannot see that the outlet they are editing also
+appears elsewhere, no proposal has an audience, and reconciliation is a
+mechanism with nothing to reconcile.
+
+So the flag is not a nicety bolted on for sharing. It is the thing that
+turns a set of private corpora into one directory with several views of
+it, which is what this item is called.
+
+**What has to be decided when this is built:**
+
+- What counts as *basic* publisher information. Name, domain, city,
+  county, medium and owner are the obvious set — the directory's own
+  columns. Coverage records, review notes and data-quality issues are
+  editorial and are not.
+- Whether a public dataset exposes its *membership* — that this outlet is
+  in that dataset — or only the outlet. Membership is how somebody knows
+  who to send a proposal to, so probably yes, but it also says what
+  another team is researching.
+- Whether a rejected proposal is remembered. Rejecting the same change
+  three times because three datasets keep proposing it is the failure to
+  avoid.
 
 **Touches:** `NewsSourceDirectory` (schema and API), the crawler's
 source access, and Datadesk's `explorer.models.Source` plus the write
