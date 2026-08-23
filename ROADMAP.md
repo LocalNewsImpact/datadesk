@@ -828,6 +828,64 @@ should stop.
 **Wants item 1 first**, or close to it: once anyone can be added, which
 datasets they may see stops being answerable by "they work here".
 
+## 14. One Django stack, still two repositories — decide before more people are added
+
+**Now:** two Django processes, two repositories, one database. Datadesk
+owns identity in `public`; the Source Directory keeps its tables in a
+`directory` schema and reads across (item 12).
+
+**The option:** one Django process. The directory becomes a
+pip-installable Django app that Datadesk lists in `requirements.txt` and
+adds to `INSTALLED_APPS`. Still two repositories, still two teams of
+one — but one settings module, one migration graph, one auth. The
+directory already runs two front ends from one codebase by switching
+`ROOT_URLCONF` on `SERVICE_ROLE`, so serving both consoles from one
+image is a pattern it has rather than one it would learn.
+
+**Not to be confused with `django.contrib.sites`.** That is a table of
+hostnames and a `SITE_ID` integer, so one process can tell which domain
+it is serving. It does not route, isolate, or let two codebases share a
+process. Item 12's `SITE_ID` collision was the whole feature in
+miniature.
+
+**What it removes.** Everything item 12 had to build: the shared
+`SECRET_KEY`, the parent-domain cookie arrangement, the router guarding
+against a shadow `auth_user`, the `SITE_ID` split, the migration history
+copied by hand. A process sharing its own tables is not sharing.
+
+Those were not bad luck. Two services on one database produced three
+distinct collisions in a single evening — migration history, the site
+row, and the shadowing hazard the router exists to prevent. That is the
+shape of the arrangement, and there will be more.
+
+**What it costs.** The directory stops deploying independently: a change
+there needs a Datadesk release, or at least a version bump and redeploy.
+An internal package has to be versioned. Its CI builds a wheel rather
+than an image. And the public directory widget and feed, which are
+genuinely separate concerns, need to stay separately deployable — the
+`SERVICE_ROLE` split already allows that, but it becomes load-bearing.
+
+**Why the timing is the decision, not the design.** No data has to move
+— item 12 already put both applications' tables in one database, so this
+is a change of process topology and packaging, not a migration. What
+makes it urgent is what comes next rather than what exists now:
+
+- There are **two users**, both admins, with ids that happen to match.
+  Restructuring identity is free at that size and is a careful,
+  people-facing migration at fifty.
+- Item **13** adds people from outside the organisation. Item **1**
+  adds dataset-scoped roles. Both write into the identity store and
+  both are far easier to design once, against a settled arrangement,
+  than to design twice and reconcile.
+- The directory's migration graph is **five migrations**. Merging graphs
+  is bookkeeping at five and archaeology at fifty.
+
+So this is cheap now and gets steadily dearer, and nothing else on this
+list makes it cheaper by waiting.
+
+**Decide before items 1 and 13.** Whichever way it goes, the roles and
+the invited-user model should be built once on top of the answer.
+
 ## Sequence
 
 1. **Item 1** first: items 5 and 6 both need dataset-scoped roles, and
@@ -859,6 +917,10 @@ datasets they may see stops being answerable by "they work here".
     two.
 13. **Item 13** after item 1. Adding people from outside the organisation
     and having no per-dataset scoping is the combination to avoid.
+14. **Item 14 is a decision to take first**, before items 1 and 13. It
+    costs nothing in data and everything in timing: two users and five
+    migrations today, a people-facing migration once roles and outside
+    accounts exist. Answer it, then build those on the answer.
 12. **Item 12's first two steps** are independent of everything else and
     can be done in an afternoon. Its third — one identity store — should
     come *before* item 1 rather than after, so roles are designed once
