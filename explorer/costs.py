@@ -38,20 +38,38 @@ def recorded_costs():
             .order_by("-day")[:30]
         )
 
+        # One pass over enrichment grouped by source, then added up per
+        # dataset in Python.
+        #
+        # This was an aggregate per dataset, each one traversing
+        # enrichment -> article -> candidate_link over the whole corpus.
+        # Four datasets meant four full traversals, and the cost grew
+        # with every dataset added. Summing in Python is correct here
+        # because a source may belong to several datasets and should
+        # count in each.
+        per_source = {
+            row["article__candidate_link__source_id"]: row
+            for row in enriched.values("article__candidate_link__source_id").annotate(
+                cost=Sum("cost_usd"), articles=Count("article_id")
+            )
+        }
+        members = {}
+        for dataset_id, source_id in DatasetSource.objects.values_list(
+            "dataset_id", "source_id"
+        ):
+            members.setdefault(dataset_id, []).append(source_id)
+
         by_dataset = []
         for dataset in Dataset.objects.order_by("label"):
-            member_sources = DatasetSource.objects.filter(dataset=dataset).values(
-                "source_id"
-            )
-            row = enriched.filter(
-                article__candidate_link__source_id__in=member_sources
-            ).aggregate(cost=Sum("cost_usd"), articles=Count("article_id"))
+            rows = [
+                per_source[s] for s in members.get(dataset.id, ()) if s in per_source
+            ]
             by_dataset.append(
                 {
                     "label": dataset.label,
                     "slug": dataset.slug,
-                    "cost": row["cost"] or 0,
-                    "articles": row["articles"],
+                    "cost": sum(r["cost"] for r in rows) or 0,
+                    "articles": sum(r["articles"] for r in rows),
                 }
             )
 

@@ -71,10 +71,18 @@ fmt: $(VENV) ## Apply formatting and safe fixes
 
 .PHONY: test
 test: $(VENV) ## Run the test suite (sqlite, no services needed)
+# The same two steps CI's `tests` job runs, in the same order. A model
+# changed without its migration passes pytest and fails the build, so
+# the check belongs here rather than being discovered on a pull request.
+	$(PY) manage.py makemigrations --check --dry-run
 	$(PY) -m pytest
 
 .PHONY: check
-check: lint test ## Everything CI runs
+# Run this before pushing. `lint` is CI's lint job (ruff, black, isort,
+# mypy) and `test` is CI's tests job (makemigrations --check, pytest).
+# Running ruff and black alone passes locally and fails on the pull
+# request, which is slower for everyone.
+check: lint test ## Everything CI runs — run before pushing
 
 .PHONY: clean
 clean: ## Remove build and cache artefacts
