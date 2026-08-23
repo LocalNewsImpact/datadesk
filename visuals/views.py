@@ -256,6 +256,8 @@ def builder_edit(request, slug):
                     "dataset": request.POST.get("f_dataset") or "",
                     "scope": request.POST.get("f_scope") or "",
                     "cin": request.POST.get("f_cin") or "",
+                    "publisher_county": request.POST.get("f_publisher_county") or "",
+                    "publisher_city": request.POST.get("f_publisher_city") or "",
                     "from": request.POST.get("f_from") or "",
                     "to": request.POST.get("f_to") or "",
                     "min_articles": request.POST.get("min_articles") or "",
