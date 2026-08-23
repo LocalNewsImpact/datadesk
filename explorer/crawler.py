@@ -11,7 +11,7 @@ from django.core.cache import cache
 from django.db import DatabaseError, connections
 
 _COUNTS_CACHE_KEY = "explorer.dataset_row_counts"
-_COUNTS_CACHE_SECONDS = 300
+_COUNTS_CACHE_SECONDS = 3600
 
 # LEFT JOINs so a dataset with no sources or no articles still appears,
 # at zero, rather than vanishing. DISTINCT because a source can belong to

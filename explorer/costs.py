@@ -18,7 +18,7 @@ from django.db.models.functions import TruncDate
 
 from explorer.models import ArticleEnrichment, Dataset, DatasetSource
 
-_CACHE_SECONDS = 300
+_CACHE_SECONDS = 3600
 
 
 def recorded_costs():

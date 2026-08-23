@@ -18,7 +18,7 @@ from django.db.models import Count
 from explorer.models import Article, ArticleEnrichment
 
 _CACHE_KEY = "explorer.corpus_summary"
-_CACHE_SECONDS = 300
+_CACHE_SECONDS = 3600
 
 # Statuses in pipeline order, with what each one means. The vocabulary is
 # the pipeline's; anything the data holds that is not listed here still
