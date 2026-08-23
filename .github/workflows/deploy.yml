@@ -45,6 +45,10 @@ env:
   # deployed service at its own localhost.
   SQL_INSTANCE: mizzou-news-crawler:us-central1:mizzou-db-prod
   ADMIN_HOST: datadesk.localnewsimpact.org
+  # The second front end this image serves, in its own project. See the block
+  # at the end of the deploy job.
+  SOURCES_PROJECT: lnic-source-directory
+  SOURCES_HOST: sources.localnewsimpact.org
 
 jobs:
   deploy:
@@ -200,3 +204,87 @@ jobs:
           code="$(curl -s -o /dev/null -w '%{http_code}' "$URL/_health")"
           echo "$URL/_health -> $code"
           [ "$code" = "200" ] || { echo "::error::smoke test failed after traffic shift"; exit 1; }
+
+      # --- The Source Directory front end -------------------------------
+      #
+      # One image, two front ends (ROADMAP item 14). Everything above serves
+      # Datadesk; everything below serves the same image as sources-admin with
+      # SERVICE_ROLE=sources, in a different project.
+      #
+      # It runs after Datadesk's own rollout is proved, so a bad image is
+      # caught on one console before it reaches the other.
+      #
+      # NewsSourceDirectory no longer deploys or migrates this service — it
+      # ships as a package pinned in requirements.txt, and the version that
+      # serves is whichever tag this image was built with.
+
+      # `migrate directory`, not `migrate`. Both consoles share one ledger in
+      # public.django_migrations, but this job runs with
+      # search_path=directory,public, so an unqualified CREATE TABLE from some
+      # *other* app's unapplied migration would put its table in the directory
+      # schema. Naming the app is what makes that impossible, and it replaces
+      # the router NewsSourceDirectory needed for the same reason.
+      - name: Migrate the Source Directory
+        run: |
+          gcloud run jobs deploy sources-admin-release \
+            --image "$IMAGE" --region "$REGION" --project "$SOURCES_PROJECT" \
+            --command /bin/sh \
+            --args "^|^-c|python manage.py migrate directory --noinput && python manage.py configure_site --domain $SOURCES_HOST && python manage.py check_data" \
+            --set-secrets DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest \
+            --set-env-vars "^@^SERVICE_ROLE=sources@CLOUD_SQL_CONNECTION_NAME=$SQL_INSTANCE@DB_NAME=datadesk@DB_USER=directory@DB_SEARCH_PATH=directory,public@SITE_ID=2" \
+            --set-cloudsql-instances $SQL_INSTANCE \
+            --service-account directory-run@lnic-source-directory.iam.gserviceaccount.com
+          gcloud run jobs execute sources-admin-release \
+            --region "$REGION" --project "$SOURCES_PROJECT" --wait
+
+      - name: Deploy the Source Directory without traffic
+        run: |
+          gcloud run deploy sources-admin \
+            --no-traffic --tag=candidate \
+            --image "$IMAGE" --region "$REGION" --project "$SOURCES_PROJECT" \
+            --service-account directory-run@lnic-source-directory.iam.gserviceaccount.com \
+            --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,GOOGLE_OAUTH_CLIENT_ID=google-oauth-client-id:latest,GOOGLE_OAUTH_CLIENT_SECRET=google-oauth-client-secret:latest" \
+            --set-env-vars "^@^SERVICE_ROLE=sources@CLOUD_SQL_CONNECTION_NAME=$SQL_INSTANCE@DB_NAME=datadesk@DB_USER=directory@DB_SEARCH_PATH=directory,public@SITE_ID=2@ALLOWED_AUTH_DOMAINS=localnewsimpact.org@DJANGO_ALLOWED_HOSTS=$SOURCES_HOST,.run.app@DJANGO_CSRF_TRUSTED_ORIGINS=https://$SOURCES_HOST@SESSION_COOKIE_DOMAIN=.localnewsimpact.org" \
+            --set-cloudsql-instances $SQL_INSTANCE \
+            --ingress all --allow-unauthenticated --min-instances 0
+
+      # Same reason as above: gcloud reports a failed IAM binding as a warning
+      # and exits zero. This check left NewsSourceDirectory with its deploy and
+      # belongs to whoever deploys, which is now here.
+      - name: The Source Directory is reachable
+        run: |
+          policy="$(gcloud run services get-iam-policy sources-admin \
+                     --region "$REGION" --project "$SOURCES_PROJECT" --format=json)"
+          if ! echo "$policy" | grep -q 'run.invoker'; then
+            echo "::error::No invoker binding on sources-admin — deployed but nobody can reach it."
+            exit 1
+          fi
+          echo "invoker binding present"
+
+      - name: Prove the Source Directory candidate
+        run: |
+          URL="$(gcloud run services describe sources-admin --region "$REGION" \
+                  --project "$SOURCES_PROJECT" --format=json \
+                  | jq -r '.status.traffic[] | select(.tag == "candidate") | .url // empty')"
+          [ -n "$URL" ] || { echo "::error::no candidate URL for sources-admin"; exit 1; }
+          code=""
+          for _ in $(seq 1 10); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' "$URL/_health" || true)"
+            [ "$code" = "200" ] && break
+            sleep 3
+          done
+          echo "candidate $URL/_health -> $code"
+          [ "$code" = "200" ] || { echo "::error::sources-admin candidate failed its health check; traffic not shifted"; exit 1; }
+
+      - name: Shift the Source Directory to it
+        run: |
+          gcloud run services update-traffic sources-admin \
+            --region "$REGION" --project "$SOURCES_PROJECT" --to-latest
+
+      - name: Smoke test the Source Directory
+        run: |
+          URL="$(gcloud run services describe sources-admin --region "$REGION" \
+                  --project "$SOURCES_PROJECT" --format='value(status.url)')"
+          code="$(curl -s -o /dev/null -w '%{http_code}' "$URL/_health")"
+          echo "$URL/_health -> $code"
+          [ "$code" = "200" ] || { echo "::error::sources-admin smoke test failed after traffic shift"; exit 1; }
