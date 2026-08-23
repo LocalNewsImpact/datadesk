@@ -16,6 +16,7 @@ from accounts.access import (
     ALL_SCOPES,
     has_any_grant,
     has_privilege,
+    may_create_dataset,
     may_import,
     permitted_scopes,
     roles_for,
@@ -58,15 +59,28 @@ def test_a_designer_does_not_hold_write():
     assert not role_permits(DESIGNER, WRITE)
 
 
-def test_reviewer_and_editor_are_indistinguishable_by_privilege():
-    """Both hold exactly read and write. This is why the import paths
-    test the role instead -- no privilege separates these two, and
-    pretending one does would mean inventing a fourth."""
+def test_a_reviewer_is_an_editor_minus_design_and_minus_imports():
+    """A reviewer holds a strict subset of an editor's privileges, so
+    `design` tells them apart -- but not on the thing that matters. Both
+    hold `write`, and what separates them there is how many records one
+    click changes, which no privilege expresses. Hence the role test."""
     from accounts.privileges import privileges_for_role
 
-    assert privileges_for_role(REVIEWER) == privileges_for_role(EDITOR)
+    assert privileges_for_role(REVIEWER) < privileges_for_role(EDITOR)
+    assert WRITE in privileges_for_role(REVIEWER)
+    assert WRITE in privileges_for_role(EDITOR)
     assert role_may_import(EDITOR)
     assert not role_may_import(REVIEWER)
+
+
+def test_editor_and_admin_differ_by_reach_not_by_power():
+    """Identical privilege sets. An admin is an editor with no scope
+    limit, plus user administration -- which is why almost no check
+    should ask "editor or admin?" rather than "may this person do this
+    here?"."""
+    from accounts.privileges import privileges_for_role
+
+    assert privileges_for_role(EDITOR) == privileges_for_role(ADMIN)
 
 
 def test_an_unknown_role_carries_nothing():
@@ -196,3 +210,93 @@ def test_anonymous_users_are_refused_without_touching_the_database(
         assert not may_import(nobody, DATADESK)
         assert not has_any_grant(nobody, DATADESK)
         assert permitted_scopes(nobody, DATADESK, READ) == frozenset()
+
+
+# --- designer, export, and holding several roles at once ---------------------
+
+
+def test_a_designer_is_a_viewer_that_also_designs():
+    """Not a separate track. A designer reads and exports everything a
+    viewer does; design is added, nothing is taken away."""
+    from accounts.privileges import privileges_for_role
+
+    assert privileges_for_role(VIEWER) < privileges_for_role(DESIGNER)
+    assert privileges_for_role(DESIGNER) - privileges_for_role(VIEWER) == {DESIGN}
+
+
+def test_neither_viewer_nor_designer_sees_a_disposition(person):
+    """The review queue is for `write`, and these two are not on it."""
+    grant(person, DESIGNER, scope="mizzou")
+    assert not has_privilege(person, DATADESK, WRITE, scope="mizzou")
+    assert not may_import(person, DATADESK, scope="mizzou")
+
+
+def test_export_follows_read_so_a_viewer_may_export(person):
+    """Taking data away is what `read` is for -- the deliverable CSVs are
+    the shape the research is published in. What limits a viewer is which
+    datasets they can read, not whether they may export at all."""
+    from accounts.privileges import EXPORT_PRIVILEGE
+
+    grant(person, VIEWER, scope="mizzou")
+    assert has_privilege(person, DATADESK, EXPORT_PRIVILEGE, scope="mizzou")
+    assert not has_privilege(person, DATADESK, EXPORT_PRIVILEGE, scope="lehigh")
+
+
+def test_an_editor_owns_one_dataset_and_views_others(person):
+    """The arrangement the roles exist for: full rights on the dataset
+    they started, a viewer on everyone else's. Three grants, three
+    scopes, no precedence rule -- the three-group model could not say
+    this at all."""
+    grant(person, EDITOR, scope="mizzou")
+    grant(person, VIEWER, scope="lehigh")
+    grant(person, DESIGNER, scope="minnesota")
+
+    # Everything on the one they own.
+    assert has_privilege(person, DATADESK, WRITE, scope="mizzou")
+    assert has_privilege(person, DATADESK, DESIGN, scope="mizzou")
+    assert may_import(person, DATADESK, scope="mizzou")
+
+    # Reads the one they were added to, and no more.
+    assert has_privilege(person, DATADESK, READ, scope="lehigh")
+    assert not has_privilege(person, DATADESK, WRITE, scope="lehigh")
+
+    # Builds visuals on the third without touching its records.
+    assert has_privilege(person, DATADESK, DESIGN, scope="minnesota")
+    assert not has_privilege(person, DATADESK, WRITE, scope="minnesota")
+
+    assert permitted_scopes(person, DATADESK, READ) == {
+        "mizzou",
+        "lehigh",
+        "minnesota",
+    }
+    assert permitted_scopes(person, DATADESK, WRITE) == {"mizzou"}
+    assert permitted_scopes(person, DATADESK, DESIGN) == {"mizzou", "minnesota"}
+
+
+# --- starting a dataset, and what admin means --------------------------------
+
+
+def test_an_editor_may_start_another_dataset(person):
+    """Owning one is enough. Requiring an application-wide grant would
+    mean someone could own a dataset and not be able to make a second."""
+    grant(person, EDITOR, scope="mizzou")
+    assert may_create_dataset(person, DATADESK)
+
+
+def test_a_viewer_or_designer_may_not_start_one(person):
+    grant(person, DESIGNER, scope="mizzou")
+    assert not may_create_dataset(person, DATADESK)
+
+
+def test_admin_is_application_level_and_cannot_name_a_dataset(person):
+    """Full access to everything, but only here" is a contradiction, and
+    would quietly behave like an editor. Editor is the dataset-level
+    role; the database refuses the other reading."""
+    with pytest.raises(IntegrityError), transaction.atomic():
+        grant(person, ADMIN, scope="mizzou")
+
+
+def test_an_application_wide_admin_is_fine(person):
+    grant(person, ADMIN)
+    assert has_privilege(person, DATADESK, DESIGN, scope="anything")
+    assert may_create_dataset(person, DATADESK)

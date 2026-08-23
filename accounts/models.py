@@ -22,7 +22,7 @@ application at every scope, and needs no rows here.
 from django.conf import settings
 from django.db import models
 
-from accounts.privileges import ROLE_CHOICES
+from accounts.privileges import ADMIN, ROLE_CHOICES
 
 #: Applications a grant can name. These match SERVICE_ROLE, which selects
 #: the front end a process serves, so a grant and a deployment agree on
@@ -77,7 +77,17 @@ class Grant(models.Model):
             models.UniqueConstraint(
                 fields=["user", "app", "scope"],
                 name="one_role_per_user_app_scope",
-            )
+            ),
+            # Admin is application-level by definition: full access to
+            # everything in the application. An admin grant naming a single
+            # dataset is a contradiction -- it reads as "full access to
+            # everything, but only here" -- and would quietly behave like an
+            # editor. Editor is the dataset-level role, and the one to use
+            # when someone should own one dataset and not the rest.
+            models.CheckConstraint(
+                condition=~models.Q(role=ADMIN) | models.Q(scope=WHOLE_APPLICATION),
+                name="admin_grants_are_application_wide",
+            ),
         ]
         indexes = [
             # Every check starts from the signed-in person and the running

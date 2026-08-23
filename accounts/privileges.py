@@ -10,13 +10,22 @@ The set of privileges is small and stable. The set of role names grows as
 applications join the suite, and each new one is a row in ROLES rather
 than a new concept.
 
-**The one place the two levels do not collapse.** A reviewer and an
-editor both hold `write`. What separates them is how many records one
-click changes: a reviewer answers review-queue questions and records
-dispositions, an editor may also import and run bulk operations. No
-privilege expresses that, so the import paths ask `may_import`, which
-tests the role. Everywhere else a check should ask for a privilege and
-never mention a role name.
+**Two places the two levels do not collapse.** A reviewer and an editor
+both hold `write`. What separates them is how many records one click
+changes: a reviewer answers review-queue questions and records
+dispositions, an editor may also import and run bulk operations. And
+creating a dataset is not a privilege at all, because privileges answer
+"may I do this *here*" and there is no scope yet. So the import paths ask
+`may_import` and dataset creation asks `may_create_dataset`, both of
+which test the role. Everywhere else a check should ask for a privilege
+and never mention a role name.
+
+**Editor and admin carry the same privileges, and differ by reach.** An
+editor holds everything on the datasets they hold it on — they are the
+person who starts a dataset and then owns it. An admin holds the same
+everywhere, in every application, plus user administration. So the
+question a check asks is almost never "editor or admin"; it is "may this
+person do this here", and the scope answers it.
 """
 
 # --- privileges -------------------------------------------------------------
@@ -45,14 +54,24 @@ ROLE_CHOICES = [
     (ADMIN, "Admin — everything, every scope"),
 ]
 
-#: A role is defined as the set of privileges it carries. A designer does
-#: not hold `write`: authoring a visual is `design`, and it does not carry
-#: the right to change the records the visual draws on.
+#: A role is defined as the set of privileges it carries.
+#:
+#: A designer is a viewer plus `design`: it reads and exports everything a
+#: viewer does, and adds authoring and publishing visuals. It does not hold
+#: `write`, so a designer never sees a disposition to make — authoring a
+#: visual is not the right to change the records it draws on.
+#:
+#: An editor holds all three. They are the person who starts a dataset and
+#: then has full rights on it, and who is commonly a viewer on everyone
+#: else's. Admin is the same set with no scope limit.
+#:
+#: Reading the WRITE column down this table is reading who the review queue
+#: is for.
 ROLE_PRIVILEGES = {
     VIEWER: frozenset({READ}),
-    REVIEWER: frozenset({READ, WRITE}),
-    EDITOR: frozenset({READ, WRITE}),
     DESIGNER: frozenset({READ, DESIGN}),
+    REVIEWER: frozenset({READ, WRITE}),
+    EDITOR: frozenset({READ, WRITE, DESIGN}),
     ADMIN: frozenset({READ, WRITE, DESIGN}),
 }
 
@@ -60,10 +79,24 @@ ROLE_PRIVILEGES = {
 #: operations. See the module docstring — this is a role test on purpose.
 IMPORTING_ROLES = frozenset({EDITOR, ADMIN})
 
+#: Creating a dataset. Not a privilege, because privileges answer "may I
+#: do this *here*" and there is no scope yet — the dataset does not exist.
+#: An editor is the person who starts one and then holds full rights on
+#: it; everyone else joins a dataset someone else made.
+CREATING_ROLES = frozenset({EDITOR, ADMIN})
+
 #: Spend is a management fact rather than a research one, so cost figures
 #: follow `write` and not `read` (ROADMAP item 1). Named here rather than
 #: written as a bare WRITE at the call site, so the reason survives.
 COST_PRIVILEGE = WRITE
+
+#: Taking data away follows `read`. The deliverable CSVs are the shape the
+#: research is published in, so withholding them from the people doing the
+#: research would make `read` mean "look at a page". A viewer and a
+#: designer both export; what limits them is which datasets they can read,
+#: not whether they may export at all. The export views already carry
+#: `@role_required` rather than an editor check — this names why.
+EXPORT_PRIVILEGE = READ
 
 
 def privileges_for_role(role):
@@ -79,3 +112,8 @@ def role_permits(role, privilege):
 def role_may_import(role):
     """Imports and bulk operations, which no privilege distinguishes."""
     return role in IMPORTING_ROLES
+
+
+def role_may_create_dataset(role):
+    """Starting a new dataset, as opposed to acting within one."""
+    return role in CREATING_ROLES

@@ -14,7 +14,11 @@ one. A superuser answers yes to everything and needs no rows.
 """
 
 from accounts.models import WHOLE_APPLICATION, Grant
-from accounts.privileges import role_may_import, role_permits
+from accounts.privileges import (
+    role_may_create_dataset,
+    role_may_import,
+    role_permits,
+)
 
 #: Returned by `permitted_scopes` when the person's access is not limited
 #: to particular datasets — a superuser, or an application-wide grant.
@@ -71,6 +75,25 @@ def may_import(user, app, scope=None):
     if user.is_superuser:
         return True
     return any(role_may_import(role) for role in roles_for(user, app, scope))
+
+
+def may_create_dataset(user, app):
+    """Start a new dataset, as opposed to acting within one.
+
+    Asked without a scope, because there is no scope yet. Any editor or
+    admin grant answers it — an editor who owns one dataset may start
+    another, and the roadmap's alternative (only an application-wide
+    grant confers it) would mean someone could own a dataset and not be
+    able to make a second.
+    """
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    return any(
+        role_may_create_dataset(role)
+        for role in _grants(user, app).values_list("role", flat=True)
+    )
 
 
 def permitted_scopes(user, app, privilege):

@@ -36,11 +36,49 @@ one place rather than being re-derived at each check:
 
 | role | read | write | design | notes |
 |---|---|---|---|---|
-| viewer | ✓ | | | |
+| viewer | ✓ | | | reads and exports |
+| designer | ✓ | | ✓ | a viewer who also authors and publishes visuals |
 | reviewer | ✓ | ✓ | | dispositions only, not imports (item 6) |
-| editor | ✓ | ✓ | | review, dispositions, imports |
-| designer | ✓ | | ✓ | authors and publishes visuals |
-| admin | ✓ | ✓ | ✓ | every app, every scope, plus user admin |
+| editor | ✓ | ✓ | ✓ | full rights on the dataset; starts datasets |
+| admin | ✓ | ✓ | ✓ | the same, everywhere, plus user admin |
+
+**Designer is viewer plus design, and that is the whole of it.** It holds
+`read`, so it reads and exports everything a viewer does; it adds
+`design`; it does not hold `write`, so a designer never sees a
+disposition to make. Reading the table down the `write` column is reading
+who the review queue is for.
+
+**Editor is the person who starts a dataset and then owns it, decided
+2026-08-23.** Full rights on that dataset — read, write and design — and
+commonly a viewer on everyone else's. So editor and admin carry the same
+three privileges and differ by reach rather than by power: an admin holds
+them in every application at every scope, and administers users.
+
+That makes "editor or admin?" a question almost no check should ask. The
+question is "may this person do this here", and the scope answers it.
+
+**Starting a dataset is not a privilege**, because privileges answer
+whether something is allowed *here* and there is no scope yet — the
+dataset does not exist. It is a role test, `may_create_dataset`, alongside
+`may_import`. Any editor or admin grant answers it: someone who owns one
+dataset can obviously start a second, and requiring an application-wide
+grant would mean they could not.
+
+**Export rides on `read`, not on `write`.** Anyone who may see a dataset
+may take it away — the deliverable CSVs in `review/exports.py` are the
+shape the research is published in, and withholding them from the people
+doing the research would make `read` mean "look at a page". This matches
+what the code does today, where the export views carry `@role_required`
+rather than an editor check; what changes is that the export is scoped to
+the datasets the person can read instead of being all-or-nothing.
+
+**The roles are per dataset, so one person holds several.** The common
+case is exactly the one that motivates a designer: viewer or designer
+across the datasets someone browses and builds visuals from, editor or
+admin on the one they own. `Grant` is keyed on (user, app, scope) with
+one role per scope, so that is the ordinary arrangement rather than a
+special case — and no precedence rule is needed, because the scopes
+differ.
 
 **Reviewer versus editor, decided 2026-08-23: one record at a time, or
 many at once.** A reviewer answers questions in the review queue and
