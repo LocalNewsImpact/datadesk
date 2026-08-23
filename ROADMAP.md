@@ -899,21 +899,54 @@ route or isolate. Item 12's `SITE_ID` collision was that feature entire.
 
 ### What collides, and is therefore the work
 
-1. **`templates/account/login.html` exists in both.** The only colliding
-   path in either tree. In one process the app that sorts first wins,
-   silently.
-2. **Two `SOCIALACCOUNT_ADAPTER`s** — `directory.auth` and
+A first pass compared template *paths* and found one collision. That was
+the wrong question: the expensive ones are **scope** collisions, where
+one app's override or registration silently applies to a surface the
+other owns. Both kinds, now:
+
+1. **One shared `AdminSite` — which is now the intent, not a problem.**
+   Datadesk registers 3 models, the directory 11; in one process that is
+   one admin containing all 14. **Decided 2026-08-23: every application
+   in the suite shares the same admins and roles**, so a single admin
+   listing everything is right, and separate `AdminSite` instances would
+   be work spent recreating a separation nobody wants. This is also the
+   clearest argument for the whole item: one set of administrators
+   across N applications is only coherent on one stack.
+2. **The admin index becomes the suite's, not the directory's.** The
+   directory's `admin/base_site.html` and `admin/index.html` override
+   globally, and Datadesk serves a stock `/admin/` with no such files —
+   so nothing shows as a path collision and its admin would simply
+   acquire the LNIC bar and the directory's dashboard tiles. The bar is
+   wanted; the tiles are the question. `index.html` counts outlets and
+   coverage records, which is a directory dashboard rather than a suite
+   one, and it needs to either widen or move behind a heading.
+3. **`templates/account/login.html` exists in both** — a genuine path
+   collision. In the merged world there is one sign-in for one identity,
+   so one of them is deleted rather than namespaced.
+4. **Templates are not in the app.** The directory keeps them at the
+   repository root and finds them through `TEMPLATES["DIRS"]`, so they
+   would not ship inside a package at all. They have to move to
+   `directory/templates/` first.
+5. **Two `SOCIALACCOUNT_ADAPTER`s** — `directory.auth` and
    `accounts.adapters`, the same rule implemented twice. One process has
    one. Fold together; item 13 rewrites it anyway.
-3. **`ROOT_URLCONF` and `LOGIN_REDIRECT_URL`** differ per front end.
-4. **Packaging and build credentials** — a private repository means the
+6. **`ROOT_URLCONF` and `LOGIN_REDIRECT_URL`** differ per front end
+   (`/` against `/admin/`), so both move into the `SERVICE_ROLE` switch.
+7. **Packaging and build credentials** — a private repository means the
    image build needs a token to `pip install` it.
+8. Minor: `directory.views.auth_context` becomes a context processor on
+   every render in the process, and the directory's
+   `HistoryRequestMiddleware` joins Datadesk's stack. Middleware unions
+   cleanly — the directory's list is Datadesk's plus that one entry.
 
 ### Sequence
 
-1. Give NewsSourceDirectory a `pyproject.toml` publishing `directory`
-   (plus `checks` and `feed` if either is needed at runtime) with its
-   templates and static as package data.
+1. Move the directory's root `templates/` into `directory/templates/`
+   and drop the `DIRS` entry, so they travel with the app.
+2. Give NewsSourceDirectory a build system in its `pyproject.toml` —
+   it has one already, but only for ruff, pytest and coverage — and
+   publish `directory` (plus `checks` and `feed` if either is needed at
+   runtime) with its templates as package data.
 2. Sort the install credential — a token in the Datadesk build, or an
    Artifact Registry Python repository.
 3. Fold the two adapters into one and namespace the sign-in template.
