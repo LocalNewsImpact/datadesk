@@ -327,3 +327,36 @@ def test_an_application_wide_admin_is_fine(person):
     grant(person, ADMIN)
     assert has_privilege(person, DATADESK, DESIGN, scope="anything")
     assert may_create_dataset(person, DATADESK)
+
+
+# --- the Source Directory's admin gate ---------------------------------------
+
+
+def test_the_sources_admin_opens_for_any_standing_there(person):
+    """Any grant in that application opens its admin. What somebody may
+    do once inside is per-model and per-dataset, which the grants already
+    answer -- the door is not the place to ask it."""
+    from accounts.access import may_reach_sources_admin
+
+    grant(person, VIEWER, app=SOURCES, scope="")
+    assert may_reach_sources_admin(person)
+
+
+def test_standing_in_datadesk_does_not_open_the_sources_admin(person):
+    """The point of granting per application: one set of users, two
+    consoles, and access answered separately in each."""
+    from accounts.access import may_reach_sources_admin
+
+    grant(person, ADMIN, app=DATADESK, scope="")
+    assert not may_reach_sources_admin(person)
+
+
+def test_is_staff_does_not_open_it(person):
+    """Replaced rather than derived. `is_staff` is settable by hand in the
+    Django admin, and leaving it able to open this console would be the
+    second source of truth the replacement exists to remove."""
+    from accounts.access import may_reach_sources_admin
+
+    person.is_staff = True
+    person.save(update_fields=["is_staff"])
+    assert not may_reach_sources_admin(person)

@@ -13,7 +13,7 @@ for every dataset in it. A grant naming a dataset answers only for that
 one. A superuser answers yes to everything and needs no rows.
 """
 
-from accounts.models import UNIVERSAL, WHOLE_APPLICATION, Grant
+from accounts.models import SOURCES, UNIVERSAL, WHOLE_APPLICATION, Grant
 from accounts.privileges import ADMIN, CREATE, DESIGN, READ, role_permits
 
 #: Returned by `permitted_scopes` when the person's access is not limited
@@ -122,6 +122,26 @@ def is_application_admin(user, app):
     if user.is_superuser:
         return True
     return _grants(user, app).filter(role=ADMIN).exists()
+
+
+def may_reach_sources_admin(user):
+    """The Source Directory's admin gate (ROADMAP item 1).
+
+    That package asks a dotted path in `DIRECTORY_ADMIN_GATE` rather than
+    importing this, because it installs into Datadesk's image but still
+    has to run and be tested on its own. This is what Datadesk points it
+    at.
+
+    It replaces `is_staff` rather than deriving it. Deriving would leave
+    two things to keep in step and one of them settable by hand in the
+    Django admin; replacing the question leaves one answer, so a person's
+    access to the two consoles cannot drift apart.
+
+    Any standing in the application opens the admin. What somebody may do
+    once inside is a per-model and per-dataset question, which the grants
+    already answer -- the door is not the place to ask it.
+    """
+    return has_any_grant(user, SOURCES)
 
 
 def may_create_dataset(user, app):

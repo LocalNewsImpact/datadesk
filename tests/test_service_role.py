@@ -30,6 +30,7 @@ WATCHED = (
     "INSTALLED_APPS",
     "MIDDLEWARE",
     "SITE_ID",
+    "DIRECTORY_ADMIN_GATE",
 )
 
 
@@ -175,3 +176,14 @@ def test_the_site_row_is_a_deployment_choice():
     finally:
         os.environ.pop("SITE_ID", None)
         importlib.reload(importlib.import_module("datadesk.settings"))
+
+
+def test_the_directory_gate_is_set_only_for_its_own_front_end():
+    """The Source Directory asks a dotted path rather than importing
+    Datadesk, so Datadesk has to name one -- and only where that package
+    is loaded. Unset, it falls back to `is_staff`, which is what a
+    standalone checkout needs."""
+    assert _settings("sources").DIRECTORY_ADMIN_GATE == (
+        "accounts.access.may_reach_sources_admin"
+    )
+    assert _settings("datadesk").DIRECTORY_ADMIN_GATE == ""
