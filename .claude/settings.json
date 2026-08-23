@@ -43,7 +43,14 @@
       "Bash(cat:*)",
       "Bash(bash infra/*.sh:*)",
       "Bash(./infra/*.sh:*)",
-      "Bash(make:*)"
+      "Bash(make:*)",
+      "Bash(gcloud projects add-iam-policy-binding:*)",
+      "Bash(gcloud iam service-accounts add-iam-policy-binding:*)",
+      "Bash(gcloud services enable:*)",
+      "Bash(gcloud storage buckets describe:*)",
+      "Bash(gcloud storage buckets create:*)",
+      "Bash(gcloud storage buckets add-iam-policy-binding:*)",
+      "Bash(gcloud storage ls:*)"
     ],
     "deny": [
       "Bash(gcloud builds triggers delete:*)",
@@ -59,7 +66,13 @@
       "Bash(gcloud secrets versions destroy:*)",
       "Bash(kubectl delete:*)",
       "Bash(kubectl apply:*)",
-      "Bash(psql:*)"
+      "Bash(psql:*)",
+      "Bash(gcloud projects remove-iam-policy-binding:*)",
+      "Bash(gcloud projects set-iam-policy:*)",
+      "Bash(gcloud services disable:*)",
+      "Bash(gcloud storage buckets delete:*)",
+      "Bash(gcloud storage rm:*)",
+      "Bash(gsutil rm:*)"
     ]
   }
 }
