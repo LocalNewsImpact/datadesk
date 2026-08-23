@@ -113,7 +113,13 @@ class Command(BaseCommand):
             writer.writerow(
                 ["status", "name", "website", "city", "county", "owner", "circulation"]
             )
-            for status, group in (("no record", unmatched), ("ambiguous", ambiguous)):
+            absent_now, shared_now = self._split_unmatched(
+                unmatched + ambiguous, sources
+            )
+            for status, group in (
+                ("not in the corpus", absent_now),
+                ("shared domain", shared_now),
+            ):
                 for record in group:
                     writer.writerow(
                         [
@@ -128,13 +134,47 @@ class Command(BaseCommand):
                     )
         self.stdout.write(f"gaps: {gaps}")
 
-        self.stdout.write("\nDirectory entries with no publisher record:")
-        for record in unmatched:
+        absent, shared = self._split_unmatched(unmatched + ambiguous, sources)
+        self.stdout.write(
+            f"\nNot in the corpus at all — {len(absent)} candidates "
+            "(listed, never created):"
+        )
+        for record in absent:
             city = record.get("city") or "?"
             self.stdout.write(
                 f"  {record.get('name', '')[:44]:46} {city[:18]:20} "
                 f"{record.get('website', '')[:40]}"
             )
+        self.stdout.write(
+            f"\nOn a domain the corpus already has, but which publisher "
+            f"record is theirs is not decidable from the domain — "
+            f"{len(shared)}:"
+        )
+        for record in shared:
+            city = record.get("city") or "?"
+            self.stdout.write(
+                f"  {record.get('name', '')[:44]:46} {city[:18]:20} "
+                f"{record.get('website', '')[:40]}"
+            )
+
+    @staticmethod
+    def _split_unmatched(records, sources):
+        """Separate "we do not have this paper" from "we cannot tell which
+        of our records is this paper".
+
+        Publishing groups put several papers on one domain — three of the
+        directory's entries live on myleaderpaper.com — so an unmatched
+        entry whose domain we already crawl is almost certainly a paper we
+        hold, not one we lack. Reporting the two together would send
+        somebody hunting for outlets that are already in the corpus.
+        """
+        ours = {mopress.host_of(s.host_norm or s.host) for s in sources}
+        ours.discard("")
+        absent, shared = [], []
+        for record in records:
+            host = mopress.host_of(record.get("website"))
+            (shared if host and host in ours else absent).append(record)
+        return absent, shared
 
     def _classify(self, matched, rows):
         fills = collections.Counter()
