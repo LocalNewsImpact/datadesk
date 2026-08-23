@@ -1306,6 +1306,57 @@ added.
 **Touches:** nothing in this repository. The change, if made, is a
 database flag on the shared instance and belongs with whoever owns it.
 
+## 18. One review pattern across the suite
+
+**Now:** both applications ask a person to judge records, and they ask
+in different shapes.
+
+Datadesk's queue (`REVIEW.md`) puts one record on screen with a
+controlled flag naming the defect, and three columns that mean one thing
+each:
+
+| Proposed change | Current text | Something else |
+|---|---|---|
+| the value we believe is better | what the record holds now | a field for anything else |
+| Accept Proposal · Update it | Keep · No Change | Fix · Use this |
+
+The Source Directory has the same job and different furniture:
+`DataQualityIssue` rows carrying a `rule` and a `severity`, and
+`needs_review` booleans on `Outlet` and `OutletPlace`, surfaced as
+counts on the admin index that link into filtered changelists. A person
+lands on a list, opens a record, and edits a form — the defect, the
+suggested value and the decision are not on screen together.
+
+**Wanted:** the directory's review uses Datadesk's pattern — a flag from
+a controlled vocabulary, the proposed value beside the current one, and
+Accept / Keep / Fix with a recorded disposition.
+
+**What carries over unchanged**, because it was learned the hard way and
+is written down in `REVIEW.md`:
+
+- The proposed column always holds the **better** value. Offering the
+  misspelling under Accept, against a record that is already right, asks
+  the reviewer to write the very defect that was flagged.
+- Where nothing is known to be better the column is empty and Accept is
+  not offered. Keep and Fix remain, which is the honest set.
+- A flag names a defect in a record, never the state of a proposed edit.
+  "Ready to apply" is not a category a reviewer can act on.
+- A decision is durable: it survives a rescan, and the scan does not
+  re-ask a question a person has answered while the field still reads
+  the way it did.
+
+**What is genuinely different and needs its own answer:** the directory
+already has `severity` on its issues, which Datadesk's flags do not
+carry. Either severity becomes part of the flag definition — some
+defects simply are more serious — or it stays a separate axis and the
+queue filters on both.
+
+**Wants item 14.** On one stack this is shared code rather than a second
+implementation of the same screen: the queue, the flag vocabulary and
+the disposition model already exist in `review/` and would serve both
+applications' records. Building it twice before the merge means merging
+two of them afterwards.
+
 ## Sequence
 
 1. **Item 1** first: items 5 and 6 both need dataset-scoped roles, and
@@ -1340,6 +1391,8 @@ database flag on the shared instance and belongs with whoever owns it.
 16. **Item 16** is independent and can start whenever. Its first step is
     giving every visual a date range; the URL decision comes next and
     cannot be revisited once anyone has embedded a visual.
+18. **Item 18** after item 14, so the queue is shared code rather than a
+    second implementation of the same screen.
 17. **Item 17** after item 14. The merge changes which process issues
     these queries, so a planner flag tuned to the current shape would
     need re-testing regardless.
