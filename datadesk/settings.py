@@ -103,6 +103,21 @@ SESSION_COOKIE_NAME = "lnic_session"
 CSRF_COOKIE_NAME = "lnic_csrf"
 
 
+# Which front end this process serves (ROADMAP.md item 14). One image
+# backs several services; the deployment says which one it is.
+#
+#   datadesk   the console at datadesk.localnewsimpact.org
+#   sources    the Source Directory at sources.localnewsimpact.org
+#
+# The directory's app is loaded only for its own front end rather than
+# unconditionally. It registers eleven models against the default
+# AdminSite and patches admin.site.index at import, so loading it here
+# would put its models and its dashboard on Datadesk's admin as well.
+# That merge is wanted eventually — the suite shares one set of admins —
+# but it needs the per-application grants from item 1 to filter what
+# each person sees, and those do not exist yet.
+SERVICE_ROLE = os.environ.get("SERVICE_ROLE", "datadesk").strip() or "datadesk"
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -125,6 +140,12 @@ INSTALLED_APPS = [
     "visuals",
 ]
 
+if SERVICE_ROLE == "sources":
+    # First, and it has to be: this app overrides templates belonging to
+    # django.contrib.admin and to allauth, and APP_DIRS takes the first
+    # match walking INSTALLED_APPS.
+    INSTALLED_APPS = ["directory", *INSTALLED_APPS, "import_export", "simple_history"]
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -137,7 +158,14 @@ MIDDLEWARE = [
     "allauth.account.middleware.AccountMiddleware",
 ]
 
-ROOT_URLCONF = "datadesk.urls"
+if SERVICE_ROLE == "sources":
+    MIDDLEWARE = [*MIDDLEWARE, "simple_history.middleware.HistoryRequestMiddleware"]
+
+# Set where a reader looks for it rather than overridden later: both
+# ROOT_URLCONF and LOGIN_REDIRECT_URL have defaults further down this
+# file, and an earlier conditional assignment would be silently replaced
+# by them.
+ROOT_URLCONF = "datadesk.urls_sources" if SERVICE_ROLE == "sources" else "datadesk.urls"
 
 TEMPLATES = [
     {
@@ -262,7 +290,7 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 LOGIN_URL = "/accounts/login/"
-LOGIN_REDIRECT_URL = "/"
+LOGIN_REDIRECT_URL = "/admin/" if SERVICE_ROLE == "sources" else "/"
 ACCOUNT_LOGOUT_REDIRECT_URL = "/"
 
 ACCOUNT_LOGIN_METHODS = {"email"}
