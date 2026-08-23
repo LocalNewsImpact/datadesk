@@ -146,6 +146,13 @@ if SERVICE_ROLE == "sources":
     # match walking INSTALLED_APPS.
     INSTALLED_APPS = ["directory", *INSTALLED_APPS, "import_export", "simple_history"]
 
+# The Source Directory asks this rather than `is_staff`, so both consoles
+# decide access from the same grants (ROADMAP item 1). Set only for the
+# front end that serves it; unset, that package falls back to `is_staff`.
+DIRECTORY_ADMIN_GATE = (
+    "accounts.access.may_reach_sources_admin" if SERVICE_ROLE == "sources" else ""
+)
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",

@@ -210,13 +210,23 @@ management fact rather than a research one. The corpus dashboard shows
 the union of the datasets a person can read; the cost figures on it show
 the union of those they can write. Two scopes on one page, deliberately.
 
-**The directory's admin gate is replaced, decided 2026-08-23.** Not
+**The directory's admin gate is replaced — done 2026-08-23.** Not
 `is_staff` derived from a grant, and not `is_staff` left governing the
-directory alone: the directory's admin routes through the same grant
-check as Datadesk. It is the largest of the three options and the only
-one where a person's access to the two consoles cannot drift apart. See
-item 12, whose merge made one `auth_user` and left this the last thing
-the two applications disagreed about.
+directory alone: its admin asks the same grants Datadesk does, so a
+person's access to the two consoles cannot drift apart. Item 12's merge
+made one `auth_user`; this was the last thing the two applications
+disagreed about.
+
+The package asks a dotted path in `DIRECTORY_ADMIN_GATE` rather than
+importing `accounts`, because it installs into Datadesk's image but still
+has to run and be tested on its own. Datadesk points that at
+`may_reach_sources_admin`; unset, it falls back to `is_staff`, which is
+the right answer where there is no grant model to ask.
+
+Both halves are patched, not just the visible one. `admin_login_gateway`
+decides where to send somebody who is not signed in; Django checks
+`AdminSite.has_permission` on every admin view. Leaving that on
+`is_staff` would have let the two disagree with each other.
 
 ## 2. Publish snapshots to Google Sheets
 
