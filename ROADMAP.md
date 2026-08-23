@@ -975,8 +975,65 @@ other owns. Both kinds, now:
    one. Fold together; item 13 rewrites it anyway.
 6. **`ROOT_URLCONF` and `LOGIN_REDIRECT_URL`** differ per front end
    (`/` against `/admin/`), so both move into the `SERVICE_ROLE` switch.
-7. **Packaging and build credentials** — a private repository means the
-   image build needs a token to `pip install` it.
+7. **Build credentials, and only until launch.** Every LNIC repository
+   is open-sourced after launch; `MizzouNewsCrawler` and `news-maps`
+   already are. So the privacy this has to work around has an end date,
+   and the mechanism should be one that simply loses a step when it
+   arrives.
+
+   **Decided: `git+https` against a version tag.**
+
+       news-source-directory @
+         git+https://github.com/LocalNewsImpact/NewsSourceDirectory@v0.1.0
+
+   Identical before and after launch — at launch the credential is
+   deleted and nothing else changes.
+
+   **Rejected: an Artifact Registry Python repository.** It is the
+   better answer if the repos stay private, because Datadesk's
+   workflows reference *zero* GitHub secrets today — everything
+   authenticates through Workload Identity Federation — and Artifact
+   Registry would preserve that. But it is permanent infrastructure
+   built for a temporary problem, and the org runs no Python registry
+   today, only Docker.
+
+   **Interim credential:** a fine-grained token, read-only, scoped to
+   that one repository, with an expiry. It is the first long-lived
+   secret in a build that has none, which is the cost of the choice and
+   is worth stating plainly. Delete it at launch.
+
+   **Prerequisite, and it is a gap rather than a pattern to copy.**
+   Nothing in the suite tags. The crawler's `pyproject.toml` says
+   `version = "1.3.1"` and the repository has **no tags and no
+   releases**; the directory has neither either. So there is nothing to
+   pin to, and matching current practice would mean pinning a commit
+   SHA — which works and reads terribly. This is the first thing in the
+   suite that needs a version to point at, so the discipline gets
+   introduced here: bump `version` in the pull request that changes the
+   app, tag on merge, pin the tag.
+
+### Suite conventions to match while doing this
+
+Checked against `MizzouNewsCrawler`, which is the reference: these are
+all one application suite and should not diverge by accident.
+
+- **Licence: `AGPL-3.0-or-later`.** The crawler declares it in
+  `pyproject.toml`. `datadesk` and `NewsSourceDirectory` have no licence
+  at all, which has to be settled before either goes public — nobody may
+  legally reuse an unlicensed public repository.
+- **Project metadata:** `readme`, `authors`, `keywords` and
+  `[project.urls]`, as the crawler carries them.
+- **`line-length = 88`.** Datadesk and the crawler both use 88; the
+  directory uses **100** and is the outlier. Worth its own change rather
+  than smuggling a whole-codebase reformat into a packaging pull
+  request.
+
+**Two inconsistencies found in the reference itself**, worth fixing
+before the repos are published rather than after:
+
+- The crawler's `LICENSE` file is **GPL** v3 while its `pyproject.toml`
+  declares **AGPL**-3.0-or-later. Those are different licences.
+- Its `[project.urls]` still point at `github.com/your-org/...`.
 8. Minor: `directory.views.auth_context` becomes a context processor on
    every render in the process, and the directory's
    `HistoryRequestMiddleware` joins Datadesk's stack. Middleware unions
