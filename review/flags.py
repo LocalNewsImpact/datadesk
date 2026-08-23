@@ -194,7 +194,9 @@ FLAGS = (
 BY_KEY = {flag.key: flag for flag in FLAGS}
 
 # Raised by evidence rather than by the record alone: a file that
-# disagrees with what is recorded, or with itself.
+# disagrees with what is recorded, or that gives two answers for one
+# field. Both are ordinary questions — a reviewer can always Keep or
+# Fix, whatever the file did.
 EVIDENCE_FLAGS = (
     Flag(
         key="value_disputed",
@@ -208,8 +210,11 @@ EVIDENCE_FLAGS = (
     ),
     Flag(
         key="evidence_conflict",
-        label="A source file contradicts itself",
-        defect="A file gives more than one value for the same field.",
+        label="A source file offers two values",
+        defect=(
+            "A file gives more than one value for this field, so none is "
+            "proposed. Both are named; the record decides between them."
+        ),
         field="",
         check=None,
     ),
