@@ -36,9 +36,9 @@ from accounts.access import (
     has_privilege,
     has_privilege_anywhere,
     is_application_admin,
-    may_import_anywhere,
 )
 from accounts.models import DATADESK, SOURCES
+from accounts.privileges import CREATE
 
 #: Which application this process serves. `SERVICE_ROLE` already selects
 #: the front end; a grant names the same thing, so the two agree without
@@ -84,23 +84,14 @@ def requires(privilege):
 
 
 def requires_import(view):
-    """Imports and bulk operations.
+    """Bring new rows into a dataset.
 
-    A role test, not a privilege test: a reviewer and an editor both hold
-    `write`, and what separates them is how many records one click
-    changes. See `accounts.privileges`.
+    A thin name over `requires(CREATE)`, kept because "import" is what the
+    pages are called and the redirect message should say so. An import
+    does not correct a record that exists, it adds records that did not --
+    which is the whole of the reviewer/editor line.
     """
-
-    @wraps(view)
-    def wrapped(request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return redirect_to_login(request.get_full_path())
-        if not may_import_anywhere(request.user, APP):
-            raise PermissionDenied("Importing requires an editor grant")
-        return view(request, *args, **kwargs)
-
-    wrapped.requires_import = True
-    return wrapped
+    return requires(CREATE)(view)
 
 
 def requires_admin(view):

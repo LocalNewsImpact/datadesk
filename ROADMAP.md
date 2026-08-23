@@ -57,12 +57,12 @@ them in every application at every scope, and administers users.
 That makes "editor or admin?" a question almost no check should ask. The
 question is "may this person do this here", and the scope answers it.
 
-**Starting a dataset is not a privilege**, because privileges answer
-whether something is allowed *here* and there is no scope yet — the
-dataset does not exist. It is a role test, `may_create_dataset`, alongside
-`may_import`. Any editor or admin grant answers it: someone who owns one
-dataset can obviously start a second, and requiring an application-wide
-grant would mean they could not.
+**Administration is the only thing left that is not a privilege.** Users,
+roles and the audit log are not scoped to a dataset, so that check asks
+about the role. Everything else — reading, correcting, importing,
+starting a dataset, authoring a visual — asks for a privilege on a scope.
+That is what lets a new application or a new role be a row in a table
+rather than a change to any view.
 
 **Export rides on `read`, not on `write`.** Anyone who may see a dataset
 may take it away — the deliverable CSVs in `review/exports.py` are the
@@ -80,16 +80,22 @@ one role per scope, so that is the ordinary arrangement rather than a
 special case — and no precedence rule is needed, because the scopes
 differ.
 
-**Reviewer versus editor, decided 2026-08-23: one record at a time, or
-many at once.** A reviewer answers questions in the review queue and
-records dispositions. An editor does that and may also import, and run
-anything that changes many records in one action. Both hold `write`, so
-the privilege table does not grow a fourth column; what separates them is
-the blast radius of a single click, which is the thing worth gating.
+**Reviewer versus editor, decided 2026-08-23: `write` corrects what is
+there, `create` brings new data in.** A reviewer works the review queue
+and fixes the records in front of them. An editor does that and may also
+import — which does not correct a record, it adds records that were not
+there. Two different powers, so two privileges, and the table grows a
+fourth column rather than a special case.
 
-A consequence worth stating: `write` alone cannot decide whether an
-import is allowed, so the import paths check the role, not the privilege.
-That is the one place the two levels do not collapse into one.
+An earlier draft made this a role test, on the grounds that no privilege
+expressed "how many records one click changes". That framing was wrong:
+the difference is not volume, it is whether anything new arrives. Named
+properly it collapses into the same vocabulary as everything else, and no
+check has to mention a role name.
+
+Starting a dataset is the same privilege, asked without a scope — the
+dataset does not exist yet, and both an import and a new dataset bring
+something into existence.
 
 The rest of the definitions are stable. The set of privileges is small;
 the set of role names will grow as applications join, and each new one is

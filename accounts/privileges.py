@@ -10,15 +10,23 @@ The set of privileges is small and stable. The set of role names grows as
 applications join the suite, and each new one is a row in ROLES rather
 than a new concept.
 
-**Two places the two levels do not collapse.** A reviewer and an editor
-both hold `write`. What separates them is how many records one click
-changes: a reviewer answers review-queue questions and records
-dispositions, an editor may also import and run bulk operations. And
-creating a dataset is not a privilege at all, because privileges answer
-"may I do this *here*" and there is no scope yet. So the import paths ask
-`may_import` and dataset creation asks `may_create_dataset`, both of
-which test the role. Everywhere else a check should ask for a privilege
-and never mention a role name.
+**`write` corrects what is there; `create` brings new data in.** That is
+the reviewer/editor line, and it is a privilege rather than a role test.
+A reviewer works the review queue and fixes the records in front of them.
+An editor does that and may also import — which does not correct a record,
+it adds records that were not there. Two different powers, so two
+privileges.
+
+An earlier draft made this a role test on the grounds that no privilege
+expressed "how many records one click changes". That framing was wrong:
+the difference is not volume, it is whether anything new arrives. Named
+properly, it collapses into the same vocabulary as everything else, and
+no check has to mention a role name.
+
+**One thing is still not a privilege.** Administration — users, roles,
+the audit log — is not scoped to a dataset, so `is_application_admin`
+asks about the role. Everything else, including starting a dataset,
+asks for a privilege.
 
 **Editor and admin carry the same privileges, and differ by reach.** An
 editor holds everything on the datasets they hold it on — they are the
@@ -32,9 +40,10 @@ person do this here", and the scope answers it.
 
 READ = "read"
 WRITE = "write"
+CREATE = "create"
 DESIGN = "design"
 
-PRIVILEGES = (READ, WRITE, DESIGN)
+PRIVILEGES = (READ, WRITE, CREATE, DESIGN)
 
 # --- roles ------------------------------------------------------------------
 
@@ -47,11 +56,11 @@ ADMIN = "admin"
 ROLES = (VIEWER, REVIEWER, EDITOR, DESIGNER, ADMIN)
 
 ROLE_CHOICES = [
-    (VIEWER, "Viewer — read"),
-    (REVIEWER, "Reviewer — read, and dispositions"),
-    (EDITOR, "Editor — read, dispositions, and imports"),
-    (DESIGNER, "Designer — read, and authoring visuals"),
-    (ADMIN, "Admin — everything, every scope"),
+    (VIEWER, "Viewer — reads and exports"),
+    (REVIEWER, "Reviewer — corrects the data that is there"),
+    (EDITOR, "Editor — corrects it, and brings new data in"),
+    (DESIGNER, "Designer — reads, and authors visuals"),
+    (ADMIN, "Admin — everything, every scope, plus user admin"),
 ]
 
 #: A role is defined as the set of privileges it carries.
@@ -71,19 +80,16 @@ ROLE_PRIVILEGES = {
     VIEWER: frozenset({READ}),
     DESIGNER: frozenset({READ, DESIGN}),
     REVIEWER: frozenset({READ, WRITE}),
-    EDITOR: frozenset({READ, WRITE, DESIGN}),
-    ADMIN: frozenset({READ, WRITE, DESIGN}),
+    EDITOR: frozenset({READ, WRITE, CREATE, DESIGN}),
+    ADMIN: frozenset({READ, WRITE, CREATE, DESIGN}),
 }
 
-#: Roles whose single action may change many records: imports, bulk
-#: operations. See the module docstring — this is a role test on purpose.
-IMPORTING_ROLES = frozenset({EDITOR, ADMIN})
-
-#: Creating a dataset. Not a privilege, because privileges answer "may I
-#: do this *here*" and there is no scope yet — the dataset does not exist.
-#: An editor is the person who starts one and then holds full rights on
-#: it; everyone else joins a dataset someone else made.
-CREATING_ROLES = frozenset({EDITOR, ADMIN})
+#: Bringing new data in — an import, or starting a dataset. Both are
+#: `create`: neither corrects a record that exists, both add records that
+#: did not. Starting a dataset asks the question without a scope, because
+#: the dataset does not exist yet; an import asks it about the dataset the
+#: rows are landing in.
+IMPORT_PRIVILEGE = CREATE
 
 #: Spend is a management fact rather than a research one, so cost figures
 #: follow `write` and not `read` (ROADMAP item 1). Named here rather than
@@ -109,11 +115,6 @@ def role_permits(role, privilege):
     return privilege in privileges_for_role(role)
 
 
-def role_may_import(role):
-    """Imports and bulk operations, which no privilege distinguishes."""
-    return role in IMPORTING_ROLES
-
-
-def role_may_create_dataset(role):
-    """Starting a new dataset, as opposed to acting within one."""
-    return role in CREATING_ROLES
+def role_may_create(role):
+    """Bring new data in: an import, or a new dataset."""
+    return role_permits(role, CREATE)

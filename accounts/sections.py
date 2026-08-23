@@ -22,12 +22,8 @@ They are listed here anyway so the nav is one list: a reader should not
 have to know which console a tool happens to live in.
 """
 
-from accounts.access import (
-    has_privilege_anywhere,
-    is_application_admin,
-    may_import_anywhere,
-)
-from accounts.privileges import READ, WRITE
+from accounts.access import has_privilege_anywhere, is_application_admin
+from accounts.privileges import CREATE, READ, WRITE
 
 # What a group requires, as a privilege rather than a role name. Roles are
 # per dataset now, and one person holds several -- so "is this an editor"
@@ -42,10 +38,10 @@ EDITOR = WRITE
 # dataset, so this asks for an application-wide admin grant instead.
 ADMIN = "administration"
 
-# Also not a privilege: a reviewer and an editor both hold `write`, and
-# what separates them is how many records one click changes. See
-# accounts.privileges.
-IMPORT = "import"
+# Bringing new data in, as opposed to correcting what is there. An
+# ordinary privilege -- this name exists so the section reads as what the
+# page is called.
+IMPORT = CREATE
 
 SECTION_GROUPS = (
     {
@@ -179,8 +175,6 @@ def _reaches(user, app, requirement):
     """
     if requirement == ADMIN:
         return is_application_admin(user, app)
-    if requirement == IMPORT:
-        return may_import_anywhere(user, app)
     return has_privilege_anywhere(user, app, requirement)
 
 

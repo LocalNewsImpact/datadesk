@@ -24,6 +24,7 @@ from accounts.access import (
 from accounts.models import DATADESK, SOURCES, WHOLE_APPLICATION, Grant
 from accounts.privileges import (
     ADMIN,
+    CREATE,
     DESIGN,
     DESIGNER,
     EDITOR,
@@ -31,7 +32,7 @@ from accounts.privileges import (
     REVIEWER,
     VIEWER,
     WRITE,
-    role_may_import,
+    role_may_create,
     role_permits,
 )
 
@@ -59,18 +60,18 @@ def test_a_designer_does_not_hold_write():
     assert not role_permits(DESIGNER, WRITE)
 
 
-def test_a_reviewer_is_an_editor_minus_design_and_minus_imports():
-    """A reviewer holds a strict subset of an editor's privileges, so
-    `design` tells them apart -- but not on the thing that matters. Both
-    hold `write`, and what separates them there is how many records one
-    click changes, which no privilege expresses. Hence the role test."""
+def test_write_corrects_what_is_there_and_create_brings_new_data_in():
+    """The reviewer/editor line, and it is a privilege rather than a
+    special case. Both correct the records in front of them; only an
+    editor may add records that were not there."""
     from accounts.privileges import privileges_for_role
 
     assert privileges_for_role(REVIEWER) < privileges_for_role(EDITOR)
     assert WRITE in privileges_for_role(REVIEWER)
     assert WRITE in privileges_for_role(EDITOR)
-    assert role_may_import(EDITOR)
-    assert not role_may_import(REVIEWER)
+    assert CREATE not in privileges_for_role(REVIEWER)
+    assert role_may_create(EDITOR)
+    assert not role_may_create(REVIEWER)
 
 
 def test_editor_and_admin_differ_by_reach_not_by_power():
