@@ -131,7 +131,7 @@ jobs:
             --image "$IMAGE" --region "$REGION" --project "$PROJECT_ID" \
             --service-account datadesk-run@lnic-datadesk.iam.gserviceaccount.com \
             --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_DB_PASSWORD=crawler-ro-password:latest,CRAWLER_RW_DB_PASSWORD=crawler-rw-password:latest,GOOGLE_OAUTH_CLIENT_ID=google-oauth-client-id:latest,GOOGLE_OAUTH_CLIENT_SECRET=google-oauth-client-secret:latest" \
-            --set-env-vars "^@^CLOUD_SQL_CONNECTION_NAME=$SQL_INSTANCE@DB_NAME=datadesk@DB_USER=datadesk@CRAWLER_DB_NAME=mizzou@CRAWLER_DB_USER=datadesk_ro@CRAWLER_RW_DB_USER=datadesk_rw@ALLOWED_AUTH_DOMAINS=localnewsimpact.org@DJANGO_ALLOWED_HOSTS=$ADMIN_HOST,.run.app@DJANGO_CSRF_TRUSTED_ORIGINS=https://$ADMIN_HOST" \
+            --set-env-vars "^@^CLOUD_SQL_CONNECTION_NAME=$SQL_INSTANCE@DB_NAME=datadesk@DB_USER=datadesk@CRAWLER_DB_NAME=mizzou@CRAWLER_DB_USER=datadesk_ro@CRAWLER_RW_DB_USER=datadesk_rw@ALLOWED_AUTH_DOMAINS=localnewsimpact.org@DJANGO_ALLOWED_HOSTS=$ADMIN_HOST,.run.app@DJANGO_CSRF_TRUSTED_ORIGINS=https://$ADMIN_HOST@SESSION_COOKIE_DOMAIN=.localnewsimpact.org" \
             --set-cloudsql-instances $SQL_INSTANCE \
             --ingress all --allow-unauthenticated --min-instances 0
 
