@@ -42,11 +42,20 @@ one place rather than being re-derived at each check:
 | designer | ✓ | | ✓ | authors and publishes visuals |
 | admin | ✓ | ✓ | ✓ | every app, every scope, plus user admin |
 
-The definitions are the thing to settle — particularly what separates
-reviewer from editor, which item 6 raises and which is the reason
-`reviewer` exists as a name at all. The set of privileges is small and
-stable; the set of role names will grow as applications join, and each
-new one is a row in that table rather than a new concept.
+**Reviewer versus editor, decided 2026-08-23: one record at a time, or
+many at once.** A reviewer answers questions in the review queue and
+records dispositions. An editor does that and may also import, and run
+anything that changes many records in one action. Both hold `write`, so
+the privilege table does not grow a fourth column; what separates them is
+the blast radius of a single click, which is the thing worth gating.
+
+A consequence worth stating: `write` alone cannot decide whether an
+import is allowed, so the import paths check the role, not the privilege.
+That is the one place the two levels do not collapse into one.
+
+The rest of the definitions are stable. The set of privileges is small;
+the set of role names will grow as applications join, and each new one is
+a row in that table rather than a new concept.
 
 **`is_staff` cannot express this.** It is one global boolean, and the
 directory currently gates its admin on it. Per-application roles mean
@@ -71,11 +80,38 @@ visual is public at its embed regardless — publishing is the act that
 makes it so, which is why publishing is a privilege (`design`) rather
 than a side effect of authoring.
 
-**Still open:**
-- Does `design` on one of a visual's datasets suffice to publish it, or
-  all of them? All of them is the safer default.
-- Do dataset-less pages (the corpus dashboard) show the union of a
-  user's datasets, or stay admin-only?
+**A visual belongs to a person first and to datasets second, decided
+2026-08-23.** Someone can only build a visual from datasets they have
+access to, so a publish-time check asking whether they hold `design` on
+all of them re-asks a question that authoring already answered. The
+invariant belongs at the point of authoring: a dataset the author cannot
+read cannot enter the visual. Publishing then needs no per-dataset test
+of its own.
+
+This leaves one case the invariant does not cover, because it is created
+after the fact: **access removed after authoring.** The author's grant on
+one of the visual's datasets is revoked, and the visual now draws on data
+they can no longer read. Options are to leave a published visual
+published (publishing was a deliberate public act, and unpublishing
+silently would break embeds), to unpublish it, or to keep it published
+and drop it from the author's own list. Not urgent — it needs a
+revocation to exist first — but it should be answered before revocation
+is a routine operation.
+
+**Cost visibility rides on `write`, decided 2026-08-23.** A person sees
+the costs of the datasets they are an editor or admin on — not the ones
+they can merely read, and not the ones they hold `design` on. Spend is a
+management fact rather than a research one. The corpus dashboard shows
+the union of the datasets a person can read; the cost figures on it show
+the union of those they can write. Two scopes on one page, deliberately.
+
+**The directory's admin gate is replaced, decided 2026-08-23.** Not
+`is_staff` derived from a grant, and not `is_staff` left governing the
+directory alone: the directory's admin routes through the same grant
+check as Datadesk. It is the largest of the three options and the only
+one where a person's access to the two consoles cannot drift apart. See
+item 12, whose merge made one `auth_user` and left this the last thing
+the two applications disagreed about.
 
 ## 2. Publish snapshots to Google Sheets
 
