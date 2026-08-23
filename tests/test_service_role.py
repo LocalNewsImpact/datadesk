@@ -29,6 +29,7 @@ WATCHED = (
     "LOGIN_REDIRECT_URL",
     "INSTALLED_APPS",
     "MIDDLEWARE",
+    "SITE_ID",
 )
 
 
@@ -113,3 +114,64 @@ def test_the_directory_package_is_pinned_to_a_tag():
     assert "github.com/LocalNewsImpact/NewsSourceDirectory" in line
     ref = line.rsplit("@", 1)[1].strip()
     assert re.fullmatch(r"v\d+\.\d+\.\d+", ref), f"not a version tag: {ref}"
+
+
+# --- what the sources deployment must also supply ---------------------------
+
+
+def _postgres_options(**env):
+    """The default connection's OPTIONS under a given environment."""
+    import importlib
+    import os
+
+    previous = {k: os.environ.get(k) for k in env}
+    os.environ.update({k: v for k, v in env.items() if v is not None})
+    for k, v in env.items():
+        if v is None:
+            os.environ.pop(k, None)
+    try:
+        module = importlib.reload(importlib.import_module("datadesk.settings"))
+        return dict(module.DATABASES["default"].get("OPTIONS", {}))
+    finally:
+        for k, v in previous.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        importlib.reload(importlib.import_module("datadesk.settings"))
+
+
+def test_a_search_path_reaches_the_connection():
+    """The directory's tables live in a `directory` schema of this
+    database. Without the search path they are simply not visible, and
+    every query against them fails as a missing relation."""
+    options = _postgres_options(
+        CLOUD_SQL_CONNECTION_NAME="p:r:i",
+        DB_PASSWORD="x",
+        DB_SEARCH_PATH="directory,public",
+    )
+    assert options["options"] == "-c search_path=directory,public"
+
+
+def test_no_search_path_leaves_the_connection_alone():
+    options = _postgres_options(
+        CLOUD_SQL_CONNECTION_NAME="p:r:i", DB_PASSWORD="x", DB_SEARCH_PATH=None
+    )
+    assert "options" not in options
+    assert options["connect_timeout"] == 10
+
+
+def test_the_site_row_is_a_deployment_choice():
+    """django_site is shared with the directory and a row cannot be.
+    This console owns row 1; the directory owns row 2."""
+    import importlib
+    import os
+
+    assert _settings("datadesk").SITE_ID == 1
+    os.environ["SITE_ID"] = "2"
+    try:
+        module = importlib.reload(importlib.import_module("datadesk.settings"))
+        assert module.SITE_ID == 2
+    finally:
+        os.environ.pop("SITE_ID", None)
+        importlib.reload(importlib.import_module("datadesk.settings"))

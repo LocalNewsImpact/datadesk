@@ -201,6 +201,14 @@ WSGI_APPLICATION = "datadesk.wsgi.application"
 # (Phase 0 infrastructure work); they are not Django DATABASES entries.
 
 if "CLOUD_SQL_CONNECTION_NAME" in os.environ:
+
+    def _db_options():
+        options = {"connect_timeout": 10}
+        search_path = os.environ.get("DB_SEARCH_PATH", "").strip()
+        if search_path:
+            options["options"] = f"-c search_path={search_path}"
+        return options
+
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
@@ -214,7 +222,14 @@ if "CLOUD_SQL_CONNECTION_NAME" in os.environ:
             # deliberate rather than defaulted: hold a connection across
             # requests, but not forever.
             "CONN_MAX_AGE": 60,
-            "OPTIONS": {"connect_timeout": 10},
+            # A schema search path, where one is set. The Source
+            # Directory's tables live in a `directory` schema of this
+            # database and the shared identity tables in `public`, so
+            # serving that front end means naming both: unqualified
+            # names resolve to the directory's own first and fall
+            # through to the shared ones. Unset for this console, where
+            # everything is in `public`.
+            "OPTIONS": _db_options(),
         }
     }
 else:
@@ -302,7 +317,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # claim is verified in accounts.adapters.DomainRestrictedAdapter. The shape
 # follows the production configuration of sources.localnewsimpact.org.
 
-SITE_ID = 1
+# django_site is shared with the Source Directory, and a row cannot be.
+# This console owns row 1; the directory owns row 2 and its deployment
+# says so. The default keeps a plain checkout on the first row.
+SITE_ID = int(os.environ.get("SITE_ID", "1"))
 
 AUTHENTICATION_BACKENDS = [
     # ModelBackend remains for superuser login on the admin form;
