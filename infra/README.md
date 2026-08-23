@@ -62,6 +62,34 @@ executing code that is not deployed.
 | Crawler read | role `datadesk_ro`, SELECT-only on `mizzou` |
 | Crawler write | role `datadesk_rw`, column-level UPDATE per SCOPE.md §6.5 |
 | Console hostname | `datadesk.localnewsimpact.org` via Cloud Run domain mapping |
+| Scheduler | `datadesk-warm-caches` (cache table), `datadesk-keepwarm` and `sources-admin-keepwarm` (cold starts) |
+
+## Cold starts
+
+Neither console sets `minScale`, so an idle instance is reclaimed and the next
+visitor pays for a start. Measured on `sources-admin`, 2026-08-23:
+
+| | |
+|---|---|
+| Container start → port bound | 2.0s |
+| First request after that | 5.4–8.6s |
+| Warm | 120–250ms |
+
+The gap is not the container. `gunicorn` runs without `--preload`, so Django
+imports on the first request — and Cloud Run's default TCP startup probe
+succeeds the moment the port opens, two seconds in, so it routes a real request
+into a container that is not ready. Adding `--preload` would make the probe
+honest, which matters when scaling up, but does not shorten the wait: Cloud Run
+holds the request either way.
+
+What shortens it is not going cold. `infra/keepwarm.sh` creates a Cloud
+Scheduler job per service hitting `/_health` every five minutes — Cloud Run
+holds an idle instance about fifteen, so that is three chances to miss. It is
+inside the free tier. `--min-instances=1` is the guaranteed version at roughly
+$7 a month per service.
+
+`/_health` rather than a cheaper path because it queries the database, so the
+warm instance also holds a live Cloud SQL connection.
 
 ## Public ingress
 
