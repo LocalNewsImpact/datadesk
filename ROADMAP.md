@@ -1595,6 +1595,63 @@ and look somewhere else to find out what it did.
 bar instead of stacked. These are one control on an already-drawn chart,
 which only works if the data and bindings survive the change.
 
+**And from Datawrapper (screenshots reviewed 2026-08-23), which solves
+the same problem differently:**
+
+**Four numbered steps across the top, each showing whether it is done.**
+`1 Select your map ✓` · `2 Add your data ✓` · `3 Visualize` ·
+`4 Publish & Embed ✓`. Not a wizard that traps you — every step is
+clickable at any time — but the sequence and the state are always on
+screen. Step 1 is the chart type, which is the same answer as Flourish's
+gallery arrived at from the other direction.
+
+**The keys are known before the data arrives, and the table is
+prefilled.** Choosing the Missouri county map fills the table with every
+county name, greyed, with `—` for the values. The author types or pastes
+values against keys that are already correct. Rows they have data for go
+black; the rest stay grey. So "which of these do I have data for" is
+answered by looking, before anything is joined.
+
+This is the piece worth taking most. Datadesk's visuals join corpus data
+to places, and a name that does not match is the failure that produces an
+empty map with no error. A prefilled key list makes the mismatch visible
+at the moment it happens rather than at publish.
+
+**`Upload` · `Match` · `Check ⚠`** — three tabs over the data step, and
+Check carries a warning badge when something needs attention. Matching
+keys is treated as a first-class step with its own surface, not a silent
+join that either works or does not.
+
+**Controls show what they do rather than naming it.** The palette is a
+gradient swatch, not the word "Blues". `Steps` and `Continuous` are radio
+buttons that each render the thing they mean. A pencil beside the palette
+opens the editor. Every control carries a `?`. This is the same principle
+as choosing a chart type from pictures, applied one level down.
+
+**The title is edited in place.** The chart says `[ Insert title here ]`
+and you type into it. It is not a text field in a sidebar that updates
+something elsewhere.
+
+**Refine · Annotate · Layout** are the three faces of the visualize step
+— what the data looks like, what is written on it, how the whole thing is
+arranged. A different cut from Flourish's per-layer accordion, and the
+better one for chart types that have no layers.
+
+**Where the two disagree, and what to take from each:**
+
+- **Settings grouping.** Flourish groups by layer (Regions, Points,
+  Legend, Zoom), which suits maps and anything with parts. Datawrapper
+  groups by intent (Refine, Annotate, Layout), which suits everything.
+  Take Datawrapper's cut as the top level, and let a chart type add
+  per-layer panels inside Refine when it has layers.
+- **Steps versus tabs.** Datawrapper's four numbered steps carry state
+  and tell a first-time author where they are. Flourish's two tabs are
+  faster once you know the tool. Take the steps: most authors here will
+  be occasional.
+- **Both keep the chart on screen at every step**, and both make the
+  first chart appear before any configuration. Those two are not
+  stylistic — they are the difference between a tool and a form.
+
 **What this does not change.** The data model is sound and stays:
 `Visual` already separates `source_kind`, `query`, `template`, `config`
 and `spec`, and already carries snapshots, pinning and `allow_live`. This
@@ -1631,6 +1688,14 @@ write, per chart type, the short list of roles it needs a column for —
 the ID/Name/Colour-by list. Those two lists are what the new design is
 built around, and the second is what makes swapping a type possible
 without starting again.
+
+**Second step, and the one with the most value per hour:** the key list
+and its match report. For every geography a visual can be drawn on,
+Datadesk already knows the full set of keys — it is the same corpus the
+explorer counts. Prefilling the table with them, and saying plainly
+which rows have values and which do not, turns a silent empty map into
+something an author can see and fix. It is useful on its own, before any
+of the editor is rebuilt.
 
 **Touches:** `templates/visuals/builder_edit.html` and
 `builder_new.html`, `visuals/builder.py`, the renderers under
