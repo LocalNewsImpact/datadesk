@@ -217,3 +217,76 @@ def test_the_site_row_is_a_deployment_choice():
     finally:
         os.environ.pop("SITE_ID", None)
         importlib.reload(importlib.import_module("datadesk.settings"))
+
+
+def test_the_base_image_lookup_runs_in_a_step_that_has_the_tool():
+    """The reuse check decides whether to spend ninety seconds rebuilding
+    an image that is already in the registry, and it is a silent decision:
+    the command's output goes to /dev/null, so a lookup that always fails
+    reports nothing and rebuilds every time. That is what
+    `gcloud artifacts docker images describe` did -- the step runs in
+    gcr.io/cloud-builders/docker, which has no gcloud.
+    """
+    from pathlib import Path
+
+    build = (
+        Path(__file__).resolve().parent.parent
+        / "gcp/cloudbuild/cloudbuild-datadesk.yaml"
+    ).read_text()
+    base = build[build.index("id: 'base'") : build.index("id: 'app'")]
+    assert "docker manifest inspect" in base
+    runs = [
+        line
+        for line in base.splitlines()
+        if "gcloud" in line and not line.lstrip().startswith("#")
+    ]
+    assert runs == [], f"the docker builder has no gcloud: {runs}"
+
+
+def test_warming_the_cache_does_not_hold_the_rollout_open():
+    """It primes a cache no request depends on, Cloud Scheduler runs it
+    anyway, and waited on before the shift it primed the cache against the
+    revision being replaced."""
+    from pathlib import Path
+
+    import yaml
+
+    path = (
+        Path(__file__).resolve().parent.parent
+        / "gcp/cloudbuild/cloudbuild-datadesk.yaml"
+    )
+    spec = yaml.safe_load(path.read_text())
+    steps = {s["id"]: s for s in spec["steps"]}
+
+    assert steps["warm-job"]["waitFor"] == ["shift"], "warm after traffic moves"
+    body = steps["warm-job"]["args"][-1]
+    execute = body[body.index("jobs execute") :]
+    assert "--wait" not in execute, "started, not waited on"
+
+
+def test_the_build_graph_has_no_cycle():
+    """waitFor is a DAG the file does not check for itself, and a cycle
+    fails the whole build rather than one step."""
+    from pathlib import Path
+
+    import yaml
+
+    spec = yaml.safe_load(
+        (
+            Path(__file__).resolve().parent.parent
+            / "gcp/cloudbuild/cloudbuild-datadesk.yaml"
+        ).read_text()
+    )
+    deps = {s["id"]: (s.get("waitFor") or []) for s in spec["steps"]}
+    seen = set()
+
+    def visit(node, path=()):
+        assert node not in path, f"cycle: {' -> '.join(path + (node,))}"
+        if node in seen:
+            return
+        for parent in deps[node]:
+            visit(parent, path + (node,))
+        seen.add(node)
+
+    for node in deps:
+        visit(node)
