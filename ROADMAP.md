@@ -705,14 +705,55 @@ independent of the third:**
    request redirects to the provider instead of rendering a sign-in
    page. With step 1 the second sign-in becomes a redirect nobody
    notices. A settings change in that repository.
-3. **One session, which means one identity store.** The session cookie
-   carries only `_auth_user_id`; with separate `auth_user` tables that
-   number is a different person in each application, so sharing the
-   cookie without sharing the table authenticates the wrong user.
-   Genuine SSO therefore needs the same `SECRET_KEY`, the same session
-   store, and the same user table — and then
-   `SESSION_COOKIE_DOMAIN = ".localnewsimpact.org"` shares it across
-   both subdomains with no load balancer involved.
+3. **One session, which means one identity store — and one database.**
+   The session cookie carries only `_auth_user_id`; with separate
+   `auth_user` tables that number is a different person in each
+   application, so sharing the cookie without sharing the table
+   authenticates the wrong user.
+
+   Nothing infrastructural is in the way. Both services already run
+   against the same Cloud SQL instance,
+   `mizzou-news-crawler:us-central1:mizzou-db-prod` — Datadesk on the
+   `datadesk` database, the directory on `directory`. Same socket, same
+   failure domain. There is no network, IAM or connectivity work.
+
+   The one real constraint is that **Django has no cross-database
+   foreign keys**. The directory uses `HistoricalRecords`, so
+   `history_user_id` references `auth_user`, and `django_admin_log`
+   does too. Those break the moment the user table lives in another
+   database. So a shared identity store means a shared *database* —
+   separate Postgres schemas within it are fine, separate databases are
+   not.
+
+   What it takes:
+
+   - Datadesk owns identity. It already has the role model, the users
+     and roles screens, and the audit log; the directory has only
+     `is_staff`.
+   - Move the directory's tables into the `datadesk` database under
+     their own schema. Same instance, so this is a dump and restore
+     measured in minutes, not a data migration.
+   - The directory stops migrating `auth`, `sessions`, `account` and
+     `socialaccount`, and routes them to the shared tables. Migration
+     ownership has to be explicit or the two will fight over them.
+   - Merge the existing user rows by email. Both sides are Google
+     accounts on one hosted domain, so the address is a reliable key
+     here in a way it would not be generally.
+   - Same `SECRET_KEY`, and
+     `SESSION_COOKIE_DOMAIN = ".localnewsimpact.org"`. No load balancer
+     — a cookie on the parent domain crosses subdomains for free.
+   - Reconcile what a role means. The directory gates its admin on
+     `is_staff`; Datadesk gates on groups. After the merge one of them
+     governs, and `is_staff` should be derived from the role rather
+     than set by hand, or the two will disagree about who is an editor.
+
+   **Do this before item 1, not after.** Item 1 redesigns roles. Doing
+   it against two user tables means designing it twice and then
+   reconciling; unifying first means designing it once.
+
+   The cost worth naming: one `SECRET_KEY` across both, so a leak is a
+   leak of both, and the directory can no longer be brought up without
+   the shared database.
 
 **On the subdomain question:** the directory does not need its own
 subdomain, but moving it to a path under Datadesk would not deliver
@@ -769,6 +810,6 @@ until both applications read it from the same place.
     item 1 settled, so membership is resolved in one place rather than
     two.
 12. **Item 12's first two steps** are independent of everything else and
-    can be done in an afternoon. Its third waits for item 10, which is
-    already deciding where the publisher record lives and therefore who
-    may edit it.
+    can be done in an afternoon. Its third — one identity store — should
+    come *before* item 1 rather than after, so roles are designed once
+    against one user table instead of twice against two.
