@@ -1,0 +1,240 @@
+/* ===========================================================================
+   Django admin, wearing the LNIC console
+   ---------------------------------------------------------------------------
+   For LNIC services whose backend is the Django admin — the Source
+   Directory today. Link it after tokens.css and after the admin's own
+   base.css, and the admin reads as part of the console rather than as a
+   Django install on the same domain.
+
+   Django's admin is already built on custom properties, so almost all of
+   this is a remapping: its variables are redefined in terms of console
+   tokens, and the handful of rules below cover the places the admin
+   hardcodes a value instead. That is deliberately the whole strategy —
+   restyling the admin's markup directly means re-doing it at every
+   Django upgrade, while its variable names are a supported surface.
+
+   What this does NOT touch: anything public. The embeddable directory
+   widget matches localnewsimpact.org and must keep doing so — this file
+   is for the signed-in backend only.
+   =========================================================================== */
+
+/* --- the admin's variables, in console terms ---------------------------- */
+
+html[data-theme="light"],
+html[data-theme="dark"],
+:root {
+  --primary: var(--accent);
+  --primary-fg: var(--on-accent);
+  --secondary: var(--accent);
+
+  --body-fg: var(--text);
+  --body-bg: var(--bg);
+  --body-quiet-color: var(--text-2);
+  --body-loud-color: var(--text);
+
+  --header-color: var(--text-2);
+  --header-branding-color: var(--text);
+  --header-bg: var(--surface);
+  --header-link-color: var(--text);
+
+  --breadcrumbs-fg: var(--text-2);
+  --breadcrumbs-link-fg: var(--text-2);
+  --breadcrumbs-bg: var(--surface-2);
+
+  --link-fg: var(--accent);
+  --link-hover-color: var(--accent-hover);
+  --link-selected-fg: var(--accent-hover);
+
+  --hairline-color: var(--border);
+  --border-color: var(--border);
+
+  --error-fg: var(--tone-bad);
+  --message-success-bg: var(--tone-good-soft);
+  --message-warning-bg: var(--tone-warn-soft);
+  --message-error-bg: var(--tone-bad-soft);
+
+  --darkened-bg: var(--surface-2);
+  --selected-bg: var(--surface-3);
+  --selected-row: var(--accent-soft);
+
+  --button-fg: var(--on-accent);
+  --button-bg: var(--accent);
+  --button-hover-bg: var(--accent-hover);
+  --default-button-bg: var(--accent);
+  --default-button-hover-bg: var(--accent-hover);
+  --close-button-bg: var(--surface-3);
+  --close-button-hover-bg: var(--border-strong);
+  --delete-button-bg: var(--tone-bad);
+  --delete-button-hover-bg: var(--tone-bad);
+
+  --object-tools-fg: var(--text);
+  --object-tools-bg: var(--surface-2);
+  --object-tools-hover-bg: var(--surface-3);
+
+  --font-family-primary: var(--font-sans);
+  --font-family-monospace: var(--font-mono);
+}
+
+/* --- where the admin hardcodes instead of using a variable -------------- */
+
+body {
+  font-size: var(--fs-md);
+  line-height: var(--lh-normal);
+}
+
+/* The admin's header is a coloured band; the console's is a hairline. */
+#header {
+  border-bottom: 1px solid var(--border);
+  padding: var(--s-3) var(--s-4);
+  box-shadow: none;
+}
+
+#branding h1,
+#branding h1 a:link,
+#branding h1 a:visited {
+  font-weight: 600;
+  font-size: var(--fs-lg);
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+#user-tools {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+div.breadcrumbs {
+  border-bottom: 1px solid var(--border);
+  padding: var(--s-2) var(--s-4);
+  font-size: var(--fs-sm);
+}
+
+/* Panels: the admin draws boxes with shadows, the console with hairlines. */
+.module,
+.inline-group,
+.dashboard #content-main .module {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: none;
+}
+
+.module caption,
+.module h2,
+.inline-group h2 {
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Tables: console density and hairlines, numerals that line up. */
+#changelist table {
+  font-size: var(--fs-sm);
+}
+
+#changelist table thead th {
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+#changelist table tbody td,
+#changelist table tbody th {
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+#changelist table tbody tr:hover > * {
+  background: var(--surface-2);
+}
+
+/* Controls. */
+input[type="text"],
+input[type="email"],
+input[type="url"],
+input[type="number"],
+input[type="password"],
+input[type="search"],
+textarea,
+select {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.button,
+input[type="submit"],
+input[type="button"],
+.submit-row input,
+a.button {
+  border-radius: var(--r-sm);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  text-shadow: none;
+}
+
+.submit-row {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: none;
+}
+
+/* Messages carry meaning, so they use the semantic tones, not the accent. */
+ul.messagelist li {
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  background-image: none;
+  padding-left: var(--s-3);
+}
+
+ul.messagelist li.success { color: var(--tone-good); }
+ul.messagelist li.warning { color: var(--tone-warn); }
+ul.messagelist li.error { color: var(--tone-bad); }
+
+/* --- the strip that says which console you are in ----------------------- */
+
+.lnic-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-4);
+  background: var(--sidebar-bg);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm);
+}
+
+.lnic-bar .lnic-here {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.lnic-bar a {
+  color: var(--text-2);
+  text-decoration: none;
+}
+
+.lnic-bar a:hover { color: var(--text); }
+
+.lnic-bar .lnic-back { margin-left: auto; }

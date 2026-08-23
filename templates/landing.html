@@ -137,8 +137,8 @@
   <h3>{{ group.label }}</h3>
   <div class="section-nav">
     {% for section in group.sections %}
-    <a href="{% url section.url %}">
-      <span class="section-title">{{ section.label }}</span>
+    <a href="{{ section.href }}"{% if section.external %} class="section-external"{% endif %}>
+      <span class="section-title">{{ section.label }}{% if section.external %}<span class="nav-away" aria-label="opens another console">&#8599;</span>{% endif %}</span>
       <span class="section-note">{{ section.note }}</span>
     </a>
     {% endfor %}

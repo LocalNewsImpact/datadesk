@@ -16,13 +16,21 @@ from django.contrib.auth.models import Group, User
 from django.urls import URLPattern, URLResolver, get_resolver, reverse
 
 from accounts.roles import ADMIN, EDITOR
-from accounts.sections import ANY, SECTION_GROUPS, all_sections, groups_for
+from accounts.sections import (
+    ANY,
+    SECTION_GROUPS,
+    external_sections,
+    groups_for,
+    internal_sections,
+)
 
 pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
 
 
 def _urls_requiring(role):
-    return [section["url"] for section, requires in all_sections() if requires == role]
+    return [
+        section["url"] for section, requires in internal_sections() if requires == role
+    ]
 
 
 ADMIN_URLS = _urls_requiring(ADMIN)
@@ -97,7 +105,7 @@ def test_every_admin_view_carries_the_guard(url_name):
 
 @pytest.mark.parametrize(
     "url_name,requires",
-    [(section["url"], requires) for section, requires in all_sections()],
+    [(section["url"], requires) for section, requires in internal_sections()],
 )
 def test_a_sections_group_matches_the_guard_on_its_view(url_name, requires):
     """The guard belongs beside the link. A section listed under a group
@@ -178,7 +186,35 @@ def test_the_sidebar_shows_every_section_to_an_admin(client, crawler_schema):
     for group in SECTION_GROUPS:
         assert f">{group['label']}<" in content, group["label"]
         for section in group["sections"]:
-            assert reverse(section["url"]) in content, section["url"]
+            href = section.get("site") or reverse(section["url"])
+            assert href in content, section["label"]
+
+
+# --- links to other LNIC consoles ------------------------------------------
+
+
+def test_a_link_to_another_console_is_absolute_and_https():
+    """A relative or plain-http entry here would send a reviewer to the
+    wrong host, or over the wire in the clear."""
+    for section in external_sections():
+        assert section["site"].startswith("https://"), section["label"]
+        assert section["site"].endswith("/"), section["label"]
+
+
+def test_a_link_to_another_console_is_marked_as_leaving(client, crawler_schema):
+    """The destination signs the reader in itself, so the nav says so
+    rather than letting a click look like an in-console page."""
+    _user(client, "editor")
+    content = client.get("/").content.decode()
+    for section in external_sections():
+        assert section["site"] in content, section["label"]
+    assert "nav-external" in content
+
+
+def test_the_source_directory_sits_under_sources():
+    group = next(g for g in SECTION_GROUPS if g["label"] == "Sources")
+    labels = [s["label"] for s in group["sections"]]
+    assert "Source directory" in labels
 
 
 def test_the_groups_read_in_the_order_the_sidebar_shows_them(client, crawler_schema):

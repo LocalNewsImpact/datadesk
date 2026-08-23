@@ -1,0 +1,130 @@
+/* ===========================================================================
+   LNIC console tokens
+   ---------------------------------------------------------------------------
+   The colour, type and spacing scale the console is built from, in one
+   file so more than one service can wear it. Datadesk links this ahead
+   of datadesk.css; the Source Directory links it ahead of the Django
+   admin bridge. Component rules live with their app — only the values
+   are shared, so a token added here reaches both without either app
+   knowing about the other's markup.
+
+   WhiteNoise serves this cross-origin (Access-Control-Allow-Origin: *),
+   which is what makes a second service able to link it at all.
+   =========================================================================== */
+
+/* --- tokens: light ------------------------------------------------------ */
+
+:root {
+  /* surfaces, back to front */
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #f0f2f5;
+  --surface-3: #e6eaef;
+  --sidebar-bg: #f0f2f5;
+
+  /* lines */
+  --border: #dee2e8;
+  --border-strong: #c3cad3;
+
+  /* text, most to least prominent */
+  --text: #12161d;
+  --text-2: #4c5563;
+  --text-3: #78818f;
+
+  /* one accent, used for interaction only */
+  --accent: #2b5fd9;
+  --accent-hover: #1f4bb8;
+  --accent-soft: rgba(43, 95, 217, 0.10);
+  --on-accent: #ffffff;
+  --focus-ring: rgba(43, 95, 217, 0.45);
+
+  /* semantic tones, deliberately not the accent: these carry meaning
+     about the data and must not read as "clickable" */
+  --tone-good: #17724a;
+  --tone-good-soft: rgba(23, 114, 74, 0.12);
+  --tone-warn: #8a5a00;
+  --tone-warn-soft: rgba(138, 90, 0, 0.12);
+  --tone-bad: #a92920;
+  --tone-bad-soft: rgba(169, 41, 32, 0.10);
+  --tone-info: #1a6484;
+  --tone-info-soft: rgba(26, 100, 132, 0.12);
+  --tone-mute: #616b7a;
+  --tone-mute-soft: rgba(97, 107, 122, 0.12);
+
+  /* type */
+  --font-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
+    monospace;
+
+  --fs-2xs: 0.6875rem; /* 11px — micro labels, chips */
+  --fs-xs: 0.75rem;    /* 12px — captions, secondary rows */
+  --fs-sm: 0.8125rem;  /* 13px — table body, filter controls */
+  --fs-md: 0.875rem;   /* 14px — UI default */
+  --fs-lg: 1rem;       /* 16px — prose */
+  --fs-xl: 1.125rem;   /* 18px — section headings */
+  --fs-2xl: 1.375rem;  /* 22px — page title */
+  --fs-3xl: 1.75rem;   /* 28px — stat figures */
+
+  --lh-tight: 1.25;
+  --lh-normal: 1.5;
+
+  /* spacing */
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --s-7: 3rem;
+
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-pill: 999px;
+
+  --shadow-1: 0 1px 2px rgba(18, 22, 29, 0.06);
+  --shadow-2: 0 4px 16px rgba(18, 22, 29, 0.10);
+
+  --sidebar-w: 14.5rem;
+  --row-h: 2.125rem; /* ~34px */
+}
+
+/* --- tokens: dark ------------------------------------------------------- */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1014;
+    --surface: #14181e;
+    --surface-2: #1a1f26;
+    --surface-3: #232a33;
+    --sidebar-bg: #11151a;
+
+    --border: #262d36;
+    --border-strong: #3a4450;
+
+    --text: #e7ebf1;
+    --text-2: #a5aebc;
+    --text-3: #798394;
+
+    --accent: #6f9dff;
+    --accent-hover: #90b4ff;
+    --accent-soft: rgba(111, 157, 255, 0.14);
+    --on-accent: #0d1014;
+    --focus-ring: rgba(111, 157, 255, 0.55);
+
+    --tone-good: #56cc92;
+    --tone-good-soft: rgba(86, 204, 146, 0.14);
+    --tone-warn: #e3b25c;
+    --tone-warn-soft: rgba(227, 178, 92, 0.14);
+    --tone-bad: #ff8b83;
+    --tone-bad-soft: rgba(255, 139, 131, 0.14);
+    --tone-info: #6cc6ea;
+    --tone-info-soft: rgba(108, 198, 234, 0.14);
+    --tone-mute: #8b95a5;
+    --tone-mute-soft: rgba(139, 149, 165, 0.14);
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.5);
+  }
+}

@@ -15,6 +15,7 @@
   <link rel="preload" as="font" type="font/woff2" crossorigin
         href="{% static 'fonts/ibm-plex-sans-600-latin.woff2' %}">
   <link rel="stylesheet" href="{% static 'css/fonts.css' %}">
+  <link rel="stylesheet" href="{% static 'css/tokens.css' %}">
   <link rel="stylesheet" href="{% static 'css/datadesk.css' %}">
   <script src="{% static 'js/htmx.min.js' %}" defer></script>
 </head>
@@ -34,7 +35,12 @@
         <div class="nav-group">
           <span class="nav-group-label">{{ group.label }}</span>
           {% for section in group.sections %}
-          <a class="nav-item {% nav_active section.url %}" href="{% url section.url %}">{{ section.label }}</a>
+          {% if section.external %}
+          <a class="nav-item nav-external" href="{{ section.href }}"
+             title="{{ section.note }}">{{ section.label }}<span class="nav-away" aria-label="opens another console">&#8599;</span></a>
+          {% else %}
+          <a class="nav-item {% nav_active section.url %}" href="{{ section.href }}">{{ section.label }}</a>
+          {% endif %}
           {% endfor %}
         </div>
         {% endfor %}

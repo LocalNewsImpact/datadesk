@@ -14,6 +14,12 @@ widen or narrow who reaches it.
 A group appears when the role reaches at least one of its sections, and
 shows only the sections it reaches — an editor working publisher
 records sees the Sources group without the admin-only tools in it.
+
+A section may point at another LNIC service instead of a Datadesk view.
+Those carry `site` (an absolute URL) rather than `url`, and the console
+cannot enforce a role on them — the destination does its own sign-in.
+They are listed here anyway so the nav is one list: a reader should not
+have to know which console a tool happens to live in.
 """
 
 from accounts.roles import ADMIN, EDITOR, VIEWER
@@ -68,6 +74,14 @@ SECTION_GROUPS = (
                 "label": "Add a publisher",
                 "requires": ADMIN,
                 "note": "Create a source record and attach it to a dataset.",
+            },
+            {
+                "site": "https://sources.localnewsimpact.org/",
+                "label": "Source directory",
+                "note": (
+                    "The registry of local news outlets: the record of "
+                    "record, its public widget and versioned exports."
+                ),
             },
         ),
     },
@@ -135,6 +149,25 @@ def requires_for(group, section):
     return section.get("requires", group["requires"])
 
 
+def _rendered(section):
+    """A section with its link resolved, for a template to render.
+
+    `href` is the one thing markup needs; `url` survives so the active
+    marker can still compare route names, and is absent on sections that
+    point at another service.
+    """
+    from django.urls import reverse
+
+    site = section.get("site")
+    return {
+        "label": section["label"],
+        "note": section["note"],
+        "href": site or reverse(section["url"]),
+        "url": None if site else section["url"],
+        "external": bool(site),
+    }
+
+
 def groups_for(role):
     """The navigation groups a role sees, in order, each carrying only
     the sections that role reaches. A group with nothing left is absent
@@ -143,13 +176,29 @@ def groups_for(role):
     groups = []
     for group in SECTION_GROUPS:
         visible = tuple(
-            section
+            _rendered(section)
             for section in group["sections"]
             if requires_for(group, section) in reach
         )
         if visible:
             groups.append({"label": group["label"], "sections": visible})
     return tuple(groups)
+
+
+def internal_sections():
+    """Sections backed by a Datadesk view, paired with the role they
+    require. Sections pointing at another service are excluded: there is
+    no local view to guard."""
+    return tuple(
+        (section, requires)
+        for section, requires in all_sections()
+        if not section.get("site")
+    )
+
+
+def external_sections():
+    """Sections pointing at another LNIC service."""
+    return tuple(section for section, _ in all_sections() if section.get("site"))
 
 
 def all_sections():

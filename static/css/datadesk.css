@@ -12,124 +12,12 @@
    - every colour comes from a token; component rules never name a colour
    - every size comes from the type or spacing scale
    - light and dark are the same structure with different token values
+
+   The tokens themselves are in tokens.css, linked ahead of this file:
+   they are shared with the other LNIC console, and a value defined in
+   two places drifts.
    =========================================================================== */
 
-/* --- tokens: light ------------------------------------------------------ */
-
-:root {
-  /* surfaces, back to front */
-  --bg: #f5f6f8;
-  --surface: #ffffff;
-  --surface-2: #f0f2f5;
-  --surface-3: #e6eaef;
-  --sidebar-bg: #f0f2f5;
-
-  /* lines */
-  --border: #dee2e8;
-  --border-strong: #c3cad3;
-
-  /* text, most to least prominent */
-  --text: #12161d;
-  --text-2: #4c5563;
-  --text-3: #78818f;
-
-  /* one accent, used for interaction only */
-  --accent: #2b5fd9;
-  --accent-hover: #1f4bb8;
-  --accent-soft: rgba(43, 95, 217, 0.10);
-  --on-accent: #ffffff;
-  --focus-ring: rgba(43, 95, 217, 0.45);
-
-  /* semantic tones, deliberately not the accent: these carry meaning
-     about the data and must not read as "clickable" */
-  --tone-good: #17724a;
-  --tone-good-soft: rgba(23, 114, 74, 0.12);
-  --tone-warn: #8a5a00;
-  --tone-warn-soft: rgba(138, 90, 0, 0.12);
-  --tone-bad: #a92920;
-  --tone-bad-soft: rgba(169, 41, 32, 0.10);
-  --tone-info: #1a6484;
-  --tone-info-soft: rgba(26, 100, 132, 0.12);
-  --tone-mute: #616b7a;
-  --tone-mute-soft: rgba(97, 107, 122, 0.12);
-
-  /* type */
-  --font-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
-    monospace;
-
-  --fs-2xs: 0.6875rem; /* 11px — micro labels, chips */
-  --fs-xs: 0.75rem;    /* 12px — captions, secondary rows */
-  --fs-sm: 0.8125rem;  /* 13px — table body, filter controls */
-  --fs-md: 0.875rem;   /* 14px — UI default */
-  --fs-lg: 1rem;       /* 16px — prose */
-  --fs-xl: 1.125rem;   /* 18px — section headings */
-  --fs-2xl: 1.375rem;  /* 22px — page title */
-  --fs-3xl: 1.75rem;   /* 28px — stat figures */
-
-  --lh-tight: 1.25;
-  --lh-normal: 1.5;
-
-  /* spacing */
-  --s-1: 0.25rem;
-  --s-2: 0.5rem;
-  --s-3: 0.75rem;
-  --s-4: 1rem;
-  --s-5: 1.5rem;
-  --s-6: 2rem;
-  --s-7: 3rem;
-
-  --r-sm: 4px;
-  --r-md: 6px;
-  --r-lg: 10px;
-  --r-pill: 999px;
-
-  --shadow-1: 0 1px 2px rgba(18, 22, 29, 0.06);
-  --shadow-2: 0 4px 16px rgba(18, 22, 29, 0.10);
-
-  --sidebar-w: 14.5rem;
-  --row-h: 2.125rem; /* ~34px */
-}
-
-/* --- tokens: dark ------------------------------------------------------- */
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0d1014;
-    --surface: #14181e;
-    --surface-2: #1a1f26;
-    --surface-3: #232a33;
-    --sidebar-bg: #11151a;
-
-    --border: #262d36;
-    --border-strong: #3a4450;
-
-    --text: #e7ebf1;
-    --text-2: #a5aebc;
-    --text-3: #798394;
-
-    --accent: #6f9dff;
-    --accent-hover: #90b4ff;
-    --accent-soft: rgba(111, 157, 255, 0.14);
-    --on-accent: #0d1014;
-    --focus-ring: rgba(111, 157, 255, 0.55);
-
-    --tone-good: #56cc92;
-    --tone-good-soft: rgba(86, 204, 146, 0.14);
-    --tone-warn: #e3b25c;
-    --tone-warn-soft: rgba(227, 178, 92, 0.14);
-    --tone-bad: #ff8b83;
-    --tone-bad-soft: rgba(255, 139, 131, 0.14);
-    --tone-info: #6cc6ea;
-    --tone-info-soft: rgba(108, 198, 234, 0.14);
-    --tone-mute: #8b95a5;
-    --tone-mute-soft: rgba(139, 149, 165, 0.14);
-
-    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.5);
-  }
-}
 
 /* Native controls, scrollbars and form widgets follow the scheme. */
 html { color-scheme: light dark; }
@@ -239,6 +127,28 @@ code, .mono, .mono-inline {
   color: var(--accent);
   font-weight: 600;
 }
+
+/* A link to another LNIC console. It is a peer of the links above it,
+   not a lesser thing, so it wears the same type and weight; the mark is
+   the only difference, and it says "this navigates away" rather than
+   "this is external to your work". */
+.nav-item.nav-external {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-1);
+}
+
+.nav-away {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1;
+}
+
+.nav-item.nav-external:hover .nav-away,
+.section-nav a.section-external:hover .nav-away { color: var(--text-2); }
+
+.section-nav a.section-external .nav-away { margin-left: 0.35em; }
 
 .sidebar-foot {
   margin-top: auto;
@@ -1424,49 +1334,49 @@ td.count.flagged-length { color: var(--tone-warn); font-weight: 600; }
 .queue-head h1 { margin-bottom: .2rem; }
 .queue-facets { display: flex; flex-wrap: wrap; gap: .4rem; margin: 1rem 0 1.25rem; }
 .facet-chip { display: inline-flex; align-items: center; gap: .4rem; padding: .28rem .6rem;
-  border: 1px solid var(--border, #ddd); border-radius: 999px; font-size: .82rem;
+  border: 1px solid var(--border); border-radius: 999px; font-size: .82rem;
   text-decoration: none; color: inherit; }
-.facet-chip span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.facet-chip span { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .facet-chip.on { border-color: currentColor; font-weight: 600; }
-.rec { border: 1px solid var(--border, #ddd); border-radius: 6px; margin-bottom: 1rem; overflow: hidden; }
+.rec { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1rem; overflow: hidden; }
 .rec-head { display: flex; align-items: baseline; gap: .75rem; padding: .6rem .9rem;
-  border-bottom: 1px solid var(--border, #ddd); }
+  border-bottom: 1px solid var(--border); }
 .rec-head h2 { font-size: .95rem; margin: 0; }
-.rec-src { margin-left: auto; font-size: .75rem; color: var(--muted); }
+.rec-src { margin-left: auto; font-size: .75rem; color: var(--text-2); }
 table.rec-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
 table.rec-table th, table.rec-table td { padding: .5rem .7rem; text-align: left;
   vertical-align: top; border-bottom: 1px solid var(--border, #eee); font-weight: 400; }
 table.rec-table thead th { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em;
-  color: var(--muted); }
-table.rec-table tbody th { white-space: nowrap; color: var(--muted); }
+  color: var(--text-2); }
+table.rec-table tbody th { white-space: nowrap; color: var(--text-2); }
 .rec-table .val { font-family: ui-monospace, monospace; font-size: .8rem; }
 .rec-table .proposed { font-weight: 600; }
-.rec-table .none { color: var(--muted); font-style: italic; font-family: inherit; }
+.rec-table .none { color: var(--text-2); font-style: italic; font-family: inherit; }
 .rec-table tr.decided { background: rgba(127,127,127,.06); }
 .verbs { display: flex; gap: .3rem; flex-wrap: wrap; }
 .verb { display: flex; flex-direction: column; align-items: flex-start; gap: .05rem;
   line-height: 1.2; min-width: 5.6rem; text-align: left; cursor: pointer;
-  border: 1px solid var(--border, #ddd); border-radius: 3px; background: none;
+  border: 1px solid var(--border); border-radius: 3px; background: none;
   padding: .25rem .5rem; color: inherit; font: inherit; }
 .verb b { font-size: .8rem; font-weight: 600; }
-.verb i { font-style: normal; font-size: .68rem; color: var(--muted); }
+.verb i { font-style: normal; font-size: .68rem; color: var(--text-2); }
 .verb[aria-pressed="true"] { border-color: currentColor; }
 .verb.accept[aria-pressed="true"] { color: #1c7049; }
 .verb.reject[aria-pressed="true"] { color: #4a5058; }
 .verb.fix[aria-pressed="true"] { color: #8a5a12; }
 .decide .fixval { display: block; width: 100%; margin-top: .35rem; padding: .25rem .4rem;
   font-size: .82rem; box-sizing: border-box; }
-.finding { margin: .35rem 0 0; font-size: .78rem; color: var(--muted); }
+.finding { margin: .35rem 0 0; font-size: .78rem; color: var(--text-2); }
 .finding.owner_conflict, .finding.gazetteer { color: #a8452c; }
 .sugg { margin: .1rem 0 0; font-size: .78rem; color: var(--accent, #2f5d8a); }
 .blocked { padding: .6rem .9rem; background: rgba(127,127,127,.05); }
 .blocked h3 { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em;
-  color: var(--muted); margin: 0 0 .3rem; }
-.blocked ul { margin: 0; padding-left: 1.1rem; font-size: .82rem; color: var(--muted); }
+  color: var(--text-2); margin: 0 0 .3rem; }
+.blocked ul { margin: 0; padding-left: 1.1rem; font-size: .82rem; color: var(--text-2); }
 .queue-dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
   display: flex; align-items: center; gap: 1rem; padding: .7rem 1.25rem;
-  background: var(--surface-1, #fff); border-top: 1px solid var(--border, #ddd); }
-.queue-dock .tally { font-size: .85rem; color: var(--muted); }
+  background: var(--surface); border-top: 1px solid var(--border); }
+.queue-dock .tally { font-size: .85rem; color: var(--text-2); }
 .queue-dock .tally b { color: inherit; font-variant-numeric: tabular-nums; }
 .q-submit { margin-left: auto; border: 0; border-radius: 3px; padding: .5rem 1rem;
   font-size: .88rem; font-weight: 600; cursor: pointer; background: var(--accent, #2f5d8a); color: #fff; }
@@ -1480,21 +1390,21 @@ table.rec-table tbody th { white-space: nowrap; color: var(--muted); }
 .auth-shell { min-height: 100vh; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 1rem; padding: 2rem 1.25rem; }
 .auth-card { width: 100%; max-width: 24rem; display: flex; flex-direction: column;
-  gap: 1rem; padding: 1.75rem; border: 1px solid var(--border, #ddd);
-  border-radius: 8px; background: var(--surface-1, #fff); }
+  gap: 1rem; padding: 1.75rem; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--surface); }
 .auth-brand { margin: 0; font-size: 1.15rem; font-weight: 600; letter-spacing: -.01em; }
 .auth-card h1 { font-size: 1rem; margin: 0; font-weight: 600; }
-.auth-card p { margin: 0; font-size: .9rem; color: var(--muted); }
+.auth-card p { margin: 0; font-size: .9rem; color: var(--text-2); }
 .auth-card form { display: flex; flex-direction: column; gap: .75rem; }
 .auth-card button, .auth-card [type="submit"] { width: 100%; padding: .55rem 1rem;
   font-size: .95rem; font-weight: 600; border: 0; border-radius: 4px;
   background: var(--accent, #2f5d8a); color: #fff; cursor: pointer; }
 .auth-card input { width: 100%; padding: .5rem .6rem; font-size: .95rem;
-  border: 1px solid var(--border, #ddd); border-radius: 4px; box-sizing: border-box; }
+  border: 1px solid var(--border); border-radius: 4px; box-sizing: border-box; }
 .auth-card ul { margin: 0; padding: 0; list-style: none; display: flex;
   flex-direction: column; gap: .5rem; }
-.auth-foot { font-size: .8rem; color: var(--muted); }
-.auth-note { font-size: .82rem; color: var(--muted); line-height: 1.5; }
+.auth-foot { font-size: .8rem; color: var(--text-2); }
+.auth-note { font-size: .82rem; color: var(--text-2); line-height: 1.5; }
 
 /* Each control sits under the value it chooses. */
 .rec-table td.option { vertical-align: top; }
@@ -1506,7 +1416,7 @@ tr.prop td { border-bottom: 0; }
 .outcome-line { font-size: .8rem; color: var(--accent, #2f5d8a); }
 .outcome-line.on { font-weight: 600; }
 .outcome-line.on.accept { color: #1c7049; }
-.outcome-line.on.reject { color: var(--muted); }
+.outcome-line.on.reject { color: var(--text-2); }
 .outcome-line.on.fix { color: #8a5a12; }
 
 /* A value a check rejected is not the ordinary path. */
@@ -1514,4 +1424,4 @@ tr.prop td { border-bottom: 0; }
 .rec-table td.option .fixval { display: block; width: 100%; margin-bottom: .3rem;
   padding: .25rem .4rem; font-size: .82rem; box-sizing: border-box; }
 .queue-dock .tally.warn { color: #8a5a12; }
-.flag-label { display: block; font-weight: 600; font-size: .78rem; color: var(--ink, inherit); margin-top: .2rem; }
+.flag-label { display: block; font-weight: 600; font-size: .78rem; color: var(--text); margin-top: .2rem; }
