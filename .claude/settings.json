@@ -1,0 +1,65 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gcloud run deploy:*)",
+      "Bash(gcloud run services describe:*)",
+      "Bash(gcloud run services list:*)",
+      "Bash(gcloud run services update:*)",
+      "Bash(gcloud run services update-traffic:*)",
+      "Bash(gcloud run services get-iam-policy:*)",
+      "Bash(gcloud run revisions describe:*)",
+      "Bash(gcloud run revisions list:*)",
+      "Bash(gcloud run jobs deploy:*)",
+      "Bash(gcloud run jobs execute:*)",
+      "Bash(gcloud run jobs describe:*)",
+      "Bash(gcloud run jobs list:*)",
+
+      "Bash(gcloud scheduler jobs create:*)",
+      "Bash(gcloud scheduler jobs update:*)",
+      "Bash(gcloud scheduler jobs describe:*)",
+      "Bash(gcloud scheduler jobs list:*)",
+      "Bash(gcloud scheduler jobs run:*)",
+      "Bash(gcloud scheduler jobs pause:*)",
+      "Bash(gcloud scheduler jobs resume:*)",
+
+      "Bash(gcloud builds submit:*)",
+      "Bash(gcloud builds triggers run:*)",
+      "Bash(gcloud builds triggers list:*)",
+      "Bash(gcloud builds describe:*)",
+      "Bash(gcloud builds list:*)",
+
+      "Bash(gcloud artifacts docker images list:*)",
+      "Bash(gcloud artifacts docker images describe:*)",
+      "Bash(gcloud projects get-iam-policy:*)",
+      "Bash(gcloud projects list:*)",
+      "Bash(gcloud logging read:*)",
+      "Bash(gcloud container clusters list:*)",
+      "Bash(gcloud container clusters get-credentials:*)",
+
+      "Bash(kubectl get:*)",
+      "Bash(kubectl describe:*)",
+      "Bash(kubectl logs:*)",
+
+      "Bash(curl:*)",
+      "Bash(cat:*)",
+      "Bash(bash infra/*.sh:*)",
+      "Bash(./infra/*.sh:*)",
+      "Bash(make:*)"
+    ],
+    "deny": [
+      "Bash(gcloud run services delete:*)",
+      "Bash(gcloud run jobs delete:*)",
+      "Bash(gcloud run revisions delete:*)",
+      "Bash(gcloud scheduler jobs delete:*)",
+      "Bash(gcloud projects delete:*)",
+      "Bash(gcloud sql instances delete:*)",
+      "Bash(gcloud sql databases delete:*)",
+      "Bash(gcloud artifacts repositories delete:*)",
+      "Bash(gcloud secrets delete:*)",
+      "Bash(gcloud secrets versions destroy:*)",
+      "Bash(kubectl delete:*)",
+      "Bash(kubectl apply:*)",
+      "Bash(psql:*)"
+    ]
+  }
+}
