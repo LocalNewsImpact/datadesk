@@ -160,7 +160,7 @@ every workload that serves one dataset carries `dataset=<slug>` as a
 Kubernetes label, which the billing export surfaces as a resource label.
 Datadesk then groups by it.
 
-**Consequences worth stating before the labelling starts:**
+**Consequences of the labelling:**
 - A workload serving several datasets at once cannot be labelled for
   one. Either it is split per dataset, or its cost stays in a shared
   bucket the dashboard shows separately — never silently divided.
@@ -999,18 +999,15 @@ other owns. Both kinds, now:
 
    **Interim credential:** a fine-grained token, read-only, scoped to
    that one repository, with an expiry. It is the first long-lived
-   secret in a build that has none, which is the cost of the choice and
-   is worth stating plainly. Delete it at launch.
+   secret in a build that has none. Delete it at launch.
 
-   **Prerequisite, and it is a gap rather than a pattern to copy.**
-   Nothing in the suite tags. The crawler's `pyproject.toml` says
-   `version = "1.3.1"` and the repository has **no tags and no
-   releases**; the directory has neither either. So there is nothing to
-   pin to, and matching current practice would mean pinning a commit
-   SHA — which works and reads terribly. This is the first thing in the
-   suite that needs a version to point at, so the discipline gets
-   introduced here: bump `version` in the pull request that changes the
-   app, tag on merge, pin the tag.
+   **Prerequisite: a tagging discipline, which the suite does not yet
+   have.** The crawler's `pyproject.toml` declares `version = "1.3.1"`
+   and the repository has no tags and no releases; the directory has
+   neither. Nothing exists to pin to, and pinning a commit SHA reads
+   badly. This is the first dependency in the suite that needs a version
+   to point at: bump `version` in the pull request that changes the app,
+   tag on merge, pin the tag.
 
 ### Suite conventions to match while doing this
 
@@ -1028,8 +1025,7 @@ all one application suite and should not diverge by accident.
   than smuggling a whole-codebase reformat into a packaging pull
   request.
 
-**Two inconsistencies found in the reference itself**, worth fixing
-before the repos are published rather than after:
+**Two inconsistencies in the crawler**, to fix before publication:
 
 - The crawler's `LICENSE` file is **GPL** v3 while its `pyproject.toml`
   declares **AGPL**-3.0-or-later. Those are different licences.
