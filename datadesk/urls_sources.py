@@ -10,12 +10,11 @@ because composing URLs is a project's job and this project serves them
 on a different host with a different sign-in.
 """
 
+from directory.views import admin_login_gateway, healthz
 from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 from django.views.generic import RedirectView
-
-from directory.views import admin_login_gateway, healthz
 
 admin.site.site_header = "News Source Directory"
 admin.site.site_title = "News Source Directory"
