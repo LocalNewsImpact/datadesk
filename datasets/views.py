@@ -14,7 +14,13 @@ from django.shortcuts import redirect, render
 
 from accounts.decorators import requires_admin
 
-# Still admin-only, and knowingly so. ROADMAP item 1 says an editor starts
+# Decided 2026-08-23, not yet built: an editor sees the datasets they
+# hold in `dataset_list` and may change anything inside their own,
+# publishers included -- with a shared publisher's edit becoming a
+# proposal to the other datasets holding it, and a dataset's public flag
+# deciding whether its publishers are visible outside it. See ROADMAP
+# items 1 and 10. Until that lands these stay admin-only rather than
+# half-scoped. ROADMAP item 1 says an editor starts
 # a dataset and then owns it, and `accounts.access.may_create_dataset`
 # answers that -- but wiring it here also means deciding what a non-admin
 # sees on `dataset_list` and `dataset_detail`, which carry admin

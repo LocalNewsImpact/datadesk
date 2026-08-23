@@ -35,7 +35,9 @@ from django.db.models import Case as SQLCase
 from django.db.models import Count, F, IntegerField, Q, TextField, Value, When
 from django.db.models.functions import Coalesce, Length
 
+from accounts.privileges import WRITE
 from explorer.models import Article, DatasetSource
+from explorer.scoping import narrow
 
 PAYWALL_STUB = "paywall_stub"
 MINIMAL_CAPTURE = "minimal_capture"
@@ -148,11 +150,16 @@ def _flagged_q(cases=None):
     return query & ~Q(enrichment__skip_reason=HUMAN_REMOVAL_SKIP_REASON)
 
 
-def base_queryset():
+def base_queryset(user):
     """Flagged articles, annotated with what the operator has to judge:
     how much text was captured, the reason the gate gave, the CIN label
-    and whether a byline survived."""
-    return (
+    and whether a byline survived.
+
+    Narrowed to the datasets `user` may write, which is also what the
+    view's guard asked for -- the queue exists to be worked, so the rows
+    on it are the ones this person could act on.
+    """
+    return narrow(
         Article.objects.select_related("candidate_link__source")
         .annotate(
             text_length=Length(
@@ -169,7 +176,9 @@ def base_queryset():
             enr_is_news=F("enrichment__is_news_content"),
             enr_scope=F("enrichment__scope"),
         )
-        .filter(_flagged_q())
+        .filter(_flagged_q()),
+        user,
+        WRITE,
     )
 
 
@@ -207,27 +216,40 @@ def _apply_band(qs, band):
     return qs
 
 
-def queued(params):
+def flagged_total():
+    """How many articles are flagged, across the whole corpus.
+
+    Deliberately unscoped, and deliberately not `queued(...).count()`.
+    The landing page's figure is a corpus statistic cached once for
+    everybody, sitting beside the corpus article count — scoping it would
+    mean a cache entry per person for a number nobody acts on directly.
+    The link to the queue *is* scoped: it only renders for people who may
+    work it, and the queue itself shows them their own datasets.
+    """
+    return Article.objects.filter(_flagged_q()).count()
+
+
+def queued(params, user):
     """The queue itself: longest captures first.
 
     Length descending is the useful default — the wrongly flagged
     articles are the long ones, and putting them on the first page is the
     point of the queue.
     """
-    qs = _apply_common(base_queryset(), params)
+    qs = _apply_common(base_queryset(user), params)
     band = params.get("band")
     if band in BAND_BOUNDS:
         qs = _apply_band(qs, band)
     return qs.order_by("-text_length", "-created_at")
 
 
-def band_facets(params):
+def band_facets(params, user):
     """Counts per length band, ignoring any band already selected.
 
     A facet that counted only the selected band would always read as the
     result count and tell the operator nothing.
     """
-    qs = _apply_common(base_queryset(), params)
+    qs = _apply_common(base_queryset(user), params)
     counts = qs.aggregate(
         **{
             key: Count(
@@ -257,12 +279,12 @@ def _band_when(low, high):
     return query
 
 
-def case_facets(params):
+def case_facets(params, user):
     """Counts per case, ignoring any case already selected."""
     # .copy() rather than dict(): a QueryDict's dict() flattens to lists.
     scoped = params.copy()
     scoped.pop("case", None)
-    qs = _apply_common(base_queryset(), scoped)
+    qs = _apply_common(base_queryset(user), scoped)
     band = params.get("band")
     if band in BAND_BOUNDS:
         qs = _apply_band(qs, band)
@@ -287,7 +309,7 @@ def case_facets(params):
     ]
 
 
-def vocab():
+def vocab(user):
     """Filter vocabularies read from the data, or None when the crawler
     database is not reachable."""
     from django.db import DatabaseError
@@ -307,7 +329,7 @@ def vocab():
             # never holds, is never offered as a filter.
             "skip_reasons": sorted(
                 value
-                for value in base_queryset()
+                for value in base_queryset(user)
                 .values_list("enrichment__skip_reason", flat=True)
                 .distinct()
                 if value

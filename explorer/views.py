@@ -17,7 +17,8 @@ from django.db.models import F
 from django.http import Http404
 from django.shortcuts import render
 
-from accounts.decorators import requires
+from accounts.access import ALL_SCOPES, is_application_admin
+from accounts.decorators import APP, requires
 from accounts.privileges import COST_PRIVILEGE, READ
 from datasets.geo import level_for_geoid, name_for_geoid
 from explorer.costs import billed_costs, recorded_costs
@@ -31,6 +32,7 @@ from explorer.models import (
     Dataset,
     DatasetSource,
 )
+from explorer.scoping import narrow, scopes_for
 
 PAGE_SIZE = 50
 _VOCAB_CACHE_KEY = "explorer.article_filter_vocab"
@@ -47,8 +49,15 @@ def _distinct(model, field):
     )
 
 
-def _filter_vocab():
-    """Distinct filter values as the data defines them, or None offline."""
+def _filter_vocab(user=None):
+    """Distinct filter values as the data defines them, or None offline.
+
+    Cached corpus-wide, because the distinct statuses and labels are the
+    same for everybody and computing them is the expensive part. The
+    dataset list is the one entry that differs per reader, so it is
+    narrowed after the cache rather than inside it -- caching it per user
+    would multiply the entry by the number of people.
+    """
 
     def fetch():
         return {
@@ -65,9 +74,16 @@ def _filter_vocab():
         }
 
     try:
-        return cache.get_or_set(_VOCAB_CACHE_KEY, fetch, _VOCAB_CACHE_SECONDS)
+        vocab = cache.get_or_set(_VOCAB_CACHE_KEY, fetch, _VOCAB_CACHE_SECONDS)
     except DatabaseError:
         return None
+
+    if user is not None:
+        scopes = scopes_for(user, READ)
+        if scopes is not ALL_SCOPES:
+            vocab = dict(vocab)
+            vocab["datasets"] = [d for d in vocab["datasets"] if d["slug"] in scopes]
+    return vocab
 
 
 # Sortable columns, with the direction each opens in. A publisher list
@@ -118,8 +134,12 @@ def sort_headers(key, direction):
     return headers
 
 
-def _filtered_articles(params):
+def _filtered_articles(params, user):
     """Apply the grid filters from the query string to the corpus.
+
+    Narrowed to the datasets `user` may read before any filter runs, so a
+    reader cannot reach another dataset's stories by leaving `?dataset=`
+    off or by naming one they were not granted.
 
     Scope, the central-FIPS claim and the geographic skip reason live on
     article_enrichment; they join through the reverse one-to-one, and are
@@ -132,6 +152,8 @@ def _filtered_articles(params):
         enr_point_geoid=F("enrichment__point_geoid"),
         enr_point_level=F("enrichment__point_geoid_level"),
     )
+
+    qs = narrow(qs, user, READ)
 
     if slug := params.get("dataset"):
         # The canonical membership path (the crawler's own enrichment
@@ -180,7 +202,7 @@ def _filtered_articles(params):
 
 @requires(READ)
 def articles(request):
-    vocab = _filter_vocab()
+    vocab = _filter_vocab(request.user)
     params = request.GET.copy()
     params.pop("page", None)
     sort_params = params.copy()
@@ -201,7 +223,7 @@ def articles(request):
             page_number = int(request.GET.get("page", "1"))
         except ValueError:
             page_number = 1
-        paginator = Paginator(_filtered_articles(request.GET), PAGE_SIZE)
+        paginator = Paginator(_filtered_articles(request.GET, request.user), PAGE_SIZE)
         context["page"] = paginator.get_page(page_number)
 
     # htmx swaps just the results region; a plain GET renders the page.
@@ -345,8 +367,15 @@ def article_detail(request, article_id):
     the superset with an is_primary flag.
     """
     try:
+        # Narrowed before the id filter, so a story in a dataset this
+        # reader does not hold is not found rather than forbidden: a 403
+        # would confirm the article exists, which is itself a disclosure.
         article = (
-            Article.objects.select_related("candidate_link__source")
+            narrow(
+                Article.objects.select_related("candidate_link__source"),
+                request.user,
+                READ,
+            )
             .filter(id=article_id)
             .first()
         )
@@ -419,7 +448,7 @@ def article_detail(request, article_id):
     )
 
 
-def _enrichment_vocab():
+def _enrichment_vocab(user=None):
     """Distinct enrichment filter values, or None offline."""
 
     def fetch():
@@ -439,17 +468,30 @@ def _enrichment_vocab():
         }
 
     try:
-        return cache.get_or_set(
+        vocab = cache.get_or_set(
             _ENRICHMENT_VOCAB_CACHE_KEY, fetch, _VOCAB_CACHE_SECONDS
         )
     except DatabaseError:
         return None
 
+    # Cached corpus-wide; only the dataset list differs per reader.
+    if user is not None:
+        scopes = scopes_for(user, READ)
+        if scopes is not ALL_SCOPES:
+            vocab = dict(vocab)
+            vocab["datasets"] = [d for d in vocab["datasets"] if d["slug"] in scopes]
+    return vocab
 
-def _filtered_enrichment(params):
+
+def _filtered_enrichment(params, user):
     """The enrichment grid's filters (SCOPE.md §2.2): dataset, geography
-    (scope, FIPS, skip reason), confidence band."""
+    (scope, FIPS, skip reason), confidence band.
+
+    Narrowed to the datasets `user` may read first: an enrichment record
+    belongs to a dataset through the article it enriches.
+    """
     qs = ArticleEnrichment.objects.select_related("article__candidate_link__source")
+    qs = narrow(qs, user, READ, source_path="article__candidate_link__source_id")
 
     if slug := params.get("dataset"):
         member_sources = DatasetSource.objects.filter(dataset__slug=slug).values(
@@ -479,7 +521,7 @@ def _filtered_enrichment(params):
 
 @requires(READ)
 def enrichment(request):
-    vocab = _enrichment_vocab()
+    vocab = _enrichment_vocab(request.user)
     params = request.GET.copy()
     params.pop("page", None)
     context = {
@@ -492,7 +534,9 @@ def enrichment(request):
             page_number = int(request.GET.get("page", "1"))
         except ValueError:
             page_number = 1
-        paginator = Paginator(_filtered_enrichment(request.GET), PAGE_SIZE)
+        paginator = Paginator(
+            _filtered_enrichment(request.GET, request.user), PAGE_SIZE
+        )
         context["page"] = paginator.get_page(page_number)
 
     template = (
@@ -509,6 +553,35 @@ def costs(request):
     recorded by dataset and model, the cache discount as the headline."""
     recorded = recorded_costs()
     billed = billed_costs()
+
+    # Item 1 put spend on `write`, so an editor sees the cost of the
+    # datasets they write. Two different shapes of answer:
+    #
+    # The recorded side is per dataset and narrows cleanly -- drop the
+    # rows for datasets this person does not hold, and restate the totals
+    # from what is left rather than leaving a corpus-wide figure above a
+    # partial table.
+    #
+    # The billed side does not decompose *yet*. It is OpenRouter's own
+    # record by day and model, and a trace does not currently say which
+    # dataset it served -- so there is no honest way to show a share of
+    # it, and it is shown only to an application admin, for whom "the
+    # whole corpus" is the right answer anyway.
+    #
+    # This is a gap rather than a law: the crawler can send a label with
+    # each call, and openrouter_traces would then group by dataset like
+    # the recorded side. See ROADMAP item 4.
+    scopes = scopes_for(request.user, COST_PRIVILEGE)
+    if scopes is not ALL_SCOPES and recorded:
+        kept = [row for row in recorded["by_dataset"] if row["slug"] in scopes]
+        recorded = dict(recorded)
+        recorded["by_dataset"] = kept
+        recorded["totals"] = {
+            "total": sum(row["cost"] or 0 for row in kept),
+            "articles": sum(row["articles"] or 0 for row in kept),
+        }
+    if not is_application_admin(request.user, APP):
+        billed = None
 
     # Join the two sides by day for the comparison table.
     by_day = {}

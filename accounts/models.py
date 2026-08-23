@@ -41,6 +41,19 @@ APP_CHOICES = [
 #: person hold two application-wide roles at once.
 WHOLE_APPLICATION = ""
 
+#: Reference data that is nobody's corpus — FIPS codes, census tables,
+#: demographics. It is a dataset like any other, and every account reads
+#: and designs against it (ROADMAP item 1), so access is a rule rather
+#: than a row per person: there is nothing to create at sign-up and
+#: nothing that can be revoked by accident.
+#:
+#: Making it a dataset rather than a special case is what keeps scoping
+#: uniform. A visual wired only to census tables is wired to *this*
+#: dataset, not to none — so the empty set keeps meaning "no access"
+#: everywhere, instead of meaning "unconstrained" in one place and its
+#: opposite in another.
+UNIVERSAL = "universal"
+
 
 class Grant(models.Model):
     """One person's role in one application, over one scope."""

@@ -75,7 +75,13 @@ the datasets the person can read instead of being all-or-nothing.
 **The roles are per dataset, so one person holds several.** The common
 case is exactly the one that motivates a designer: viewer or designer
 across the datasets someone browses and builds visuals from, editor or
-admin on the one they own. `Grant` is keyed on (user, app, scope) with
+admin on the one they own.
+
+**An editor may change anything inside their own dataset**, publishers
+included. A publisher is shared between datasets, so an edit to one
+becomes a proposal to the other datasets holding it, and a dataset's
+public flag decides whether its publishers are visible outside it at
+all — see item 10, where both live. `Grant` is keyed on (user, app, scope) with
 one role per scope, so that is the ordinary arrangement rather than a
 special case — and no precedence rule is needed, because the scopes
 differ.
@@ -117,12 +123,28 @@ the review queue (item 6), the cost dashboard (item 5), the visuals
 registry (a visual belongs to a dataset), the audit log (unchanged —
 still records the actor).
 
-**Decided:** a visual belongs to whichever datasets its author had
-access to when building it. The visual records that set, and a viewer
-needs access to all of them to see it inside Datadesk. A *published*
-visual is public at its embed regardless — publishing is the act that
-makes it so, which is why publishing is a privilege (`design`) rather
-than a side effect of authoring.
+**Decided, clarified 2026-08-23: a visual belongs to the datasets it is
+wired to, and is owned by the account that made it.** Not "the datasets
+its author could reach" — that was the earlier wording and it was wrong,
+because it would attach a visual to datasets it never touches. What it
+records is its own wiring.
+
+Ownership does the constraining, and does it naturally: an author can
+only wire a visual to data they can already read, so the set a visual
+carries is a subset of what its owner held at the time. Nothing has to
+check that twice.
+
+A *published* visual is public at its embed regardless — publishing is
+the act that makes it so, which is why publishing is a privilege
+(`design`) rather than a side effect of authoring.
+
+**Universal data belongs to no dataset.** FIPS codes, census tables,
+demographics — reference data that is not anybody's corpus and is mostly
+not loaded yet. A visual wired only to that is wired to no dataset, and
+scoping must read that as "unconstrained" rather than as "no access".
+The empty case means the opposite thing here than it does for a person's
+grants, which is exactly the kind of inversion that is easy to get
+backwards and worth stating before either is built.
 
 **A visual belongs to a person first and to datasets second, decided
 2026-08-23.** Someone can only build a visual from datasets they have
@@ -221,11 +243,34 @@ comparison.
 
 **Touches:** `explorer/costs.py`, the dashboard, the admin section.
 
-**Decide first:**
-- Can `openrouter_traces` be attributed to a dataset? Without request
-  tagging, billed cost joins only by time, so a per-dataset billed
-  figure would be an allocation, not a measurement. Recorded cost joins
-  per article and therefore per dataset. This is the crux of item 5.
+**Decided 2026-08-23: tag the request.** The crawler can send a label
+with each call, so a trace can carry the dataset it served. That turns a
+per-dataset billed figure from an allocation into a measurement, and it
+is the crux of item 5 answered — the allocation rule item 5 was waiting
+on is not needed for the model spend, because the spend can say where it
+came from.
+
+**Where the label goes, checked against the live table 2026-08-23.**
+`mizzou_analytics.openrouter_traces` has exactly one column — `trace`, a
+JSON blob, Langfuse-shaped. A trace already carries `metadata` (a
+populated dict, currently holding OpenRouter's own generation details),
+`tags` (a list, empty on real requests), and `sessionId` and `userId`,
+both null. So somewhere to put a dataset label exists today and nothing
+writes one; the query would then group on
+`JSON_VALUE(trace, "$.metadata.dataset")` or the equivalent.
+
+**And the billed query has never worked.** `_BILLED_SQL` selects
+`created_at`, `usage` and `cache_discount` as if they were columns of
+that table. They are not — a dry run fails with `Unrecognized name:
+created_at`. `billed_costs()` catches every exception and returns None,
+so the dashboard has been showing the recorded side alone and saying
+nothing. That is this item's "first step regardless", and it is now
+confirmed rather than suspected.
+
+Until it exists, billed cost is corpus-wide and shown only to an
+application admin — a partial share of an untagged total would be a
+guess presented as a number. `explorer/views.py` says so at the point it
+withholds it.
 
 **First step regardless:** verify the real `openrouter_traces` columns
 and fix the query.
@@ -251,14 +296,29 @@ Datadesk then groups by it.
 - Cost before the labelling date is unattributable. The dashboard needs
   a "from" date and should say what predates it.
 
-**Still open:**
-- **Which cost lines count as attributable?** Compute and storage
-  clearly; the Cloud SQL instance and the load balancer are shared
-  overhead, so either excluded or spread by a stated rule.
-- Is billing export already enabled to BigQuery, and in which project?
+**Decided 2026-08-23: compute and storage, per dataset, close enough
+rather than exact.** Both count as attributable and both are wanted.
+Where a figure has to be estimated it may be, provided it is close and
+provided the page says which numbers are measured and which are not — a
+research budget needs to know what a dataset costs to about the right
+order, not to the cent.
 
-**Touches:** a new `costs` module reading the billing export, the
-dashboard, dataset-scoped access from item 1.
+The shared lines stay shared. The Cloud SQL instance and the load
+balancer serve everything, so they go in the bucket the dashboard shows
+separately rather than being divided by a rule nobody would defend.
+
+**What the whole cost picture is, across items 4 and 5:**
+
+| | Source | State |
+|---|---|---|
+| Model spend, billed | OpenRouter, via `openrouter_traces` | Query broken; see item 4 |
+| Model spend, recorded | `article_enrichment.cost_usd` | Works, and is per dataset today |
+| Compute | GCP billing export, by Kubernetes label | Labelling not started |
+| Storage | GCP billing export | Not started |
+| Shared overhead | Cloud SQL, load balancer | Shown separately, never divided |
+
+Billed is the number wanted for model spend; recorded becomes the
+comparison, which is item 4's own framing.
 
 ## 6. Review queue scoped to access, and a reviewer role
 
@@ -813,6 +873,85 @@ about first.
    and a person has already ruled on many of those disagreements.
 4. Point the crawler at the directory, keeping `sources` as a read
    view until the pipeline is proven against it.
+
+**A publisher belongs to several datasets, and that is the whole
+problem, decided 2026-08-23.**
+
+An editor may change anything inside the dataset they own, publishers
+included. But a publisher record is not inside one dataset — the same
+outlet sits in several, and an edit made by one owner would silently
+rewrite what the others see. Two rules follow.
+
+**Do not version the publisher. Split its fields by who owns the truth.**
+
+An earlier draft of this said an edit becomes a proposal to the other
+dataset owners, each accepting or rejecting in their own dataset. That
+forks the record: one dataset says "Daily Star", another says "The Daily
+Star", and now every publisher needs a version per dataset and a rule for
+which one the public sees. The way out is not to manage the fork better,
+it is not to create it.
+
+There are three kinds of fact wearing one name:
+
+| | Lives on | Who decides | Copies |
+|---|---|---|---|
+| **Identity** — name, domain, city, county, medium, owner, state, founded and closed dates | the directory's outlet | the directory, via proposals | one, always |
+| **Dataset-scoped** — whether this outlet is in scope for *my* study, my notes, my classification of it | the membership row (`dataset_sources`) | that dataset's owner alone | one per dataset, and they never compete |
+| **Curation state** — `needs_review`, `review_note`, `is_published` | the directory's outlet | directory curators | not a dataset's business |
+
+An editor correcting a name is proposing a fix to **the directory** — one
+recipient, not one per dataset that happens to hold the outlet. The other
+owners accept nothing, because they never had their own copy to
+reconcile. An owner who disagrees with the directory's value either
+persuades it or records their own view on their membership row; what they
+cannot do is fork the outlet.
+
+`dataset_sources` is `id, dataset_id, source_id` and two legacy columns
+today — the place for dataset-scoped facts exists and is empty, which is
+why this costs a column rather than a redesign.
+
+Item 6's proposal machinery still applies, unchanged: a proposal is an
+audit entry before it is applied. Only the address changes, and it
+changes to something simpler than the draft had.
+
+**Who owns a dataset is public, decided 2026-08-23.** Not optional and
+not behind the public flag: the owner of every dataset is listed, because
+a proposal has to have somewhere to go and because a corpus whose
+custodian is unknown cannot be asked about. The flag governs what is
+inside a dataset; ownership of it is a fact about the consortium.
+
+**A proposal names the person who made the edit.** Email or name, carried
+on the proposal itself and shown to whoever is deciding. Accepting a
+change to a publisher record is a judgement about the change *and* about
+who is asking — a correction from the team that studies that market
+reads differently from one from somebody who has never seen the outlet.
+Anonymous proposals would be refused on principle or accepted on faith,
+and neither is review.
+
+The audit entry already records an actor, and a proposal is an audit
+entry before it is applied, so this is a matter of surfacing what is
+stored rather than storing something new.
+
+**The public flag exposes membership, not a second copy of anything.**
+Once identity lives in one place, a public dataset is saying one thing:
+*this outlet is in this study*. Who the outlet is was never private — it
+is the directory's, and the directory is the shared record. So there is
+no owner version and no public version to keep in step, because the
+shared half has a single copy and the private half is never shared.
+
+That is what the flag is worth. Without it an editor cannot see that the
+outlet they are correcting also appears elsewhere, and a corpus that
+nobody can see the shape of is not a directory.
+
+**What has to be decided when this is built:**
+
+- What counts as *basic* publisher information. Name, domain, city,
+  county, medium and owner are the obvious set — the directory's own
+  columns. Coverage records, review notes and data-quality issues are
+  editorial and are not.
+- Whether a rejected proposal is remembered. Rejecting the same change
+  three times because three datasets keep proposing it is the failure to
+  avoid.
 
 **Touches:** `NewsSourceDirectory` (schema and API), the crawler's
 source access, and Datadesk's `explorer.models.Source` plus the write
