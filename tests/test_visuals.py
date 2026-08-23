@@ -179,11 +179,96 @@ def test_unknown_renderer_is_a_validation_error(author):
         visual.full_clean()
 
 
-def test_index_lists_visuals_for_roles(client, viewer, visual, author):
+def test_the_index_hides_a_visual_from_an_uninvolved_viewer(
+    client, viewer, visual, author
+):
+    """Three ways to see a visual in the admin -- made it, own a dataset
+    it is wired to, or are an admin. A viewer who did none of those is
+    not one of them, even holding read across the application."""
     response = client.get("/visuals/")
     assert response.status_code == 200
-    assert "Story geography" in response.content.decode()
+    assert "Story geography" not in response.content.decode()
+
+
+def test_its_author_sees_their_own_draft(client, visual, author):
+    """The author needs a grant to reach the page at all -- somebody with
+    none has no standing here -- and then sees their own draft because
+    they made it, not because the grant reaches its datasets."""
+    Grant.objects.create(user=author, app=DATADESK, scope="", role="viewer")
+    client.force_login(author)
+    assert "Story geography" in client.get("/visuals/").content.decode()
+
+
+def test_the_owner_of_a_wired_dataset_sees_it(client, visual, db):
+    """Union, not intersection: requiring access to every dataset a
+    visual draws on would hide a cross-dataset chart from every owner who
+    contributed to it."""
+    visual.datasets = ["mizzou", "lehigh"]
+    visual.save(update_fields=["datasets"])
+
+    owner = User.objects.create_user("owner", email="owner@localnewsimpact.org")
+    Grant.objects.create(user=owner, app=DATADESK, scope="lehigh", role="editor")
+    client.force_login(owner)
+    assert "Story geography" in client.get("/visuals/").content.decode()
+
+
+def test_a_viewer_on_a_wired_dataset_does_not(client, visual, db):
+    """Owning it and being able to read it are different things."""
+    visual.datasets = ["mizzou"]
+    visual.save(update_fields=["datasets"])
+
+    reader = User.objects.create_user("reader", email="reader@localnewsimpact.org")
+    Grant.objects.create(user=reader, app=DATADESK, scope="mizzou", role="viewer")
+    client.force_login(reader)
+    assert "Story geography" not in client.get("/visuals/").content.decode()
+
+
+def test_an_admin_sees_everything(client, visual, db):
+    root = User.objects.create_user("boss", email="boss@localnewsimpact.org")
+    Grant.objects.create(user=root, app=DATADESK, scope="", role="admin")
+    client.force_login(root)
+    assert "Story geography" in client.get("/visuals/").content.decode()
 
 
 def test_index_requires_sign_in(client, visual):
     assert client.get("/visuals/").status_code == 302
+
+
+def test_a_viewer_sees_every_published_visual(client, viewer, visual):
+    """Published is public at its embed and in the bucket, so hiding it
+    in the admin protects nothing and only makes it hard to find."""
+    visual.status = Visual.PUBLISHED
+    visual.save(update_fields=["status"])
+    assert "Story geography" in client.get("/visuals/").content.decode()
+
+
+def test_seeing_a_published_visual_is_not_permission_to_change_it(client, db, visual):
+    """Holding `design` says somebody builds visuals; it does not say
+    they build *this* one."""
+    visual.status = Visual.PUBLISHED
+    visual.template = "builder"
+    visual.save(update_fields=["status", "template"])
+
+    designer = User.objects.create_user("des", email="des@localnewsimpact.org")
+    Grant.objects.create(user=designer, app=DATADESK, scope="", role="designer")
+    client.force_login(designer)
+
+    assert "Story geography" in client.get("/visuals/").content.decode()
+    assert client.get(f"/visuals/builder/{visual.slug}/").status_code == 403
+
+
+def test_a_revoked_author_keeps_seeing_and_stops_editing(client, db, visual):
+    """ROADMAP item 1: revocation changes who may edit, never what is
+    public. The author sees their published visual as any viewer would,
+    and only an admin can act on it."""
+    visual.status = Visual.PUBLISHED
+    visual.template = "builder"
+    visual.datasets = ["mizzou"]
+    visual.save(update_fields=["status", "template", "datasets"])
+
+    gone = User.objects.create_user("gone", email="gone@localnewsimpact.org")
+    Grant.objects.create(user=gone, app=DATADESK, scope="lehigh", role="viewer")
+    client.force_login(gone)
+
+    assert "Story geography" in client.get("/visuals/").content.decode()
+    assert client.get(f"/visuals/builder/{visual.slug}/").status_code == 403

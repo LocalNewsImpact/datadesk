@@ -15,6 +15,84 @@ class DataSourceError(Exception):
     """The visual's data source could not be read; message is user-facing."""
 
 
+def may_act_on(user, visual):
+    """May this person change this visual -- edit, refresh, publish?
+
+    Seeing and acting are separate. A published visual is visible to
+    anyone signed in, because it is already public at its embed; that
+    does not make it theirs to change. Acting needs one of:
+
+    - they made it
+    - they own a dataset it is wired to
+    - they are an application admin
+
+    Which is also what happens after a grant is revoked: the author keeps
+    seeing their visual, as any viewer would, and can no longer act on it.
+    Only an admin can, which is what ROADMAP item 1 decided.
+    """
+    from accounts.access import ALL_SCOPES, is_application_admin, permitted_scopes
+    from accounts.decorators import APP
+    from accounts.privileges import WRITE
+
+    if not user.is_authenticated:
+        return False
+    if is_application_admin(user, APP):
+        return True
+    if visual.created_by_id == user.pk:
+        return True
+    wired = set(visual.datasets or ())
+    if not wired:
+        return False
+    owned = permitted_scopes(user, APP, WRITE)
+    if owned is ALL_SCOPES:
+        return True
+    return bool(wired & set(owned))
+
+
+def visible_to(user, visual):
+    """May this person see this visual inside Datadesk?
+
+    **A published visual is visible to anyone signed in.** It is already
+    public at its embed and in the bucket it is exported to, so hiding it
+    in the admin protects nothing and only makes it hard to find.
+
+    A *draft* is narrower. Four ways in, and any one is enough
+    (ROADMAP item 1):
+
+    - it is published
+    - they made it
+    - they own a dataset it is wired to
+    - they are an application admin
+
+    A union, not an intersection. Requiring access to every dataset a
+    visual draws on would hide a cross-dataset chart from every one of the
+    owners who contributed to it, which is the opposite of what a shared
+    corpus is for.
+
+    "Owns" means holds `write` on the dataset -- an editor, the person who
+    started it. A viewer on a dataset does not see *drafts* built from it;
+    seeing the data and being answerable for unfinished work are different
+    things.
+    """
+    if not user.is_authenticated:
+        return False
+    if visual.status == visual.PUBLISHED:
+        return True
+    return may_act_on(user, visual)
+
+
+def scopes_of(visual):
+    """The datasets a visual may draw on.
+
+    Its own frozen set, never the reader's grants. A published embed is
+    read by people with no grants at all, and a snapshot taken later must
+    answer the same question the visual has always answered -- so what it
+    is wired to travels with it rather than being recomputed from whoever
+    happens to be asking.
+    """
+    return frozenset(visual.datasets or ())
+
+
 def fetch_source_data(visual):
     """Run the visual's data source and return JSON-compatible rows."""
     if visual.source_kind == INLINE:
@@ -26,9 +104,10 @@ def fetch_source_data(visual):
 
         spec = visual.spec or {}
         try:
+            scopes = scopes_of(visual)
             if spec.get("shape") == "story_map":
-                return run_story_map(spec)
-            rows, _meta = run_spec(spec)
+                return run_story_map(spec, scopes)
+            rows, _meta = run_spec(spec, scopes)
         except CorpusSpecError as exc:
             raise DataSourceError(str(exc)) from exc
         return rows
