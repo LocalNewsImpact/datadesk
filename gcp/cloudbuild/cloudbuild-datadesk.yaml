@@ -64,7 +64,12 @@ steps:
         BASE="${_REGISTRY}/${_SERVICE}-base:$$HASH"
         echo "$$BASE" > /workspace/base-image
 
-        if gcloud artifacts docker images describe "$$BASE" >/dev/null 2>&1; then
+        # `docker manifest inspect`, not `gcloud artifacts describe`: this
+        # step runs in gcr.io/cloud-builders/docker, which has no gcloud.
+        # The gcloud call therefore failed on every build, took the else
+        # branch, and rebuilt an image that was already in the registry --
+        # invisibly, because the failure went to /dev/null with the output.
+        if docker manifest inspect "$$BASE" >/dev/null 2>&1; then
           echo "reusing $$HASH -- dependencies unchanged"
         else
           echo "building $$HASH -- requirements.txt or the directory version changed"
@@ -111,36 +116,13 @@ steps:
         gcloud run jobs execute "${_SERVICE}-release" \
           --region "${_REGION}" --project "$PROJECT_ID" --wait
 
-  # Warming is its own job because it needs the crawler database, which the
-  # release job above has no credentials for. Deployed with every release so
-  # the image stays in step; Cloud Scheduler runs it.
-  - name: 'gcr.io/cloud-builders/gcloud'
-    id: 'warm-job'
-    entrypoint: 'bash'
-    waitFor: ['migrate']
-    args:
-      - '-c'
-      - |
-        set -euo pipefail
-        IMAGE="${_REGISTRY}/${_SERVICE}:${_SHORT_SHA}"
-        gcloud run jobs deploy "${_SERVICE}-warm" \
-          --image "$$IMAGE" --region "${_REGION}" --project "$PROJECT_ID" \
-          --command /bin/sh \
-          --args "^|^-c|python manage.py warm_caches --force" \
-          --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_DB_PASSWORD=crawler-ro-password:latest" \
-          --set-env-vars "^@^CLOUD_SQL_CONNECTION_NAME=${_SQL_INSTANCE}@DB_NAME=datadesk@DB_USER=datadesk@CRAWLER_DB_NAME=mizzou@CRAWLER_DB_USER=datadesk_ro" \
-          --set-cloudsql-instances "${_SQL_INSTANCE}" \
-          --service-account "${_RUN_SA}"
-        gcloud run jobs execute "${_SERVICE}-warm" \
-          --region "${_REGION}" --project "$PROJECT_ID" --wait
-
   # There is no staging environment. Instead the revision is deployed with no
   # traffic and proved on its own tagged URL first, so a broken build never
   # serves a request: if the check below fails, traffic stays put.
   - name: 'gcr.io/cloud-builders/gcloud'
     id: 'candidate'
     entrypoint: 'bash'
-    waitFor: ['warm-job']
+    waitFor: ['migrate']
     args:
       - '-c'
       - |
@@ -227,6 +209,35 @@ steps:
         code="$$(curl -s -o /dev/null -w '%{http_code}' "$$URL/_health")"
         echo "$$URL/_health -> $$code"
         [ "$$code" = "200" ] || { echo "smoke test failed after traffic shift"; exit 1; }
+
+  # Warming is its own job because it needs the crawler database, which the
+  # release job has no credentials for. Deployed with every release so the
+  # image stays in step; Cloud Scheduler runs it on a schedule.
+  #
+  # After the shift, not before. Run earlier it primed the cache against the
+  # revision being replaced, and blocked the rollout while doing it.
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'warm-job'
+    entrypoint: 'bash'
+    waitFor: ['shift']
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        IMAGE="${_REGISTRY}/${_SERVICE}:${_SHORT_SHA}"
+        gcloud run jobs deploy "${_SERVICE}-warm" \
+          --image "$$IMAGE" --region "${_REGION}" --project "$PROJECT_ID" \
+          --command /bin/sh \
+          --args "^|^-c|python manage.py warm_caches --force" \
+          --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_DB_PASSWORD=crawler-ro-password:latest" \
+          --set-env-vars "^@^CLOUD_SQL_CONNECTION_NAME=${_SQL_INSTANCE}@DB_NAME=datadesk@DB_USER=datadesk@CRAWLER_DB_NAME=mizzou@CRAWLER_DB_USER=datadesk_ro" \
+          --set-cloudsql-instances "${_SQL_INSTANCE}" \
+          --service-account "${_RUN_SA}"
+        # Started, not waited on. Waiting held the rollout open for three
+        # minutes for work no request depends on, and Cloud Scheduler runs
+        # this job on its own besides. A failure surfaces there.
+        gcloud run jobs execute "${_SERVICE}-warm" \
+          --region "${_REGION}" --project "$PROJECT_ID"
 
   # --- The Source Directory front end ---------------------------------------
   #
