@@ -88,15 +88,19 @@ invariant belongs at the point of authoring: a dataset the author cannot
 read cannot enter the visual. Publishing then needs no per-dataset test
 of its own.
 
-This leaves one case the invariant does not cover, because it is created
-after the fact: **access removed after authoring.** The author's grant on
-one of the visual's datasets is revoked, and the visual now draws on data
-they can no longer read. Options are to leave a published visual
-published (publishing was a deliberate public act, and unpublishing
-silently would break embeds), to unpublish it, or to keep it published
-and drop it from the author's own list. Not urgent — it needs a
-revocation to exist first — but it should be answered before revocation
-is a routine operation.
+**Revocation after authoring, decided 2026-08-23.** A grant is removed
+and the visual now draws on a dataset its author can no longer read.
+Nothing happens to the visual. A published visual stays published — the
+embed does not break, because publishing was a deliberate public act and
+revoking one person's access is not a retraction of it. What the author
+loses is the ability to edit it further. From then on only an admin can
+act on the visual.
+
+So revocation changes who may edit, never what is public. The visual is
+not orphaned and not withdrawn; it simply passes out of the author's
+hands. That keeps the rule the same shape as the rest of this item —
+access governs what a person may do, and publishing governs what the
+world may see, and the two do not reach into each other.
 
 **Cost visibility rides on `write`, decided 2026-08-23.** A person sees
 the costs of the datasets they are an editor or admin on — not the ones
