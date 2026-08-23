@@ -17,7 +17,8 @@ from django.db.models import F
 from django.http import Http404
 from django.shortcuts import render
 
-from accounts.decorators import admin_required, role_required
+from accounts.decorators import requires
+from accounts.privileges import COST_PRIVILEGE, READ
 from datasets.geo import level_for_geoid, name_for_geoid
 from explorer.costs import billed_costs, recorded_costs
 from explorer.models import (
@@ -177,7 +178,7 @@ def _filtered_articles(params):
     return qs.order_by(*_ordering(*_sort_state(params)))
 
 
-@role_required
+@requires(READ)
 def articles(request):
     vocab = _filter_vocab()
     params = request.GET.copy()
@@ -330,7 +331,7 @@ def geography_rows(article_id, enrichment):
     return rows, uncoded
 
 
-@role_required
+@requires(READ)
 def article_detail(request, article_id):
     """The side-by-side view (SCOPE.md §2.2): stored text next to the whole
     enrichment record — every category with its confidence and rationale,
@@ -476,7 +477,7 @@ def _filtered_enrichment(params):
     return qs.order_by(F("enriched_at").desc(nulls_last=True))
 
 
-@role_required
+@requires(READ)
 def enrichment(request):
     vocab = _enrichment_vocab()
     params = request.GET.copy()
@@ -502,7 +503,7 @@ def enrichment(request):
     return render(request, template, context)
 
 
-@admin_required
+@requires(COST_PRIVILEGE)
 def costs(request):
     """The cost dashboard (SCOPE.md §2.6): recorded vs billed by day,
     recorded by dataset and model, the cache discount as the headline."""

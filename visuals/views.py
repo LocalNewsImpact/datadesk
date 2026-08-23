@@ -18,8 +18,9 @@ from django.shortcuts import redirect, render
 from django.utils.text import slugify
 from django.views.decorators.clickjacking import xframe_options_exempt
 
-from accounts.decorators import editor_required, role_required
-from accounts.roles import role_for_user
+from accounts.access import has_any_grant
+from accounts.decorators import APP, requires
+from accounts.privileges import DESIGN, READ
 from audit.models import AuditLogEntry
 from visuals.builder import CHART_KINDS, BuilderError, config_from_form, parse_upload
 from visuals.models import BIGQUERY, CORPUS, GCS, INLINE, Visual
@@ -41,7 +42,7 @@ def _get_visual(request, slug):
         raise Http404("No such visual")
     # Drafts: preview for signed-in users with a role, absent otherwise.
     if visual.status != Visual.PUBLISHED and not (
-        request.user.is_authenticated and role_for_user(request.user) is not None
+        request.user.is_authenticated and has_any_grant(request.user, APP)
     ):
         raise Http404("No such visual")
     return visual
@@ -85,7 +86,7 @@ def data_json(request, slug):
 
 def page(request, slug):
     """The full page — inside the sign-in wall (SCOPE.md §3)."""
-    if not (request.user.is_authenticated and role_for_user(request.user)):
+    if not (request.user.is_authenticated and has_any_grant(request.user, APP)):
         raise Http404("No such visual")
     visual = _get_visual(request, slug)
     return render(
@@ -108,7 +109,7 @@ def embed(request, slug):
     return response
 
 
-@role_required
+@requires(READ)
 def index(request):
     """Published visuals (and drafts, marked) for signed-in users."""
     return render(request, "visuals/index.html", {"visuals": Visual.objects.all()})
@@ -117,7 +118,7 @@ def index(request):
 # --- the form-driven builder (SCOPE.md §2.7 v2) -----------------------------
 
 
-@editor_required
+@requires(DESIGN)
 def builder_new(request):
     """Pick a data source, get a draft visual with a first snapshot."""
     error = None
@@ -174,7 +175,7 @@ def builder_new(request):
     return render(request, "visuals/builder_new.html", {"error": error})
 
 
-@editor_required
+@requires(DESIGN)
 def builder_edit(request, slug):
     visual = Visual.objects.filter(slug=slug, template="builder").first()
     if visual is None:

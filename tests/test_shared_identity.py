@@ -12,7 +12,9 @@ have nowhere to run.
 """
 
 import pytest
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import User
+
+from accounts.models import DATADESK, Grant
 
 
 def test_the_session_cookie_domain_comes_from_the_environment(monkeypatch):
@@ -65,21 +67,26 @@ def test_a_parent_domain_cookie_is_off_by_default():
 
 
 @pytest.mark.django_db
-def test_a_role_is_a_group_so_the_other_console_can_read_it():
-    """The directory gates its admin on is_staff; Datadesk gates on
-    these groups. Once the user table is shared, is_staff has to be
-    derived from the role rather than set by hand, or the two consoles
-    disagree about who is an editor — and that disagreement is invisible
-    until somebody is wrongly let in or shut out.
+def test_a_grant_names_the_application_it_applies_to():
+    """One user table, two consoles, and what somebody may do answered
+    separately in each.
 
-    This pins the vocabulary the derivation will read.
+    This test pinned the old arrangement: three Django groups, which the
+    directory was going to derive `is_staff` from. ROADMAP item 1 decided
+    against deriving anything -- the directory's admin gate is replaced by
+    the same grant check Datadesk uses -- so what needs pinning now is that
+    a grant is per application and says so.
     """
-    from accounts.roles import ADMIN, EDITOR, ROLES, VIEWER, role_for_user
+    from accounts.models import SOURCES
+    from accounts.privileges import ADMIN, EDITOR, ROLES, VIEWER
 
-    assert set(ROLES) == {VIEWER, EDITOR, ADMIN}
-    for role in ROLES:
-        assert Group.objects.filter(name=role).exists(), role
+    assert {VIEWER, EDITOR, ADMIN} <= set(ROLES)
 
     user = User.objects.create_user("e", email="e@localnewsimpact.org")
-    user.groups.add(Group.objects.get(name=EDITOR))
-    assert role_for_user(user) == EDITOR
+    Grant.objects.create(user=user, app=DATADESK, scope="", role=EDITOR)
+
+    from accounts.access import has_privilege_anywhere
+    from accounts.privileges import WRITE
+
+    assert has_privilege_anywhere(user, DATADESK, WRITE)
+    assert not has_privilege_anywhere(user, SOURCES, WRITE)

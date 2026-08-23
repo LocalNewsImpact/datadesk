@@ -12,7 +12,13 @@ from django.db.models import Count, Max
 from django.http import Http404
 from django.shortcuts import redirect, render
 
-from accounts.decorators import admin_required
+from accounts.decorators import requires_admin
+
+# Still admin-only, and knowingly so. ROADMAP item 1 says an editor starts
+# a dataset and then owns it, and `accounts.access.may_create_dataset`
+# answers that -- but wiring it here also means deciding what a non-admin
+# sees on `dataset_list` and `dataset_detail`, which carry admin
+# affordances beyond the dataset itself. That is its own change.
 from datasets.models import GazetteerBuildRequest
 from datasets.places import validate_city
 from datasets.profiles import (
@@ -30,7 +36,7 @@ from review.services import (
 )
 
 
-@admin_required
+@requires_admin
 def dataset_list(request):
     datasets = list(Dataset.objects.order_by("label"))
     members = dict(
@@ -48,7 +54,7 @@ def dataset_list(request):
     return render(request, "datasets/list.html", {"datasets": datasets})
 
 
-@admin_required
+@requires_admin
 def dataset_create(request):
     error = None
     if request.method == "POST":
@@ -85,7 +91,7 @@ def _get_dataset(slug):
     return dataset
 
 
-@admin_required
+@requires_admin
 def dataset_detail(request, slug):
     dataset = _get_dataset(slug)
     meta = dataset.meta or {}
@@ -247,7 +253,7 @@ def _validate_source_form(post):
     return fields, state, errors
 
 
-@admin_required
+@requires_admin
 def source_create(request):
     context = {
         "values": {},
@@ -293,7 +299,7 @@ def source_create(request):
     return render(request, "datasets/source_form.html", context)
 
 
-@admin_required
+@requires_admin
 def source_edit(request, source_id):
     source = Source.objects.filter(pk=source_id).first()
     if source is None:

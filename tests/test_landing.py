@@ -1,7 +1,8 @@
 """Landing page: sign-in for visitors, email and role for users."""
 
 import pytest
-from django.contrib.auth.models import Group
+
+from accounts.models import DATADESK, Grant
 
 
 @pytest.mark.django_db
@@ -15,15 +16,18 @@ def test_anonymous_gets_sign_in(client):
 
 # A role assigned means the view also asks the crawler alias for row counts.
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_authenticated_sees_email_and_role(client, django_user_model):
+def test_authenticated_sees_email_and_how_access_is_granted(client, django_user_model):
+    """The page named the person's single role. Roles are per dataset
+    now, so there is no single one to name -- it says how access works
+    instead."""
     user = django_user_model.objects.create_user("v1", email="v1@example.org")
-    user.groups.add(Group.objects.get(name="viewer"))
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="viewer")
     client.force_login(user)
     response = client.get("/")
     assert response.status_code == 200
     content = response.content.decode()
     assert "v1@example.org" in content
-    assert "viewer" in content
+    assert "Granted per dataset" in content
 
 
 @pytest.mark.django_db

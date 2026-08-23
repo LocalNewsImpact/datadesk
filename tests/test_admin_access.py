@@ -12,12 +12,14 @@ moving a link between groups cannot quietly widen or narrow access.
 """
 
 import pytest
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import User
 from django.urls import URLPattern, URLResolver, get_resolver, reverse
 
-from accounts.roles import ADMIN, EDITOR
+from accounts.models import DATADESK, Grant
 from accounts.sections import (
+    ADMIN,
     ANY,
+    EDITOR,
     SECTION_GROUPS,
     external_sections,
     groups_for,
@@ -37,8 +39,19 @@ ADMIN_URLS = _urls_requiring(ADMIN)
 EDITOR_URLS = _urls_requiring(EDITOR)
 OPEN_URLS = _urls_requiring(ANY)
 
-# The role each group's declaration implies its views must carry.
-GUARD_FOR = {ANY: "requires_role", EDITOR: "requires_editor", ADMIN: "requires_admin"}
+
+# What a section's declared requirement implies about the view behind it.
+# `requires(privilege)` records the privilege on the view; the admin guard
+# sets a flag, because administration is not a privilege over a dataset.
+def _carries_guard(view, requirement):
+    from accounts.sections import IMPORT
+
+    if requirement == ADMIN:
+        return getattr(view, "requires_admin", False)
+    if requirement == IMPORT:
+        return getattr(view, "requires_import", False)
+    return getattr(view, "required_privilege", None) == requirement
+
 
 # Admin URLs that no section links to directly, but which must be guarded
 # just as hard: the role-assignment endpoint is the console's own escalation
@@ -53,7 +66,7 @@ def _user(client, role, username=None):
     username = username or (role or "norole")
     user = User.objects.create_user(username, email=f"{username}@localnewsimpact.org")
     if role:
-        user.groups.add(Group.objects.get(name=role))
+        Grant.objects.create(user=user, app=DATADESK, scope="", role=role)
     client.force_login(user)
     return user
 
@@ -112,10 +125,9 @@ def test_a_sections_group_matches_the_guard_on_its_view(url_name, requires):
     whose role its view does not enforce is the bug this catches — the
     sidebar would promise one thing and the view do another."""
     view = _view_for(url_name)
-    mark = GUARD_FOR[requires]
-    assert getattr(
-        view, mark, False
-    ), f"{url_name} sits in a {requires} group but is not {mark}"
+    assert _carries_guard(view, requires), (
+        f"{url_name} sits in a {requires} group but its view does not " f"demand it"
+    )
 
 
 def _all_patterns(resolver=None, prefix=""):
@@ -218,11 +230,17 @@ def test_the_source_directory_sits_under_sources():
 
 
 def test_the_groups_read_in_the_order_the_sidebar_shows_them(client, crawler_schema):
-    """Data, then Sources, then Extraction, then Admin."""
+    """Data, then Sources, then Extraction, then Cost, then Admin.
+
+    Cost joined the list when ROADMAP item 1 put spend on `write`: it
+    left the Admin group because an editor may see it, and a group
+    labelled Admin containing a page an editor can open would be a lie.
+    """
     assert [g["label"] for g in SECTION_GROUPS] == [
         "Data",
         "Sources",
         "Extraction",
+        "Cost",
         "Admin",
     ]
     _user(client, "admin")

@@ -4,8 +4,9 @@ membership with audit, the profile contract, build requests."""
 import json
 
 import pytest
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import User
 
+from accounts.models import DATADESK, Grant
 from audit.models import AuditLogEntry
 from datasets.models import GazetteerBuildRequest
 from datasets.places import validate_city
@@ -19,7 +20,7 @@ pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
 @pytest.fixture
 def admin(client):
     user = User.objects.create_user("boss", email="boss@localnewsimpact.org")
-    user.groups.add(Group.objects.get(name="admin"))
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="admin")
     client.force_login(user)
     return user
 
@@ -27,7 +28,7 @@ def admin(client):
 @pytest.fixture
 def editor(client):
     user = User.objects.create_user("editor", email="editor@localnewsimpact.org")
-    user.groups.add(Group.objects.get(name="editor"))
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="editor")
     client.force_login(user)
     return user
 

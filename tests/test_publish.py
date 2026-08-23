@@ -15,10 +15,11 @@ from unittest import mock
 
 import pytest
 import yaml
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
+from accounts.models import DATADESK, Grant
 from visuals.models import Visual
 
 pytestmark = pytest.mark.django_db
@@ -27,7 +28,7 @@ pytestmark = pytest.mark.django_db
 def _user(username, role):
     user = User.objects.create_user(username, email=f"{username}@localnewsimpact.org")
     if role:
-        user.groups.add(Group.objects.get(name=role))
+        Grant.objects.create(user=user, app=DATADESK, scope="", role=role)
     return user
 
 

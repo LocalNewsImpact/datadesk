@@ -22,11 +22,30 @@ They are listed here anyway so the nav is one list: a reader should not
 have to know which console a tool happens to live in.
 """
 
-from accounts.roles import ADMIN, EDITOR, VIEWER
+from accounts.access import (
+    has_privilege_anywhere,
+    is_application_admin,
+    may_import_anywhere,
+)
+from accounts.privileges import READ, WRITE
 
-# What a group requires. ANY means any assigned role — the everyday
-# surface, open to viewers; the actions inside it carry their own guards.
-ANY = VIEWER
+# What a group requires, as a privilege rather than a role name. Roles are
+# per dataset now, and one person holds several -- so "is this an editor"
+# has no answer, while "does this person hold `write` on anything" does.
+#
+# ANY is `read`: the everyday surface, open to anyone with a dataset to
+# look at. The actions inside it carry their own guards.
+ANY = READ
+EDITOR = WRITE
+
+# Not a privilege. User administration and the audit log are not per
+# dataset, so this asks for an application-wide admin grant instead.
+ADMIN = "administration"
+
+# Also not a privilege: a reviewer and an editor both hold `write`, and
+# what separates them is how many records one click changes. See
+# accounts.privileges.
+IMPORT = "import"
 
 SECTION_GROUPS = (
     {
@@ -66,6 +85,7 @@ SECTION_GROUPS = (
             },
             {
                 "url": "review:import_batches",
+                "requires": IMPORT,
                 "label": "Import",
                 "note": "Upload a spreadsheet, map its columns, review the diff.",
             },
@@ -87,7 +107,7 @@ SECTION_GROUPS = (
     },
     {
         "label": "Extraction",
-        "requires": ANY,
+        "requires": EDITOR,
         "sections": (
             {
                 "url": "review:queue",
@@ -96,9 +116,16 @@ SECTION_GROUPS = (
             },
         ),
     },
+    # Cost sits on its own rather than under Admin. ROADMAP item 1 put
+    # spend on `write` -- a management fact, not a research one, but not
+    # an administrative one either -- so an editor sees it for the
+    # datasets they write. Leaving it under a group labelled Admin would
+    # have meant either lying to an editor about why they can see it, or
+    # hiding a page they are allowed to open. Item 19's Production group
+    # is where this belongs once that exists.
     {
-        "label": "Admin",
-        "requires": ADMIN,
+        "label": "Cost",
+        "requires": EDITOR,
         "sections": (
             {
                 "url": "explorer:costs",
@@ -108,6 +135,12 @@ SECTION_GROUPS = (
                     "per dataset and model."
                 ),
             },
+        ),
+    },
+    {
+        "label": "Admin",
+        "requires": ADMIN,
+        "sections": (
             {
                 "url": "datasets:list",
                 "label": "Datasets",
@@ -135,13 +168,20 @@ SECTION_GROUPS = (
     },
 )
 
-# A role reaches its own groups and every group below it.
-_REACH = {
-    None: (),
-    VIEWER: (ANY,),
-    EDITOR: (ANY, EDITOR),
-    ADMIN: (ANY, EDITOR, ADMIN),
-}
+
+def _reaches(user, app, requirement):
+    """Does this person reach a section with this requirement?
+
+    There is no precedence to apply. The three global groups needed one --
+    an editor implied a viewer -- but a privilege answers for itself, and
+    a person holding `write` on one dataset and `read` on another reaches
+    both kinds of section without any role being ranked above another.
+    """
+    if requirement == ADMIN:
+        return is_application_admin(user, app)
+    if requirement == IMPORT:
+        return may_import_anywhere(user, app)
+    return has_privilege_anywhere(user, app, requirement)
 
 
 def requires_for(group, section):
@@ -168,17 +208,26 @@ def _rendered(section):
     }
 
 
-def groups_for(role):
-    """The navigation groups a role sees, in order, each carrying only
-    the sections that role reaches. A group with nothing left is absent
-    rather than empty."""
-    reach = _REACH.get(role, ())
+def groups_for(user, app=None):
+    """The navigation groups this person sees, in order, each carrying
+    only the sections they reach. A group with nothing left is absent
+    rather than empty.
+
+    Takes a user rather than a role, because a person now holds several
+    roles across datasets and no single one of them describes what they
+    can see.
+    """
+    from accounts.decorators import APP
+
+    app = app or APP
+    if user is None:
+        return ()
     groups = []
     for group in SECTION_GROUPS:
         visible = tuple(
             _rendered(section)
             for section in group["sections"]
-            if requires_for(group, section) in reach
+            if _reaches(user, app, requires_for(group, section))
         )
         if visible:
             groups.append({"label": group["label"], "sections": visible})

@@ -2,8 +2,9 @@
 as one audited batch."""
 
 import pytest
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import User
 
+from accounts.models import DATADESK, Grant
 from audit.models import AuditLogEntry
 from explorer.models import Source
 from review.proposals import ChangeProposal
@@ -16,7 +17,7 @@ URL = "/review/proposals/"
 @pytest.fixture
 def editor(client):
     user = User.objects.create_user("editor", email="editor@localnewsimpact.org")
-    user.groups.add(Group.objects.get(name="editor"))
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="editor")
     client.force_login(user)
     return user
 
@@ -125,7 +126,7 @@ def test_a_file_offering_two_values_is_still_decidable(client, editor, publisher
 
 def test_viewers_cannot_reach_the_queue(client, publisher):
     user = User.objects.create_user("viewer", email="v@localnewsimpact.org")
-    user.groups.add(Group.objects.get(name="viewer"))
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="viewer")
     client.force_login(user)
     assert client.get(URL).status_code == 403
 
