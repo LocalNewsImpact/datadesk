@@ -14,12 +14,7 @@ one. A superuser answers yes to everything and needs no rows.
 """
 
 from accounts.models import WHOLE_APPLICATION, Grant
-from accounts.privileges import (
-    ADMIN,
-    role_may_create_dataset,
-    role_may_import,
-    role_permits,
-)
+from accounts.privileges import ADMIN, CREATE, role_permits
 
 #: Returned by `permitted_scopes` when the person's access is not limited
 #: to particular datasets — a superuser, or an application-wide grant.
@@ -65,17 +60,13 @@ def has_privilege(user, app, privilege, scope=None):
 
 
 def may_import(user, app, scope=None):
-    """Imports and bulk operations.
+    """Bring new rows into a dataset.
 
-    A role test rather than a privilege test, deliberately: a reviewer and
-    an editor both hold `write`, and what separates them is how many
-    records one action changes. See `accounts.privileges`.
+    `create`, not `write`: an import does not correct a record that
+    exists, it adds records that did not. That is the reviewer/editor
+    line, and it is an ordinary privilege check like any other.
     """
-    if not user.is_authenticated:
-        return False
-    if user.is_superuser:
-        return True
-    return any(role_may_import(role) for role in roles_for(user, app, scope))
+    return has_privilege(user, app, CREATE, scope)
 
 
 def has_privilege_anywhere(user, app, privilege):
@@ -96,15 +87,8 @@ def has_privilege_anywhere(user, app, privilege):
 
 
 def may_import_anywhere(user, app):
-    """Imports, asked without a scope. See `may_import`."""
-    if not user.is_authenticated:
-        return False
-    if user.is_superuser:
-        return True
-    return any(
-        role_may_import(role)
-        for role in _grants(user, app).values_list("role", flat=True)
-    )
+    """Imports, asked without naming a dataset. See `may_import`."""
+    return has_privilege_anywhere(user, app, CREATE)
 
 
 def is_application_admin(user, app):
@@ -122,22 +106,14 @@ def is_application_admin(user, app):
 
 
 def may_create_dataset(user, app):
-    """Start a new dataset, as opposed to acting within one.
+    """Start a new dataset.
 
-    Asked without a scope, because there is no scope yet. Any editor or
-    admin grant answers it — an editor who owns one dataset may start
-    another, and the roadmap's alternative (only an application-wide
-    grant confers it) would mean someone could own a dataset and not be
-    able to make a second.
+    The same privilege as an import — both bring something into
+    existence — asked without a scope, because the dataset does not exist
+    yet. Holding `create` on one dataset answers it: someone who owns one
+    may obviously start a second.
     """
-    if not user.is_authenticated:
-        return False
-    if user.is_superuser:
-        return True
-    return any(
-        role_may_create_dataset(role)
-        for role in _grants(user, app).values_list("role", flat=True)
-    )
+    return has_privilege_anywhere(user, app, CREATE)
 
 
 def permitted_scopes(user, app, privilege):

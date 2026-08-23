@@ -44,12 +44,14 @@ OPEN_URLS = _urls_requiring(ANY)
 # `requires(privilege)` records the privilege on the view; the admin guard
 # sets a flag, because administration is not a privilege over a dataset.
 def _carries_guard(view, requirement):
-    from accounts.sections import IMPORT
+    """Administration is the only requirement that is not a privilege.
 
+    Imports used to be a second exception here. They are `create` now --
+    an import adds records that were not there, which is a power rather
+    than a volume -- so the generic branch answers for them.
+    """
     if requirement == ADMIN:
         return getattr(view, "requires_admin", False)
-    if requirement == IMPORT:
-        return getattr(view, "requires_import", False)
     return getattr(view, "required_privilege", None) == requirement
 
 
