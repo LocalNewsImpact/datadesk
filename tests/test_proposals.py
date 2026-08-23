@@ -743,3 +743,65 @@ def test_the_detail_reads_as_one_sentence():
     )
     assert "more than one value here" in both
     assert both.endswith("the record says “Lee's Summit Missouri Journal News”")
+
+
+def test_new_evidence_answers_a_question_that_had_no_proposal(
+    client, crawler_schema, editor, tmp_path
+):
+    """A flag can be raised before anything is known to propose: "no
+    owner recorded" with no candidate anywhere is a research task, not a
+    decision. When a directory later supplies a value, the question
+    already in the queue should carry it — not stay blank while the new
+    proposal is refused as a duplicate."""
+    from django.core.management import call_command
+
+    _mo_publisher(owner="", host="z.example", host_norm="z.example", id="s30")
+    call_command("scan_sources", dataset="mo")
+    blank = ChangeProposal.objects.get(record_id="s30", flag="owner_missing")
+    assert blank.proposed_value == ""
+
+    evidence = tmp_path / "mopress.csv"
+    evidence.write_text(
+        "host_norm,canonical_name,city,county,owner,type\n"
+        "z.example,,,,Rust Communications,\n"
+    )
+    call_command(
+        "scan_sources",
+        dataset="mo",
+        evidence=str(evidence),
+        evidence_name="Missouri Press directory",
+    )
+
+    blank.refresh_from_db()
+    assert blank.proposed_value == "Rust Communications"
+    assert blank.state == ChangeProposal.PENDING
+    # Still one question, not two.
+    assert ChangeProposal.objects.filter(record_id="s30", field="owner").count() == 1
+
+
+def test_a_proposal_already_offering_a_value_is_left_alone(
+    client, crawler_schema, editor, tmp_path
+):
+    """A row a reviewer may be looking at does not have its proposed
+    value changed underneath them."""
+    from django.core.management import call_command
+
+    _mo_publisher(owner="", host="y2.example", host_norm="y2.example", id="s31")
+    call_command("scan_sources", dataset="mo")
+    row = ChangeProposal.objects.get(record_id="s31", flag="owner_missing")
+    row.proposed_value = "Example Media"
+    row.save(update_fields=["proposed_value"])
+
+    evidence = tmp_path / "mopress.csv"
+    evidence.write_text(
+        "host_norm,canonical_name,city,county,owner,type\n"
+        "y2.example,,,,Rust Communications,\n"
+    )
+    call_command(
+        "scan_sources",
+        dataset="mo",
+        evidence=str(evidence),
+        evidence_name="Missouri Press directory",
+    )
+    row.refresh_from_db()
+    assert row.proposed_value == "Example Media"
