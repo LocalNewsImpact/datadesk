@@ -13,7 +13,6 @@
       "Bash(gcloud run jobs execute:*)",
       "Bash(gcloud run jobs describe:*)",
       "Bash(gcloud run jobs list:*)",
-
       "Bash(gcloud scheduler jobs create:*)",
       "Bash(gcloud scheduler jobs update:*)",
       "Bash(gcloud scheduler jobs describe:*)",
@@ -21,13 +20,15 @@
       "Bash(gcloud scheduler jobs run:*)",
       "Bash(gcloud scheduler jobs pause:*)",
       "Bash(gcloud scheduler jobs resume:*)",
-
       "Bash(gcloud builds submit:*)",
+      "Bash(gcloud builds triggers create:*)",
+      "Bash(gcloud builds triggers describe:*)",
+      "Bash(gcloud builds triggers import:*)",
+      "Bash(gcloud builds triggers update:*)",
       "Bash(gcloud builds triggers run:*)",
       "Bash(gcloud builds triggers list:*)",
       "Bash(gcloud builds describe:*)",
       "Bash(gcloud builds list:*)",
-
       "Bash(gcloud artifacts docker images list:*)",
       "Bash(gcloud artifacts docker images describe:*)",
       "Bash(gcloud projects get-iam-policy:*)",
@@ -35,11 +36,9 @@
       "Bash(gcloud logging read:*)",
       "Bash(gcloud container clusters list:*)",
       "Bash(gcloud container clusters get-credentials:*)",
-
       "Bash(kubectl get:*)",
       "Bash(kubectl describe:*)",
       "Bash(kubectl logs:*)",
-
       "Bash(curl:*)",
       "Bash(cat:*)",
       "Bash(bash infra/*.sh:*)",
@@ -47,6 +46,7 @@
       "Bash(make:*)"
     ],
     "deny": [
+      "Bash(gcloud builds triggers delete:*)",
       "Bash(gcloud run services delete:*)",
       "Bash(gcloud run jobs delete:*)",
       "Bash(gcloud run revisions delete:*)",
