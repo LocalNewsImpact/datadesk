@@ -914,6 +914,24 @@ Item 6's proposal machinery still applies, unchanged: a proposal is an
 audit entry before it is applied. Only the address changes, and it
 changes to something simpler than the draft had.
 
+**Who owns a dataset is public, decided 2026-08-23.** Not optional and
+not behind the public flag: the owner of every dataset is listed, because
+a proposal has to have somewhere to go and because a corpus whose
+custodian is unknown cannot be asked about. The flag governs what is
+inside a dataset; ownership of it is a fact about the consortium.
+
+**A proposal names the person who made the edit.** Email or name, carried
+on the proposal itself and shown to whoever is deciding. Accepting a
+change to a publisher record is a judgement about the change *and* about
+who is asking — a correction from the team that studies that market
+reads differently from one from somebody who has never seen the outlet.
+Anonymous proposals would be refused on principle or accepted on faith,
+and neither is review.
+
+The audit entry already records an actor, and a proposal is an audit
+entry before it is applied, so this is a matter of surfacing what is
+stored rather than storing something new.
+
 **The public flag exposes membership, not a second copy of anything.**
 Once identity lives in one place, a public dataset is saying one thing:
 *this outlet is in this study*. Who the outlet is was never private — it
@@ -931,10 +949,6 @@ nobody can see the shape of is not a directory.
   county, medium and owner are the obvious set — the directory's own
   columns. Coverage records, review notes and data-quality issues are
   editorial and are not.
-- Whether membership is public at the level of the dataset or the
-  outlet. "This outlet is studied by somebody" and "this outlet is in
-  the Missouri set" are different disclosures, and the second says what
-  another team is researching.
 - Whether a rejected proposal is remembered. Rejecting the same change
   three times because three datasets keep proposing it is the failure to
   avoid.

@@ -21,7 +21,13 @@ from accounts.access import (
     permitted_scopes,
     roles_for,
 )
-from accounts.models import DATADESK, SOURCES, WHOLE_APPLICATION, Grant
+from accounts.models import (
+    DATADESK,
+    SOURCES,
+    UNIVERSAL,
+    WHOLE_APPLICATION,
+    Grant,
+)
 from accounts.privileges import (
     ADMIN,
     CREATE,
@@ -116,7 +122,11 @@ def test_scopes_accumulate_across_grants(person):
     grant(person, EDITOR, scope="mizzou")
     grant(person, VIEWER, scope="lehigh")
     assert permitted_scopes(person, DATADESK, WRITE) == {"mizzou"}
-    assert permitted_scopes(person, DATADESK, READ) == {"mizzou", "lehigh"}
+    assert permitted_scopes(person, DATADESK, READ) == {
+        "mizzou",
+        "lehigh",
+        UNIVERSAL,
+    }
 
 
 def test_an_application_wide_grant_reports_all_scopes(person):
@@ -128,7 +138,7 @@ def test_an_application_wide_grant_reports_all_scopes(person):
 
 def test_permitted_scopes_ignores_roles_without_the_privilege(person):
     grant(person, DESIGNER, scope="mizzou")
-    assert permitted_scopes(person, DATADESK, DESIGN) == {"mizzou"}
+    assert permitted_scopes(person, DATADESK, DESIGN) == {"mizzou", UNIVERSAL}
     assert permitted_scopes(person, DATADESK, WRITE) == frozenset()
 
 
@@ -191,13 +201,24 @@ def test_a_superuser_needs_no_rows(db):
     assert Grant.objects.filter(user=root).count() == 0
 
 
-def test_a_signed_in_person_with_no_grant_has_nothing(person):
-    """Not a viewer with an empty list -- no standing at all. The landing
-    page tells them access has not been granted yet."""
+def test_a_signed_in_person_with_no_grant_has_only_reference_data(person):
+    """No standing in anybody's corpus. The universal dataset is not
+    somebody's corpus -- it is FIPS codes and census tables -- so it is
+    there, and the landing page still says access has not been granted."""
     assert not has_any_grant(person, DATADESK)
     assert not has_privilege(person, DATADESK, READ)
-    assert permitted_scopes(person, DATADESK, READ) == frozenset()
+    assert permitted_scopes(person, DATADESK, READ) == {UNIVERSAL}
+    assert permitted_scopes(person, DATADESK, WRITE) == frozenset()
     assert roles_for(person, DATADESK) == frozenset()
+
+
+def test_everyone_reads_and_designs_against_reference_data(person):
+    """A rule rather than a row: nothing to create at sign-up, and
+    nothing that can be revoked by accident."""
+    assert has_privilege(person, DATADESK, READ, scope=UNIVERSAL)
+    assert has_privilege(person, DATADESK, DESIGN, scope=UNIVERSAL)
+    assert not has_privilege(person, DATADESK, WRITE, scope=UNIVERSAL)
+    assert Grant.objects.filter(user=person).count() == 0
 
 
 def test_anonymous_users_are_refused_without_touching_the_database(
@@ -269,9 +290,14 @@ def test_an_editor_owns_one_dataset_and_views_others(person):
         "mizzou",
         "lehigh",
         "minnesota",
+        UNIVERSAL,
     }
     assert permitted_scopes(person, DATADESK, WRITE) == {"mizzou"}
-    assert permitted_scopes(person, DATADESK, DESIGN) == {"mizzou", "minnesota"}
+    assert permitted_scopes(person, DATADESK, DESIGN) == {
+        "mizzou",
+        "minnesota",
+        UNIVERSAL,
+    }
 
 
 # --- starting a dataset, and what admin means --------------------------------

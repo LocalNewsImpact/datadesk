@@ -13,7 +13,7 @@ each one asserts that a story from a dataset the reader does not hold is
 import pytest
 from django.contrib.auth.models import User
 
-from accounts.models import DATADESK, Grant
+from accounts.models import DATADESK, UNIVERSAL, Grant
 from accounts.privileges import CREATE, DESIGN, READ, WRITE
 from explorer.models import Article, CandidateLink, Dataset, DatasetSource, Source
 from explorer.scoping import ALL_SCOPES, datasets_for, narrow, scopes_for
@@ -84,9 +84,9 @@ def test_a_privilege_the_role_lacks_narrows_to_nothing(reader, two_datasets):
 def test_scopes_are_per_privilege(reader, two_datasets):
     grant(reader, "reviewer", MINE)
     grant(reader, "designer", THEIRS)
-    assert scopes_for(reader, READ) == {MINE, THEIRS}
+    assert scopes_for(reader, READ) == {MINE, THEIRS, UNIVERSAL}
     assert scopes_for(reader, WRITE) == {MINE}
-    assert scopes_for(reader, DESIGN) == {THEIRS}
+    assert scopes_for(reader, DESIGN) == {THEIRS, UNIVERSAL}
     assert scopes_for(reader, CREATE) == frozenset()
 
 
