@@ -751,9 +751,34 @@ and `DatasetSource`, and item 1 — dataset-scoped roles resolve
 membership too, so if membership moves, both resolve it from the same
 place or they will disagree.
 
-## 12. One sign-in across the suite
+## 12. One sign-in across the suite — done
 
-**Now:** signing in to Datadesk does not sign you in to the Source
+**Done 2026-08-23.** One Google client, one `auth_user`, one session
+cookie on `.localnewsimpact.org`. Signing in to either console signs you
+in to both.
+
+All three steps below shipped. Step 3 went further than written: rather
+than two applications sharing a database, item 14 made them one Django
+stack, so the identity tables are not shared between processes — there is
+one process per front end and one set of tables. The directory's 252,758
+rows moved into the `datadesk` database under a `directory` schema with
+ids intact, so no foreign key needed remapping.
+
+The scaffolding step 3 called for — a router to keep the second
+application from migrating `auth`, a `SHARED_IDENTITY` flag, a split
+`SITE_ID`, a shared `SECRET_KEY` — is gone with it, except `SITE_ID`,
+which stays because `django_site` is a table of hostnames and two
+hostnames need two rows. Datadesk's deploy runs `migrate directory`,
+naming the app, which is what makes the router unnecessary.
+
+The cost named at the bottom of this item stands: one `SECRET_KEY` across
+both, and the directory cannot be brought up without the shared database.
+
+Two things this item wanted are still open, and belong to item 1:
+reconciling `is_staff` with Datadesk's groups, so one of them governs and
+`is_staff` is derived rather than set by hand.
+
+**Was:** signing in to Datadesk did not sign you in to the Source
 Directory. They are separate Django applications with separate session
 cookies, separate user tables, and — the part that makes the second
 sign-in visible rather than instant — **separate Google OAuth clients**
@@ -841,9 +866,9 @@ this and would cost more than it appears.
   and still does not share the login.
 
 So the subdomain is not the obstacle, and collapsing to a path makes
-step 3 harder rather than easier. Keep the subdomain; do steps 1 and 2
-now, and take step 3 with item 10, which is already deciding where the
-publisher record — and therefore who may edit it — lives.
+step 3 harder rather than easier. The subdomain was kept:
+`sources.localnewsimpact.org` is its own Cloud Run service on its own
+hostname, sharing the session by cookie rather than by origin.
 
 **Touches:** the OAuth client and both services' secrets; allauth
 settings in `NewsSourceDirectory`; and, for step 3, whichever service
@@ -898,7 +923,18 @@ should stop.
 **Wants item 1 first**, or close to it: once anyone can be added, which
 datasets they may see stops being answerable by "they work here".
 
-## 14. One Django stack, several repositories — decided
+## 14. One Django stack, several repositories — done
+
+**Done 2026-08-23.** One image serves both consoles. `SERVICE_ROLE`
+selects the front end: unset gives Datadesk, `sources` installs the
+`directory` package and serves `datadesk.urls_sources`. Datadesk's
+`deploy.yml` builds the image once and rolls out both services, proving
+its own before touching the other.
+
+The directory ships as a pip-installable app pinned to a version tag in
+`requirements.txt`. A change there reaches production by tagging a
+release and bumping that pin — NewsSourceDirectory no longer builds,
+deploys or migrates anything.
 
 **Decided 2026-08-23: do this.** Not because two services are painful
 today, but because more applications are coming. A shared package per
@@ -1037,6 +1073,8 @@ all one application suite and should not diverge by accident.
 
 ### Sequence
 
+All done, in this order:
+
 1. Move the directory's root `templates/` into `directory/templates/`
    and drop the `DIRS` entry, so they travel with the app.
 2. Give NewsSourceDirectory a build system in its `pyproject.toml` —
@@ -1045,23 +1083,47 @@ all one application suite and should not diverge by accident.
    runtime) with its templates as package data.
 3. Sort the install credential — a token in the Datadesk build, or an
    Artifact Registry Python repository.
-7. Fold the two adapters into one and namespace the sign-in template.
-7. Extend `SERVICE_ROLE` to select among the front ends, and give each
+4. Fold the two adapters into one and namespace the sign-in template.
+5. Extend `SERVICE_ROLE` to select among the front ends, and give each
    deployment its own value.
-7. Add `directory` to Datadesk's `INSTALLED_APPS`; one `migrate` from
+6. Add `directory` to Datadesk's `INSTALLED_APPS`; one `migrate` from
    one place.
 7. **Delete item 12's scaffolding**, which is the payoff: the router
    guarding against a shadow `auth_user`, `SHARED_IDENTITY`, the
-   search-path plumbing, the shared-`SECRET_KEY` arrangement, and the
-   split `SITE_ID`. A process sharing its own tables is not sharing.
+   shared-`SECRET_KEY` arrangement, and NewsSourceDirectory's own deploy.
+   A process sharing its own tables is not sharing.
+
+Two items on that list survived rather than being deleted, and the
+reasons are worth keeping:
+
+- **The search path stays.** `DB_SEARCH_PATH=directory,public` is how the
+  sources front end reaches the `directory` schema. It was listed as
+  scaffolding on the assumption that one process makes it unnecessary; it
+  does not, because the schema was kept.
+- **The split `SITE_ID` stays.** `django_site` maps hostnames to rows,
+  and two hostnames cannot share a row. Datadesk owns row 1, the
+  directory row 2.
+
+What actually replaced the router is `migrate directory` — naming the app
+means the migration cannot create another app's table, which is the whole
+job the router was doing. A bare `migrate` under
+`search_path=directory,public` would still put an unapplied migration's
+table in the wrong schema, so the app name is load-bearing, not stylistic.
 
 Keep the `directory` schema. It costs nothing and moves no rows.
 
-### Still before items 1 and 13
+### Done before items 1 and 13, as intended
 
-Two users with matching ids and five migrations today; a people-facing
-migration once dataset roles and outside accounts exist. Nothing on this
-list makes it cheaper by waiting.
+Two users with matching ids and five migrations at the time; a
+people-facing migration once dataset roles and outside accounts exist.
+Nothing on the list would have become cheaper by waiting, and it did not
+have to.
+
+What items 1 and 13 inherit: one `auth_user`, one set of groups, and one
+place to read a role from. Item 1 designs roles once rather than twice.
+The one piece of item 12 it also inherits is the `is_staff` question —
+the directory gates its admin on `is_staff` and Datadesk gates on groups,
+and after the merge one of them has to govern.
 
 ## 15. Paywalled sources, and credentials scoped to the person who owns them
 
@@ -1260,9 +1322,10 @@ path rather than growing two.
 
 ## 17. `random_page_cost` on the shared Cloud SQL instance
 
-**After item 14.** The merge changes which process runs these queries
-and is the larger change; a planner flag tuned around the current shape
-would have to be re-tested afterwards anyway.
+**After item 14 — which is done, so this is unblocked.** The merge
+changed which process runs these queries and was the larger change; a
+planner flag tuned around the old shape would have had to be re-tested
+afterwards anyway.
 
 **The observation.** Datadesk's cost rollup joins
 `article_enrichment` → `articles` → `candidate_links`. The planner
@@ -1351,10 +1414,11 @@ carry. Either severity becomes part of the flag definition — some
 defects simply are more serious — or it stays a separate axis and the
 queue filters on both.
 
-**Wants item 14.** On one stack this is shared code rather than a second
-implementation of the same screen: the queue, the flag vocabulary and
-the disposition model already exist in `review/` and would serve both
-applications' records. Building it twice before the merge means merging
+**Wanted item 14, which is done, so this is unblocked.** On one stack
+this is shared code rather than a second implementation of the same
+screen: the queue, the flag vocabulary and the disposition model already
+exist in `review/` and now serve both
+applications' records. Building it twice before the merge would mean merging
 two of them afterwards.
 
 ## Sequence
@@ -1391,20 +1455,19 @@ two of them afterwards.
 16. **Item 16** is independent and can start whenever. Its first step is
     giving every visual a date range; the URL decision comes next and
     cannot be revisited once anyone has embedded a visual.
-18. **Item 18** after item 14, so the queue is shared code rather than a
-    second implementation of the same screen.
-17. **Item 17** after item 14. The merge changes which process issues
-    these queries, so a planner flag tuned to the current shape would
-    need re-testing regardless.
+18. **Item 18** wanted item 14 and now has it: the queue is shared code
+    rather than a second implementation of the same screen.
+17. **Item 17** wanted item 14 and now has it. The merge changed which
+    process issues these queries, so a planner flag tuned to the old
+    shape would have needed re-testing regardless.
 15. **Item 15** after item 1, and not before the unattended-crawl
     question is answered — a credential feature that only works when a
     person is watching is not the feature.
-14. **Item 14 is decided and goes first**, before items 1 and 13. It
-    costs nothing in data and everything in timing: two users and five
-    migrations today, a people-facing migration once roles and outside
-    accounts exist. Roles and the invited-user model then get built once,
-    on one stack, rather than twice across two.
-12. **Item 12's first two steps** are independent of everything else and
-    can be done in an afternoon. Its third — one identity store — should
-    come *before* item 1 rather than after, so roles are designed once
+14. **Item 14 went first**, before items 1 and 13, and is done. It cost
+    nothing in data and everything in timing: two users and five
+    migrations at the time, a people-facing migration once roles and
+    outside accounts exist. Roles and the invited-user model now get
+    built once, on one stack, rather than twice across two.
+12. **Item 12 is done**, all three steps. The third — one identity store
+    — landed before item 1 as intended, so roles are designed once
     against one user table instead of twice against two.
