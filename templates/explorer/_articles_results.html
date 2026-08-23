@@ -8,7 +8,7 @@
   <table class="grid">
     <thead>
       <tr>
-        {% if role == "editor" or role == "admin" %}<th scope="col"></th>{% endif %}
+        {% if may_write %}<th scope="col"></th>{% endif %}
         <th scope="col">{% include "explorer/_sort_header.html" with key="date" h=headers.date %}</th>
         <th scope="col">Title</th>
         <th scope="col">{% include "explorer/_sort_header.html" with key="publication" h=headers.publication %}</th>
@@ -24,7 +24,7 @@
     <tbody>
       {% for article in page %}
       <tr>
-        {% if role == "editor" or role == "admin" %}<td><input type="checkbox" name="ids" value="{{ article.id }}"></td>{% endif %}
+        {% if may_write %}<td><input type="checkbox" name="ids" value="{{ article.id }}"></td>{% endif %}
         <td class="nowrap">{{ article.publish_date|date:"Y-m-d"|default:"—" }}</td>
         <td class="col-title">
           <a class="truncate" title="{{ article.title|default:article.url }}"
@@ -50,7 +50,7 @@
       </tr>
       {% empty %}
       <tr class="empty-row">
-        <td colspan="{% if role == 'editor' or role == 'admin' %}11{% else %}10{% endif %}">
+        <td colspan="{% if may_write %}11{% else %}10{% endif %}">
           <span class="empty-state">
             <strong>No articles match these filters.</strong>
             Remove a filter above, or widen the date range.

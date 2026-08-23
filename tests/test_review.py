@@ -4,8 +4,9 @@ dispositions, and revert."""
 from datetime import UTC, datetime
 
 import pytest
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import User
 
+from accounts.models import DATADESK, Grant
 from audit.models import AuditLogEntry
 from explorer.models import Article, ArticleEnrichment, CandidateLink, Source
 from review.services import BoundaryViolation, audited_update, revert
@@ -16,7 +17,7 @@ pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
 @pytest.fixture
 def editor(client):
     user = User.objects.create_user("editor", email="editor@localnewsimpact.org")
-    user.groups.add(Group.objects.get(name="editor"))
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="editor")
     client.force_login(user)
     return user
 
@@ -24,7 +25,7 @@ def editor(client):
 @pytest.fixture
 def viewer(client):
     user = User.objects.create_user("viewer", email="viewer@localnewsimpact.org")
-    user.groups.add(Group.objects.get(name="viewer"))
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="viewer")
     client.force_login(user)
     return user
 
@@ -230,7 +231,7 @@ def test_audit_page_lists_entries(client, editor, article):
     editor action (SCOPE.md §2.2)."""
     audited_update(editor, [article], {"author": "Wrong"}, "edit:author")
     admin = User.objects.create_user("auditor", email="auditor@localnewsimpact.org")
-    admin.groups.add(Group.objects.get(name="admin"))
+    Grant.objects.create(user=admin, app=DATADESK, scope="", role="admin")
     client.force_login(admin)
     assert "edit:author" in client.get("/review/audit/").content.decode()
 

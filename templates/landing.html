@@ -3,7 +3,7 @@
 
 {% block content %}
 {% if user.is_authenticated %}
-{% if role %}
+{% if has_access %}
 
 <section class="card card-wide">
   <h1>Datadesk</h1>
@@ -51,7 +51,7 @@
     </div>
     <div class="stat">
       <span class="stat-label">Awaiting review</span>
-      <span class="stat-value"><a href="{% url 'review:queue' %}">{{ summary.flagged }}</a></span>
+      <span class="stat-value">{% if may_write %}<a href="{% url 'review:queue' %}">{{ summary.flagged }}</a>{% else %}{{ summary.flagged }}{% endif %}</span>
       <span class="stat-detail">flagged by extraction</span>
     </div>
     <div class="stat">
@@ -120,7 +120,7 @@
   <p class="notice">
     Enriched counts articles carrying a recorded cost; cost is
     <code>article_enrichment.cost_usd</code>, what the pipeline believed it
-    spent.{% if role == "admin" %} The billed side lives on
+    spent.{% if is_admin %} The billed side lives on
     <a href="{% url 'explorer:costs' %}">Cost</a>.{% endif %}
   </p>
 </section>
@@ -149,7 +149,7 @@
     <dt>Signed in as</dt>
     <dd>{{ user.email }}</dd>
     <dt>Role</dt>
-    <dd>{{ role }}</dd>
+    <dd>{% if is_admin %}Admin, every dataset{% else %}Granted per dataset{% endif %}</dd>
   </dl>
 </section>
 

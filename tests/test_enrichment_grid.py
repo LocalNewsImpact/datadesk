@@ -3,8 +3,9 @@
 from datetime import UTC, datetime
 
 import pytest
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import User
 
+from accounts.models import DATADESK, Grant
 from explorer.models import (
     Article,
     ArticleEnrichment,
@@ -22,7 +23,7 @@ URL = "/explorer/enrichment/"
 @pytest.fixture
 def viewer(client):
     user = User.objects.create_user("viewer", email="viewer@localnewsimpact.org")
-    user.groups.add(Group.objects.get(name="viewer"))
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="viewer")
     client.force_login(user)
     return user
 

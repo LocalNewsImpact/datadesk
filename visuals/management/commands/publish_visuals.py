@@ -20,7 +20,8 @@ holding the admin role.
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
-from accounts.roles import ADMIN, role_for_user
+from accounts.access import is_application_admin
+from accounts.decorators import APP
 from visuals.models import Visual
 from visuals.services import DataSourceError, publish, refresh_snapshot
 
@@ -101,7 +102,7 @@ class Command(BaseCommand):
         user = get_user_model().objects.filter(email__iexact=email).first()
         if user is None:
             raise CommandError(f"No account with the email {email}.")
-        if role_for_user(user) != ADMIN:
+        if not is_application_admin(user, APP):
             raise CommandError(
                 f"{email} does not hold the admin role; a snapshot is an "
                 "audited action and must be attributable to someone who "

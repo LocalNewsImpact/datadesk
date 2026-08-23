@@ -5,7 +5,8 @@ from django.db import connection
 from django.http import HttpResponse
 from django.shortcuts import render
 
-from accounts.roles import role_for_user
+from accounts.access import has_any_grant
+from accounts.decorators import APP
 from explorer.costs import recorded_costs
 from explorer.crawler import dataset_row_counts
 from explorer.dashboard import corpus_summary, datasets_table
@@ -26,9 +27,11 @@ def landing(request):
     """
     context = {"google_configured": settings.GOOGLE_SIGN_IN_CONFIGURED}
     if request.user.is_authenticated:
-        role = role_for_user(request.user)
-        context["role"] = role
-        if role is not None:
+        # A bool now, not a role name, so this tests truthiness -- the
+        # `is not None` this replaced would have been true for False.
+        has_access = has_any_grant(request.user, APP)
+        context["has_access"] = has_access
+        if has_access:
             counts = dataset_row_counts()
             recorded = recorded_costs()
             context["crawler_connected"] = counts is not None

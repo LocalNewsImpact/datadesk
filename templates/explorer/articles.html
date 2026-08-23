@@ -98,7 +98,7 @@
   {% url 'explorer:articles' as filters_endpoint %}
   {% include "_active_filters.html" with endpoint=filters_endpoint target="#results" %}
 
-  {% if role == "editor" or role == "admin" %}
+  {% if may_write %}
   <form method="post" action="{% url 'review:bulk_disposition' %}">
     {% csrf_token %}
     <input type="hidden" name="next" value="{{ request.get_full_path }}">

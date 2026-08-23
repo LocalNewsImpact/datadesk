@@ -5,6 +5,7 @@ from django.contrib.auth.models import Group
 from django.core.management import call_command
 
 from accounts import roles
+from accounts.models import DATADESK, Grant
 
 
 @pytest.mark.django_db
@@ -21,15 +22,18 @@ def test_role_groups_exist_after_migrate():
 
 
 @pytest.mark.django_db
-def test_role_precedence(django_user_model):
+def test_there_is_no_precedence_to_apply(django_user_model):
+    """The three global groups needed a rule for who wins when somebody
+    held two of them. One role per person per scope means the question
+    never arises, and the database is what makes that true rather than a
+    convention -- so this asserts the constraint, not a ranking.
+    """
+    from django.db import IntegrityError, transaction
+
     user = django_user_model.objects.create_user("u1", email="u1@example.org")
-    assert roles.role_for_user(user) is None
-    user.groups.add(Group.objects.get(name="viewer"))
-    assert roles.role_for_user(user) == "viewer"
-    user.groups.add(Group.objects.get(name="editor"))
-    assert roles.role_for_user(user) == "editor"
-    user.groups.add(Group.objects.get(name="admin"))
-    assert roles.role_for_user(user) == "admin"
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="viewer")
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Grant.objects.create(user=user, app=DATADESK, scope="", role="editor")
 
 
 @pytest.mark.django_db

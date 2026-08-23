@@ -5,10 +5,10 @@
 {% block content %}
 <section class="card card-wide">
   <p class="breadcrumb"><a href="{% url 'explorer:articles' %}">← Articles</a></p>
-  <h1>{{ article.title|default:"(no title)" }}{% if role == "editor" or role == "admin" %} <a class="edit-link" href="{% url 'review:edit_field' article.id 'title' %}">edit</a>{% endif %}</h1>
+  <h1>{{ article.title|default:"(no title)" }}{% if may_write %} <a class="edit-link" href="{% url 'review:edit_field' article.id 'title' %}">edit</a>{% endif %}</h1>
   <dl class="fact-row">
     <div><dt>Publisher</dt><dd>{{ article.candidate_link.source|default:"—" }}</dd></div>
-    <div><dt>Byline</dt><dd>{{ article.author|default:"—" }}{% if role == "editor" or role == "admin" %} <a class="edit-link" href="{% url 'review:edit_field' article.id 'author' %}">edit</a>{% endif %}</dd></div>
+    <div><dt>Byline</dt><dd>{{ article.author|default:"—" }}{% if may_write %} <a class="edit-link" href="{% url 'review:edit_field' article.id 'author' %}">edit</a>{% endif %}</dd></div>
     <div><dt>Published</dt><dd>{{ article.publish_date|date:"Y-m-d"|default:"—" }}</dd></div>
     <div><dt>Status</dt><dd><span class="chip" data-status="{{ article.status }}" title="{{ article.status }}">{{ article.status|status_label }}</span></dd></div>
     <div><dt>CIN label</dt><dd>{{ article.primary_label|default:"—" }}</dd></div>
@@ -36,7 +36,7 @@
   column of dead space beside it.
   {% endcomment %}
   <section class="panel panel-text">
-    <h2>Stored text{% if role == "editor" or role == "admin" %} <a class="edit-link" href="{% url 'review:edit_field' article.id 'content' %}">edit</a>{% endif %}</h2>
+    <h2>Stored text{% if may_write %} <a class="edit-link" href="{% url 'review:edit_field' article.id 'content' %}">edit</a>{% endif %}</h2>
     {% if stored_text %}
     <p class="notice">{{ stored_text|length }} characters</p>
     <div class="stored-text">{{ stored_text|linebreaks }}</div>

@@ -1,8 +1,9 @@
 """Users and Roles: the admin's view of who can do what."""
 
 import pytest
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import User
 
+from accounts.models import DATADESK, Grant
 from audit.models import AuditLogEntry
 
 pytestmark = pytest.mark.django_db
@@ -13,7 +14,7 @@ def _with_role(username, role, **kwargs):
         username, email=f"{username}@localnewsimpact.org", **kwargs
     )
     if role:
-        user.groups.add(Group.objects.get(name=role))
+        Grant.objects.create(user=user, app=DATADESK, scope="", role=role)
     return user
 
 
@@ -46,7 +47,7 @@ def test_assigning_a_role_moves_the_user_and_is_audited(client, admin):
         {"user_id": target.pk, "role": "editor", "reason": "runs the backpatch"},
     )
     assert response.status_code == 302
-    assert set(target.groups.values_list("name", flat=True)) == {"editor"}
+    assert set(target.grants.values_list("role", flat=True)) == {"editor"}
 
     entry = AuditLogEntry.objects.get(action="role_change")
     assert entry.actor == admin
@@ -59,7 +60,7 @@ def test_assigning_a_role_moves_the_user_and_is_audited(client, admin):
 def test_a_role_can_be_removed_entirely(client, admin):
     target = _with_role("reader", "viewer")
     client.post("/manage/roles/set/", {"user_id": target.pk, "role": ""})
-    assert list(target.groups.all()) == []
+    assert list(target.grants.all()) == []
     assert AuditLogEntry.objects.get(action="role_change").after == {"role": None}
 
 
@@ -72,29 +73,29 @@ def test_an_admin_cannot_remove_their_own_admin_role(client, admin):
     )
     assert response.status_code == 302
     admin.refresh_from_db()
-    assert set(admin.groups.values_list("name", flat=True)) == {"admin"}
+    assert set(admin.grants.values_list("role", flat=True)) == {"admin"}
     assert not AuditLogEntry.objects.filter(action="role_change").exists()
 
 
 def test_an_admin_may_demote_another_admin(client, admin):
     other = _with_role("deputy", "admin")
     client.post("/manage/roles/set/", {"user_id": other.pk, "role": "editor"})
-    assert set(other.groups.values_list("name", flat=True)) == {"editor"}
+    assert set(other.grants.values_list("role", flat=True)) == {"editor"}
     # The console still has an admin: the one who made the change.
-    assert Group.objects.get(name="admin").user_set.count() == 1
+    assert Grant.objects.filter(app=DATADESK, role="admin").count() == 1
 
 
 def test_a_superusers_role_is_not_changed_here(client, admin):
     root = User.objects.create_superuser("root", "root@localnewsimpact.org", "x")
     client.post("/manage/roles/set/", {"user_id": root.pk, "role": "viewer"})
-    assert list(root.groups.all()) == []
+    assert list(root.grants.all()) == []
     assert not AuditLogEntry.objects.filter(action="role_change").exists()
 
 
 def test_an_invented_role_is_refused(client, admin):
     target = _with_role("reader", "viewer")
     client.post("/manage/roles/set/", {"user_id": target.pk, "role": "superadmin"})
-    assert set(target.groups.values_list("name", flat=True)) == {"viewer"}
+    assert set(target.grants.values_list("role", flat=True)) == {"viewer"}
     assert not AuditLogEntry.objects.filter(action="role_change").exists()
 
 

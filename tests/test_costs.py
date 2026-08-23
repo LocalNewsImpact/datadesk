@@ -4,8 +4,9 @@ from datetime import UTC, datetime
 from unittest import mock
 
 import pytest
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import User
 
+from accounts.models import DATADESK, Grant
 from explorer.models import (
     Article,
     ArticleEnrichment,
@@ -25,7 +26,7 @@ def admin(client):
     """Cost is an Admin section (accounts.sections.ADMIN_SECTIONS); the
     role refusal itself is covered in tests/test_admin_access.py."""
     user = User.objects.create_user("admin", email="admin@localnewsimpact.org")
-    user.groups.add(Group.objects.get(name="admin"))
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="admin")
     client.force_login(user)
     return user
 

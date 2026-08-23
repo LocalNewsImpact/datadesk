@@ -190,11 +190,17 @@ def geoid_name(geoid):
 def section_groups(context):
     """The navigation groups the signed-in role sees, in order.
 
-    A group the role cannot reach is absent rather than disabled — a
+    A group someone cannot reach is absent rather than disabled — a
     viewer sees a clean sidebar, not links to 403s. The list is
     accounts.sections, which is also what the access tests walk, so a
     section cannot appear here without its guard being checked.
+
+    Takes the user rather than a role: roles are per dataset now, and a
+    person holding several has no single role to ask about.
     """
     from accounts.sections import groups_for
 
-    return groups_for(context.get("role"))
+    request = context.get("request")
+    if request is None or not getattr(request, "user", None):
+        return ()
+    return groups_for(request.user)

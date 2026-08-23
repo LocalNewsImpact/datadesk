@@ -7,7 +7,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from accounts.decorators import admin_required, editor_required, role_required
+from accounts.decorators import requires, requires_admin, requires_import
+from accounts.privileges import EXPORT_PRIVILEGE, WRITE
 from audit.models import AuditLogEntry
 from explorer.models import Article, ArticleEnrichment
 from explorer.views import _filtered_articles
@@ -46,7 +47,7 @@ def _get_article(article_id):
     return article
 
 
-@editor_required
+@requires(WRITE)
 def edit_field(request, article_id, field):
     """Inline edit with mojibake preview: the form shows ftfy's repair of
     the stored value before anything is applied (SCOPE.md §2.2)."""
@@ -83,7 +84,7 @@ def edit_field(request, article_id, field):
     )
 
 
-@editor_required
+@requires(WRITE)
 @require_POST
 def bulk_disposition(request):
     """Bulk dispositions with recorded reasons (SCOPE.md §2.2), mirroring
@@ -137,7 +138,7 @@ def bulk_disposition(request):
     return redirect(back)
 
 
-@admin_required
+@requires_admin
 def audit_log(request):
     """The audit trail with the revert path (SCOPE.md §2.2: every action
     is reversible from the audit record)."""
@@ -153,7 +154,7 @@ def audit_log(request):
     )
 
 
-@editor_required
+@requires(WRITE)
 @require_POST
 def revert_entry(request, entry_id):
     entry = get_object_or_404(AuditLogEntry, pk=entry_id)
@@ -164,7 +165,7 @@ def revert_entry(request, entry_id):
 # --- import (SCOPE.md §2.4: diff report first, then explicit apply) ---------
 
 
-@editor_required
+@requires_import
 def import_batches(request):
     if request.method == "POST":
         upload = request.FILES.get("file")
@@ -196,7 +197,7 @@ def import_batches(request):
     )
 
 
-@editor_required
+@requires_import
 def import_map(request, batch_id):
     batch = get_object_or_404(ImportBatch, pk=batch_id)
     if batch.status == ImportBatch.APPLIED:
@@ -238,7 +239,7 @@ def import_map(request, batch_id):
     )
 
 
-@editor_required
+@requires_import
 def import_diff(request, batch_id):
     """The diff report — and, on POST, the explicit apply."""
     batch = get_object_or_404(ImportBatch, pk=batch_id)
@@ -271,7 +272,7 @@ def import_diff(request, batch_id):
     )
 
 
-@editor_required
+@requires_import
 @require_POST
 def import_revert(request, batch_id):
     batch = get_object_or_404(ImportBatch, pk=batch_id)
@@ -290,7 +291,7 @@ def import_revert(request, batch_id):
 # --- export (SCOPE.md §2.4: BOM CSVs, saved definitions) --------------------
 
 
-@role_required
+@requires(EXPORT_PRIVILEGE)
 def export(request):
     """Choose columns for the current filter set; download or save the
     definition for re-running against current data."""
@@ -327,7 +328,7 @@ def export(request):
     )
 
 
-@role_required
+@requires(EXPORT_PRIVILEGE)
 def export_run(request, definition_id):
     """Re-run a saved definition against current data."""
     definition = get_object_or_404(ExportDefinition, pk=definition_id)
@@ -343,7 +344,7 @@ def export_run(request, definition_id):
 # placeholder the template already marks.
 
 
-@role_required
+@requires(WRITE)
 def queue(request):
     """Articles automated triage flagged, with what a human needs to judge
     them: captured text length, the reason given, the CIN label, the
@@ -424,7 +425,7 @@ def _proposal_groups(proposals):
     return sorted(groups.values(), key=lambda g: g["label"])
 
 
-@editor_required
+@requires(WRITE)
 def proposals(request):
     """Publisher records with something wrong, for review (REVIEW.md)."""
     from review.flags import ALL_FLAGS

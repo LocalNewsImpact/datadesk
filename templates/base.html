@@ -20,8 +20,8 @@
   <script src="{% static 'js/htmx.min.js' %}" defer></script>
 </head>
 <body>
-  <div class="shell{% if not user.is_authenticated or not role %} no-sidebar{% endif %}">
-    {% if user.is_authenticated and role %}
+  <div class="shell{% if not has_access %} no-sidebar{% endif %}">
+    {% if has_access %}
     <aside class="sidebar">
       <div class="brand"><a href="/">Datadesk</a></div>
       <nav>
@@ -45,13 +45,13 @@
         </div>
         {% endfor %}
       </nav>
-      <div class="sidebar-foot">Role: {{ role }}</div>
+      <div class="sidebar-foot">{% if is_admin %}Admin{% else %}Access by dataset{% endif %}</div>
     </aside>
     {% endif %}
 
     <div class="content-column">
       <header class="topbar">
-        {% if not user.is_authenticated or not role %}
+        {% if not has_access %}
         <span class="wordmark"><a href="/">Datadesk</a></span>
         {% endif %}
         {% if user.is_authenticated %}

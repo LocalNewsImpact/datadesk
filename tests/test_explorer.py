@@ -8,10 +8,11 @@ uses) to prove the query, and its absence proves the degraded path.
 """
 
 import pytest
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import User
 from django.db import connections
 from django.db import models as models_module
 
+from accounts.models import DATADESK, Grant
 from explorer.crawler import dataset_row_counts
 
 pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
@@ -63,7 +64,7 @@ def test_counts_are_cached(crawler_rows):
 
 def _viewer(email="viewer@localnewsimpact.org"):
     user = User.objects.create_user(username=email, email=email)
-    user.groups.add(Group.objects.get(name="viewer"))
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="viewer")
     return user
 
 

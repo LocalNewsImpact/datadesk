@@ -15,6 +15,7 @@ one. A superuser answers yes to everything and needs no rows.
 
 from accounts.models import WHOLE_APPLICATION, Grant
 from accounts.privileges import (
+    ADMIN,
     role_may_create_dataset,
     role_may_import,
     role_permits,
@@ -75,6 +76,49 @@ def may_import(user, app, scope=None):
     if user.is_superuser:
         return True
     return any(role_may_import(role) for role in roles_for(user, app, scope))
+
+
+def has_privilege_anywhere(user, app, privilege):
+    """Does this person hold this privilege on *anything* in this app?
+
+    The question a page asks at its front door. Datadesk's views are
+    corpus-wide with an optional `?dataset=` filter rather than one page
+    per dataset, so the guard cannot name a scope — it asks whether there
+    is any dataset this person could be here for, and the queryset then
+    narrows the rows to exactly those.
+
+    Kept separate from `has_privilege(..., scope=None)`, which asks the
+    narrower question of whether the person holds the privilege over the
+    whole application. Holding one dataset answers this and not that.
+    """
+    scopes = permitted_scopes(user, app, privilege)
+    return scopes is ALL_SCOPES or bool(scopes)
+
+
+def may_import_anywhere(user, app):
+    """Imports, asked without a scope. See `may_import`."""
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    return any(
+        role_may_import(role)
+        for role in _grants(user, app).values_list("role", flat=True)
+    )
+
+
+def is_application_admin(user, app):
+    """Application-wide administration.
+
+    Deliberately not "holds admin somewhere": the check constraint on
+    `Grant` refuses an admin row that names a dataset, so an admin grant
+    is application-wide by construction and this reads it back.
+    """
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    return _grants(user, app).filter(role=ADMIN).exists()
 
 
 def may_create_dataset(user, app):

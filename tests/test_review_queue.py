@@ -16,8 +16,9 @@ already made and must never appear.
 from datetime import UTC, datetime
 
 import pytest
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import User
 
+from accounts.models import DATADESK, Grant
 from explorer.models import (
     Article,
     ArticleEnrichment,
@@ -34,8 +35,16 @@ URL = "/review/queue/"
 
 @pytest.fixture
 def viewer(client):
+    """A reviewer, despite the name -- the queue is for the people who
+    work it.
+
+    This fixture signed in a viewer, because the three-group model let any
+    assigned role reach the queue. ROADMAP item 6 opens by calling that
+    wrong, and item 1 gives the vocabulary to say so: the queue asks for
+    `write`, which a reviewer holds and a viewer does not.
+    """
     user = User.objects.create_user("viewer", email="viewer@localnewsimpact.org")
-    user.groups.add(Group.objects.get(name="viewer"))
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="reviewer")
     client.force_login(user)
     return user
 

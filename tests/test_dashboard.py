@@ -3,8 +3,9 @@
 from datetime import UTC, datetime
 
 import pytest
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import User
 
+from accounts.models import DATADESK, Grant
 from explorer.models import (
     Article,
     ArticleEnrichment,
@@ -20,7 +21,7 @@ pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
 @pytest.fixture
 def viewer(client):
     user = User.objects.create_user("viewer", email="viewer@localnewsimpact.org")
-    user.groups.add(Group.objects.get(name="viewer"))
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="viewer")
     client.force_login(user)
     return user
 
@@ -179,11 +180,17 @@ def test_datasets_table_without_costs():
 
 def test_navigation_reaches_every_work_section(client, viewer, corpus):
     """A viewer's dashboard offers the everyday surface and nothing it
-    would be refused at; the Admin sections are covered in
-    tests/test_admin_access.py."""
+    would be refused at.
+
+    The queue left this list. It used to be here because any assigned
+    role could reach it; ROADMAP item 6 calls that wrong and item 1 gives
+    the vocabulary -- the queue asks for `write`, and a viewer has none.
+    A viewer seeing a link to it would be a link to a 403.
+    """
     content = _content(client)
-    for url in ("/explorer/articles/", "/explorer/enrichment/", "/review/queue/"):
+    for url in ("/explorer/articles/", "/explorer/enrichment/"):
         assert url in content
+    assert "/review/queue/" not in content
     assert "/explorer/costs/" not in content
     assert "/manage/" not in content
 
@@ -204,10 +211,15 @@ def test_degrades_without_the_crawler_database(client, viewer):
 
 
 def test_sections_are_reachable_without_the_crawler_database(client, viewer):
-    """A missing crawler connection must not hide the rest of the app."""
+    """A missing crawler connection must not hide the rest of the app.
+
+    Checks a section this viewer actually reaches -- what is being tested
+    is that the sidebar survives a database outage, not who may see the
+    queue.
+    """
     content = _content(client)
     assert "/explorer/articles/" in content
-    assert "/review/queue/" in content
+    assert "/explorer/enrichment/" in content
 
 
 def test_a_user_without_a_role_sees_no_corpus(client, corpus):

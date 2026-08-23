@@ -4,7 +4,7 @@
 {% block content %}
 <section class="card card-wide">
   <h1>Visuals</h1>
-  {% if role == "editor" or role == "admin" %}
+  {% if may_design %}
   <p><a href="{% url 'visuals:builder_new' %}">New visual (builder)</a></p>
   {% endif %}
   <p class="notice">Built in the form-driven builder, or authored as code
@@ -23,7 +23,7 @@
       {% for visual in visuals %}
       <tr>
         <td><a href="{% url 'visuals:page' visual.slug %}">{{ visual.title }}</a>
-            {% if visual.template == "builder" and role != "viewer" %}<a class="edit-link" href="{% url 'visuals:builder_edit' visual.slug %}">edit</a>{% endif %}</td>
+            {% if visual.template == "builder" and may_design %}<a class="edit-link" href="{% url 'visuals:builder_edit' visual.slug %}">edit</a>{% endif %}</td>
         <td>{{ visual.status }}</td>
         <td>{% if visual.pinned_snapshot %}v{{ visual.pinned_snapshot.version }}{% else %}—{% endif %}</td>
         <td>{{ visual.published_at|date:"Y-m-d"|default:"—" }}</td>

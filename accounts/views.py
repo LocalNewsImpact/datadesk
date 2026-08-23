@@ -1,45 +1,70 @@
-"""User and role administration (SCOPE.md §2.1). Admin role only.
+"""User and role administration (SCOPE.md §2.1). Admin only.
 
 Role assignment is a mutating action, so it goes through the same
 append-only audit log as every other write: actor, target, before and
 after (SCOPE.md §2.1).
+
+**This screen grants a role across the whole application**, which is what
+the three role groups did before it. ROADMAP item 1 also allows a role on
+a single dataset, and that wants a richer screen than a column of radio
+buttons — so a person's dataset-level grants are *shown* here and are not
+editable here. The count is displayed rather than hidden, because a
+screen that said "no role" about somebody who edits one dataset would be
+lying.
 """
 
 from django.contrib import messages
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST
 
-from accounts.decorators import admin_required
-from accounts.roles import ADMIN, ROLES, role_for_user
+from accounts.decorators import APP, requires_admin
+from accounts.models import WHOLE_APPLICATION, Grant
+from accounts.privileges import ADMIN, ROLES
 from audit.models import AuditLogEntry
 
 
+def _application_role(user):
+    """The role this person holds over the whole application, if any."""
+    grant = next(
+        (g for g in user.grants.all() if g.app == APP and g.scope == WHOLE_APPLICATION),
+        None,
+    )
+    return grant.role if grant else None
+
+
+def _dataset_grant_count(user):
+    """How many single-dataset grants this person holds here."""
+    return sum(
+        1 for g in user.grants.all() if g.app == APP and g.scope != WHOLE_APPLICATION
+    )
+
+
 def _people():
-    """Every account, with its role, newest sign-in first."""
+    """Every account, with what it holds here, newest sign-in first."""
     User = get_user_model()
     return [
         {
             "user": user,
-            "role": role_for_user(user),
-            # A superuser's admin role comes from the flag, not a group,
-            # and cannot be changed here.
+            "role": ADMIN if user.is_superuser else _application_role(user),
+            "dataset_grants": _dataset_grant_count(user),
+            # A superuser holds everything from the account flag, not a
+            # grant, and cannot be changed here.
             "locked": user.is_superuser,
         }
-        for user in User.objects.prefetch_related("groups").order_by(
+        for user in User.objects.prefetch_related("grants").order_by(
             "-last_login", "email", "username"
         )
     ]
 
 
-@admin_required
+@requires_admin
 def users(request):
     """Who can sign in, their role, and when they last did."""
     return render(request, "accounts/users.html", {"people": _people()})
 
 
-@admin_required
+@requires_admin
 def roles(request):
     """Role assignment. Self-demotion is refused, which is also what
     keeps at least one admin in place: an admin may demote another admin
@@ -51,7 +76,7 @@ def roles(request):
     )
 
 
-@admin_required
+@requires_admin
 @require_POST
 def set_role(request):
     """Move one account between the role groups, audited."""
@@ -68,7 +93,7 @@ def set_role(request):
         messages.error(request, "No such account.")
         return redirect("accounts:roles")
 
-    previous = role_for_user(target)
+    previous = ADMIN if target.is_superuser else _application_role(target)
 
     # The classic failure is an admin locking themselves out, and with it
     # the last admin locking out the console. Refusing self-demotion
@@ -85,17 +110,25 @@ def set_role(request):
     if target.is_superuser:
         messages.error(
             request,
-            "A superuser's admin role comes from the account flag, "
-            "not a group, and is changed in the Django admin.",
+            "A superuser holds every role from the account flag, "
+            "not a grant, and is changed in the Django admin.",
         )
         return redirect("accounts:roles")
 
     if previous == new_role:
         return redirect("accounts:roles")
 
-    target.groups.remove(*Group.objects.filter(name__in=ROLES))
+    # One row per person per scope, so this replaces rather than adds --
+    # the model refuses a second application-wide grant anyway.
+    Grant.objects.filter(user=target, app=APP, scope=WHOLE_APPLICATION).delete()
     if new_role:
-        target.groups.add(Group.objects.get(name=new_role))
+        Grant.objects.create(
+            user=target,
+            app=APP,
+            scope=WHOLE_APPLICATION,
+            role=new_role,
+            granted_by=request.user,
+        )
 
     AuditLogEntry.objects.create(
         actor=request.user,
