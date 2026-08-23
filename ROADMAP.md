@@ -36,11 +36,49 @@ one place rather than being re-derived at each check:
 
 | role | read | write | design | notes |
 |---|---|---|---|---|
-| viewer | ✓ | | | |
+| viewer | ✓ | | | reads and exports |
+| designer | ✓ | | ✓ | a viewer who also authors and publishes visuals |
 | reviewer | ✓ | ✓ | | dispositions only, not imports (item 6) |
-| editor | ✓ | ✓ | | review, dispositions, imports |
-| designer | ✓ | | ✓ | authors and publishes visuals |
-| admin | ✓ | ✓ | ✓ | every app, every scope, plus user admin |
+| editor | ✓ | ✓ | ✓ | full rights on the dataset; starts datasets |
+| admin | ✓ | ✓ | ✓ | the same, everywhere, plus user admin |
+
+**Designer is viewer plus design, and that is the whole of it.** It holds
+`read`, so it reads and exports everything a viewer does; it adds
+`design`; it does not hold `write`, so a designer never sees a
+disposition to make. Reading the table down the `write` column is reading
+who the review queue is for.
+
+**Editor is the person who starts a dataset and then owns it, decided
+2026-08-23.** Full rights on that dataset — read, write and design — and
+commonly a viewer on everyone else's. So editor and admin carry the same
+three privileges and differ by reach rather than by power: an admin holds
+them in every application at every scope, and administers users.
+
+That makes "editor or admin?" a question almost no check should ask. The
+question is "may this person do this here", and the scope answers it.
+
+**Starting a dataset is not a privilege**, because privileges answer
+whether something is allowed *here* and there is no scope yet — the
+dataset does not exist. It is a role test, `may_create_dataset`, alongside
+`may_import`. Any editor or admin grant answers it: someone who owns one
+dataset can obviously start a second, and requiring an application-wide
+grant would mean they could not.
+
+**Export rides on `read`, not on `write`.** Anyone who may see a dataset
+may take it away — the deliverable CSVs in `review/exports.py` are the
+shape the research is published in, and withholding them from the people
+doing the research would make `read` mean "look at a page". This matches
+what the code does today, where the export views carry `@role_required`
+rather than an editor check; what changes is that the export is scoped to
+the datasets the person can read instead of being all-or-nothing.
+
+**The roles are per dataset, so one person holds several.** The common
+case is exactly the one that motivates a designer: viewer or designer
+across the datasets someone browses and builds visuals from, editor or
+admin on the one they own. `Grant` is keyed on (user, app, scope) with
+one role per scope, so that is the ordinary arrangement rather than a
+special case — and no precedence rule is needed, because the scopes
+differ.
 
 **Reviewer versus editor, decided 2026-08-23: one record at a time, or
 many at once.** A reviewer answers questions in the review queue and
@@ -447,36 +485,52 @@ crawler change is far off.
 false flags); selecting a band and accepting it in one action is the
 difference between a queue that gets worked and one that does not.
 
-**Still open:**
-- When a fix is a re-extraction rather than a text edit, the resolution
-  is asynchronous: the request goes to the crawler and the article
-  changes minutes or hours later. Does the item leave the queue on
-  request, or stay in a "fix requested" state until the re-extraction
-  lands and the condition clears? The second is honest and needs a state
-  the first does not.
-- Is `review_reason` free text or a controlled vocabulary? Free text
-  reads well and aggregates badly; a vocabulary is the opposite. A short
-  list per case plus an optional note is the usual compromise, and the
-  cases already have their language in `CASE_NOTES`.
+**Decided 2026-08-23:**
+
+- **A requested re-extraction keeps the item.** It moves to a *fix
+  requested* state and stays there until the re-extraction lands and the
+  condition clears. The queue never claims something is resolved while the
+  article is unchanged, and two people cannot request the same fix. This
+  needs a state the leave-on-request model does not, and that is the cost
+  of being honest about an asynchronous resolution.
+- **`review_reason` is a short list per case, plus an optional note.** The
+  vocabulary aggregates — "why do reviewers reject this case" is
+  answerable — and the note carries the unusual thing without forcing it
+  into the nearest wrong bucket. The cases already have their language in
+  `CASE_NOTES`, so the lists are written, not invented.
+- **A disagreement feeds back to the pipeline.** Disagreeing clears the
+  skip and lets the article re-enrich, which is what a reviewer expects to
+  happen. It also means a wrong click changes the corpus, so it goes
+  through the audited path: SCOPE.md's append-only log records it and
+  revert-as-compensating-action undoes it, both of which already exist.
+  Not a separate second action the reviewer has to remember.
+- **Pending decisions are server-side drafts.** A review session spans
+  pages, because paging is how the queue gets worked, and a closed tab
+  should not cost an hour. That buys a table and a rule for cleaning up
+  abandoned sessions, which is a smaller price than losing work.
+
+**Follows from those, and from item 1:**
+
+- **A reviewer sees the whole queue for the datasets they hold**, not a
+  personal assignment list. Item 1 scopes access per dataset and has no
+  notion of assigning a row to a person; adding one would be a feature
+  rather than a filter, and nothing here needs it yet.
+- **One audit entry per submitted session**, since a session is now a real
+  object rather than whatever fitted on a page. The log stays readable and
+  a batch reverts as a unit; revert already restores per row inside it, so
+  the finer grain is available without being the default.
+
+**Still open, and genuinely a judgement:**
+
 - Does a reviewed item resurface when the profile version advances past
-  `reviewed_profile_version`? It should be possible; whether it is the
-  default is a judgement about how much churn a reviewer will tolerate.
-- Does a disagreement feed back to the pipeline automatically (clear the
-  skip and let it re-enrich), or only record the judgement? Automatic is
-  what a reviewer expects; it also means a wrong click changes the
-  corpus, so it wants the audited path and a visible revert.
-- Can a reviewer see the whole queue for their dataset, or only items
-  assigned to them?
-- Pending decisions in the page or as server-side drafts? Drafts let a
-  session span pages, which is how the queue gets worked, at the cost of
-  a table and a cleanup rule for abandoned sessions.
-- One audit entry per submitted session, or one per row? One per session
-  keeps the log readable and reverts the batch as a unit; revert already
-  restores per row inside it. Per row only helps if reverting a single
-  decision from a session is a real need.
+  `reviewed_profile_version`? It should be *possible* — a reviewer's
+  answer was about a particular version of the pipeline's reasoning, and a
+  new version can invalidate it. Whether it is the default is a question
+  about how much churn a reviewer will tolerate, and that is better
+  answered after watching one profile change than before. Default to not
+  resurfacing, make it available per case, and revisit with evidence.
 
-**Depends on:** item 1.
-
+**Depends on:** item 1, which is decided.
 ## 7. Navigation performance on data-heavy pages
 
 **Now:** moving between data-heavy tabs is slow. Each page renders its
@@ -671,9 +725,16 @@ extraction page and its template, item 1 for the dataset selector, item
 it should be built precomputed or cached from the start rather than
 retrofitted — see item 7.
 
+**Two of these are answered by item 19**, which builds the same panels
+across all datasets and should build them first:
+
+- `logs_path` points at Cloud Logging in the crawler's project, which
+  Datadesk's runtime account cannot read yet — one grant, named in 19.
+- The worker signal is the Kubernetes API on `mizzou-cluster`, not a
+  database column, which is why 19 calls it the only piece with a real
+  dependency.
+
 **Still open:**
-- What `logs_path` points at.
-- Which worker signal to use.
 - The health thresholds, and who owns them.
 - Whether `focus` is a profile step Datadesk's schema mirror is missing.
 
@@ -706,10 +767,13 @@ Sources without it. `test_admin_access` walks the groups and checks each
 section's declared role against the decorator on its view, so a link
 moved between groups whose guard does not match fails the suite.
 
-**Still open:** there is no publisher directory — sources are managed
-inside dataset detail, and `source_edit` is reachable only from there.
-A Sources index belongs in this group when item 1 lands, since who may
-see which publishers becomes a dataset-scoped question then.
+**Resolved by item 14.** There is a publisher directory: the Source
+Directory, and the Sources group links to it at
+`sources.localnewsimpact.org`. What remains is narrower than the original
+note — `source_edit` is still reachable only from inside dataset detail,
+so editing a publisher from Datadesk means finding a dataset it belongs
+to first. Item 1 decides who may, and item 10 decides which of the two
+records is authoritative; the link is no longer the missing piece.
 
 ## 10. One source of truth: merge the crawler's sources into the directory
 
@@ -1461,6 +1525,463 @@ exist in `review/` and now serve both
 applications' records. Building it twice before the merge would mean merging
 two of them afterwards.
 
+## 19. Production: is the pipeline running, and is it healthy
+
+**Now:** nothing in Datadesk says whether the crawler is running. The
+corpus dashboard counts what exists; the extraction queue lists what needs
+a person. Both describe the result of a pipeline run without describing
+the run. Answering "is it working right now" means opening the GCP
+console, and answering "did last night go well" means reading logs nobody
+has surfaced.
+
+**Wanted:** a **Production** section in the sidebar (item 9's grouped
+headers), carrying:
+
+- status of the extraction and processing jobs, per dataset
+- live logs of current activity
+- warnings and errors picked out of those logs rather than buried in them
+- basic statistics for the current run
+- how many GKE workers are active
+- how many stories sit in each stage of processing, and their disposition
+
+**Where this stops and item 8 starts.** Item 8 is one page per dataset,
+answering "how is this dataset doing" — counts by status, health, cost,
+the review tasks outstanding. This is the operator's view across all of
+them: is anything running, is it failing, how far has it got. They share
+their sources and should share their queries; they answer different
+questions and belong on different pages. Item 8's "current logs for that
+dataset and job" and "workers running" are this item seen through one
+dataset, and should be built once here and reused there.
+
+**Who sees it.** Editors and admins. Not viewers, and the same reasoning
+as cost visibility: production state is a management fact. The open
+question is whether it is a privilege test (`write`, which reviewers also
+hold) or a role test (`editor`/`admin`, the set that already gates
+imports). Recommend the role test — the reason reviewers are excluded
+from imports is that a reviewer's remit is one record at a time, and the
+same argument applies to a page about the machinery.
+
+**What exists to build on, and what does not:**
+
+- **Stage counts and dispositions** — the crawler database has them:
+  `articles` and `candidate_links` carry status, and Datadesk already
+  reads that corpus through `datadesk_ro`. This part needs queries and a
+  page, nothing more.
+- **Run statistics** — `extraction_telemetry_v2` records per-extraction
+  outcomes and is already the source for the extraction views.
+- **Live logs** — Cloud Logging, in the `mizzou-news-crawler` project.
+  Datadesk's runtime service account has no read access there today. That
+  is one IAM grant (`roles/logging.viewer`), and it is the first thing to
+  check rather than assume.
+- **GKE worker counts** — the cluster is `mizzou-cluster`, also in the
+  crawler's project. Reading it needs `roles/container.viewer` on that
+  project, and a client: the Kubernetes API rather than a database. This
+  is the piece with a real dependency, and the one to scope first, because
+  it is the only item on the list that is not a query against something
+  Datadesk can already reach.
+
+**Worth knowing before building:** production is stopped and started
+deliberately and often. A page that reports a stopped pipeline as a
+failure will cry wolf the way the smoke tests did — every liveness figure
+on it needs to distinguish "not running because nobody asked it to" from
+"not running because something broke". The suspended state of the
+cronjobs is the signal that separates them.
+
+**Touches:** the sidebar (`accounts/sections.py`), a new app or a section
+of `explorer/`, the crawler read role, and — for logs and workers — IAM in
+the crawler's project. Item 1 gates the section; item 8 shares its
+queries.
+
+## 20. The visual builder is a form, and it needs to be a tool
+
+**Now:** `builder_edit.html` carries **25 `<select>`, 24 `<input>` and 42
+`<label>` across 7 fieldsets** — ninety-one controls on one page, before
+any of them is filled in. The preview exists but is subordinate: it sits
+beside the form and says "Configure and the preview follows." That
+sentence is the design, and it is the wrong way round.
+
+The result is unusable, and not because any single control is wrong. It
+is unusable because it asks someone to hold the whole shape of a chart in
+their head, express it as ninety-one settings, and only then find out
+what they made.
+
+**Wanted:** what Flourish and Datawrapper do. The chart is the page. The
+controls are what you reach for when you want to change the thing you are
+looking at.
+
+**The UI is the deliverable. Chart coverage is not.** A v1 with six chart
+types and an editor someone can use is a success; a v1 with twenty types
+behind the current wall is the same failure at greater cost. Everything
+below is scoped to that: enough types and dimensions to be genuinely
+useful and to exercise the interface across the shapes it has to handle,
+and no more.
+
+**Which means one architectural requirement outranks the rest.** Adding a
+chart type afterwards must cost a declaration and a renderer — the list
+of roles it needs a column for, and the code that draws it — and nothing
+else. No new editor screen, no new settings panel written by hand, no
+change to the pivot. If adding the eighth type means touching the
+builder, the design is wrong and v1 is the moment to find out, not the
+twentieth type.
+
+**A v1 set that covers the shapes:**
+
+| Type | Shape it exercises | Available |
+|---|---|---|
+| Bar | one dimension, one measure | today |
+| Stacked bar | two dimensions, one measure | today |
+| Table | the pivot's own output, rendered plainly | today |
+| Radar | two dimensions again, drawn differently | today |
+| Choropleth map | a geographic dimension | today |
+| Dot map | points with coordinates | today |
+
+Six types, five distinct shapes, and every one of them runs on
+`run_spec()` or `run_story_map()` as they already exist. Nothing on this
+list waits for the pivot to change.
+
+Bar, stacked, table and radar deliberately share one shape. That is the
+point rather than an accident: they are what proves the type can be
+swapped with the data and bindings intact, which is the interaction that
+makes the tool feel like a tool. If those four swap cleanly, the design
+holds.
+
+**Deferred to v2, with the reason:** chord needs a pair query beside
+`run_spec()`, and scatter needs the spec to carry two measures. Both are
+contained pieces of work and both are wanted; neither should hold up an
+editor, and neither teaches us anything about the interface that the six
+above do not.
+
+**A v1 set of channels.** Not all twenty-three dimensions — enough to ask
+real questions:
+
+- **Story** — dataset, CIN primary, user need, status, month, year
+- **Publisher** — publisher, owner, medium
+- **Place** — publisher county, story county, state
+- **Measures** — articles, publishers, cost summed
+
+Owner and medium come from the directory and do not exist as dimensions
+yet; they are the two most worth adding, because ownership and platform
+are the questions this corpus can newly answer since item 14 and the
+directory has them clean.
+
+The rest of the twenty-three stay available to the pivot and simply are
+not offered in the picker until someone wants them. Adding one is a row.
+
+**The screenshots are examples of a pattern, not a specification.** What
+they show is the shape of the task — pick a form, get data into it, see
+the result immediately, refine, publish — and the shape is right. The
+steps themselves have to be expressed in the data Datadesk actually has,
+which is not a spreadsheet someone uploads.
+
+**What a visual here is made from.** `visuals/corpus.py` is already a
+pivot over the research corpus: **23 dimensions**, **6 measures**, and
+filters. Dataset, publisher, publisher city and county, status, wire,
+CIN primary and alternate, month, year, scope, subject, topic, format,
+timeframe, user need, model, the skip reasons, and the geographies —
+state, county, place, point place. Measured as articles, publishers, cost
+summed or averaged, or a confidence average. `Visual.source_kind` also
+allows a BigQuery query, a bucket object and uploaded data, but the
+corpus is the case that matters and the one the builder exists for.
+
+**So the upload step does not exist for us, and that is the important
+difference.** Datawrapper's steps 1 and 2 are "select your map" and "add
+your data", because it has no data of its own. Ours already does. Those
+two steps collapse into one question with a different shape:
+
+> What am I counting, how am I cutting it, and over which datasets?
+
+A measure, one or two dimensions, and filters. That is the whole of it,
+and it is a far smaller thing to ask than "upload a CSV and match its
+keys". The author is choosing a slice of something that already exists
+and is already correct.
+
+**The steps, in our terms:**
+
+1. **Choose the slice.** Measure, dimension or two, filters, datasets.
+   The result is a small table — the pivot already returns a few hundred
+   aggregated rows rather than every story, which is what keeps an embed
+   from downloading megabytes to draw one map.
+2. **See the table, and what it will not draw.** Same place, immediately.
+   This is where the coverage report belongs.
+3. **Choose a chart type that fits the shape** — and the shape is known,
+   because the pivot returned it. One dimension and a measure is a bar or
+   a column; a geographic dimension is a map; two dimensions is a stacked
+   bar or a heatmap. The gallery can offer the types that *work* for the
+   slice and grey the rest, which neither Flourish nor Datawrapper can do
+   because neither knows what the data means.
+4. **Refine, annotate, lay out.**
+5. **Publish and embed.**
+
+**The chart types wanted, and what each needs from the pivot.** These are
+examples rather than a closed list, but they are enough to size the work,
+and four of the seven need something that does not exist yet.
+
+| Wanted | Shape | Status |
+|---|---|---|
+| Choropleth map | 1 geographic dimension + 1 measure | **Works today.** `geo_state`, `geo_county`, `geo_place`, `publisher_county` |
+| Dot map | points with coordinates | **Works today.** `run_story_map()` already returns `points` and `areas` |
+| Stacked chart — CIN by publisher or county | 2 dimensions + 1 measure | **Works today.** `cin_primary` × `publisher` or × `geo_county` |
+| Radar — CIN across counties or publishers | 2 dimensions + 1 measure | **Works today.** Same shape as the stacked chart, drawn differently — entity on one axis, CIN values around the other |
+| Bar — bylines by platform type | 1 dimension + 1 measure | **Two dimensions missing**, data present |
+| Chord — CIN to CIN, or user need to user need | pairs, not groups | **New query shape** |
+| Scatter | 1 dimension + **2** measures | **The pivot takes one measure** |
+| Table of raw rows | rows, not aggregates | **Conflicts with the design** — see below |
+
+**Bylines and platform type: the columns exist, the dimensions do not.**
+`Article.author` is the byline. For platform type there are two candidates
+and they are not equal — see below. Adding a dimension is a row each in
+`corpus.py`, and it is the cheapest thing on this list.
+
+**Three places hold this data, and since item 14 they are one database.**
+The pivot reads the crawler corpus today. It no longer has to.
+
+- **The crawler's articles** — the measures and everything about a story:
+  CIN codings, confidence, cost, status, wire, dates, the geographies.
+- **The crawler's `sources`** — host, city, county, owner, type. Free
+  text, and the older of the two records.
+- **The directory's outlets** — 2,809 rows with `medium_id`, `owner_id`,
+  `state_id`, city, county, status, founded, closed date, Newsbank
+  availability. Normalised, curated, and reviewed. Plus 277 owners,
+  231,389 places, and 8,561 coverage records.
+
+Item 10 is the work of making the directory the single source of truth
+for a publisher. Charting should assume its outcome rather than encode
+the current split: **publisher attributes come from the directory, story
+attributes from the crawler.**
+
+**Platform type is the example that proves it.** The directory's
+`medium` is a normalised table of six values — Newspaper 1636, Online
+449, Radio 262, Television 155, Magazine 52, Public Broadcasting 27 —
+reached by a foreign key. The crawler's `sources.type` is free text
+holding `digital native` (902), `print native` (148), `newspaper` (20),
+`audio_broadcast` (16), `video_broadcast` (15), `broadcast` (10),
+`digital_native` (4), and 31 nulls: two spellings of one category, a
+`broadcast` that overlaps the two qualified ones, and a different
+vocabulary from the directory's entirely.
+
+A bar chart of bylines by platform type should therefore be drawn from
+`directory_medium`, and the question of what `sources.type` is *for*
+belongs to item 10. Charting from the messy column and cleaning it later
+would build the chart twice.
+
+**And it opens dimensions nobody listed.** Ownership is the obvious one:
+277 owners, with Adams Publishing Group at 38 outlets, Forum
+Communications at 24, Metric Media at 19. Stories per owner, CIN by
+owner, or coverage concentration by owner are questions this corpus can
+now answer and could not before item 14. Founded and closed dates give a
+time dimension on the publisher rather than the story.
+
+**Chord is not a pivot.** A group-by returns counts per category; a chord
+diagram needs *edges* — how often CIN primary X co-occurs with alternate
+Y, or which user needs appear together. The corpus has the columns for it
+(`cin_primary` and `cin_alternate` sit on the same row, so the pair is a
+`GROUP BY` over two columns of one article), but it is a different result
+shape from everything else here and wants its own function beside
+`run_spec()` and `run_story_map()`.
+
+**Scatter needs two measures at once.** `run_spec()` folds a single
+`measure_key`. A scatter of counties plotting articles against cost is
+one dimension and two measures, which the spec cannot express. It is a
+contained change — a list where there is now one key — but it touches the
+fold, so it is not free.
+
+**Raw-row tables are a different feature, and the corpus module says so.**
+`corpus.py` opens by explaining why it aggregates: fifteen to twenty
+thousand articles is a `GROUP BY`, and a published snapshot should hold a
+few hundred aggregated rows rather than every story, or each embed
+downloads megabytes to draw one map. A table *of the pivot's output* is
+free and should exist. A table of raw stories is the explorer, which
+already does it, and putting it behind an embed would ship the corpus to
+whoever loads the page. Worth deciding deliberately rather than
+discovering when a snapshot gets large.
+
+**External data is the exception that needs the matching surface.** Almost
+everything charted here comes from our own apps; occasionally something
+external is layered in — population, household income — to normalise a
+count or provide a denominator. That is the one case with keys that can
+fail to match, and it is exactly what Datawrapper's `Match` and
+`Check ⚠` tabs are for. So the key-matching design is not wasted, it is
+just scoped to the small case rather than being the front door: our data
+arrives already joined, and only the layered-in file has to be reconciled
+against a geography.
+
+That also decides what the join key is. External sources for places come
+keyed by GEOID far more reliably than by name, the corpus already carries
+GEOIDs, and the directory holds 231,389 places to resolve against — so a
+layered file should be matched on GEOID, with name matching as the
+fallback that reports what it could not resolve.
+
+**Coverage replaces key matching, and is a better version of it.**
+Datawrapper prefills a table with every county so a missing value is
+visible. Our equivalent is stronger, because the corpus knows why a row
+is missing rather than only that it is: `corpus.py` already restricts the
+county dimension to county, tract and block codings **and says how many
+rows that drops**, because a place GEOID is state plus place and contains
+no county code. `qualifying_values()` already applies group thresholds.
+
+So step 2 does not ask "did your keys match" — it says "this slice covers
+N of M counties, and drops K rows because they are coded to a place that
+cannot roll up to a county." That is a sentence no upload-based tool can
+write, and it is the one an author here most needs.
+
+**The shape, taken from Flourish (screenshots reviewed 2026-08-23):**
+
+**Two tabs, not one page.** `Preview` and `Data`. Half of the ninety-one
+problem is that everything lives on one screen; separating what the chart
+looks like from what it is made of halves it before a single control is
+redesigned.
+
+**Chart type first, from a gallery — or last, after the data.** Flourish
+lets an author start either way, and swap at any point: pick a type and
+then bring data to it, or load data and try types against it to see which
+works. A `<select>` of names cannot do that, because choosing a chart is
+choosing a shape and a list of words asks the author to translate. The
+type is named and versioned at the top of the settings rail ("Projection
+map, v22.1.0"), so it is always clear what is being edited.
+
+**Swapping the type keeps the data and the bindings.** This is what makes
+"try three and see" possible rather than "start again three times", and
+it is the requirement that most constrains the design: column bindings
+have to be expressed in terms the next chart type can also read.
+
+**Columns are bound to roles, visibly.** The Data tab shows the rows as a
+spreadsheet with lettered, type-badged columns, and beside it a short list
+of what the chart needs — ID, Name, Label, Colour by, Group, Info for
+popups. Each is a coloured chip carrying a column letter, and the same
+colour tints that column's header in the grid. So the mapping between
+"this column" and "this role in the chart" is visible in both directions
+at once. **`Auto set columns`** does the obvious assignment in one click,
+which is what makes the first chart appear without configuring anything.
+
+That list — the roles a chart needs — is the honest replacement for most
+of the ninety-one dropdowns. It is short because it is per chart type,
+and it is what the type declares rather than a union of everything any
+type might want.
+
+**Settings grouped by the part of the visual they affect, and collapsed.**
+The right rail is an accordion: Projection, Regions layer, Points layer,
+Region groups layer, Controls, Popups & panels, Search, Legend, Zoom,
+Layout. Grouped by *layer*, not by form-field category, and closed until
+opened. Today's seven fieldsets are all open at once, which is why it
+reads as a wall.
+
+**The chart stays on screen even in the data view.** A live thumbnail sits
+in the corner of the Data tab, so changing a binding shows its effect
+without switching back. Nothing an author does should require them to go
+and look somewhere else to find out what it did.
+
+**Changing focus is a setting, not a rebuild.** State instead of county,
+bar instead of stacked. These are one control on an already-drawn chart,
+which only works if the data and bindings survive the change.
+
+**And from Datawrapper (screenshots reviewed 2026-08-23), which solves
+the same problem differently:**
+
+**Four numbered steps across the top, each showing whether it is done.**
+`1 Select your map ✓` · `2 Add your data ✓` · `3 Visualize` ·
+`4 Publish & Embed ✓`. Not a wizard that traps you — every step is
+clickable at any time — but the sequence and the state are always on
+screen. Step 1 is the chart type, which is the same answer as Flourish's
+gallery arrived at from the other direction.
+
+**The keys are known before the data arrives, and the table is
+prefilled.** Choosing the Missouri county map fills the table with every
+county name, greyed, with `—` for the values. The author types or pastes
+values against keys that are already correct. Rows they have data for go
+black; the rest stay grey. So "which of these do I have data for" is
+answered by looking, before anything is joined.
+
+This is the piece worth taking most. Datadesk's visuals join corpus data
+to places, and a name that does not match is the failure that produces an
+empty map with no error. A prefilled key list makes the mismatch visible
+at the moment it happens rather than at publish.
+
+**`Upload` · `Match` · `Check ⚠`** — three tabs over the data step, and
+Check carries a warning badge when something needs attention. Matching
+keys is treated as a first-class step with its own surface, not a silent
+join that either works or does not.
+
+**Controls show what they do rather than naming it.** The palette is a
+gradient swatch, not the word "Blues". `Steps` and `Continuous` are radio
+buttons that each render the thing they mean. A pencil beside the palette
+opens the editor. Every control carries a `?`. This is the same principle
+as choosing a chart type from pictures, applied one level down.
+
+**The title is edited in place.** The chart says `[ Insert title here ]`
+and you type into it. It is not a text field in a sidebar that updates
+something elsewhere.
+
+**Refine · Annotate · Layout** are the three faces of the visualize step
+— what the data looks like, what is written on it, how the whole thing is
+arranged. A different cut from Flourish's per-layer accordion, and the
+better one for chart types that have no layers.
+
+**Where the two disagree, and what to take from each:**
+
+- **Settings grouping.** Flourish groups by layer (Regions, Points,
+  Legend, Zoom), which suits maps and anything with parts. Datawrapper
+  groups by intent (Refine, Annotate, Layout), which suits everything.
+  Take Datawrapper's cut as the top level, and let a chart type add
+  per-layer panels inside Refine when it has layers.
+- **Steps versus tabs.** Datawrapper's four numbered steps carry state
+  and tell a first-time author where they are. Flourish's two tabs are
+  faster once you know the tool. Take the steps: most authors here will
+  be occasional.
+- **Both keep the chart on screen at every step**, and both make the
+  first chart appear before any configuration. Those two are not
+  stylistic — they are the difference between a tool and a form.
+
+**What this does not change.** The data model is sound and stays:
+`Visual` already separates `source_kind`, `query`, `template`, `config`
+and `spec`, and already carries snapshots, pinning and `allow_live`. This
+item is about what sits in front of `config` and `spec` — the same fields,
+reached by manipulating a chart instead of filling in a form. The embed,
+the snapshot model and the publish semantics are unaffected.
+
+**Related, and worth doing together.** Item 3 (a muted chart palette)
+changes what the defaults look like, and defaults are most of what an
+author sees under this design — a good default chart is the difference
+between adjusting and configuring. The palette should be settled before
+or alongside this, not after.
+
+**The preview is the embed, decided 2026-08-23.** What the author sees
+while editing has to be what the page ships. Not a similar rendering in
+the editor and the real one in the iframe — the same thing, so "it looked
+right in the editor" cannot happen. That constrains the design rather
+than decorating it: every control has to change the visual by changing
+what the embed renders from, which means the editor edits `config` and
+`spec` and then re-renders exactly as the public route does.
+
+**Nothing to decide about the charting library.** The charts are drawn by
+`static/js/datadesk-chart.js` over D3 and Observable Plot, and there are
+two renderer templates totalling eighty lines. There is no off-the-shelf
+editor to adopt: Flourish and Datawrapper are products rather than
+components, and the editor components that do exist — Plotly's, Vega's —
+are forms, which is the thing being escaped. The editing layer is ours
+either way, and the rendering can stay where it is.
+
+**First step, and it needs no decision:** read the ninety-one controls
+against the renderers and separate the ones a chart genuinely needs from
+the ones that exist because a form was the only way to offer them. Then
+write, per chart type, the short list of roles it needs a column for —
+the ID/Name/Colour-by list. Those two lists are what the new design is
+built around, and the second is what makes swapping a type possible
+without starting again.
+
+**Second step, and the one with the most value per hour:** the coverage
+report. For a given slice, say how many of the geography's units it
+covers, how many rows are dropped, and why. Most of the arithmetic
+exists — `corpus.py` already counts what the county rollup drops, and
+`qualifying_values()` already applies the group thresholds. What is
+missing is saying it to the author instead of only to the query. It is
+useful on its own, before any of the editor is rebuilt, because it turns
+a silently empty map into a sentence.
+
+**Touches:** `templates/visuals/builder_edit.html` and
+`builder_new.html`, `visuals/builder.py`, the renderers under
+`templates/visuals/renderers/`, and the static assets behind them.
+`visuals/models.py` should not need to change.
+
 ## Sequence
 
 1. **Item 1** first: items 5 and 6 both need dataset-scoped roles, and
@@ -1511,3 +2032,13 @@ two of them afterwards.
 12. **Item 12 is done**, all three steps. The third — one identity store
     — landed before item 1 as intended, so roles are designed once
     against one user table instead of twice against two.
+19. **Item 19** after item 1, which gates the section, and alongside
+    item 8, which shares its queries. Its worker and log panels want
+    two IAM grants in the crawler's project and should be scoped
+    before the rest is built — everything else on it is a query
+    against a corpus Datadesk already reads.
+20. **Item 20** is independent of the access work and can start now.
+    Its first step costs nothing and unblocks the rest: audit which of
+    the ninety-one controls a renderer actually needs. Settle item 3's
+    palette before or alongside it — under this design the default
+    chart is most of what an author sees.
