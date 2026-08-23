@@ -265,7 +265,7 @@ def test_longest_captures_come_first(client, viewer, flagged):
 def test_band_facet_counts_every_band(client, viewer, flagged):
     from review.queue import band_facets
 
-    counts = {band["key"]: band["count"] for band in band_facets({})}
+    counts = {band["key"]: band["count"] for band in band_facets({}, viewer)}
     assert counts == {"empty": 1, "stub": 2, "short": 1, "medium": 0, "long": 2}
 
 
@@ -284,7 +284,9 @@ def test_band_facet_ignores_the_selected_band(client, viewer, flagged):
     count and tell the operator nothing."""
     from review.queue import band_facets
 
-    counts = {band["key"]: band["count"] for band in band_facets({"band": "long"})}
+    counts = {
+        band["key"]: band["count"] for band in band_facets({"band": "long"}, viewer)
+    }
     assert counts["empty"] == 1
     assert counts["long"] == 2
 
@@ -301,7 +303,7 @@ def test_empty_band_selects_articles_with_no_text(client, viewer, flagged):
 def test_case_facet_counts(client, viewer, flagged):
     from review.queue import case_facets
 
-    counts = {case["key"]: case["count"] for case in case_facets({})}
+    counts = {case["key"]: case["count"] for case in case_facets({}, viewer)}
     assert counts == {
         "paywall_stub": 2,
         "minimal_capture": 2,

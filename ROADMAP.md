@@ -221,11 +221,34 @@ comparison.
 
 **Touches:** `explorer/costs.py`, the dashboard, the admin section.
 
-**Decide first:**
-- Can `openrouter_traces` be attributed to a dataset? Without request
-  tagging, billed cost joins only by time, so a per-dataset billed
-  figure would be an allocation, not a measurement. Recorded cost joins
-  per article and therefore per dataset. This is the crux of item 5.
+**Decided 2026-08-23: tag the request.** The crawler can send a label
+with each call, so a trace can carry the dataset it served. That turns a
+per-dataset billed figure from an allocation into a measurement, and it
+is the crux of item 5 answered — the allocation rule item 5 was waiting
+on is not needed for the model spend, because the spend can say where it
+came from.
+
+**Where the label goes, checked against the live table 2026-08-23.**
+`mizzou_analytics.openrouter_traces` has exactly one column — `trace`, a
+JSON blob, Langfuse-shaped. A trace already carries `metadata` (a
+populated dict, currently holding OpenRouter's own generation details),
+`tags` (a list, empty on real requests), and `sessionId` and `userId`,
+both null. So somewhere to put a dataset label exists today and nothing
+writes one; the query would then group on
+`JSON_VALUE(trace, "$.metadata.dataset")` or the equivalent.
+
+**And the billed query has never worked.** `_BILLED_SQL` selects
+`created_at`, `usage` and `cache_discount` as if they were columns of
+that table. They are not — a dry run fails with `Unrecognized name:
+created_at`. `billed_costs()` catches every exception and returns None,
+so the dashboard has been showing the recorded side alone and saying
+nothing. That is this item's "first step regardless", and it is now
+confirmed rather than suspected.
+
+Until it exists, billed cost is corpus-wide and shown only to an
+application admin — a partial share of an untagged total would be a
+guess presented as a number. `explorer/views.py` says so at the point it
+withholds it.
 
 **First step regardless:** verify the real `openrouter_traces` columns
 and fix the query.

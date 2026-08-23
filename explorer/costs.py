@@ -96,6 +96,14 @@ def recorded_costs():
 # cache_discount, tokens_prompt/tokens_completion, provider_name) as the
 # external table maps it. True this up against the real openrouter_traces
 # columns on the first run against BigQuery — the query lives only here.
+#
+# CONFIRMED WRONG, 2026-08-23. The table has one column, `trace`, holding
+# a JSON blob; none of the names below exist. A dry run fails with
+# "Unrecognized name: created_at". `billed_costs()` swallows that and
+# returns None, so the dashboard has been showing the recorded side alone
+# without saying so. See ROADMAP item 4 — the fix is to read the fields
+# out of the JSON, and to have the crawler label each call so the trace
+# can say which dataset it served.
 _BILLED_SQL = """
     SELECT
       DATE(created_at) AS day,

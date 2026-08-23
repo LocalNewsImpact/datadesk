@@ -41,7 +41,7 @@ def corpus_summary():
     """Status counts, enrichment coverage and the review backlog, or None."""
 
     def fetch():
-        from review.queue import queued
+        from review.queue import flagged_total
 
         rows = {
             row["status"]: row["articles"]
@@ -76,7 +76,7 @@ def corpus_summary():
             "enrichment_rows": enrichment_rows,
             "with_claim": with_claim,
             "claim_share": _percent(with_claim, enrichment_rows),
-            "flagged": queued({}).count(),
+            "flagged": flagged_total(),
         }
 
     try:

@@ -314,7 +314,10 @@ def export(request):
                     "columns": columns,
                 },
             )
-        queryset = _filtered_articles(params)
+        # Scoped like the grid it mirrors: an export that returned rows
+        # from a dataset the reader cannot open would be the worst
+        # version of a missing filter, because it leaves the building.
+        queryset = _filtered_articles(params, request.user)
         return csv_response(queryset, columns, "datadesk-export.csv")
 
     return render(
@@ -332,7 +335,9 @@ def export(request):
 def export_run(request, definition_id):
     """Re-run a saved definition against current data."""
     definition = get_object_or_404(ExportDefinition, pk=definition_id)
-    queryset = _filtered_articles(definition.params)
+    # A saved definition is re-run as whoever runs it, not as whoever
+    # saved it: the rows follow the reader's grants.
+    queryset = _filtered_articles(definition.params, request.user)
     filename = f"{definition.name}.csv".replace("/", "-")
     return csv_response(queryset, definition.columns, filename)
 
@@ -349,7 +354,7 @@ def queue(request):
     """Articles automated triage flagged, with what a human needs to judge
     them: captured text length, the reason given, the CIN label, the
     byline (SCOPE.md §2.3)."""
-    vocabulary = review_queue.vocab()
+    vocabulary = review_queue.vocab(request.user)
     params = request.GET.copy()
     params.pop("page", None)
     # Facet links replace their own dimension rather than appending a
@@ -374,10 +379,12 @@ def queue(request):
             page_number = int(request.GET.get("page", "1"))
         except ValueError:
             page_number = 1
-        paginator = Paginator(review_queue.queued(request.GET), QUEUE_PAGE_SIZE)
+        paginator = Paginator(
+            review_queue.queued(request.GET, request.user), QUEUE_PAGE_SIZE
+        )
         context["page"] = paginator.get_page(page_number)
-        context["bands"] = review_queue.band_facets(request.GET)
-        context["cases"] = review_queue.case_facets(request.GET)
+        context["bands"] = review_queue.band_facets(request.GET, request.user)
+        context["cases"] = review_queue.case_facets(request.GET, request.user)
 
     template = (
         "review/_queue_results.html"
