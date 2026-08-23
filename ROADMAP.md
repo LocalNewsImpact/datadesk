@@ -1528,6 +1528,81 @@ of `explorer/`, the crawler read role, and — for logs and workers — IAM in
 the crawler's project. Item 1 gates the section; item 8 shares its
 queries.
 
+## 20. The visual builder is a form, and it needs to be a tool
+
+**Now:** `builder_edit.html` carries **25 `<select>`, 24 `<input>` and 42
+`<label>` across 7 fieldsets** — ninety-one controls on one page, before
+any of them is filled in. The preview exists but is subordinate: it sits
+beside the form and says "Configure and the preview follows." That
+sentence is the design, and it is the wrong way round.
+
+The result is unusable, and not because any single control is wrong. It
+is unusable because it asks someone to hold the whole shape of a chart in
+their head, express it as ninety-one settings, and only then find out
+what they made.
+
+**Wanted:** what Flourish and Datawrapper do. The chart is the page. The
+controls are what you reach for when you want to change the thing you are
+looking at.
+
+**What that actually means, concretely:**
+
+- **Data first, and visible.** The first thing on screen is the rows, in
+  a table, so the author can see what they are working with. Datawrapper
+  opens on the data and will not let you past it until it parses.
+- **The chart type is a picture, not a dropdown.** A row of thumbnails
+  showing what each one looks like. Someone choosing a chart is choosing
+  a shape, and a `<select>` of names asks them to translate.
+- **Sensible defaults, then direct manipulation.** Pick a type and get a
+  reasonable chart immediately, from the data, with no configuration.
+  Everything after that is adjusting something already on screen — click
+  the axis to change the axis, click a series to recolour it.
+- **Progressive disclosure.** The ninety-one settings do not disappear;
+  they stop being the first thing. Most authors will touch five. The rest
+  live behind "more", per panel, in the order someone actually needs
+  them.
+- **A live preview, not a submitted one.** Today the preview follows a
+  form post. It should follow the control, immediately, so the loop
+  between changing something and seeing it is instant rather than a round
+  trip.
+- **Steps that end in publish.** Data → chart → annotate → publish, with
+  the state of each visible. Datawrapper's four steps are the reason a
+  first-time author finishes.
+
+**What this does not change.** The data model is sound and stays:
+`Visual` already separates `source_kind`, `query`, `template`, `config`
+and `spec`, and already carries snapshots, pinning and `allow_live`. This
+item is about what sits in front of `config` and `spec` — the same fields,
+reached by manipulating a chart instead of filling in a form. The embed,
+the snapshot model and the publish semantics are unaffected.
+
+**Related, and worth doing together.** Item 3 (a muted chart palette)
+changes what the defaults look like, and defaults are most of what an
+author sees under this design — a good default chart is the difference
+between adjusting and configuring. The palette should be settled before
+or alongside this, not after.
+
+**Decide before building:**
+
+- **Build or adopt.** A direct-manipulation chart editor is a large piece
+  of front-end work. Whether the renderers stay hand-written or move to a
+  charting library with an editing layer is the first question, and it
+  decides most of the rest.
+- **Where the preview renders.** In the page against the current
+  unsaved state, or in the same embed iframe the public gets. The second
+  is honest about what will ship; the first is faster to interact with.
+  They can differ, and the difference is where "it looked right in the
+  editor" comes from.
+- **How much of the ninety-one survives.** Some of those controls exist
+  because a renderer needs them. The audit — which settings are load
+  bearing, which are there because a form was the only way to express
+  them — is the first concrete step and can start now.
+
+**Touches:** `templates/visuals/builder_edit.html` and
+`builder_new.html`, `visuals/builder.py`, the renderers under
+`templates/visuals/renderers/`, and the static assets behind them.
+`visuals/models.py` should not need to change.
+
 ## Sequence
 
 1. **Item 1** first: items 5 and 6 both need dataset-scoped roles, and
@@ -1583,3 +1658,8 @@ queries.
     two IAM grants in the crawler's project and should be scoped
     before the rest is built — everything else on it is a query
     against a corpus Datadesk already reads.
+20. **Item 20** is independent of the access work and can start now.
+    Its first step costs nothing and unblocks the rest: audit which of
+    the ninety-one controls a renderer actually needs. Settle item 3's
+    palette before or alongside it — under this design the default
+    chart is most of what an author sees.
