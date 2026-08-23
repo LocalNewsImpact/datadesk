@@ -681,6 +681,64 @@ and `DatasetSource`, and item 1 — dataset-scoped roles resolve
 membership too, so if membership moves, both resolve it from the same
 place or they will disagree.
 
+## 12. One sign-in across the suite
+
+**Now:** signing in to Datadesk does not sign you in to the Source
+Directory. They are separate Django applications with separate session
+cookies, separate user tables, and — the part that makes the second
+sign-in visible rather than instant — **separate Google OAuth clients**
+(`556914459776-…` and `666766099662-…`). Google therefore treats them as
+two unrelated applications and grants each one separately.
+
+**Wanted:** two repositories, two deployments, one suite. Separate
+repositories are not what causes the double sign-in and do not have to
+be given up to fix it.
+
+**Three steps, increasing in coupling. The first two are cheap and
+independent of the third:**
+
+1. **One OAuth client.** Register both redirect URIs on one client and
+   point both services at that secret. Google recognises the existing
+   grant, so the second sign-in stops showing consent. One secret
+   value, one redirect URI, no code.
+2. **Start the flow automatically.** On the directory, an unauthenticated
+   request redirects to the provider instead of rendering a sign-in
+   page. With step 1 the second sign-in becomes a redirect nobody
+   notices. A settings change in that repository.
+3. **One session, which means one identity store.** The session cookie
+   carries only `_auth_user_id`; with separate `auth_user` tables that
+   number is a different person in each application, so sharing the
+   cookie without sharing the table authenticates the wrong user.
+   Genuine SSO therefore needs the same `SECRET_KEY`, the same session
+   store, and the same user table — and then
+   `SESSION_COOKIE_DOMAIN = ".localnewsimpact.org"` shares it across
+   both subdomains with no load balancer involved.
+
+**On the subdomain question:** the directory does not need its own
+subdomain, but moving it to a path under Datadesk would not deliver
+this and would cost more than it appears.
+
+- Cloud Run has no path routing. A shared hostname needs a GCP HTTPS
+  load balancer with a URL map.
+- Django serves under a prefix with `FORCE_SCRIPT_NAME`, and `reverse()`
+  respects it, but static URLs, the allauth callbacks and the OAuth
+  redirect URI all need the prefix too.
+- The subtle one: on a shared origin both applications set `sessionid`
+  and `csrftoken` at `/` and would overwrite each other. Avoiding that
+  means scoping the cookies by path, which is precisely what stops them
+  being shared. Same-origin makes cookie isolation a thing to manage
+  and still does not share the login.
+
+So the subdomain is not the obstacle, and collapsing to a path makes
+step 3 harder rather than easier. Keep the subdomain; do steps 1 and 2
+now, and take step 3 with item 10, which is already deciding where the
+publisher record — and therefore who may edit it — lives.
+
+**Touches:** the OAuth client and both services' secrets; allauth
+settings in `NewsSourceDirectory`; and, for step 3, whichever service
+becomes the identity store, plus item 1, since a role means nothing
+until both applications read it from the same place.
+
 ## Sequence
 
 1. **Item 1** first: items 5 and 6 both need dataset-scoped roles, and
@@ -710,3 +768,7 @@ place or they will disagree.
 11. **Item 11** after 10's inventory, never before it. It also wants
     item 1 settled, so membership is resolved in one place rather than
     two.
+12. **Item 12's first two steps** are independent of everything else and
+    can be done in an afternoon. Its third waits for item 10, which is
+    already deciding where the publisher record lives and therefore who
+    may edit it.
