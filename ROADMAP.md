@@ -11,13 +11,47 @@ same access to every dataset.
 **Wanted:** access is per dataset, and the privilege within a dataset is
 one of read / write / design; admin is global.
 
+**And per application, decided 2026-08-23.** The suite shares one set of
+users; what a person may do is granted per application, so the same
+person can be an editor in Datadesk and a reviewer in the directory.
+That adds a dimension this item was not carrying, and not every
+application has datasets — the directory has collections, a later one
+may have neither — so the scope has to be optional rather than always a
+dataset.
+
 **Model:**
 
 ```
-DatasetRole(user, dataset_slug, privilege)   privilege in
-                                             {read, write, design}
-User.is_admin                                global, sees every dataset
+Grant(user, app, scope, role)   role: a name from the table below
+                                scope: a dataset slug, or null for
+                                       the whole application
+User.is_admin                   global, every app, every scope
 ```
+
+**Two levels, not two vocabularies.** A *role* is a name — viewer,
+editor, reviewer, designer, admin. A *privilege* is what it permits:
+read, write, design. A role is defined as the set of privileges it
+carries, so the grant stores the role name and the definition lives in
+one place rather than being re-derived at each check:
+
+| role | read | write | design | notes |
+|---|---|---|---|---|
+| viewer | ✓ | | | |
+| reviewer | ✓ | ✓ | | dispositions only, not imports (item 6) |
+| editor | ✓ | ✓ | | review, dispositions, imports |
+| designer | ✓ | | ✓ | authors and publishes visuals |
+| admin | ✓ | ✓ | ✓ | every app, every scope, plus user admin |
+
+The definitions are the thing to settle — particularly what separates
+reviewer from editor, which item 6 raises and which is the reason
+`reviewer` exists as a name at all. The set of privileges is small and
+stable; the set of role names will grow as applications join, and each
+new one is a row in that table rather than a new concept.
+
+**`is_staff` cannot express this.** It is one global boolean, and the
+directory currently gates its admin on it. Per-application roles mean
+that gate reads a grant instead — see item 14, where one shared admin
+has to filter by application for the same reason.
 
 - **read** — explorer, dashboards, published visuals for that dataset
 - **write** — read plus review, dispositions, imports for that dataset
@@ -912,6 +946,15 @@ other owns. Both kinds, now:
    be work spent recreating a separation nobody wants. This is also the
    clearest argument for the whole item: one set of administrators
    across N applications is only coherent on one stack.
+
+   **With one qualification.** Roles are granted *per application* —
+   editor in one, reviewer in another — so a single admin listing all
+   fourteen models cannot show everyone everything. Each `ModelAdmin`
+   has to answer `has_module_permission` and `has_view_permission` from
+   the grant for *its* application, or the shared admin quietly hands a
+   directory reviewer the audit log. One `AdminSite` is still right; it
+   is a filtered one. That is item 1's work, and it is why these two
+   have to be built together rather than in sequence.
 2. **The admin index becomes the suite's, not the directory's.** The
    directory's `admin/base_site.html` and `admin/index.html` override
    globally, and Datadesk serves a stock `/admin/` with no such files —
