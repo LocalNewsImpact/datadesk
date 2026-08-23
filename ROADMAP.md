@@ -1108,6 +1108,80 @@ crawler, which holds the Selenium session that would use them —
 per-user scoping in the suite, and it should be built on the grant model
 rather than inventing a second notion of who may do what.
 
+## 16. Publish visuals statically to news-maps
+
+**Now:** a published visual is served by Datadesk itself.
+`datadesk.localnewsimpact.org/embed/<slug>/` and
+`/visuals/<slug>/data.json` are public — they return 404 for an unknown
+slug rather than redirecting to sign-in — and both are rendered by the
+`visuals` app on every request. Versioning already exists:
+`VisualSnapshot` holds numbered versions, `publish_visuals refresh`
+takes one, and pinning decides which an embed serves, so refreshing data
+does not silently change a published embed.
+
+**Wanted:** the pinned snapshot is rendered to static files and served
+from `LocalNewsImpact/news-maps`, updated on a cadence, when a visual
+changes, and on request from Datadesk.
+
+**Why:** a public embed served by the admin console shares its fate.
+A bad deploy or an outage takes down every embed on every site that has
+iframed one, and each view costs a Cloud Run request against the same
+service that serves authenticated traffic. Static files survive
+Datadesk being down, cache at the edge, and cost nothing to serve.
+
+**`news-maps` is currently an empty repository.** It carries the
+description "Auto-updating data visuals for LNIC research — static pages
++ nightly data refresh from BigQuery", no files, and no licence. Nothing
+in Datadesk references it. It is the intended target and has never been
+wired up.
+
+**Not to be confused with `gs://mizzou-news-maps-data`**, which shares
+the name and is an *input*: `visuals/services.py` reads a visual's
+`bucket_path` from it as a data source. Rendered output has never been
+written anywhere.
+
+### What gets published
+
+Per visual, per pinned version: the embed document and its `data.json`.
+Both are already the public surface, so the shapes exist; what changes
+is where they are served from.
+
+### Decide before building
+
+- **The URL, and whether it is versioned in the path.** An embed that
+  someone has iframed must keep working forever, so its URL cannot carry
+  a version that later moves. A stable path serving the pinned version,
+  with versioned paths beside it for citation, is the shape that
+  satisfies both — the pin already exists to make that safe.
+- **Where it is served.** GitHub Pages on `news-maps` is free and caches
+  well but publishes from a branch, which makes every republish a
+  commit. A public bucket avoids the commit churn and needs a CDN in
+  front to cache as well. Pages also fixes the domain at
+  `localnewsimpact.github.io/news-maps/` unless a custom one is mapped,
+  and a custom subdomain — `maps.` or `visuals.` — is a decision of its
+  own.
+- **What happens to Datadesk's public routes.** Once embeds are served
+  statically, `/embed/<slug>/` is either the authoring preview, a
+  redirect to the static copy, or a fallback. Leaving all three live and
+  authoritative is how two copies drift.
+- **What the cadence refreshes.** A nightly rebuild that re-renders
+  every visual from its current data would move what pinned embeds show,
+  which is the thing pinning exists to prevent. The cadence should
+  re-render *pinned* output, and taking a new snapshot stays the
+  deliberate act it is now.
+
+### Touches
+
+`visuals/services.py` and `publish_visuals`; the existing
+`publish.yml` workflow, which already runs on the console's
+`repository_dispatch` and is the natural place to add a render-and-push
+step; a licence and a README on `news-maps`; and the embed routes in
+`visuals/urls.py`.
+
+**Related:** item 2 pushes the same pinned snapshot to Google Sheets on
+publish. Same trigger, different target — they should share one publish
+path rather than growing two.
+
 ## Sequence
 
 1. Move the directory's root `templates/` into `directory/templates/`
@@ -1167,6 +1241,9 @@ list makes it cheaper by waiting.
     two.
 13. **Item 13** after item 1. Adding people from outside the organisation
     and having no per-dataset scoping is the combination to avoid.
+16. **Item 16** is independent of the rest and can start whenever. Its
+    first step is the URL decision, which everything else depends on and
+    which cannot be changed once anyone has embedded a visual.
 15. **Item 15** after item 1, and not before the unattended-crawl
     question is answered — a credential feature that only works when a
     person is watching is not the feature.
