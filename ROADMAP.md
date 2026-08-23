@@ -850,8 +850,18 @@ writes through the column boundary. The Source Directory
 of record, with the fields research needs and a public widget over it.
 A publisher edited in one is unchanged in the other.
 
-**Wanted:** the directory holds the publisher record; the crawler reads
-it rather than keeping its own.
+**Wanted, refined 2026-08-23:** the directory holds *a* publisher record
+per dataset, each with a UUID, and the crawler reads publishers rather
+than keeping its own idea of who they are. What makes it one source of
+truth is not that there is one row — it is that records describing the
+same outlet are *linked* by a decision two people made, and their
+differences are reconciled through the queue rather than diverging
+quietly.
+
+The title still holds. "One source of truth" was always about ending the
+state below, where a publisher edited in one place is unchanged in the
+other and nothing notices. It is achieved by linking and reconciling, not
+by deleting one of the two tables.
 
 **Why it is not a migration script:** the directory's schema does not
 carry what the pipeline needs. Scoping has to answer, per column on
@@ -882,76 +892,99 @@ included. But a publisher record is not inside one dataset — the same
 outlet sits in several, and an edit made by one owner would silently
 rewrite what the others see. Two rules follow.
 
-**Do not version the publisher. Split its fields by who owns the truth.**
+**Which fields are even in question.** Not everything on a publisher
+record is contested, and separating the three kinds first makes the
+reconciliation below much smaller than it looks.
 
-An earlier draft of this said an edit becomes a proposal to the other
-dataset owners, each accepting or rejecting in their own dataset. That
-forks the record: one dataset says "Daily Star", another says "The Daily
-Star", and now every publisher needs a version per dataset and a rule for
-which one the public sees. The way out is not to manage the fork better,
-it is not to create it.
-
-There are three kinds of fact wearing one name:
-
-| | Lives on | Who decides | Copies |
+| | Lives on | Who decides | Reconciled? |
 |---|---|---|---|
-| **Identity** — name, domain, city, county, medium, owner, state, founded and closed dates | the directory's outlet | the directory, via proposals | one, always |
-| **Dataset-scoped** — whether this outlet is in scope for *my* study, my notes, my classification of it | the membership row (`dataset_sources`) | that dataset's owner alone | one per dataset, and they never compete |
-| **Curation state** — `needs_review`, `review_note`, `is_published` | the directory's outlet | directory curators | not a dataset's business |
-
-An editor correcting a name is proposing a fix to **the directory** — one
-recipient, not one per dataset that happens to hold the outlet. The other
-owners accept nothing, because they never had their own copy to
-reconcile. An owner who disagrees with the directory's value either
-persuades it or records their own view on their membership row; what they
-cannot do is fork the outlet.
+| **Identity** — name, domain, city, county, medium, owner, state, founded and closed dates | each dataset's publisher record | its owner, with differences proposed across links | yes — this is what the queue is for |
+| **Dataset-scoped** — whether this outlet is in scope for *my* study, my notes, my classification of it | the membership row (`dataset_sources`) | that dataset's owner alone | never — they are not claims about the same thing |
+| **Pipeline state** — bot sensitivity, RSS health, extraction method, discovery configuration | the crawler's `sources`, keyed by publisher | the crawler | never — it is not a fact about the publisher |
 
 `dataset_sources` is `id, dataset_id, source_id` and two legacy columns
-today — the place for dataset-scoped facts exists and is empty, which is
-why this costs a column rather than a redesign.
+today, so the place for dataset-scoped facts exists and is empty. That
+half costs a column rather than a design.
 
-Item 6's proposal machinery still applies, unchanged: a proposal is an
-audit entry before it is applied. Only the address changes, and it
-changes to something simpler than the draft had.
+Only the first row is contested, which is what the identity and field
+proposals below are for. An earlier draft of this item tried to avoid
+contest altogether by insisting on a single publisher record with one
+value per field. That is not the shape: datasets are owned separately and
+each owner has to be able to correct their own data without waiting, so
+the records are per dataset and the agreement is explicit rather than
+structural.
 
-**Who owns a dataset is public, decided 2026-08-23.** Not optional and
-not behind the public flag: the owner of every dataset is listed, because
-a proposal has to have somewhere to go and because a corpus whose
-custodian is unknown cannot be asked about. The flag governs what is
-inside a dataset; ownership of it is a fact about the consortium.
+**The public flag is what makes a prediction possible at all.** A public
+dataset exposes its publishers' basic information — enough for the
+proposal system to notice that an outlet in one dataset looks like an
+outlet in another, and enough for the two owners to judge whether it is.
+A dataset that shares nothing cannot be matched against, and nobody can
+be asked to confirm a link they cannot see either side of.
 
-**A proposal names the person who made the edit.** Email or name, carried
-on the proposal itself and shown to whoever is deciding. Accepting a
-change to a publisher record is a judgement about the change *and* about
-who is asking — a correction from the team that studies that market
-reads differently from one from somebody who has never seen the outlet.
-Anonymous proposals would be refused on principle or accepted on faith,
-and neither is review.
-
-The audit entry already records an actor, and a proposal is an audit
-entry before it is applied, so this is a matter of surfacing what is
-stored rather than storing something new.
-
-**The public flag exposes membership, not a second copy of anything.**
-Once identity lives in one place, a public dataset is saying one thing:
-*this outlet is in this study*. Who the outlet is was never private — it
-is the directory's, and the directory is the shared record. So there is
-no owner version and no public version to keep in step, because the
-shared half has a single copy and the private half is never shared.
+So the flag is not a sharing nicety. It is the precondition for
+reconciliation: without it every corpus is an island, and the queue has
+nothing to propose.
 
 That is what the flag is worth. Without it an editor cannot see that the
 outlet they are correcting also appears elsewhere, and a corpus that
 nobody can see the shape of is not a directory.
 
-**What has to be decided when this is built:**
+**Identity is a UUID, and it is never inferred, decided 2026-08-23.**
 
-- What counts as *basic* publisher information. Name, domain, city,
-  county, medium and owner are the obvious set — the directory's own
-  columns. Coverage records, review notes and data-quality issues are
+Every publisher added gets a publisher UUID. That is the identity, and it
+is the only thing anything joins on. No process concludes that two
+records are the same outlet by comparing hostnames or publication names —
+that is the standing rule, and this is the reason for it: a hostname
+changes, and the same hostname can front two publications.
+
+**But prediction is allowed, and is the point.** The proposal system may
+look at name and host and *predict* that two records in different
+datasets are the same outlet. That prediction is a proposal, not a
+conclusion. It goes into the disposition queue, and if both dataset
+owners agree, the two UUIDs are **linked**.
+
+So the machinery is: a computer suggests, two people confirm, and the
+link is a recorded decision rather than a derived fact. Matching is
+allowed to be fuzzy precisely because it is never trusted.
+
+**Linked, not merged.** Both UUIDs survive. Each dataset keeps its own
+publisher record; the link asserts that they describe the same outlet.
+Once two records are linked, the differences between their fields become
+proposals in the same queue — so reconciling what an outlet is called
+follows exactly the path that established it is one outlet.
+
+That is why this does not need a bridge table built by a matching script,
+and why the 1,149 crawler sources and 2,809 directory outlets do not have
+to be reconciled before anything else can happen. They are linked
+incrementally, by the people who know, and an unlinked pair is simply not
+linked yet.
+
+**One queue, two kinds of proposal:**
+
+| | Proposes | Confirmed by |
+|---|---|---|
+| Identity | these two UUIDs are the same outlet | both dataset owners |
+| Field | this outlet's name/city/medium should be X | the owner of each dataset holding it |
+
+Item 6 already builds the queue and the disposition model, and a proposal
+is an audit entry before it is applied. Both kinds ride it. The
+attribution requirement applies to both: whoever proposed is named, so
+the person deciding knows whose judgement they are accepting.
+
+**What this leaves to settle:**
+
+- What a prediction is allowed to weigh, and what confidence is worth
+  surfacing. A suggestion nobody trusts is noise; one that is right often
+  enough becomes a rubber stamp, which is the same failure as deciding
+  automatically.
+- Whether a link can be broken, and what happens to the field proposals
+  that flowed through it.
+- What counts as *basic* publisher information — the fields a public
+  dataset exposes. Name, domain, city, county, medium and owner are the
+  obvious set; coverage records, review notes and data-quality issues are
   editorial and are not.
-- Whether a rejected proposal is remembered. Rejecting the same change
-  three times because three datasets keep proposing it is the failure to
-  avoid.
+- Whether a rejected proposal is remembered, so the same suggestion is
+  not made three times.
 
 **Touches:** `NewsSourceDirectory` (schema and API), the crawler's
 source access, and Datadesk's `explorer.models.Source` plus the write
