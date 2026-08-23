@@ -2210,6 +2210,39 @@ a silently empty map into a sentence.
 `templates/visuals/renderers/`, and the static assets behind them.
 `visuals/models.py` should not need to change.
 
+## 21. The audit log records what changed but never shows it
+
+`/review/audit/` lists who, when, which action, which table and which rows.
+It does not show what the values actually were.
+
+`AuditLogEntry` already carries `before` and `after` as JSON on every entry —
+`audited_update` writes both. Nothing renders them, so the one question the
+page exists to answer, *what did this change*, is the one it cannot answer.
+Reverting is available from the same row, which means today somebody reverts
+a change they have not been able to read.
+
+**What to build.** A diff on the entry: the keys that differ between `before`
+and `after`, each with its old and new value. Unchanged keys stay collapsed —
+a row edit that touched one field should not print thirty identical lines.
+
+Points to settle while building:
+
+- **Where it appears.** Inline expansion on the row is fewer clicks than a
+  detail page and keeps the revert control next to what it would undo.
+- **Bulk actions.** `target_ids` is a list, and `audited_update_rows` writes
+  one entry for many rows. A per-row diff of a 400-row batch is not readable;
+  show the shape of the change and a count, with per-row detail behind it.
+- **Long values.** Article text and JSON blobs need truncation with a way to
+  see the whole value.
+- **Entries with no before.** A create has `before = None`; a delete has
+  `after = None`. Both should read as such rather than as a diff against an
+  empty object.
+- **Who may read it.** The audit page is already behind a privilege; the diff
+  exposes field values from rows the reader may not otherwise reach, so the
+  scoping in `explorer/scoping.py` applies to the diff, not only to the list.
+
+Display only — no migration, no new field, no change to what is written.
+
 ## Sequence
 
 1. **Item 1** first: items 5 and 6 both need dataset-scoped roles, and
