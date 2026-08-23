@@ -103,7 +103,7 @@ jobs:
           gcloud run jobs deploy "${SERVICE}-release" \
             --image "$IMAGE" --region "$REGION" --project "$PROJECT_ID" \
             --command /bin/sh \
-            --args "^|^-c|python manage.py migrate --noinput" \
+            --args "^|^-c|python manage.py migrate --noinput && python manage.py configure_site --domain $ADMIN_HOST" \
             --set-secrets DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest \
             --set-env-vars "CLOUD_SQL_CONNECTION_NAME=$SQL_INSTANCE,DB_NAME=datadesk,DB_USER=datadesk" \
             --set-cloudsql-instances $SQL_INSTANCE \
