@@ -22,6 +22,8 @@ Environment variables:
     DJANGO_SECRET_KEY           required in production; insecure default for dev
     DJANGO_DEBUG                "1"/"true" to enable; default off
     DJANGO_ALLOWED_HOSTS        comma-separated; default "localhost,127.0.0.1"
+    SESSION_COOKIE_DOMAIN       parent domain to share the session across
+                                (".localnewsimpact.org"); unset locally
     DJANGO_CSRF_TRUSTED_ORIGINS comma-separated; default empty
     ALLOWED_AUTH_DOMAINS        comma-separated Google hosted domains permitted
                                 to sign in; empty means no domain restriction
@@ -82,6 +84,24 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 # Cookies ride TLS in production; local development stays plain HTTP.
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
+
+# One sign-in across the suite (ROADMAP.md item 12).
+#
+# Datadesk owns identity; the Source Directory reads the same user and
+# session tables. A cookie on the parent domain is what carries the
+# session between the two subdomains — no load balancer, no shared
+# origin. Unset locally, where there is no parent domain to share.
+SESSION_COOKIE_DOMAIN = os.environ.get("SESSION_COOKIE_DOMAIN", "") or None
+CSRF_COOKIE_DOMAIN = SESSION_COOKIE_DOMAIN
+
+# Renamed deliberately at the same time. A cookie's domain is part of its
+# identity, so widening it leaves the old host-only `sessionid` in the
+# browser alongside the new one, both are sent, and which wins is not
+# something to leave to chance. A new name is a clean cut: everyone signs
+# in once more, and after that the session is the suite's.
+SESSION_COOKIE_NAME = "lnic_session"
+CSRF_COOKIE_NAME = "lnic_csrf"
+
 
 INSTALLED_APPS = [
     "django.contrib.admin",
