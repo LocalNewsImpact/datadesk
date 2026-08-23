@@ -18,6 +18,7 @@ CSS = Path(__file__).resolve().parent.parent / "static" / "css"
 TOKENS = CSS / "tokens.css"
 CONSOLE = CSS / "datadesk.css"
 ADMIN_BRIDGE = CSS / "django-admin.css"
+AUTH = CSS / "auth.css"
 
 # Variables Django's admin defines itself. The bridge assigns to these;
 # it must not read one as if the console provided it.
@@ -83,7 +84,20 @@ def test_the_admin_bridge_leaves_the_public_widget_alone():
         assert selector not in text
 
 
-@pytest.mark.parametrize("path", [TOKENS, ADMIN_BRIDGE])
+def test_the_sign_in_stylesheet_only_reads_shared_tokens():
+    """Both consoles' front doors use it, and the other one loads no
+    other stylesheet of ours."""
+    missing = _used(AUTH) - _defined(TOKENS)
+    assert missing == set(), f"auth.css reads non-shared tokens: {sorted(missing)}"
+
+
+def test_the_console_does_not_also_style_sign_in():
+    """One definition. datadesk.css keeping its own .auth-card is how the
+    two front doors drift apart."""
+    assert ".auth-card" not in CONSOLE.read_text()
+
+
+@pytest.mark.parametrize("path", [TOKENS, ADMIN_BRIDGE, AUTH])
 def test_the_shared_files_are_collected_as_static(path, settings):
     """They are only shareable if WhiteNoise serves them; a file outside
     the static tree would 404 for the other console."""
