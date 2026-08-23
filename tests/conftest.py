@@ -22,9 +22,18 @@ def plain_static_storage(settings):
 
 
 @pytest.fixture(autouse=True)
-def fresh_cache():
-    """Explorer results and filter vocabularies are cached in-process;
-    tests must not read each other's."""
+def fresh_cache(settings):
+    """A per-process cache, emptied around every test.
+
+    Production shares one cache across instances through a database
+    table, because the service scales to zero and a per-process cache is
+    empty on most requests. Tests want the opposite: isolation, no
+    database round trip, and no dependence on the `django_db` mark just
+    to clear a cache between tests.
+    """
+    settings.CACHES = {
+        "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+    }
     from django.core.cache import cache
 
     cache.clear()

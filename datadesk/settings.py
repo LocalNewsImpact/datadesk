@@ -271,6 +271,28 @@ if "CRAWLER_RW_DB_USER" in os.environ:
 
 DATABASE_ROUTERS = ["explorer.routers.CrawlerRouter"]
 
+# A cache the whole service shares, not one per process.
+#
+# The dashboard already wraps its expensive reads in cache.get_or_set
+# with a five-minute life. Without a CACHES setting Django falls back to
+# LocMemCache, which lives inside a single worker process — and the
+# service runs with min-instances 0, so most requests arrive at a cold
+# container with an empty cache and pay the full cost again. The cache
+# existed and could not work.
+#
+# The database table is deliberate rather than Redis: it is shared,
+# costs nothing, needs no new infrastructure, and a lookup against it
+# takes milliseconds against reads that take seconds. It lives in the
+# application database — never the crawler's, which is read-only.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "datadesk_cache",
+        "TIMEOUT": 300,
+        "OPTIONS": {"MAX_ENTRIES": 1000},
+    }
+}
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --- authentication (SCOPE.md §2.1) -----------------------------------------

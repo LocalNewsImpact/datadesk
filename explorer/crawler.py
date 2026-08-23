@@ -16,12 +16,29 @@ _COUNTS_CACHE_SECONDS = 300
 # LEFT JOINs so a dataset with no sources or no articles still appears,
 # at zero, rather than vanishing. DISTINCT because a source can belong to
 # more than one dataset and the join fans out.
+# Count per source once, then add the sources up per dataset.
+#
+# Counting DISTINCT article ids across the whole three-way join made
+# Postgres sort every joined row before it could group them: 261,531
+# rows, spilled 29MB to disk, to produce one number per dataset. The
+# aggregate here runs over articles alone and the join that follows
+# carries four rows, not a quarter of a million.
+#
+# SUM is safe where COUNT(DISTINCT) was needed because (dataset_id,
+# source_id) is unique, so no dataset counts a source twice, and each
+# article has exactly one candidate link. Verified against the old
+# query: identical counts for every dataset.
 _DATASET_ROW_COUNTS_SQL = """
-    SELECT d.slug, d.label, COUNT(DISTINCT a.id) AS articles
+    WITH per_source AS (
+        SELECT cl.source_id, COUNT(*) AS articles
+        FROM articles a
+        JOIN candidate_links cl ON cl.id = a.candidate_link_id
+        GROUP BY cl.source_id
+    )
+    SELECT d.slug, d.label, COALESCE(SUM(ps.articles), 0) AS articles
     FROM datasets d
     LEFT JOIN dataset_sources ds ON ds.dataset_id = d.id
-    LEFT JOIN candidate_links cl ON cl.source_id = ds.source_id
-    LEFT JOIN articles a ON a.candidate_link_id = cl.id
+    LEFT JOIN per_source ps ON ps.source_id = ds.source_id
     GROUP BY d.id, d.slug, d.label
     ORDER BY d.label
 """
