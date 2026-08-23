@@ -92,17 +92,6 @@
       </table>
       {% endif %}
 
-      {% if group.blocked %}
-      <div class="blocked">
-        <h3>Not offered for a decision</h3>
-        <ul>
-          {% for p in group.blocked %}
-          <li><b>{{ p.field }}</b> — {{ p.flag_label }}: {{ p.detail }}
-            {% if p.suggestion %}<span class="sugg">{{ p.suggestion }}</span>{% endif %}</li>
-          {% endfor %}
-        </ul>
-      </div>
-      {% endif %}
     </article>
     {% empty %}
     <p class="notice empty-queue">Nothing pending here.</p>

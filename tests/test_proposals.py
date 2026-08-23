@@ -99,21 +99,28 @@ def test_a_fix_without_a_value_stays_pending(client, editor, publisher):
     assert publisher.city == "Columbia"
 
 
-def test_a_file_that_contradicts_itself_is_not_decidable(client, editor, publisher):
-    """Which of a file's two values was meant is a question for whoever
-    wrote it, not a guess to make in a queue."""
+def test_a_file_offering_two_values_is_still_decidable(client, editor, publisher):
+    """Not knowing which value to propose is ordinary — the proposed
+    column is simply empty. It is not a reason to withhold the question:
+    the person reading the record usually knows which value is meant,
+    and Keep and Fix always apply."""
     dupe = _proposal(
         publisher,
         "owner",
         "",
-        "Gannett",
+        "",
         flag="evidence_conflict",
-        detail="the file has two rows for this record",
+        detail=(
+            "Sources sheet gives more than one value here — "
+            "\u201cGannett\u201d and \u201cLee Enterprises\u201d — "
+            "so neither is proposed; the record has no value"
+        ),
     )
-    assert dupe.actionable is False
+    assert dupe.actionable is True
     content = client.get(URL).content.decode()
-    assert "Not offered for a decision" in content
-    assert "two rows for this record" in content
+    assert "Not offered for a decision" not in content
+    assert "more than one value here" in content
+    assert f"d-{dupe.pk}" in content  # it carries a decision control
 
 
 def test_viewers_cannot_reach_the_queue(client, publisher):
@@ -627,3 +634,112 @@ def test_a_question_already_answered_is_cleared_from_the_queue(
 
     call_command("scan_sources", dataset="mo")
     assert not ChangeProposal.objects.filter(pk=stale.pk).exists()
+
+
+# --- what a source file is taken to be saying --------------------------------
+
+
+def _evidence_for(rows, name="Sources sheet"):
+    """Run the evidence loader over rows, without touching a file."""
+    import csv
+    import io
+
+    from review.management.commands.scan_sources import Command
+
+    buffer = io.StringIO()
+    columns = ["host_norm", "canonical_name", "city", "county", "owner", "type"]
+    writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+
+    command = Command()
+    command._read = lambda path: buffer.getvalue()
+    return command._evidence({"evidence": "x.csv", "evidence_name": name})
+
+
+def test_two_rows_for_one_host_are_not_a_contradiction():
+    """A section of a paper shares its parent's domain. Lee's Summit
+    Journal and the Kansas City Star are both on kansascity.com, and the
+    fields they agree on are not in dispute because of it."""
+    evidence = _evidence_for(
+        [
+            {
+                "host_norm": "kansascity.com",
+                "city": "Kansas City",
+                "type": "print native",
+            },
+            {
+                "host_norm": "kansascity.com",
+                "city": "Kansas City",
+                "owner": "McClatchy",
+            },
+        ]
+    )
+    assert evidence[("kansascity.com", "city")]["conflicting"] is False
+    assert evidence[("kansascity.com", "city")]["value"] == "Kansas City"
+    assert evidence[("kansascity.com", "type")]["value"] == "print native"
+    assert evidence[("kansascity.com", "owner")]["value"] == "McClatchy"
+
+
+def test_only_two_different_values_for_one_field_conflict():
+    evidence = _evidence_for(
+        [
+            {"host_norm": "kansascity.com", "canonical_name": "The Kansas City Star"},
+            {
+                "host_norm": "kansascity.com",
+                "canonical_name": "Lee's Summit Missouri Journal News",
+            },
+        ]
+    )
+    entry = evidence[("kansascity.com", "canonical_name")]
+    assert entry["conflicting"] is True
+    assert entry["candidates"] == [
+        "The Kansas City Star",
+        "Lee's Summit Missouri Journal News",
+    ]
+    # Nothing is proposed, because nothing is known to be better.
+    assert entry["value"] == ""
+
+
+def test_a_later_row_does_not_erase_an_earlier_value():
+    """Keying on (host, field) and assigning made the last row win, so a
+    real disagreement was invisible and the surviving value was whichever
+    the file happened to list second."""
+    evidence = _evidence_for(
+        [
+            {"host_norm": "a.example", "county": "Boone"},
+            {"host_norm": "a.example", "county": "Callaway"},
+        ]
+    )
+    assert evidence[("a.example", "county")]["candidates"] == ["Boone", "Callaway"]
+
+
+def test_the_detail_reads_as_one_sentence():
+    """The queue showed "the record says nothing from Sources sheet" —
+    the detail and a separate origin hint run together."""
+    from review.management.commands.scan_sources import Command
+
+    single = Command._evidence_detail(
+        {
+            "origin": "Sources sheet",
+            "value": "print native",
+            "candidates": ["print native"],
+        },
+        "",
+    )
+    assert single == "Sources sheet says “print native”; the record has no value"
+
+    both = Command._evidence_detail(
+        {
+            "origin": "Sources sheet",
+            "value": "",
+            "candidates": [
+                "The Kansas City Star",
+                "Lee's Summit Missouri Journal News",
+            ],
+        },
+        "Lee's Summit Missouri Journal News",
+    )
+    assert "more than one value here" in both
+    assert both.endswith("the record says “Lee's Summit Missouri Journal News”")
