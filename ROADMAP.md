@@ -850,18 +850,23 @@ writes through the column boundary. The Source Directory
 of record, with the fields research needs and a public widget over it.
 A publisher edited in one is unchanged in the other.
 
-**Wanted, refined 2026-08-23:** the directory holds *a* publisher record
-per dataset, each with a UUID, and the crawler reads publishers rather
-than keeping its own idea of who they are. What makes it one source of
-truth is not that there is one row — it is that records describing the
-same outlet are *linked* by a decision two people made, and their
-differences are reconciled through the queue rather than diverging
-quietly.
+**Wanted, refined 2026-08-23:** a publisher record per dataset, each with
+a UUID, and the crawler reading publishers rather than keeping its own
+idea of who they are.
 
-The title still holds. "One source of truth" was always about ending the
-state below, where a publisher edited in one place is unchanged in the
-other and nothing notices. It is achieved by linking and reconciling, not
-by deleting one of the two tables.
+**The Source Directory is a list of publisher records, not an authority.**
+It does not hold *the* record and it does not decide anything. It is
+where the records are listed and read — a view over them, and the public
+widget on top. Nobody proposes a change "to the directory"; changes are
+proposed to the owner of a dataset, because owners are the only things in
+this design that decide.
+
+What makes it one source of truth is therefore not that there is one row.
+It is that records describing the same outlet are *linked* by a decision
+two owners made, and their differences are reconciled through the queue
+rather than diverging quietly. The title still holds: it was always about
+ending the state below, where a publisher edited in one place is
+unchanged in the other and nothing notices.
 
 **Why it is not a migration script:** the directory's schema does not
 carry what the pipeline needs. Scoping has to answer, per column on
@@ -927,7 +932,7 @@ nothing to propose.
 
 That is what the flag is worth. Without it an editor cannot see that the
 outlet they are correcting also appears elsewhere, and a corpus that
-nobody can see the shape of is not a directory.
+nobody can see the shape of is not a list of anything.
 
 **Identity is a UUID, and it is never inferred, decided 2026-08-23.**
 
@@ -994,7 +999,7 @@ change to how the guarantee is enforced and should be decided
 deliberately, not inherited.
 
 **Feeds on:** the Missouri Press readings in `data/sources`, which are
-already the outside evidence for the fields the directory would own.
+already the outside evidence for the fields a publisher record carries.
 
 ## 11. Datasets in the directory, so a job can name one
 
