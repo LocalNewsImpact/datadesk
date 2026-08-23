@@ -1,10 +1,16 @@
-"""Fill the dashboard's caches so no one waits for them.
+"""Fill the caches behind the dashboard and the costs page.
 
-Every expensive read on the dashboard is cached, but a cache only helps
+Every expensive read on those pages is cached, but a cache only helps
 the second reader. The first pays the full cost, and with a shared cache
 that means one person every time an entry expires — measured between ten
 and twenty-seven seconds depending on how much of the corpus Postgres
-happens to be holding in memory.
+happens to be holding in memory, and 110 seconds for the BigQuery read
+behind the costs page.
+
+Every cache on those two pages belongs in `targets` below. One that does
+not is worse than one that is not cached at all: the page looks fast
+because its neighbours are warm, and the cost lands on whoever happens
+to arrive after the entry expires.
 
 Run from the deploy, so a new revision serves a warm cache from its
 first request, and on a schedule if one exists. Failures are reported
@@ -31,7 +37,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         from django.core.cache import cache
 
-        from explorer.costs import recorded_costs
+        from explorer.costs import billed_costs, recorded_costs
         from explorer.crawler import dataset_row_counts
         from explorer.dashboard import corpus_summary
 
@@ -39,6 +45,13 @@ class Command(BaseCommand):
             ("dataset row counts", "explorer.dataset_row_counts", dataset_row_counts),
             ("recorded costs", "explorer.recorded_costs", recorded_costs),
             ("corpus summary", "explorer.corpus_summary", corpus_summary),
+            # The most expensive of the four and the last to be warmed: it
+            # goes to BigQuery rather than Postgres, and thirty days of
+            # openrouter_traces took 110s uncached on 2026-08-23. It was
+            # missing from this list while every other cache on the page was
+            # warm, so /explorer/costs/ paid for it on whoever arrived first
+            # after an entry expired.
+            ("billed costs", "explorer.billed_costs", billed_costs),
         )
 
         failures = 0
