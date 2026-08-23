@@ -123,6 +123,31 @@ the review queue (item 6), the cost dashboard (item 5), the visuals
 registry (a visual belongs to a dataset), the audit log (unchanged —
 still records the actor).
 
+**Who sees a visual, and who may change it, decided 2026-08-23.** Two
+questions, not one.
+
+*Seeing.* A **published** visual is visible to anyone signed in. It is
+already public at its embed and in the bucket it is exported to, so
+hiding it in the admin protects nothing and only makes it hard to find.
+A **draft** is visible to its author, to the owner of any dataset it is
+wired to, and to an admin.
+
+*Acting* — editing, refreshing, publishing — needs one of those three
+regardless of status. Holding `design` says somebody builds visuals; it
+does not say they build *this* one, so seeing a published visual is never
+permission to change it.
+
+A union, not an intersection. Requiring access to every dataset a visual
+draws on would hide a cross-dataset chart from every one of the owners
+who contributed to it. "Owns" is `write` on the dataset — the editor who
+started it; a viewer on a dataset does not get its drafts, because seeing
+the data and being answerable for unfinished work are different things.
+
+This is also what revocation looks like in practice: the author keeps
+seeing their published visual exactly as any viewer does, and can no
+longer act on it. Only an admin can, which is what this item decided
+about revocation.
+
 **Decided, clarified 2026-08-23: a visual belongs to the datasets it is
 wired to, and is owned by the account that made it.** Not "the datasets
 its author could reach" — that was the earlier wording and it was wrong,
@@ -136,7 +161,8 @@ check that twice.
 
 A *published* visual is public at its embed regardless — publishing is
 the act that makes it so, which is why publishing is a privilege
-(`design`) rather than a side effect of authoring.
+(`design`) rather than a side effect of authoring. Visuals are exported
+to a bucket and versioned, so a published one is public in two places.
 
 **Universal data belongs to no dataset.** FIPS codes, census tables,
 demographics — reference data that is not anybody's corpus and is mostly

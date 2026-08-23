@@ -12,13 +12,13 @@ The feed serves the pinned snapshot — the embed stability rule — and
 import json
 
 from django.core.cache import cache
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils.text import slugify
 from django.views.decorators.clickjacking import xframe_options_exempt
 
-from accounts.access import has_any_grant
+from accounts.access import ALL_SCOPES, has_any_grant
 from accounts.decorators import APP, requires
 from accounts.privileges import DESIGN, READ
 from audit.models import AuditLogEntry
@@ -27,10 +27,12 @@ from visuals.models import BIGQUERY, CORPUS, GCS, INLINE, Visual
 from visuals.services import (
     DataSourceError,
     fetch_source_data,
+    may_act_on,
     publish,
     record_snapshot,
     refresh_snapshot,
     unpublish,
+    visible_to,
 )
 
 _LIVE_CACHE_SECONDS = 300
@@ -46,6 +48,32 @@ def _get_visual(request, slug):
     ):
         raise Http404("No such visual")
     return visual
+
+
+def _wired_datasets(user, spec):
+    """The dataset slugs a corpus visual draws on, frozen at save.
+
+    A spec naming a dataset wires the visual to that one — and only if
+    the author may read it, so a slug typed into a form cannot reach past
+    their grants. A spec naming none wires it to every dataset the author
+    can read, because that is what the aggregate will cover.
+
+    Application-wide access is expanded to actual slugs here rather than
+    stored as "everything". A visual is a claim about particular data:
+    "all datasets" recorded today would quietly come to mean a dataset
+    added next month, which the author never saw.
+    """
+    from explorer.models import Dataset
+    from explorer.scoping import scopes_for
+
+    readable = scopes_for(user, READ)
+    if readable is ALL_SCOPES:
+        readable = set(Dataset.objects.values_list("slug", flat=True))
+
+    named = (spec or {}).get("dataset")
+    if named:
+        return [named] if named in readable else []
+    return sorted(readable)
 
 
 def _feed_payload(request, visual):
@@ -111,8 +139,25 @@ def embed(request, slug):
 
 @requires(READ)
 def index(request):
-    """Published visuals (and drafts, marked) for signed-in users."""
-    return render(request, "visuals/index.html", {"visuals": Visual.objects.all()})
+    """Visuals this person may see: theirs, ones wired to a dataset they
+    own, and everything if they are an admin.
+
+    Filtered in Python rather than in the query. The rule is a union of
+    three conditions, one of which crosses to the crawler's database --
+    dataset ownership is a grant here, dataset membership is a slug
+    there -- so a single queryset cannot express it. The list is small
+    (visuals are authored by hand, not generated) and the alternative is
+    a query that looks clever and is wrong at the join.
+    """
+    visuals = []
+    for v in Visual.objects.all():
+        if not visible_to(request.user, v):
+            continue
+        # The edit link follows the visual, not the privilege: a viewer
+        # sees every published visual and may act on none of them.
+        v.actionable = may_act_on(request.user, v)
+        visuals.append(v)
+    return render(request, "visuals/index.html", {"visuals": visuals})
 
 
 # --- the form-driven builder (SCOPE.md §2.7 v2) -----------------------------
@@ -180,6 +225,12 @@ def builder_edit(request, slug):
     visual = Visual.objects.filter(slug=slug, template="builder").first()
     if visual is None:
         raise Http404("No such builder visual")
+    if not may_act_on(request.user, visual):
+        # Holding `design` says they build visuals; it does not say they
+        # build *this* one. A published visual is visible to anyone signed
+        # in, so the edit page has to check the visual and not only the
+        # privilege -- otherwise seeing it would be enough to change it.
+        raise PermissionDenied("Not yours to edit")
     error = None
 
     if request.method == "POST":
@@ -217,7 +268,16 @@ def builder_edit(request, slug):
                     spec["area_scope"] = request.POST["area_scope"]
                 visual.spec = {k: v for k, v in spec.items() if v not in ("", [], None)}
                 visual.source_kind = CORPUS
-                visual.save(update_fields=["spec", "source_kind", "updated_at"])
+                # Freeze what this visual is wired to, now, from what its
+                # author may read (ROADMAP item 1). A named dataset wires
+                # it to that one; no name wires it to everything the
+                # author could see, which is what the query will actually
+                # aggregate. Recomputed on every pivot save, because
+                # changing the spec changes the wiring.
+                visual.datasets = _wired_datasets(request.user, visual.spec)
+                visual.save(
+                    update_fields=["spec", "source_kind", "datasets", "updated_at"]
+                )
                 refresh_snapshot(visual, request.user)
             elif form == "refresh":
                 refresh_snapshot(visual, request.user)

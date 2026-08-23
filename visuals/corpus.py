@@ -18,6 +18,7 @@ itself to county/tract/block codings and says how many rows that drops.
 from django.db.models import Avg, Count, F, Q, Sum
 from django.db.models.functions import Substr, TruncMonth, TruncYear
 
+from accounts.access import ALL_SCOPES
 from explorer.models import Article, DatasetSource
 
 # --- dimensions -------------------------------------------------------------
@@ -205,7 +206,7 @@ def _fold(rows, dim_keys, extra, rollups, measure_key, measures):
     return out
 
 
-def qualifying_values(spec, dim_key):
+def qualifying_values(spec, dim_key, scopes):
     """Values of a dimension that clear the spec's group thresholds.
 
     "Counties with at least two publishers and 100 articles" is a HAVING
@@ -224,7 +225,7 @@ def qualifying_values(spec, dim_key):
             "the publisher and article counts cannot be recombined safely."
         )
     qs = (
-        _base_queryset(spec)
+        _base_queryset(spec, scopes)
         .annotate(_dim=dimension["expr"])
         .exclude(_dim__isnull=True)
         .values("_dim")
@@ -240,9 +241,25 @@ def qualifying_values(spec, dim_key):
     return {row["_dim"] for row in qs}
 
 
-def _base_queryset(spec):
-    """Articles narrowed by the spec's filters."""
+def _base_queryset(spec, scopes):
+    """Articles narrowed to `scopes`, then by the spec's filters.
+
+    `scopes` is the set of dataset slugs this visual may draw on, or
+    `ALL_SCOPES`. It is applied *before* the spec, so a spec that names no
+    dataset aggregates over what the visual is wired to rather than over
+    the whole corpus — which is what it did until this argument existed,
+    and which let somebody holding one dataset build a chart of every
+    dataset.
+    """
     qs = Article.objects.all()
+    if scopes is not ALL_SCOPES:
+        if not scopes:
+            qs = qs.none()
+        else:
+            permitted = DatasetSource.objects.filter(dataset__slug__in=scopes).values(
+                "source_id"
+            )
+            qs = qs.filter(candidate_link__source_id__in=permitted)
     if slug := spec.get("dataset"):
         members = DatasetSource.objects.filter(dataset__slug=slug).values("source_id")
         qs = qs.filter(candidate_link__source_id__in=members)
@@ -273,7 +290,7 @@ class CorpusSpecError(ValueError):
     """A pivot spec that cannot run; the message is user-facing."""
 
 
-def run_spec(spec):
+def run_spec(spec, scopes):
     """Run a pivot spec and return (rows, meta).
 
     One dimension gives a category table (bar, donut, map); two give the
@@ -291,7 +308,7 @@ def run_spec(spec):
     if measure_key not in MEASURES:
         raise CorpusSpecError(f"Unknown measure: {measure_key}")
 
-    qs = _base_queryset(spec)
+    qs = _base_queryset(spec, scopes)
     total_before = None
     for key in dim_keys:
         requires = DIMENSIONS[key].get("requires")
@@ -309,7 +326,7 @@ def run_spec(spec):
             "coding, or pick a different measure."
         )
 
-    qualifying = qualifying_values(spec, dim_keys[0])
+    qualifying = qualifying_values(spec, dim_keys[0], scopes)
 
     annotations = {key: DIMENSIONS[key]["expr"] for key in dim_keys}
     # A rollup needs its companion columns (the coding level) in the group.
@@ -408,13 +425,13 @@ def run_spec(spec):
 STORY_MAP_LEVELS = ("place", "block", "county", "state", "tract")
 
 
-def run_story_map(spec):
+def run_story_map(spec, scopes):
     """Return {'points': [...], 'areas': [...]} plus meta for a story map."""
     import json as _json
 
     from datasets.geo import to_county
 
-    base = _base_queryset(spec)
+    base = _base_queryset(spec, scopes)
 
     points = list(
         base.filter(enrichment__point_lat__isnull=False)

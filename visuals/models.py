@@ -59,6 +59,22 @@ class Visual(models.Model):
     # Empty for hand-authored visuals.
     config = models.JSONField(default=dict, blank=True)
 
+    # The datasets this visual is wired to, frozen when it is saved
+    # (ROADMAP item 1). Slugs rather than keys: datasets live in the
+    # crawler's database and Django has no cross-database foreign keys,
+    # which is the same reason `Grant.scope` is a slug.
+    #
+    # Frozen, not recomputed. A visual is a claim about particular data at
+    # a particular time; recomputing on read would let a revoked grant
+    # silently change what the visual covers, and a published embed would
+    # start answering a different question without anybody editing it.
+    #
+    # Empty means the corpus was not the source -- a bucket object or an
+    # upload. It never means "everything": a corpus visual always records
+    # what it drew on, even when that is every dataset its author could
+    # read.
+    datasets = models.JSONField(default=list, blank=True)
+
     # For CORPUS visuals: the pivot spec (dimensions, measure, filters)
     # that visuals.corpus runs in Postgres. Refreshing re-runs it, so a
     # corpus visual follows the data without re-uploading anything.
