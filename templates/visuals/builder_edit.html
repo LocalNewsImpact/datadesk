@@ -40,6 +40,15 @@
             {% for d in datasets %}<option value="{{ d.slug }}">{{ d.label }}</option>{% endfor %}
           </select>
         </label>
+        {# Where the publisher is, not where the story is about. A story #}
+        {# map's dots answer the second; this narrows whose reporting is #}
+        {# being mapped. #}
+        <label>Publisher county
+          <input type="text" name="f_publisher_county" placeholder="Boone">
+        </label>
+        <label>Publisher city
+          <input type="text" name="f_publisher_city" placeholder="Columbia">
+        </label>
         <label>Published from <input type="date" name="f_from"></label>
         <label>to <input type="date" name="f_to"></label>
         <label>Min articles per group <input type="number" name="min_articles" min="0" placeholder="100"></label>

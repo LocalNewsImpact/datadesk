@@ -286,3 +286,96 @@ def test_a_revoked_author_keeps_seeing_and_stops_editing(client, db, author):
 
     assert "Mine" in client.get("/visuals/").content.decode()
     assert client.get(f"/visuals/builder/{visual.slug}/").status_code == 403
+
+
+# --- where the publisher is, as against where the story is about -------------
+
+
+def _boone_article(county="Boone", city="Columbia"):
+    """One article from a publisher in a named county."""
+    import uuid
+
+    from explorer.models import Article, CandidateLink, Source
+
+    source = Source.objects.create(
+        id=str(uuid.uuid4()),
+        host=f"{city}.example".lower(),
+        host_norm=f"{city}.example".lower(),
+        canonical_name=f"The {city} Paper",
+        county=county,
+        city=city,
+    )
+    link = CandidateLink.objects.create(
+        id=str(uuid.uuid4()), url=f"https://{source.host}/1", source=source
+    )
+    article = Article.objects.create(
+        id=str(uuid.uuid4()), status="ok", candidate_link=link
+    )
+    return article, source
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_spec_can_name_the_publishers_county(crawler_schema):
+    """An article from a Boone County publisher is an article whose
+    publisher is in Boone County -- the relation was always there as a
+    dimension to group by. This is the filter key that lets a spec say it,
+    which is what a map of one county's reporting needs."""
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import _base_queryset
+
+    _boone_article(county="Boone", city="Columbia")
+    _boone_article(county="Lafayette", city="Higginsville")
+
+    everything = _base_queryset({}, ALL_SCOPES)
+    assert everything.count() == 2
+
+    boone = _base_queryset({"publisher_county": "Boone"}, ALL_SCOPES)
+    assert boone.count() == 1
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_county_filter_ignores_case(crawler_schema):
+    """Source.county is free text a human typed or an import supplied."""
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import _base_queryset
+
+    _boone_article(county="Boone", city="Columbia")
+    assert _base_queryset({"publisher_county": "boone"}, ALL_SCOPES).count() == 1
+    assert _base_queryset({"publisher_county": "BOONE"}, ALL_SCOPES).count() == 1
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_spec_can_name_the_publishers_city(crawler_schema):
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import _base_queryset
+
+    _boone_article(county="Boone", city="Columbia")
+    _boone_article(county="Boone", city="Ashland")
+    assert _base_queryset({"publisher_county": "Boone"}, ALL_SCOPES).count() == 2
+    assert _base_queryset({"publisher_city": "Ashland"}, ALL_SCOPES).count() == 1
+
+
+def test_the_builder_offers_publisher_geography():
+    """A filter the spec understands and the form cannot set is a filter
+    only somebody editing JSON can use."""
+    from pathlib import Path
+
+    form = (
+        Path(__file__).resolve().parent.parent / "templates/visuals/builder_edit.html"
+    ).read_text()
+    assert 'name="f_publisher_county"' in form
+    assert 'name="f_publisher_city"' in form
+
+
+def test_no_filter_matches_an_outlet_by_its_host():
+    """Identity is a source UUID. Matching outlets by address is what the
+    proposal queue exists to keep a human deciding, so the pivot filters
+    must not offer it as a quiet shortcut."""
+    from pathlib import Path
+
+    corpus = (Path(__file__).resolve().parent.parent / "visuals/corpus.py").read_text()
+    base = corpus[
+        corpus.index("def _base_queryset") : corpus.index("class CorpusSpecError")
+    ]
+    assert "host_norm" not in base
+    assert "host__" not in base

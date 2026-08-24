@@ -263,6 +263,17 @@ def _base_queryset(spec, scopes):
     if slug := spec.get("dataset"):
         members = DatasetSource.objects.filter(dataset__slug=slug).values("source_id")
         qs = qs.filter(candidate_link__source_id__in=members)
+    # Where the publisher is, as opposed to where the story is about. The
+    # two are different questions and a map wants both: the dots are the
+    # second, and this is how you ask for the first.
+    #
+    # County and city, never host. A host is an identity and identity is a
+    # source UUID; matching outlets on their address is what the proposal
+    # queue exists to keep humans in charge of.
+    if county := spec.get("publisher_county"):
+        qs = qs.filter(candidate_link__source__county__iexact=county)
+    if city := spec.get("publisher_city"):
+        qs = qs.filter(candidate_link__source__city__iexact=city)
     if status := spec.get("status"):
         qs = qs.filter(status=status)
     if wire := spec.get("wire"):
