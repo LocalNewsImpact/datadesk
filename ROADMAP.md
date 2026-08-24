@@ -2506,6 +2506,57 @@ Points to settle while building:
   data, not a dataset anybody owns — the case item 1's `UNIVERSAL` scope
   exists for.
 
+## 24. One domain for everything published
+
+Three things are published to readers and each goes somewhere different:
+
+| | Today |
+|---|---|
+| The Source Directory's public feed | `localnewsimpact.github.io/NewsSourceDirectory/` — GitHub Pages, no custom domain |
+| `news-maps` | nothing; the repository has no Pages site |
+| Datadesk's visuals and embeds | the Cloud Run app itself, `/embed/<slug>/` |
+
+**Wanted:** all of it under `data.localnewsimpact.org` — the feed, the
+visuals, the embeds, and any data file a reader or a newsroom is meant to
+fetch.
+
+**The hostname already exists and does not work.** It resolves to
+50.16.132.48, the same host as `www.localnewsimpact.org`, whose certificate
+covers only `www` — so HTTPS to `data.` fails outright and plain HTTP 301s
+to the marketing site. Anything that starts using the name has to take that
+record over, and the first task is finding out what put it there.
+
+**Why it matters more than tidiness.** An embed's URL is written into
+somebody else's page and cannot be moved afterwards: item 22's snippet
+names a host, and every article carrying one pins that host forever. Today
+that host would be a Cloud Run service, which is an implementation detail
+we would be unable to change. The domain has to be decided before the
+embed ships, not after.
+
+**What has to be settled:**
+
+- **What serves it.** Three candidates, and they are not equivalent. GitHub
+  Pages is what the feed already uses and costs nothing, but it cannot run
+  the resize handshake item 22 needs and has no access control for a
+  dataset that is not public. A bucket behind a CDN handles static payloads
+  and versioned visuals well and is what item 16 already assumes. Cloud Run
+  is what the embed is served from now and is the only one that can vary a
+  response by who is asking.
+- **Whether one origin can do all three**, or whether the feed stays on
+  Pages and only the visuals move. Splitting is cheaper and gives readers
+  two hostnames to trust, which is the thing this item exists to stop.
+- **Versioning in the path.** Item 16 versions published visuals and item
+  22 wants an embed to name a version so a page does not silently change.
+  Both want a path shape, and it should be decided once for the whole
+  domain rather than per publisher.
+- **What happens to the current URLs.** The feed's Pages address is
+  referenced by the WordPress plugin; it needs a redirect rather than a
+  removal, and the plugin lives in another repository.
+
+**First step, and it needs nobody's decision:** find out what
+50.16.132.48 is and who owns the DNS record, because every option above
+begins with taking that name over.
+
 ## Sequence
 
 1. **Item 1** first: items 5 and 6 both need dataset-scoped roles, and
