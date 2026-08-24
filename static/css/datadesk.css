@@ -1686,6 +1686,11 @@ tr.prop td { border-bottom: 0; }
    hand, rather than a button that silently does nothing. */
 .dd-copybox{ width: 100%; min-height: 6rem; font-family: var(--font-mono);
   font-size: .78rem; margin-top: .4rem; }
+/* What the preview is still waiting for, above a chart that cannot draw
+   its data yet. Quiet: it is a caption on the preview, not a warning. */
+.preview-note{ margin: 0 0 var(--s-2); font-size: .8rem; color: var(--text-3);
+  text-align: center; }
+
 /* Which colour the embed holds still at. Laid out in a row because the
    three choices are one decision, not three settings. */
 .theme-pick{ border: 1px solid var(--border); border-radius: var(--r-sm);

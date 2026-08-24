@@ -526,6 +526,14 @@ def strains_at(chart_id, row_count):
     return ""
 
 
+#: Config keys the colour step sets for every chart type, so no type
+#: declares them and every renderer may read them. `theme` is resolved
+#: before a renderer runs and arrives as an argument; `taxonomy` is read
+#: from the config directly, because whether a fixed vocabulary applies is
+#: a question only the renderer can answer for its own marks.
+SHARED_OPTIONS = ("theme", "taxonomy")
+
+
 def gallery(available, row_count=0):
     """Every type, with the reason it cannot be used where that applies.
 

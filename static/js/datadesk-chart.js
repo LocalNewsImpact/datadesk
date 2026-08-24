@@ -846,12 +846,32 @@
   }
 
   // Shared: fold a from/to edge list to at most eight named groups.
-  function edgeGroups(rows, from, to) {
+  function edgeGroups(rows, from, to, fixed) {
     const order = [];
     for (const r of rows) {
       for (const v of [r[from], r[to]]) {
         if (v != null && v !== "" && !order.includes(v)) order.push(v);
       }
+    }
+    // A pinned taxonomy is a closed vocabulary somebody chose on purpose,
+    // so every one of its categories keeps its own arc and its own place
+    // in the ring. Folding applies to open-ended data, where an eight-hue
+    // palette is the limit; applied here it invented an "Other" that is
+    // not a CIN need and quietly merged two that are.
+    //
+    // A value the taxonomy does not list still gets its own arc rather
+    // than being swept up -- if the data disagrees with the vocabulary,
+    // that is worth seeing, not hiding.
+    if (fixed && fixed.length) {
+      const known = new Set(fixed);
+      const present = new Set(order);
+      return {
+        names: [
+          ...fixed.filter((n) => present.has(n)),
+          ...order.filter((n) => !known.has(n)),
+        ],
+        fold: (v) => v,
+      };
     }
     if (order.length <= 8) return { names: order, fold: (v) => v };
     const keep = new Set(order.slice(0, 8));
@@ -863,6 +883,14 @@
 
   // Flows between groups. Identity is carried by the labels on every
   // group arc — color is redundant there, so the eight-slot order holds.
+  // A small stable hash, so the ids a chart mints for its own defs do not
+  // collide with another chart's on the same page.
+  function hashOf(s) {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+    return h;
+  }
+
   function renderChord(el, config, rows, t, width) {
     const d3 = global.d3;
     const { from, to, value } = config;
@@ -870,17 +898,29 @@
       el.textContent = "Pick the from, to, and value columns."; return;
     }
     rows = coerce(rows.slice(), value);
-    const { names, fold } = edgeGroups(rows, from, to);
-    const colors = slotColors(names, t);
+    // The taxonomy the visual pinned, if it pinned one. That is what keeps
+    // a CIN need the same colour in this chart as in every other, which is
+    // the whole reason the option exists -- and the chord ignored it.
+    const fixed = taxonomy(config.taxonomy, t);
+    const { names, fold } = edgeGroups(rows, from, to, fixed && fixed.order);
+    const colors = fixed
+      ? names.map((n, i) => {
+          const at = fixed.order.indexOf(n);
+          // Anything the vocabulary does not name falls back to a slot,
+          // taken from the end so it cannot collide with a pinned hue.
+          return at >= 0 ? fixed.colors[at] : slotColors(names, t)[i];
+        })
+      : slotColors(names, t);
     const index = new Map(names.map((n, i) => [n, i]));
     const matrix = names.map(() => names.map(() => 0));
     for (const r of rows) {
       const a = index.get(fold(r[from])), b = index.get(fold(r[to]));
       if (a != null && b != null) matrix[a][b] += +r[value] || 0;
     }
-    // Room for the labels that ring the diagram; the longest name sets it.
-    const longest = Math.max(...names.map((n) => String(n).length));
-    const labelRoom = Math.min(150, 22 + 6.2 * Math.min(longest, 22));
+    // Labels follow the ring rather than spiking out of it, so the room
+    // they need is a band around the arc, not the length of the longest
+    // name. That is most of the old margin given back to the circle.
+    const labelRoom = 34;
     const size = Math.min(width, 620);
     const R = size / 2 - labelRoom;
     const chords = d3.chord().padAngle(0.04)
@@ -890,18 +930,65 @@
     const groupArcs = group.append("path")
       .attr("d", d3.arc().innerRadius(R).outerRadius(R + 12))
       .attr("fill", (d) => colors[d.index]);
-    group.append("text")
-      .each((d) => { d.angle = (d.startAngle + d.endAngle) / 2; })
-      .attr("transform", (d) =>
-        `rotate(${(d.angle * 180) / Math.PI - 90}) translate(${R + 18})` +
-        (d.angle > Math.PI ? " rotate(180)" : ""))
-      .attr("text-anchor", (d) => (d.angle > Math.PI ? "end" : "start"))
-      .attr("dy", "0.35em").attr("fill", "currentColor")
-      // Truncated only in the ring; the tooltip carries the full name.
-      .text((d) => {
-        const name = String(names[d.index]);
-        return name.length > 22 ? name.slice(0, 21) + "\u2026" : name;
-      });
+    // Labels ride along the arc, not out from it. Set radially they read
+    // as spokes at every angle but the horizontal, which is what "at 90
+    // degrees to the circle" looks like -- the eye has to travel around
+    // the ring turning its head. A textPath keeps them on the curve.
+    //
+    // A path per group rather than one ring, because each label is
+    // centred on its own arc and the bottom half has to be reversed.
+    // Outside the band, not on it. On it, the text sat over saturated
+    // fills -- dark on dark green and dark on purple -- and a label is
+    // only useful if it can be read. Outside, it is always on the chart
+    // surface, whose contrast is a known quantity.
+    const BAND = 12;
+    const LABEL_R = R + BAND + 3;
+    const CHAR = 6.1;                      // 11px sans, near enough
+    const uid = `chord-${Math.abs(hashOf(names.join("|")))}`;
+    const defs = svg.append("defs");
+
+    // 0 is twelve o'clock and angles run clockwise, so the lower half --
+    // between three and nine o'clock -- would carry its text upside down.
+    // Those arcs are drawn the other way round instead.
+    const arcPath = (a, b, flip) => {
+      const at = (ang) => [
+        (LABEL_R * Math.sin(ang)).toFixed(2),
+        (-LABEL_R * Math.cos(ang)).toFixed(2),
+      ];
+      const [x1, y1] = at(flip ? b : a);
+      const [x2, y2] = at(flip ? a : b);
+      const large = Math.abs(b - a) > Math.PI ? 1 : 0;
+      return `M${x1},${y1}A${LABEL_R},${LABEL_R} 0 ${large} ${flip ? 0 : 1} ${x2},${y2}`;
+    };
+
+    group.each(function (d, i) {
+      d.angle = (d.startAngle + d.endAngle) / 2;
+      const flip = d.angle > Math.PI / 2 && d.angle < (3 * Math.PI) / 2;
+      const id = `${uid}-${i}`;
+      defs.append("path").attr("id", id)
+        .attr("d", arcPath(d.startAngle, d.endAngle, flip));
+
+      // What fits on this arc. A name that cannot be shortened to fit is
+      // left off rather than overlapping its neighbour; the tooltip and
+      // the table still carry it.
+      const room = Math.abs(d.endAngle - d.startAngle) * LABEL_R;
+      const full = String(names[d.index]);
+      const fits = Math.floor(room / CHAR);
+      if (fits < 4) return;
+      const label = full.length <= fits ? full : full.slice(0, fits - 1) + "\u2026";
+
+      d3.select(this).append("text")
+        // dy moves the text along the path's own "down", which points at
+        // the centre on the top half and away from it on the flipped
+        // bottom half. So the sign differs to put both outside the ring.
+        .attr("dy", flip ? "0.95em" : "-0.4em")
+        .attr("fill", "currentColor")
+        .append("textPath")
+        .attr("href", `#${id}`)
+        .attr("startOffset", "50%")
+        .attr("text-anchor", "middle")
+        .text(label);
+    });
     const ribbons = svg.append("g").selectAll("path").data(chords).join("path")
       .attr("d", d3.ribbon().radius(R - 2))
       .attr("fill", (d) => colors[d.source.index])
