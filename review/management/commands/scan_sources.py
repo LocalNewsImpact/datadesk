@@ -224,7 +224,10 @@ class Command(BaseCommand):
             items.append(
                 {
                     "flag": flag.key,
-                    "field": field,
+                    # The whole path, because this is what the accept step
+                    # writes back. Storing the column alone raised the
+                    # proposal and then refused to apply it.
+                    "field": flag.field,
                     "detail": detail,
                     "current_value": current,
                     "proposed_value": proposed,

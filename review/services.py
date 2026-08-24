@@ -32,7 +32,12 @@ WRITABLE = {
         "scope",
         "scope_confidence",
     ),
-    Source: ("canonical_name", "city", "county", "owner", "type"),
+    # "meta.state" is a key inside a JSON column, not a column. The state
+    # is a required field of a publisher record and had no way to be
+    # written at all: not by the source form, not by accepting a proposal
+    # that named it. Naming the key rather than opening `meta` keeps the
+    # boundary a boundary -- everything else in that blob stays unwritable.
+    Source: ("canonical_name", "city", "county", "owner", "type", "meta.state"),
     Dataset: ("name", "description", "meta", "cron_enabled"),
 }
 
@@ -47,6 +52,26 @@ DELETABLE = (DatasetSource,)
 _BY_TABLE = {
     model._meta.db_table: model for model in {*WRITABLE, *CREATABLE, *DELETABLE}
 }
+
+
+def _read(obj, field):
+    """A field, or a key inside a JSON column when the name is dotted."""
+    column, _, key = field.partition(".")
+    value = getattr(obj, column, None)
+    return (value or {}).get(key) if key else value
+
+
+def _write(obj, field, value):
+    """The setter for the same. A dotted write replaces the key and leaves
+    the rest of the blob alone -- writing the whole column would silently
+    drop whatever else the record kept there."""
+    column, _, key = field.partition(".")
+    if not key:
+        setattr(obj, column, value)
+        return
+    blob = dict(getattr(obj, column, None) or {})
+    blob[key] = value
+    setattr(obj, column, blob)
 
 
 def audited_update(actor, instances, changes, action, reason=""):
@@ -75,16 +100,17 @@ def audited_update(actor, instances, changes, action, reason=""):
         )
 
     before = {
-        str(obj.pk): {field: getattr(obj, field) for field in changes}
+        str(obj.pk): {field: _read(obj, field) for field in changes}
         for obj in instances
     }
 
     write_alias = router.db_for_write(model)
+    columns = sorted({field.partition(".")[0] for field in changes})
     with transaction.atomic(using=write_alias):
         for obj in instances:
             for field, value in changes.items():
-                setattr(obj, field, value)
-            obj.save(using=write_alias, update_fields=list(changes))
+                _write(obj, field, value)
+            obj.save(using=write_alias, update_fields=columns)
         entry = AuditLogEntry.objects.create(
             actor=actor,
             action=action,
@@ -122,10 +148,13 @@ def revert(actor, entry, reason=""):
             if obj is None:
                 missing.append(pk)
                 continue
-            before[pk] = {field: getattr(obj, field) for field in values}
+            before[pk] = {field: _read(obj, field) for field in values}
             for field, value in values.items():
-                setattr(obj, field, value)
-            obj.save(using=write_alias, update_fields=list(values))
+                _write(obj, field, value)
+            obj.save(
+                using=write_alias,
+                update_fields=sorted({f.partition(".")[0] for f in values}),
+            )
             reverted_ids.append(pk)
 
         note = reason or f"revert of audit entry {entry.pk}"
@@ -182,10 +211,13 @@ def audited_update_rows(actor, model, rows, action, reason=""):
             obj = model.objects.filter(pk=pk).first()
             if obj is None:
                 raise ValueError(f"Row {pk} no longer exists")
-            before[pk] = {field: getattr(obj, field) for field in values}
+            before[pk] = {field: _read(obj, field) for field in values}
             for field, value in values.items():
-                setattr(obj, field, value)
-            obj.save(using=write_alias, update_fields=list(values))
+                _write(obj, field, value)
+            obj.save(
+                using=write_alias,
+                update_fields=sorted({f.partition(".")[0] for f in values}),
+            )
         entry = AuditLogEntry.objects.create(
             actor=actor,
             action=action,

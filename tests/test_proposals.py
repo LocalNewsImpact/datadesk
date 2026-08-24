@@ -1083,3 +1083,81 @@ def test_a_correct_record_is_not_flagged_for_geography(mo, editor):
     flags = _scanned(mo, good)
     for key in ("state_missing", "state_unknown", "county_misfiled", "city_misfiled"):
         assert key not in flags, f"{key} fired on a clean record"
+
+
+# --- a required field that could not be written ------------------------------
+#
+# The state is a required field of a publisher record and had no way to be
+# written at all: the source form did not carry it, and accepting a proposal
+# that named it hit the write boundary. So the scan could ask for a state and
+# nothing could supply one.
+
+
+def test_the_state_is_inside_the_write_boundary():
+    from explorer.models import Source
+    from review.services import WRITABLE
+
+    assert "meta.state" in WRITABLE[Source]
+    assert "meta" not in WRITABLE[Source], "the rest of the blob stays closed"
+
+
+def test_writing_the_state_leaves_the_rest_of_the_blob_alone(crawler_schema, editor):
+    """A dotted write replaces one key. Writing the whole column would drop
+    whatever else the record kept there."""
+    from review.services import audited_update
+
+    source = Source.objects.create(
+        id="s-meta",
+        host="m.example",
+        host_norm="m.example",
+        meta={"state": "", "notes": "keep me", "rss": "https://m.example/feed"},
+    )
+    audited_update(
+        editor, [source], {"meta.state": "MO"}, action="source:edit", reason="test"
+    )
+    source.refresh_from_db()
+    assert source.meta["state"] == "MO"
+    assert source.meta["notes"] == "keep me"
+    assert source.meta["rss"] == "https://m.example/feed"
+
+
+def test_a_state_write_can_be_reverted(crawler_schema, editor):
+    """Whatever writes it has to be undoable like every other audited
+    change, which means `before` has to record the key and not the blob."""
+    from review.services import audited_update, revert
+
+    source = Source.objects.create(
+        id="s-rev",
+        host="r.example",
+        host_norm="r.example",
+        meta={"state": "Missouri", "notes": "keep me"},
+    )
+    entry = audited_update(
+        editor, [source], {"meta.state": "MO"}, action="source:edit", reason="normalise"
+    )
+    assert entry.before["s-rev"]["meta.state"] == "Missouri"
+
+    revert(editor, entry, reason="undo")
+    source.refresh_from_db()
+    assert source.meta["state"] == "Missouri"
+    assert source.meta["notes"] == "keep me"
+
+
+def test_a_proposal_naming_the_state_can_be_accepted(client, editor, mo):
+    """The whole point: the scan proposes MO, and accepting it writes MO.
+    Before this the proposal could be raised and never applied."""
+    bare = Source.objects.create(
+        id="s-accept",
+        host="a2.example",
+        host_norm="a2.example",
+        city="Columbia",
+        county="Boone",
+        owner="Someone",
+    )
+    flags = _scanned(mo, bare)
+    proposal = flags["state_missing"]
+    assert proposal.proposed_value == "MO"
+
+    client.post("/review/proposals/", {f"d-{proposal.pk}": "accept"})
+    bare.refresh_from_db()
+    assert (bare.meta or {}).get("state") == "MO"

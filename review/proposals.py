@@ -118,6 +118,16 @@ class ChangeProposal(models.Model):
         return self.record_id or f"new:{self.submission}"
 
     @property
+    def field_label(self):
+        """What to call the field on screen.
+
+        A dotted field is a key inside a JSON column and the path is a
+        storage detail: a reviewer deciding about a state should read
+        "state", not "meta.state".
+        """
+        return self.field.rpartition(".")[2] or self.field
+
+    @property
     def flag_label(self):
         from review.flags import ALL_BY_KEY
 
