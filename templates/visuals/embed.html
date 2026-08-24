@@ -12,5 +12,7 @@
   <main>
     {% include renderer %}
   </main>
+    {# Tells the parent how tall it is, so no snippet carries a height. #}
+    <script src="{% static 'js/datadesk-embed-height.js' %}"></script>
 </body>
 </html>

@@ -7,6 +7,10 @@ from django.utils.html import format_html
 from visuals.models import Visual, VisualSnapshot
 from visuals.services import DataSourceError, publish, refresh_snapshot, unpublish
 
+#: Where an embed points. Its own name because an embed URL, once pasted
+#: into somebody's article, cannot be moved (ROADMAP item 24).
+EMBED_HOST = "data.localnewsimpact.org"
+
 
 @admin.register(Visual)
 class VisualAdmin(admin.ModelAdmin):
@@ -40,13 +44,31 @@ class VisualAdmin(admin.ModelAdmin):
 
     @admin.display(description="Embed code")
     def embed_code(self, visual):
+        """The snippet a publisher pastes.
+
+        A placeholder and a script, not an iframe with a height. 480px was
+        wrong for every visual and the person embedding cannot know the
+        right number, because it depends on the reader's screen: the framed
+        page reports its own height and the script resizes to match
+        (ROADMAP item 22).
+
+        The host is data.localnewsimpact.org rather than the console. An
+        embed URL is written into somebody else's page and cannot be moved
+        afterwards, so it names the public surface rather than an
+        implementation detail (ROADMAP item 24).
+        """
         if visual.pk is None:
             return "—"
         return format_html(
-            '<code>&lt;iframe src="https://{}/embed/{}/" width="100%" '
-            'height="480" frameborder="0"&gt;&lt;/iframe&gt;</code>',
-            "datadesk.localnewsimpact.org",
+            '<code>&lt;div class="datadesk-visual" data-visual="{}"&gt;'
+            '&lt;a href="https://{}/visuals/{}/"&gt;{}&lt;/a&gt;&lt;/div&gt;<br>'
+            '&lt;script src="https://{}/static/js/datadesk-embed.js" '
+            "async&gt;&lt;/script&gt;</code>",
             visual.slug,
+            EMBED_HOST,
+            visual.slug,
+            visual.title,
+            EMBED_HOST,
         )
 
     def save_model(self, request, obj, form, change):
