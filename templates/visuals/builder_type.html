@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Choose a chart — {{ visual.title }}{% endblock %}
 
-{# The card answers, in order: can I use this, what is it, what is it for,
+{% comment %} The card answers, in order: can I use this, what is it, what is it for,
    what would it take, what should I know. Anything answering none of those
    is not here. Availability is carried by the card's own state; the reason
    sits against the thing it explains. Description and advice are different
    registers and are styled as such. What is searchable -- aliases, the other
-   functions a type serves -- feeds the filter and is not printed. #}
+   functions a type serves -- feeds the filter and is not printed.
+{% endcomment %}
 
 {% block content %}
 <section class="card card-wide">
