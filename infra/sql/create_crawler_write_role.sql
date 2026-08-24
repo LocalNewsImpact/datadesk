@@ -63,9 +63,11 @@ GRANT INSERT (id, host, host_norm, canonical_name, city, county, owner,
               type, status, metadata,
               rss_consecutive_failures, rss_transient_failures)
   ON sources TO datadesk_rw;
-GRANT INSERT (id, slug, label, name, description, metadata, cron_enabled)
+GRANT INSERT (id, slug, label, name, description, metadata, cron_enabled,
+              owner_name, owner_email)
   ON datasets TO datadesk_rw;
-GRANT UPDATE (name, description, metadata, cron_enabled)
+GRANT UPDATE (name, description, metadata, cron_enabled,
+              owner_name, owner_email)
   ON datasets TO datadesk_rw;
 GRANT INSERT (id, dataset_id, source_id, legacy_host_id, legacy_meta)
   ON dataset_sources TO datadesk_rw;

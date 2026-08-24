@@ -1140,3 +1140,78 @@ def test_a_table_embed_ships_no_chart_libraries(client, visual, author):
     assert "plot.min" not in body
     assert "topojson" not in body
     assert "datadesk-chart" in body  # it still needs the runtime itself
+
+
+# --- who to credit and who to ask --------------------------------------------
+
+
+@pytest.fixture
+def owned_dataset(crawler_schema):
+    from explorer.models import Dataset
+
+    return Dataset.objects.create(
+        id="d-att",
+        slug="mizzou",
+        label="Missouri",
+        owner_name="Missouri School of Journalism",
+        owner_email="lnic@example.org",
+    )
+
+
+@pytest.mark.urls("datadesk.urls_data")
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_visual_credits_the_dataset_it_draws_on(
+    client, visual, author, owned_dataset
+):
+    """A chart embedded in somebody else's article carried no attribution
+    beyond free text typed into its own config."""
+    visual.datasets = ["mizzou"]
+    visual.save(update_fields=["datasets"])
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+
+    page = client.get(f"/visuals/{visual.uuid}/").content.decode()
+    assert "Missouri School of Journalism" in page
+    assert "lnic@example.org" in page
+
+    # And it travels with the rows, so somebody republishing the JSON has
+    # what they need without coming back here.
+    feed = client.get(f"/visuals/{visual.uuid}/data.json").json()
+    assert feed["attribution"] == [
+        {
+            "dataset": "Missouri",
+            "owner": "Missouri School of Journalism",
+            "contact": "lnic@example.org",
+        }
+    ]
+
+
+@pytest.mark.urls("datadesk.urls_data")
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_dataset_with_nobody_recorded_credits_nobody(
+    client, visual, author, crawler_schema
+):
+    """Real attribution or none. A row with an empty name in it is worse
+    than no row -- it looks like the answer is "nobody"."""
+    from explorer.models import Dataset
+
+    Dataset.objects.create(id="d-bare", slug="lehigh", label="Lehigh")
+    visual.datasets = ["lehigh"]
+    visual.save(update_fields=["datasets"])
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+
+    assert client.get(f"/visuals/{visual.uuid}/data.json").json()["attribution"] == []
+
+
+def test_attribution_is_not_taken_from_who_may_read_the_dataset():
+    """Grants are access control. Publishing them as attribution would put
+    staff account addresses into a feed anybody can fetch."""
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "visuals/views.py").read_text()
+    body = source[source.index("def _attribution(") :]
+    body = body[: body.index("\ndef ")]
+    assert "Grant" not in body
+    assert "scopes_for" not in body
+    assert "owner_name" in body and "owner_email" in body

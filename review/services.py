@@ -38,7 +38,14 @@ WRITABLE = {
     # that named it. Naming the key rather than opening `meta` keeps the
     # boundary a boundary -- everything else in that blob stays unwritable.
     Source: ("canonical_name", "city", "county", "owner", "type", "meta.state"),
-    Dataset: ("name", "description", "meta", "cron_enabled"),
+    Dataset: (
+        "name",
+        "description",
+        "meta",
+        "cron_enabled",
+        "owner_name",
+        "owner_email",
+    ),
 }
 
 # Phase 4 (SCOPE.md §2.5): what may be created, and the one thing that

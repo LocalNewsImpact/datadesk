@@ -51,6 +51,14 @@ class Dataset(CrawlerModel):
     description = models.TextField(null=True)
     # datasets.metadata carries default_state and the enrichment profile.
     meta = DecodedJSONField(db_column="metadata", null=True)
+    # Who to credit and who to ask, for a dataset whose charts end up
+    # embedded in other people's pages. Not the grants in `accounts`:
+    # those say who may read this, which is access control, and publishing
+    # them as attribution would put staff addresses into a public feed.
+    # Null where nobody has said -- a contact that reaches nobody is a
+    # worse answer than no contact.
+    owner_name = models.TextField(null=True, blank=True)
+    owner_email = models.TextField(null=True, blank=True)
     cron_enabled = models.BooleanField(default=True)
 
     class Meta(CrawlerModel.Meta):

@@ -49,7 +49,10 @@ def fresh_cache(settings):
 _CRAWLER_TABLES = {
     "datasets": (
         "(id TEXT PRIMARY KEY, slug TEXT, label TEXT, name TEXT,"
-        " description TEXT, metadata TEXT, cron_enabled INTEGER)"
+        " description TEXT, metadata TEXT, cron_enabled INTEGER,"
+        # Who to credit and who to ask, for anything published from this
+        # dataset. Added to the crawler by d86ffabfebe9.
+        " owner_name TEXT, owner_email TEXT)"
     ),
     "sources": (
         "(id TEXT PRIMARY KEY, host TEXT, host_norm TEXT, canonical_name TEXT,"

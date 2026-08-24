@@ -128,6 +128,13 @@ def dataset_detail(request, slug):
                     "description": request.POST.get("description", "").strip() or None,
                     "cron_enabled": request.POST.get("cron_enabled") == "1",
                     "meta": new_meta,
+                    # Attribution for anything published from this
+                    # dataset. Blank stores null rather than "", so
+                    # "nobody has said" and "somebody said nothing" are
+                    # the same state and a published page can test one
+                    # thing to decide whether to credit anybody.
+                    "owner_name": request.POST.get("owner_name", "").strip() or None,
+                    "owner_email": request.POST.get("owner_email", "").strip() or None,
                 },
                 action="dataset:edit",
                 reason=request.POST.get("reason", ""),
