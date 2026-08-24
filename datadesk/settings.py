@@ -46,6 +46,7 @@ Environment variables:
 """
 
 import os
+import re
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -419,3 +420,41 @@ STORAGES = {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"
     },
 }
+
+
+#: What CompressedManifestStaticFilesStorage writes: name.<12 hex>.ext
+_HASHED_NAME = re.compile(r"\.[0-9a-f]{12}\.")
+
+
+def _immutable_static(path, url):
+    """Which static files may be cached for good.
+
+    WhiteNoise's own answer is "the ones with a hash in the name", which
+    is right and misses the largest file we serve. The map boundaries are
+    fetched by the chart runtime, which builds their URLs itself --
+    `{% static 'geo/' %}` plus a filename it picks from the geo level, and
+    per-state files it picks from the data. A directory cannot be hashed,
+    so none of them go through the manifest and all of them arrived with
+    WhiteNoise's 60-second default. counties-10m.json is 822KB and was
+    re-downloaded every minute, for every reader, on a page whose whole
+    job is to load fast inside somebody else's article.
+
+    They are treated as immutable instead, which obliges the filename to
+    carry the vintage: a new boundary release is a new file, never an
+    edit to this one. Anything already cached against the old name would
+    otherwise stay cached for a year.
+    """
+    # Read through django.conf rather than the name above it: Django
+    # normalises STATIC_URL to a leading slash on the way out, and the
+    # raw value here is "static/", which matches no URL at all.
+    from django.conf import settings as _s
+
+    if url.startswith(f"{_s.STATIC_URL}geo/"):
+        return True
+    # The manifest's own naming, checked directly rather than by calling
+    # WhiteNoise's version of it: that one is a method wanting a
+    # configured instance, and this is installed unbound.
+    return bool(_HASHED_NAME.search(url.rsplit("/", 1)[-1]))
+
+
+WHITENOISE_IMMUTABLE_FILE_TEST = _immutable_static
