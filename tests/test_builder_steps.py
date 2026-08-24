@@ -520,3 +520,155 @@ def test_the_two_numbers_on_a_row_are_explained(client, author, visual, newsroom
 def test_one_county_is_not_one_counties(client, author, visual, newsroom):
     body = step(client, visual, "newsrooms").content.decode()
     assert "1 counties" not in body
+
+
+# --- how somebody reaches the builder ----------------------------------------
+#
+# It was deployed and unreachable: live at its URL, linked from nowhere but
+# a notice inside the old form. Code nobody can navigate to is not shipped.
+
+
+def test_a_new_visual_lands_in_the_builder(client, author, crawler_schema):
+    """Not in the form of ninety-one controls. That form still exists for
+    what the steps do not cover, and every step links to it."""
+    response = client.post(
+        "/visuals/builder/new/",
+        {"title": "Fresh", "slug": "fresh", "source_kind": "corpus"},
+    )
+    assert response.status_code == 302
+    assert response.url == "/visuals/builder/fresh/step/type/"
+
+
+def test_a_new_visual_has_no_chart_type_chosen(client, author, crawler_schema):
+    """Seeding "table" answered step one's question before anybody was
+    asked it, so the gallery opened with a choice nobody had made."""
+    from visuals.models import Visual
+
+    client.post(
+        "/visuals/builder/new/",
+        {"title": "Fresh2", "slug": "fresh2", "source_kind": "corpus"},
+    )
+    assert not (Visual.objects.get(slug="fresh2").config or {}).get("kind")
+
+
+def test_the_index_links_to_the_builder(client, author, visual, crawler_schema):
+    body = client.get("/visuals/").content.decode()
+    assert f"/visuals/builder/{visual.slug}/step/type/" in body
+
+
+def test_every_step_offers_the_way_back_to_the_old_form(
+    client, author, visual, dataset
+):
+    """The steps do not cover everything yet -- annotations, publishing,
+    the snapshot. Losing the form would lose those."""
+    for name in ("type", "theme", "data", "newsrooms", "fields"):
+        body = step(client, visual, name).content.decode()
+        assert f"/visuals/builder/{visual.slug}/" in body
+
+
+def test_a_corpus_visual_can_be_made_from_the_form(client, author, crawler_schema):
+    """The builder's five steps are entirely about the corpus, and the
+    creation form offered inline, BigQuery and a bucket -- so the thing the
+    builder builds could not be created from the UI at all. Both visuals
+    made so far were made from a shell."""
+    response = client.post(
+        "/visuals/builder/new/",
+        {"title": "From the form", "slug": "from-the-form", "source_kind": "corpus"},
+    )
+    assert response.status_code == 302, "creation was refused"
+    assert response.url.endswith("/step/type/")
+
+
+def test_a_corpus_visual_is_not_snapshotted_at_creation(client, author, crawler_schema):
+    """What it draws is decided by the steps. Asking for a snapshot now
+    fails on a spec nobody has written."""
+    from visuals.models import Visual
+
+    client.post(
+        "/visuals/builder/new/",
+        {"title": "No snap", "slug": "no-snap", "source_kind": "corpus"},
+    )
+    assert not Visual.objects.get(slug="no-snap").snapshots.exists()
+
+
+# --- which articles a visual may draw ----------------------------------------
+
+
+def test_nothing_in_flight_is_ever_drawable(crawler_schema):
+    """An article the pipeline has not finished with would change under the
+    reader. That is a floor, not a filter somebody chooses -- so it holds
+    whatever subset is asked for, including none."""
+    from accounts.access import ALL_SCOPES
+    from explorer.models import Article
+    from visuals.corpus import _base_queryset
+
+    Article.objects.create(id="a-paused", status="paused")
+    Article.objects.create(id="a-done", status="labeled")
+
+    for spec in ({}, {"subset": "complete"}, {"subset": "enriched"}):
+        drawn = {a.id for a in _base_queryset(spec, ALL_SCOPES)}
+        assert "a-paused" not in drawn, spec
+
+
+def test_complete_keeps_what_the_export_drops(crawler_schema):
+    """Obituaries, weather, opinion and paywall stubs are all terminal.
+    They are the reason this reads Postgres rather than BigQuery, so the
+    complete subset must not quietly drop them."""
+    from accounts.access import ALL_SCOPES
+    from explorer.models import Article
+    from visuals.corpus import _base_queryset
+
+    for status in ("obituary", "weather", "opinion", "paywall", "wire"):
+        Article.objects.create(id=f"a-{status}", status=status)
+
+    drawn = {a.status for a in _base_queryset({"subset": "complete"}, ALL_SCOPES)}
+    assert {"obituary", "weather", "opinion", "paywall", "wire"} <= drawn
+
+
+def test_enriched_is_what_reaches_enrichment(crawler_schema):
+    """`enrichment_skipped` belongs with it: the skip is a decision at that
+    stage rather than a diversion before it, and the two together are what
+    the crawler exports."""
+    from accounts.access import ALL_SCOPES
+    from explorer.models import Article
+    from visuals.corpus import _base_queryset
+
+    for status in ("enriched", "enrichment_skipped", "obituary", "labeled"):
+        Article.objects.create(id=f"e-{status}", status=status)
+
+    drawn = {a.status for a in _base_queryset({"subset": "enriched"}, ALL_SCOPES)}
+    assert drawn == {"enriched", "enrichment_skipped"}
+
+
+def test_the_subset_is_a_filter_on_a_dataset_not_part_of_its_name():
+    """The dataset says which newsrooms; the subset says how much of what
+    they published. Two questions, so two controls."""
+    from visuals.corpus import SUBSETS
+
+    assert set(SUBSETS) == {"complete", "enriched"}
+    for label, note in SUBSETS.values():
+        assert "Missouri" not in label, "a subset is not named after a dataset"
+        assert note.strip()
+
+
+def test_the_sentence_says_which_subset(visual, dataset):
+    """A chart of everything and a chart of the exported set look identical
+    and mean different things."""
+    from visuals.sentence import parts_for
+
+    visual.config = {"kind": "bar"}
+    visual.spec = {"datasets": ["mizzou"], "subset": "enriched"}
+    assert "enriched" in {t for _, t, kind in parts_for(visual) if kind == "said"}
+
+
+def test_the_data_step_offers_the_subset(client, author, visual, dataset):
+    body = step(client, visual, "data").content.decode()
+    assert 'name="subset"' in body
+    assert "Complete" in body and "Enriched" in body
+
+
+def test_an_unknown_subset_is_refused(client, author, visual, dataset):
+    response = step(client, visual, "data", datasets=["mizzou"], subset="everything")
+    visual.refresh_from_db()
+    assert (visual.spec or {}).get("subset") != "everything"
+    assert response.status_code == 200

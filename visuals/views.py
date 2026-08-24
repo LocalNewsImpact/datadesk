@@ -173,7 +173,7 @@ def builder_new(request):
         kind = request.POST.get("source_kind", "")
         if not title:
             error = "A title is required."
-        elif kind not in (INLINE, BIGQUERY, GCS):
+        elif kind not in (CORPUS, INLINE, BIGQUERY, GCS):
             error = "Pick a data source."
         else:
             slug = base = slugify(title)[:40] or "visual"
@@ -188,7 +188,10 @@ def builder_new(request):
                 query=request.POST.get("query", "").strip(),
                 bucket_path=request.POST.get("bucket_path", "").strip(),
                 template="builder",
-                config={"kind": "table"},
+                # No kind: step one asks. Seeding "table" answered its
+                # question before anybody was asked it, and the gallery
+                # then opened with a choice nobody had made.
+                config={},
                 created_by=request.user,
             )
             try:
@@ -205,8 +208,11 @@ def builder_new(request):
                         rows,
                         note=f"uploaded {upload.name}",
                     )
-                else:
+                elif kind != CORPUS:
                     refresh_snapshot(visual, request.user)
+                # A corpus visual has nothing to snapshot yet: what it draws
+                # is decided by the steps, and asking now would fail on a
+                # spec nobody has written.
             except (BuilderError, DataSourceError) as exc:
                 if visual.pk:
                     visual.delete()
@@ -217,7 +223,11 @@ def builder_new(request):
                     for field, messages in exc.message_dict.items()
                 )
             else:
-                return redirect("visuals:builder_edit", visual.slug)
+                # Into the builder, at its first step. The old form still
+                # exists for what the steps do not cover yet, and is linked
+                # from every one of them -- but it is not where somebody
+                # who has just made a visual should land.
+                return redirect("visuals:builder_step", visual.slug, "type")
     return render(request, "visuals/builder_new.html", {"error": error})
 
 

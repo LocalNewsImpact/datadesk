@@ -118,6 +118,18 @@ def theme_panel(visual, post=None):
 # --- step 3: the slice -------------------------------------------------------
 
 
+def _SUBSETS():
+    from visuals.corpus import SUBSETS
+
+    return SUBSETS
+
+
+def _subset_of(spec):
+    from visuals.corpus import COMPLETE
+
+    return spec.get("subset") or COMPLETE
+
+
 def data_panel(visual, post=None, choices=()):
     """Datasets and a date range. Which fields to draw comes later."""
     if post is not None:
@@ -128,9 +140,15 @@ def data_panel(visual, post=None, choices=()):
             # A slug typed into a form must not reach past the author's
             # grants, the same rule the spec's single-dataset field follows.
             raise ValueError(f"Not yours to draw on: {sorted(outside)}")
+        from visuals.corpus import COMPLETE, SUBSETS
+
+        subset = post.get("subset", COMPLETE)
+        if subset not in SUBSETS:
+            raise ValueError("No such subset")
         return {
             "spec": {
                 "datasets": picked,
+                "subset": subset,
                 "from": post.get("from", "").strip(),
                 "to": post.get("to", "").strip(),
             }
@@ -143,6 +161,12 @@ def data_panel(visual, post=None, choices=()):
             for d in choices
         ],
         "chosen_count": len(picked),
+        # The dataset says which newsrooms; the subset says how much of
+        # what they published. Two questions, two controls.
+        "subsets": [
+            {"id": i, "label": label, "note": note, "on": _subset_of(spec) == i}
+            for i, (label, note) in _SUBSETS().items()
+        ],
         "date_from": spec.get("from", ""),
         "date_to": spec.get("to", ""),
     }

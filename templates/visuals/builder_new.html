@@ -11,7 +11,17 @@
     <label>Title <input type="text" name="title" required></label>
     <fieldset>
       <legend>Data source</legend>
-      <label class="inline"><input type="radio" name="source_kind" value="inline" checked>
+      {% comment %}
+      The corpus first and chosen by default: it is what the builder's steps
+      are about, and the other three are for data from somewhere else. It
+      was missing entirely, so the visuals the builder builds could not be
+      made from this form at all.
+      {% endcomment %}
+      <label class="inline"><input type="radio" name="source_kind" value="corpus" checked>
+        The research corpus — articles, publishers, enrichment</label>
+      <p class="notice">What it draws is decided in the builder; nothing is
+      queried yet.</p>
+      <label class="inline"><input type="radio" name="source_kind" value="inline">
         Upload a CSV</label>
       <label>File <input type="file" name="file" accept=".csv"></label>
       <label class="inline"><input type="radio" name="source_kind" value="bigquery">
