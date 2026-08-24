@@ -384,3 +384,57 @@ def test_one_unparseable_value_makes_a_column_text():
     from visuals.types import TEXT, column_types
 
     assert column_types([{"n": 1}, {"n": 2}, {"n": "n/a"}])["n"] == TEXT
+
+
+# --- the builder's steps -----------------------------------------------------
+
+
+def test_the_steps_are_the_order_the_prototype_settled():
+    from visuals.steps import STEPS
+
+    assert [s.slug for s in STEPS] == [
+        "type",
+        "theme",
+        "data",
+        "newsrooms",
+        "fields",
+    ]
+
+
+def test_no_two_steps_own_the_same_key():
+    """Going back changes one choice and keeps the rest, which only holds
+    if a step's keys are its own. Two steps writing one key means entering
+    the second silently undoes the first."""
+    from visuals.steps import STEPS
+
+    seen = {}
+    for step in STEPS:
+        for key in step.owns:
+            assert key not in seen, f"{key} owned by {seen.get(key)} and {step.slug}"
+            seen[key] = step.slug
+
+
+def test_a_step_counts_as_done_when_it_decided_something():
+    """Not when somebody looked at it. Opening the colour panel and
+    choosing nothing leaves a default nobody chose."""
+    from visuals.models import Visual
+    from visuals.steps import reached
+
+    empty = Visual(config={}, spec={})
+    assert reached(empty) == set()
+
+    typed = Visual(config={"kind": "chord"}, spec={})
+    assert reached(typed) == {"type"}
+
+    most = Visual(
+        config={"kind": "chord", "theme": "newsprint"},
+        spec={"dataset": "mo", "dimensions": ["cin_primary"]},
+    )
+    assert reached(most) == {"type", "theme", "data", "fields"}
+
+
+def test_the_last_step_leads_nowhere():
+    from visuals.steps import next_after
+
+    assert next_after("type") == "theme"
+    assert next_after("fields") is None
