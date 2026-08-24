@@ -243,27 +243,6 @@ def test_the_base_image_lookup_runs_in_a_step_that_has_the_tool():
     assert runs == [], f"the docker builder has no gcloud: {runs}"
 
 
-def test_warming_the_cache_does_not_hold_the_rollout_open():
-    """It primes a cache no request depends on, Cloud Scheduler runs it
-    anyway, and waited on before the shift it primed the cache against the
-    revision being replaced."""
-    from pathlib import Path
-
-    import yaml
-
-    path = (
-        Path(__file__).resolve().parent.parent
-        / "gcp/cloudbuild/cloudbuild-datadesk.yaml"
-    )
-    spec = yaml.safe_load(path.read_text())
-    steps = {s["id"]: s for s in spec["steps"]}
-
-    assert steps["warm-job"]["waitFor"] == ["shift"], "warm after traffic moves"
-    body = steps["warm-job"]["args"][-1]
-    execute = body[body.index("jobs execute") :]
-    assert "--wait" not in execute, "started, not waited on"
-
-
 def test_the_build_graph_has_no_cycle():
     """waitFor is a DAG the file does not check for itself, and a cycle
     fails the whole build rather than one step."""
@@ -493,3 +472,59 @@ def test_a_visual_may_be_framed_by_somebody_elses_site():
         f"frame_ancestors defaults to {default!r}; an embed nobody may "
         "frame is not an embed"
     )
+
+
+def test_a_bad_image_still_cannot_reach_a_second_console_untested():
+    """The directory's traffic shift waits on Datadesk's, so an image that
+    breaks the console is caught before anything else serves it.
+
+    That guard used to sit on `sources-migrate`, four steps earlier, on a
+    step that moves no traffic at all -- which bought the same safety and
+    charged the whole directory chain for it. Moving it must not have
+    dropped it.
+    """
+    from pathlib import Path
+
+    import yaml
+
+    spec = yaml.safe_load(
+        (
+            Path(__file__).resolve().parent.parent
+            / "gcp/cloudbuild/cloudbuild-datadesk.yaml"
+        ).read_text()
+    )
+    waits = {s["id"]: s.get("waitFor", []) for s in spec["steps"]}
+
+    assert "shift" in waits["sources-shift"]
+    assert "sources-prove" in waits["sources-shift"]
+    assert "shift" in waits["data-candidate"]
+
+
+def test_warming_the_cache_does_not_sit_on_the_end_of_the_build():
+    """It depends on the migration -- warming reads through the ORM -- and
+    on nothing after it. Chained behind the traffic shift it added its own
+    cold start to the end of every deploy, and the reason given for that
+    (priming "the revision being replaced") does not describe a database
+    cache, which every revision shares."""
+    from pathlib import Path
+
+    import yaml
+
+    root = Path(__file__).resolve().parent.parent
+    spec = yaml.safe_load(
+        (root / "gcp/cloudbuild/cloudbuild-datadesk.yaml").read_text()
+    )
+    waits = {s["id"]: s.get("waitFor", []) for s in spec["steps"]}
+    assert waits["warm-job"] == ["migrate"]
+
+    settings = (root / "datadesk/settings.py").read_text()
+    assert (
+        "DatabaseCache" in settings
+    ), "a per-process cache would make the warm job revision-specific again"
+
+    # Fire and forget: waiting on the execution would block the rollout by
+    # the two and a half minutes the warm actually takes.
+    warm = next(s for s in spec["steps"] if s["id"] == "warm-job")
+    body = " ".join(warm["args"])
+    execute = body.split("jobs execute", 1)[1]
+    assert "--wait" not in execute
