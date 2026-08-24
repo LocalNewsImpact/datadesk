@@ -1213,3 +1213,102 @@ def test_the_queue_filter_does_not_claim_the_records_are_all_wrong(
     body = client.get("/review/proposals/").content.decode()
     assert "Review all" in body
     assert "Everything wrong" not in body
+
+
+def test_a_check_that_stops_firing_takes_its_proposals_with_it(mo, editor):
+    """`_retire_settled` sweeps questions a person has answered. Nothing
+    swept questions the app had stopped asking, so correcting the
+    misfiled-column check left ninety-odd of its mistakes in the queue for
+    good -- and a queue holding questions nothing asks is a queue nobody
+    trusts.
+    """
+    from django.core.management import call_command
+
+    from explorer.models import DatasetSource
+
+    source = Source.objects.create(
+        id="s-stale",
+        host="s.example",
+        host_norm="s.example",
+        city="Columbia",
+        county="Boone",
+        owner="Someone",
+        meta={"state": "MO"},
+    )
+    DatasetSource.objects.create(id="ds-stale", dataset=mo, source=source)
+
+    # A proposal from a check that no longer fires on this record.
+    ChangeProposal.objects.create(
+        target="sources",
+        record_id=source.id,
+        record_label=source.host_norm,
+        dataset=mo.slug,
+        field="county",
+        flag="county_misfiled",
+        detail="Boone is a city, not a county",
+    )
+    call_command("scan_sources", dataset=mo.slug)
+    assert not ChangeProposal.objects.filter(
+        record_id=source.id, flag="county_misfiled", state=ChangeProposal.PENDING
+    ).exists()
+
+
+def test_a_record_outside_this_scan_is_left_alone(mo, editor, crawler_schema):
+    """Only what was actually looked at. A proposal on a record in another
+    dataset was not re-examined, and must not be swept on the strength of
+    not having been looked at."""
+    from django.core.management import call_command
+
+    from explorer.models import DatasetSource
+
+    inside = Source.objects.create(
+        id="s-in",
+        host="in.example",
+        host_norm="in.example",
+        city="Columbia",
+        county="Boone",
+        owner="Someone",
+        meta={"state": "MO"},
+    )
+    DatasetSource.objects.create(id="ds-in", dataset=mo, source=inside)
+
+    elsewhere = Source.objects.create(
+        id="s-out",
+        host="out.example",
+        host_norm="out.example",
+    )
+    ChangeProposal.objects.create(
+        target="sources",
+        record_id=elsewhere.id,
+        record_label=elsewhere.host_norm,
+        field="county",
+        flag="county_missing",
+    )
+    call_command("scan_sources", dataset=mo.slug)
+    assert ChangeProposal.objects.filter(record_id=elsewhere.id).exists()
+
+
+def test_a_dry_run_withdraws_nothing(mo, editor):
+    from django.core.management import call_command
+
+    from explorer.models import DatasetSource
+
+    source = Source.objects.create(
+        id="s-dry",
+        host="d2.example",
+        host_norm="d2.example",
+        city="Columbia",
+        county="Boone",
+        owner="Someone",
+        meta={"state": "MO"},
+    )
+    DatasetSource.objects.create(id="ds-dry", dataset=mo, source=source)
+    ChangeProposal.objects.create(
+        target="sources",
+        record_id=source.id,
+        record_label=source.host_norm,
+        field="county",
+        flag="county_misfiled",
+    )
+    call_command("scan_sources", dataset=mo.slug, dry_run=True)
+    assert ChangeProposal.objects.filter(record_id=source.id).exists()
