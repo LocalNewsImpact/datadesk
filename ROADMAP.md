@@ -2061,13 +2061,30 @@ owner, or coverage concentration by owner are questions this corpus can
 now answer and could not before item 14. Founded and closed dates give a
 time dimension on the publisher rather than the story.
 
-**Chord is not a pivot.** A group-by returns counts per category; a chord
-diagram needs *edges* — how often CIN primary X co-occurs with alternate
-Y, or which user needs appear together. The corpus has the columns for it
-(`cin_primary` and `cin_alternate` sit on the same row, so the pair is a
-`GROUP BY` over two columns of one article), but it is a different result
-shape from everything else here and wants its own function beside
-`run_spec()` and `run_story_map()`.
+**Chord is a pivot, and so is everything else. Corrected 2026-08-24.**
+This item claimed a chord needed its own function beside `run_spec()`
+because a group-by returns counts per category while a chord needs edges.
+That is a distinction without a difference: a pivot over two dimensions
+returns one row per pair with a count, which is an edge list. Run against
+`cin_primary` and `cin_alternate` it returns 76 rows of
+`{primary, alternate, articles}` — exactly what `renderChord` reads as
+from, to and value.
+
+The framing to keep: **the pivot answers a data question and is not shaped
+by the chart type.** "Show me all the CIN for articles" is the question; a
+chord, a heatmap and a table are three ways to draw the answer. What
+differs between chart types is only which of the returned columns each one
+needs, which is what the declaration in `visuals/types.py` records. A chart
+type that genuinely cannot be served is one wanting a column the pivot does
+not return, not one wanting a different shape.
+
+**A chord compares a vocabulary with itself.** Both ends draw from the same
+set — primary and alternate CIN are the same ten needs — which is why the
+renderer folds both columns into one list of names. That is a constraint on
+the two roles, not on the pivot: they must share a domain. Pairing
+publishers against CIN needs is a heatmap, not a chord, and the type picker
+should say so rather than drawing a diagram whose two halves mean different
+things.
 
 **Scatter needs two measures at once.** `run_spec()` folds a single
 `measure_key`. A scatter of counties plotting articles against cost is
