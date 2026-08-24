@@ -3,10 +3,15 @@
 <form method="post">
   {% csrf_token %}
   <div class="swatches">
+    {# The palette, not its name. Somebody choosing colours is choosing
+       colours; "Mizzou" says nothing until you have picked it and looked. #}
     {% for t in themes %}
     <label class="swatch{% if t.on %} on{% endif %}">
       <input type="radio" name="theme" value="{{ t.id }}" {% if t.on %}checked{% endif %}>
-      <span>{{ t.label }}</span>
+      <span class="bar" aria-hidden="true">
+        {% for c in t.colours %}<i style="background:{{ c }}"></i>{% endfor %}
+      </span>
+      <span class="name">{{ t.label }}</span>
     </label>
     {% endfor %}
   </div>

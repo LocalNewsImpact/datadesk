@@ -16,12 +16,38 @@ from visuals.types import BY_ID, FAMILIES, column_types, gallery
 # The runtime's own themes (static/js/datadesk-chart.js). Named here so the
 # panel offers what exists rather than a list that goes stale beside it; a
 # test holds the two together.
+#: The runtime's own themes and the first colours each one uses, so the
+#: panel shows the palette rather than its name. Somebody choosing colours
+#: is choosing colours; "Mizzou" tells them nothing until they have picked
+#: it and looked at the chart.
+#:
+#: Copied from `static/js/datadesk-chart.js` because Python cannot read it,
+#: and held to it by `tests/test_chart_types.py` -- a palette changed there
+#: and not here would show the wrong swatch, which is worse than no swatch.
 THEMES = (
-    ("datadesk", "Datadesk"),
-    ("lnic", "LNIC"),
-    ("mizzou", "Mizzou"),
-    ("rji", "RJI"),
+    (
+        "datadesk",
+        "Datadesk",
+        ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"),
+    ),
+    (
+        "lnic",
+        "LNIC",
+        ("#00618f", "#eb6834", "#59bbeb", "#eda100", "#e87ba4", "#008300"),
+    ),
+    (
+        "mizzou",
+        "Mizzou",
+        ("#d9a018", "#a31414", "#2a78d6", "#1baf7a", "#e87ba4", "#008300"),
+    ),
+    (
+        "rji",
+        "RJI",
+        ("#1c5e90", "#d9a018", "#1baf7a", "#eb6834", "#2a78d6", "#e87ba4"),
+    ),
 )
+
+THEME_IDS = {t[0] for t in THEMES}
 
 
 def _rows(visual):
@@ -66,7 +92,7 @@ def type_panel(visual, post=None):
 def theme_panel(visual, post=None):
     if post is not None:
         name = post.get("theme", "")
-        if name not in dict(THEMES):
+        if name not in THEME_IDS:
             raise ValueError("No such theme")
         config = {"theme": name}
         # A fixed taxonomy is what keeps one CIN need the same colour in
@@ -77,8 +103,13 @@ def theme_panel(visual, post=None):
     config = visual.config or {}
     return {
         "themes": [
-            {"id": i, "label": label, "on": config.get("theme", "datadesk") == i}
-            for i, label in THEMES
+            {
+                "id": i,
+                "label": label,
+                "colours": colours,
+                "on": config.get("theme", "datadesk") == i,
+            }
+            for i, label, colours in THEMES
         ],
         "taxonomy": config.get("taxonomy") == "cin",
     }
@@ -201,7 +232,44 @@ def variables():
     return VARIABLES
 
 
-def field_panel(visual, post=None):
+def _values_for(visual, dim_key, kept, user=None):
+    """[(value, count, kept)] for a chosen dimension, or [].
+
+    Narrowed by the spec already built, so what is offered is present in
+    the author's slice: offering a county with no articles invites a filter
+    that empties the chart. Failures are swallowed -- a facet that cannot
+    be counted should leave the picker working, not take the page down.
+
+    A visual is wired to its datasets when the data step saves, and until
+    then `scopes_of` is empty, which narrows to nothing. An author part way
+    through building sees the values they may read rather than none at all;
+    what the visual is finally wired to still decides what it draws.
+    """
+    if not dim_key or any(v["id"] == dim_key and v["measure"] for v in variables()):
+        return []
+    from django.db import DatabaseError
+
+    from visuals.corpus import CorpusSpecError, values_of
+    from visuals.services import scopes_of
+
+    scopes = scopes_of(visual)
+    if not scopes and user is not None:
+        from accounts.privileges import READ
+        from explorer.scoping import scopes_for
+
+        scopes = scopes_for(user, READ)
+
+    try:
+        rows = values_of(dim_key, visual.spec or {}, scopes)
+    except (CorpusSpecError, DatabaseError):
+        return []
+    return [
+        {"value": value, "count": count, "on": not kept or value in kept}
+        for value, count in rows
+    ]
+
+
+def field_panel(visual, post=None, user=None):
     config, spec = visual.config or {}, visual.spec or {}
     chart = BY_ID.get(config.get("kind", ""))
     if post is not None:
@@ -222,10 +290,15 @@ def field_panel(visual, post=None):
                 dimensions.append(picked)
         only = {}
         for key, values in post.lists():
-            if key.startswith("only-"):
-                kept = [v for v in values if v]
-                if kept:
-                    only[key[5:]] = kept
+            if not key.startswith("only-"):
+                continue
+            kept = [v for v in values if v]
+            dim = key[5:]
+            # Every value ticked is not a filter. Storing them all would go
+            # stale the moment one is added, which is why the newsroom step
+            # stores nothing for "all" either.
+            if kept and len(kept) < len(_values_for(visual, dim, [], user)):
+                only[dim] = kept
         return {
             "spec": {
                 "roles": roles,
@@ -243,6 +316,7 @@ def field_panel(visual, post=None):
     for role in chart.roles:
         fits = [v for v in variables() if v["kind"] in role.accepts]
         chosen = picked.get(role.id, "")
+        kept = only.get(chosen, [])
         slots.append(
             {
                 "id": role.id,
@@ -251,7 +325,10 @@ def field_panel(visual, post=None):
                 "optional": not role.needs,
                 "options": [dict(v, on=v["id"] == chosen) for v in fits],
                 "chosen": chosen,
-                "kept": only.get(chosen, []),
+                "kept": kept,
+                # The values on offer, counted, and only for a dimension --
+                # a measure has no values to narrow, it has a range.
+                "values": _values_for(visual, chosen, kept, user),
             }
         )
     return {

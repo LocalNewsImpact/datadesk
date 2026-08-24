@@ -517,3 +517,28 @@ def run_story_map(spec, scopes):
         "unresolved_places": len(unresolved),
     }
     return {"points": points, "areas": areas, "meta": meta}
+
+
+def values_of(dim_key, spec, scopes, limit=200):
+    """[(value, articles)] for a dimension, most common first.
+
+    What the fields step offers once a variable is chosen. Counted rather
+    than listed: a facet without counts is a wall of checkboxes, and the
+    count is what tells somebody whether narrowing to a value leaves them
+    anything to draw.
+
+    Narrowed by the spec the author has already built, so the values on
+    offer are the ones actually present in their slice -- offering a county
+    with no articles in it invites a filter that empties the chart.
+    """
+    if dim_key not in DIMENSIONS:
+        raise CorpusSpecError(f"Unknown dimension: {dim_key}")
+    alias = f"{DIM_PREFIX}{dim_key}"
+    qs = _base_queryset(spec, scopes).annotate(**{alias: DIMENSIONS[dim_key]["expr"]})
+    rows = (
+        qs.exclude(**{f"{alias}__isnull": True})
+        .values(alias)
+        .annotate(n=Count("id"))
+        .order_by("-n")[:limit]
+    )
+    return [(str(r[alias]), r["n"]) for r in rows]
