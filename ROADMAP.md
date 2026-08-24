@@ -2533,25 +2533,30 @@ that host would be a Cloud Run service, which is an implementation detail
 we would be unable to change. The domain has to be decided before the
 embed ships, not after.
 
-**What has to be settled:**
+**A static bucket serves it, decided 2026-08-24.** Not a question --
+item 16 already publishes visuals statically and this is the same store
+serving them under a name readers can trust. Cloud Run serves `/embed/`
+today because nothing else did yet, and that is a step on the way rather
+than the shape.
 
-- **What serves it.** Three candidates, and they are not equivalent. GitHub
-  Pages is what the feed already uses and costs nothing, but it cannot run
-  the resize handshake item 22 needs and has no access control for a
-  dataset that is not public. A bucket behind a CDN handles static payloads
-  and versioned visuals well and is what item 16 already assumes. Cloud Run
-  is what the embed is served from now and is the only one that can vary a
-  response by who is asking.
-- **Whether one origin can do all three**, or whether the feed stays on
-  Pages and only the visuals move. Splitting is cheaper and gives readers
-  two hostnames to trust, which is the thing this item exists to stop.
+It works for all three. Item 22's resize handshake is a script and a
+`postMessage` between two frames, so it needs no server. A published visual
+is public by definition, so nothing here has to vary a response by who is
+asking -- and anything that does is a page in the console, not a file on
+this domain.
+
+**What is still open:**
+
+- **Whether the feed moves too.** It is on GitHub Pages and works. Moving
+  it costs a redirect the WordPress plugin depends on; leaving it gives
+  readers two hostnames, which is what this item exists to stop.
 - **Versioning in the path.** Item 16 versions published visuals and item
   22 wants an embed to name a version so a page does not silently change.
-  Both want a path shape, and it should be decided once for the whole
-  domain rather than per publisher.
+  Both want a path shape and it should be decided once for the domain
+  rather than per publisher.
 - **What happens to the current URLs.** The feed's Pages address is
-  referenced by the WordPress plugin; it needs a redirect rather than a
-  removal, and the plugin lives in another repository.
+  referenced by the WordPress plugin, which lives in another repository, so
+  a redirect has to exist before anything moves.
 
 **First step, and it needs nobody's decision:** find out what
 50.16.132.48 is and who owns the DNS record, because every option above
