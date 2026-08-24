@@ -34,20 +34,28 @@ def _named(spec, chart):
 
 
 def parts_for(visual, step=""):
-    """[(text, kind)] where kind is 'said', 'gap' or 'here'."""
+    """[(lead, text, kind)] where kind is 'said', 'gap' or 'here'.
+
+    Each part carries the word that joins it to the one before -- "of",
+    "from", "in" -- because the template cannot know which is which by
+    counting. Left to a loop counter it read "A chart any date every
+    dataset", which is not a sentence.
+    """
     config, spec = visual.config or {}, visual.spec or {}
     chart = BY_ID.get(config.get("kind", ""))
     out = []
 
-    def gap(text, mine):
-        return (text, "here" if step == mine else "gap")
+    def gap(lead, text, mine):
+        return (lead, text, "here" if step == mine else "gap")
 
-    out.append((chart.label.lower(), "said") if chart else gap("chart", "type"))
+    out.append(("", chart.label.lower(), "said") if chart else gap("", "chart", "type"))
 
     if chart and chart.roles:
         named = _named(spec, chart)
         out.append(
-            (" × ".join(named), "said") if named else gap("some fields", "fields")
+            ("of", " × ".join(named), "said")
+            if named
+            else gap("of", "some fields", "fields")
         )
 
     when = ""
@@ -55,23 +63,23 @@ def parts_for(visual, step=""):
         when = f"{spec['from']} to {spec['to']}"
     elif spec.get("from"):
         when = f"since {spec['from']}"
-    out.append((when, "said") if when else gap("any date", "data"))
+    out.append(("from", when, "said") if when else gap("from", "any date", "data"))
 
     picked = spec.get("datasets") or ([spec["dataset"]] if spec.get("dataset") else [])
     if len(picked) == 1:
-        out.append((picked[0].replace("-", " "), "said"))
+        out.append(("in", picked[0].replace("-", " "), "said"))
     elif picked:
-        out.append((f"{len(picked)} datasets", "said"))
+        out.append(("across", f"{len(picked)} datasets", "said"))
     else:
-        out.append(gap("every dataset", "data"))
+        out.append(gap("in", "every dataset", "data"))
 
     rooms = spec.get("publishers") or []
     if rooms:
-        out.append((f"{len(rooms)} newsrooms", "said"))
+        out.append(("from", f"{len(rooms)} newsrooms", "said"))
     return out
 
 
 def is_complete(visual):
     """Whether the sentence has no gaps left -- which is when the preview
     can draw rather than wait."""
-    return all(kind == "said" for _, kind in parts_for(visual))
+    return all(kind == "said" for _, _, kind in parts_for(visual))

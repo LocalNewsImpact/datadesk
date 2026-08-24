@@ -32,7 +32,7 @@ STEPS = (
         "type",
         "Chart",
         "What kind of chart?",
-        "Checked against the data this visual holds.",
+        "",  # the panel says what it is checking against, or that it cannot
         ("kind",),
     ),
     Step(

@@ -7,13 +7,14 @@ different question in it rather than five pages that look alike.
 {% block title %}{{ step.label }} — {{ visual.title }}{% endblock %}
 
 {% block content %}
+{% comment %}
+The sentence somebody arrived with, filling in as they choose. Each part
+carries the word that joins it to the one before, because which connective
+belongs where is not something a loop counter can work out.
+{% endcomment %}
 <p class="sentence">
-  A
-  {% for text, kind in sentence %}
-    {% if kind == "said" %}<b>{{ text }}</b>
-    {% else %}<span class="gap{% if kind == 'here' %} here{% endif %}">{{ text }}</span>
-    {% endif %}
-    {% if forloop.counter == 1 and step.slug != "type" %}of{% endif %}
+  A{% for lead, text, kind in sentence %}{% if lead %} {{ lead }}{% endif %}
+    {% if kind == "said" %}<b>{{ text }}</b>{% else %}<span class="gap{% if kind == 'here' %} here{% endif %}">{{ text }}</span>{% endif %}
   {% endfor %}{% if complete %}.{% else %}…{% endif %}
 </p>
 

@@ -6,11 +6,11 @@ carries the reason; it is never hidden, because knowing a dot map exists and
 needs coordinates is worth more than not knowing it exists.
 {% endcomment %}
 {% if row_count %}
-<p class="notice">Checked against {{ row_count }} row{{ row_count|pluralize }}:
+<p class="notice">Checked against this visual's {{ row_count }} row{{ row_count|pluralize }}:
   {% for name, kind in available %}<code>{{ name }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}.</p>
 {% else %}
-<p class="notice">No data yet. Pick a type and the fields it needs are what
-the later steps ask for.</p>
+<p class="notice">Nothing to check against yet, so every type is offered.
+Pick one and the fields it needs are what the later steps ask for.</p>
 {% endif %}
 
 {% for group in groups %}
