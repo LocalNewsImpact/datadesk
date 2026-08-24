@@ -122,6 +122,34 @@ def _geo_preload(visual):
     return static(f"geo/{name}") if name else None
 
 
+def _kind_label(visual):
+    """The chosen chart type's own name, for saying what is being drawn."""
+    from visuals.types import CHART_TYPES
+
+    kind = (visual.config or {}).get("kind")
+    chart = next((c for c in CHART_TYPES if c.id == kind), None)
+    return chart.label.lower() if chart else None
+
+
+def _unmapped_roles(visual):
+    """The fields a chart still needs, as a phrase, or None when it has
+    them all. `is_complete` answers the whole sentence; this answers only
+    the part the preview can do something about."""
+    from visuals.types import CHART_TYPES
+
+    kind = (visual.config or {}).get("kind")
+    chart = next((c for c in CHART_TYPES if c.id == kind), None)
+    if chart is None:
+        return None
+    picked = (visual.spec or {}).get("roles") or {}
+    wanted = [r.label.lower() for r in chart.roles if not picked.get(r.id)]
+    if not wanted:
+        return None
+    if len(wanted) == 1:
+        return f"a {wanted[0]} field"
+    return ", ".join(wanted[:-1]) + f" and {wanted[-1]} fields"
+
+
 def _feed_url(visual, by_uuid, version=None, live=False):
     """Where this page's renderer fetches its rows.
 
@@ -872,6 +900,19 @@ def builder_step(request, slug, step):
             "sentence": parts_for(visual, step),
             "complete": is_complete(visual),
             "renderer": f"visuals/renderers/{visual.template}.html",
+            # The preview is a renderer like any other and needs what one
+            # needs. Without `feed` the template rendered an empty string,
+            # so `fetch("")` re-fetched the builder page itself and the
+            # runtime tried to parse HTML: "unexpected character at line 1
+            # column 1". Without `libs` no library loaded at all, because
+            # an undefined name resolves to "" and "d3" in "" is false.
+            "feed": _feed_url(visual, by_uuid=False, live=True),
+            "libs": libs_for((visual.config or {}).get("kind")),
+            # What the preview is still waiting for, so it can say so
+            # rather than drawing an empty chart that looks like a
+            # finished one.
+            "missing": _unmapped_roles(visual),
+            "kind_label": _kind_label(visual),
             "live": True,
             "error": error,
         }

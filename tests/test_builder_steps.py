@@ -730,3 +730,57 @@ def test_the_settings_page_no_longer_publishes(client, author, visual, dataset):
     body = client.get(f"/visuals/builder/{visual.slug}/").content.decode()
     assert "Publish and get the embed code" in body
     assert 'name="form" value="publish"' not in body
+
+
+# --- the preview is a renderer and needs what one needs ----------------------
+
+
+def _complete_chord(visual):
+    """A chord with no gaps left in its sentence, which is when the shell
+    draws the preview rather than "Not enough yet"."""
+    visual.config = {"kind": "chord", "theme": "datadesk"}
+    visual.spec = {
+        "dataset": "mizzou",
+        "subset": "complete",
+        "from": "2026-03-01",
+        "to": "2026-03-31",
+        # The field mapping lives on the spec, beside the slice it reads.
+        "roles": {
+            "from": "cin_primary",
+            "to": "cin_alternate",
+            "value": "articles",
+        },
+    }
+    visual.save()
+    return visual
+
+
+def test_the_preview_fetches_a_real_url_and_loads_its_libraries(client, author, visual):
+    """A renderer reads `{{ feed }}` and `{{ libs }}`, and Django resolves
+    an undefined name to the empty string rather than raising. So a view
+    that omits either renders a page that looks right and does nothing:
+
+      * no `feed` -> `fetch("")` re-fetches the builder page itself, and
+        the runtime parses HTML: "unexpected character at line 1 column 1"
+      * no `libs` -> `"d3" in ""` is false, and no library loads at all
+
+    The step shell was missed on both counts, because it is reached by
+    `{% extends %}` rather than named in a view.
+    """
+    _complete_chord(visual)
+    body = step(client, visual, "fields").content.decode()
+    assert "Not enough yet" not in body, "the preview did not draw at all"
+
+    assert 'fetch("")' not in body, "the preview would re-fetch its own page"
+    assert f"/visuals/{visual.slug}/data.json" in body
+
+    # A chord draws its own SVG, so d3 and nothing else.
+    assert "d3.min" in body
+    assert "plot.min" not in body
+
+
+def test_the_preview_follows_the_data_rather_than_the_pin(client, author, visual):
+    """It is a preview of what the chart will become."""
+    _complete_chord(visual)
+    body = step(client, visual, "fields").content.decode()
+    assert "live=1" in body

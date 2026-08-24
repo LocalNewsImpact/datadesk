@@ -46,12 +46,28 @@ belongs where is not something a loop counter can work out.
       <a href="{% url 'visuals:builder_edit' visual.slug %}">Advanced settings →</a>
     </div>
     <div class="canvas">
-      {% if complete %}
+      {% comment %}
+      From the moment a type is chosen, not from the moment everything is
+      answered. The empty state promised the preview "fills in as the
+      sentence above does" and then showed nothing until the last gap was
+      closed, which is the opposite of filling in -- and picking a chart
+      type is the decision most worth seeing the result of.
+
+      What draws before the fields are mapped is the chart type's own
+      shape, not this visual's data. `missing` says so, because a reader
+      of their own screen should not have to guess whether they are
+      looking at an empty chart or a placeholder.
+      {% endcomment %}
+      {% if visual.config.kind %}
+        {% if missing %}
+          <p class="notice preview-note">A {{ kind_label|default:"chart" }} of
+          your data appears here once you choose {{ missing }}.</p>
+        {% endif %}
         {% include renderer %}
       {% else %}
         <div class="empty">
-          <strong>Not enough yet</strong>
-          The preview fills in as the sentence above does.
+          <strong>Pick a chart type</strong>
+          The preview starts as soon as you do.
         </div>
       {% endif %}
     </div>

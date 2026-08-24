@@ -85,9 +85,14 @@ def test_role_and_option_ids_are_unique_within_a_type():
 def test_a_types_roles_are_what_its_renderer_reads(chart_id, fn):
     """These three have a renderer to themselves, so the comparison is
     exact. The four sharing the generic renderer are covered below."""
-    declared = {r.id for r in BY_ID[chart_id].roles} | {
-        o.id for o in BY_ID[chart_id].options
-    }
+    from visuals.types import SHARED_OPTIONS
+
+    declared = (
+        {r.id for r in BY_ID[chart_id].roles}
+        | {o.id for o in BY_ID[chart_id].options}
+        # Set by the colour step for every type, so declared by none.
+        | set(SHARED_OPTIONS)
+    )
     assert _reads(fn) <= declared, f"{fn} reads something undeclared"
 
 
