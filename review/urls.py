@@ -21,6 +21,7 @@ urlpatterns = [
     path("export/", views.export, name="export"),
     path("export/<int:definition_id>/run/", views.export_run, name="export_run"),
     path("proposals/", views.proposals, name="proposals"),
+    path("proposals/rescan/", views.rescan_sources, name="rescan"),
     path("audit/", views.audit_log, name="audit_log"),
     path("audit/<int:entry_id>/revert/", views.revert_entry, name="revert"),
 ]

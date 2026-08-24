@@ -172,3 +172,65 @@ class ChangeProposal(models.Model):
         reading the record usually knows exactly which value is meant.
         """
         return True
+
+
+class ScanRun(models.Model):
+    """One run of the publisher scan, so the queue can say when it last ran.
+
+    The scan is what puts questions in the queue, and until now the only
+    way to run it was a management command somebody had to remember. A
+    reviewer looking at an empty queue could not tell whether there was
+    nothing wrong or whether nothing had looked.
+
+    A row is created when a run starts and finished when it ends, so an
+    unfinished one is a run in flight. That is the guard: two scans at once
+    would each sweep rows the other had just made.
+    """
+
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+    STATES = [(s, s) for s in (RUNNING, DONE, FAILED)]
+
+    dataset = models.CharField(max_length=100, blank=True, default="")
+    started_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    state = models.CharField(max_length=20, choices=STATES, default=RUNNING)
+    #: What it did, for the line the queue shows.
+    queued = models.PositiveIntegerField(default=0)
+    withdrawn = models.PositiveIntegerField(default=0)
+    scanned = models.PositiveIntegerField(default=0)
+    note = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-started_at"]
+
+    def __str__(self):
+        return f"{self.dataset or 'all'} {self.state} {self.started_at:%Y-%m-%d %H:%M}"
+
+    @property
+    def in_flight(self):
+        return self.state == self.RUNNING
+
+    @classmethod
+    def running(cls):
+        """The run in flight, or None.
+
+        A run that started and never finished blocks the next one forever,
+        so anything older than an hour is treated as dead. The scan takes
+        seconds; an hour is not a judgement about how long it should take,
+        it is long enough that no live run is ever mistaken for a corpse.
+        """
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        cutoff = timezone.now() - timedelta(hours=1)
+        return cls.objects.filter(state=cls.RUNNING, started_at__gte=cutoff).first()
