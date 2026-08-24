@@ -30,7 +30,28 @@
     <a href="?flag={{ flag }}&state=all" class="facet-chip {% if state == 'all' %}on{% endif %}">Including decided</a>
   </nav>
 
-  <form method="post" id="queue-form" autocomplete="off">
+  {% comment %}
+The scan is what puts questions here. Without a way to run it and a line
+saying when it last ran, an empty queue means either nothing is wrong or
+nothing has looked, and a reviewer cannot tell which.
+{% endcomment %}
+<div class="scan-bar">
+  {% if last_scan %}
+    <span class="scan-when">Last scanned {{ last_scan.finished_at|date:"j M, H:i" }}
+      — {{ last_scan.scanned }} publishers, {{ last_scan.queued }} queued{% if last_scan.withdrawn %},
+      {{ last_scan.withdrawn }} withdrawn{% endif %}</span>
+  {% else %}
+    <span class="scan-when">Never scanned.</span>
+  {% endif %}
+  <form method="post" action="{% url 'review:rescan' %}">
+    {% csrf_token %}
+    <button type="submit" {% if scan_running %}disabled title="A scan is already running"{% endif %}>
+      {% if scan_running %}Scanning…{% else %}Scan publishers{% endif %}
+    </button>
+  </form>
+</div>
+
+<form method="post" id="queue-form" autocomplete="off">
     {% csrf_token %}
     {% for group in groups %}
     <article class="rec" data-record="{{ group.record_id }}">

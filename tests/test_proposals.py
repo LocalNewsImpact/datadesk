@@ -1312,3 +1312,98 @@ def test_a_dry_run_withdraws_nothing(mo, editor):
     )
     call_command("scan_sources", dataset=mo.slug, dry_run=True)
     assert ChangeProposal.objects.filter(record_id=source.id).exists()
+
+
+# --- running the scan from the queue -----------------------------------------
+#
+# The scan is what puts questions here, and the only way to run it was a
+# command somebody had to remember.
+
+
+def test_the_queue_says_when_it_last_ran(client, editor, crawler_schema):
+    """An empty queue means nothing is wrong or nothing has looked, and a
+    reviewer cannot tell which."""
+    body = client.get("/review/proposals/").content.decode()
+    assert "Never scanned" in body
+
+    from django.utils import timezone
+
+    from review.proposals import ScanRun
+
+    ScanRun.objects.create(
+        state=ScanRun.DONE, finished_at=timezone.now(), scanned=211, queued=9
+    )
+    body = client.get("/review/proposals/").content.decode()
+    assert "Last scanned" in body
+    assert "211 publishers" in body
+
+
+def test_the_button_runs_the_scan(client, editor, mo):
+    from explorer.models import DatasetSource
+    from review.proposals import ScanRun
+
+    bare = Source.objects.create(id="s-btn", host="b2.example", host_norm="b2.example")
+    DatasetSource.objects.create(id="ds-btn", dataset=mo, source=bare)
+
+    client.post("/review/proposals/rescan/", {"dataset": mo.slug})
+    run = ScanRun.objects.first()
+    assert run.state == ScanRun.DONE
+    assert run.scanned == 1
+    assert ChangeProposal.objects.filter(record_id="s-btn").exists()
+
+
+def test_a_second_scan_is_refused_while_one_is_in_flight(client, editor, mo):
+    """Two scans would each sweep rows the other had just made, and the
+    queue would hold whichever finished last."""
+    from review.proposals import ScanRun
+
+    ScanRun.objects.create(dataset=mo.slug, state=ScanRun.RUNNING)
+    client.post("/review/proposals/rescan/", {"dataset": mo.slug})
+    assert ScanRun.objects.count() == 1, "a second run was started"
+
+
+def test_a_run_that_never_finished_does_not_block_forever(client, editor, mo):
+    """A crash mid-scan would otherwise lock the button permanently."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from review.proposals import ScanRun
+
+    stuck = ScanRun.objects.create(dataset=mo.slug, state=ScanRun.RUNNING)
+    ScanRun.objects.filter(pk=stuck.pk).update(
+        started_at=timezone.now() - timedelta(hours=3)
+    )
+    assert ScanRun.running() is None
+
+    client.post("/review/proposals/rescan/", {"dataset": mo.slug})
+    assert ScanRun.objects.count() == 2
+
+
+def test_a_failed_scan_is_recorded_rather_than_swallowed(client, editor, mo):
+    from unittest.mock import patch
+
+    from review.proposals import ScanRun
+
+    with patch("django.core.management.call_command", side_effect=RuntimeError("nope")):
+        client.post("/review/proposals/rescan/", {"dataset": mo.slug})
+    run = ScanRun.objects.first()
+    assert run.state == ScanRun.FAILED
+    assert "nope" in run.note
+
+
+def test_the_scan_needs_write_not_merely_a_sign_in(client, crawler_schema):
+    """It changes the queue everybody else works from."""
+    from django.contrib.auth.models import User
+
+    from accounts.models import DATADESK, Grant
+
+    watcher = User.objects.create_user("watcher", email="w@localnewsimpact.org")
+    Grant.objects.create(user=watcher, app=DATADESK, scope="", role="viewer")
+    client.force_login(watcher)
+    response = client.post("/review/proposals/rescan/", {})
+    assert response.status_code in (302, 403)
+
+    from review.proposals import ScanRun
+
+    assert not ScanRun.objects.exists()

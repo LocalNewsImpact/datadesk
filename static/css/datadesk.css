@@ -1659,3 +1659,13 @@ tr.prop td { border-bottom: 0; }
 .build-rail .pick > label > span{ display: flex; flex-direction: column; }
 .build-rail .pick em{ font-style: normal; color: var(--text-3); font-size: .78rem;
   line-height: 1.3; }
+
+/* --- the scan bar over the review queue ------------------------------------
+   When it last ran, and a way to run it. An empty queue means nothing is
+   wrong or nothing has looked; without this line a reviewer cannot tell. */
+.scan-bar{ display: flex; align-items: center; justify-content: space-between;
+  gap: var(--s-3); padding: .4rem .6rem; margin-bottom: var(--s-3);
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface-2); font-size: var(--fs-sm); }
+.scan-bar .scan-when{ color: var(--text-2); }
+.scan-bar button[disabled]{ opacity: .55; cursor: not-allowed; }

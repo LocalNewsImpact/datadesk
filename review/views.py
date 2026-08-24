@@ -1,5 +1,7 @@
 """Review and cleanup views (SCOPE.md §2.2). Editor role throughout."""
 
+import io
+
 from django.core.paginator import Paginator
 from django.db.models import Count, F, Q
 from django.http import Http404, HttpResponseBadRequest
@@ -469,7 +471,7 @@ def _proposal_groups(proposals):
 def proposals(request):
     """Publisher records with something wrong, for review (REVIEW.md)."""
     from review.flags import ALL_FLAGS
-    from review.proposals import ChangeProposal
+    from review.proposals import ChangeProposal, ScanRun
 
     if request.method == "POST":
         return _submit_proposals(request)
@@ -506,6 +508,10 @@ def proposals(request):
             "flag": flag,
             "state": state,
             "pending_total": pending.count(),
+            # An empty queue means nothing wrong or nothing looked, and a
+            # reviewer cannot tell which without this.
+            "last_scan": ScanRun.objects.filter(state=ScanRun.DONE).first(),
+            "scan_running": ScanRun.running(),
             "receipt": request.session.pop("proposal_receipt", None),
         },
     )
@@ -668,4 +674,63 @@ def _submit_proposals(request):
         "refused": refused,
         "entry": entry.pk if entry else None,
     }
+    return redirect("review:proposals")
+
+
+@requires(WRITE)
+def rescan_sources(request):
+    """Run the publisher scan from the queue.
+
+    The scan is what puts questions here, and the only way to run it was a
+    command somebody had to remember. A reviewer looking at an empty queue
+    could not tell whether nothing was wrong or nothing had looked.
+
+    Guarded against a second run while one is in flight: two scans would
+    each sweep rows the other had just made, and the queue would end up
+    holding whichever finished last.
+    """
+    from django.core.management import call_command
+    from django.utils import timezone
+
+    from review.proposals import ScanRun
+
+    if request.method != "POST":
+        return redirect("review:proposals")
+
+    if ScanRun.running():
+        request.session["proposal_receipt"] = {
+            "scan": "A scan is already running. Wait for it to finish."
+        }
+        return redirect("review:proposals")
+
+    dataset = (request.POST.get("dataset") or "").strip()
+    run = ScanRun.objects.create(dataset=dataset, started_by=request.user)
+    try:
+        # Inline rather than dispatched: the scan reads a few hundred
+        # publisher rows and takes seconds. A job would need somewhere to
+        # report back to, which is what this row already is.
+        out = io.StringIO()
+        call_command("scan_sources", dataset=dataset or None, stdout=out)
+        summary = out.getvalue().strip()
+    except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
+        run.state = ScanRun.FAILED
+        run.note = str(exc)[:500]
+        run.finished_at = timezone.now()
+        run.save(update_fields=["state", "note", "finished_at"])
+        request.session["proposal_receipt"] = {"scan": f"The scan failed: {exc}"}
+        return redirect("review:proposals")
+
+    run.state = ScanRun.DONE
+    run.note = summary[:500]
+    run.finished_at = timezone.now()
+    for line in summary.splitlines():
+        if "publishers scanned" in line:
+            run.scanned = int(line.split()[0])
+            run.queued = int(line.rsplit(maxsplit=1)[-1])
+        elif "withdrew" in line:
+            run.withdrawn = int(line.split()[1])
+    run.save(
+        update_fields=["state", "note", "finished_at", "scanned", "queued", "withdrawn"]
+    )
+    request.session["proposal_receipt"] = {"scan": summary}
     return redirect("review:proposals")
