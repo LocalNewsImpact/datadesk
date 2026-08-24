@@ -1563,3 +1563,9 @@ tr.prop td { border-bottom: 0; }
 .values .row:hover{ background: var(--surface); }
 .values em{ margin-left: auto; font-style: normal; color: var(--text-3);
   font-variant-numeric: tabular-nums; }
+
+/* The preview's waiting state: a heading and a line under it, not one run-on
+   sentence with a bold opening. */
+.canvas .empty{ text-align: center; color: var(--text-3); max-width: 26rem; }
+.canvas .empty strong{ display: block; font-size: 1.05rem; color: var(--text-2);
+  font-weight: 600; margin-bottom: .3rem; }

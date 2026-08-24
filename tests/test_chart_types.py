@@ -211,7 +211,7 @@ def test_a_donut_is_offered_but_a_bar_is_suggested():
 
     fields = {"County": TEXT, "Articles": NUMBER}
     assert unavailable("donut", fields) == "", "a donut is still allowed"
-    assert "bar" in read_more_accurately_than("donut", fields)
+    assert "Bar chart" in read_more_accurately_than("donut", fields)
 
 
 def test_nothing_is_suggested_over_a_map_or_a_flow():
@@ -500,3 +500,21 @@ def test_the_swatch_keeps_a_focus_ring():
         Path(__file__).resolve().parent.parent / "static/css/datadesk.css"
     ).read_text()
     assert ".swatch:focus-within" in css
+
+
+def test_nothing_is_greyed_before_there_is_data():
+    """A visual that has not run its query has no fields, so every type
+    would fail its check. A picker that says "pick a type" and then refuses
+    all eleven is worse than one that checks nothing -- what a type needs
+    is what the later steps ask for."""
+    from visuals.types import gallery, unavailable
+
+    assert unavailable("scatter", {}) == ""
+    assert unavailable("chord", {}) == ""
+    assert all(not e["why_not"] for e in gallery({}))
+
+
+def test_greying_returns_as_soon_as_there_is_data():
+    from visuals.types import NUMBER, TEXT, unavailable
+
+    assert unavailable("scatter", {"County": TEXT, "Articles": NUMBER})

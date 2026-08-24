@@ -334,3 +334,19 @@ def test_a_facet_that_cannot_be_counted_leaves_the_picker_working(
     visual.spec = {"roles": {"x": "cin_primary"}}
     visual.save()
     assert step(client, visual, "fields").status_code == 200
+
+
+def test_no_template_comment_leaks_into_the_page():
+    """`{# #}` closes on its own line and nothing else does. One spanning
+    five lines rendered as a card in the theme gallery, which no test of
+    behaviour would catch -- it was visible only by looking."""
+    from pathlib import Path
+
+    steps = Path(__file__).resolve().parent.parent / "templates/visuals/steps"
+    for template in steps.glob("*.html"):
+        for number, line in enumerate(template.read_text().split("\n"), 1):
+            if "{#" in line and "#}" not in line:
+                raise AssertionError(
+                    f"{template.name}:{number} opens {{# #}} and does not close "
+                    "it on the same line; use {% comment %}"
+                )

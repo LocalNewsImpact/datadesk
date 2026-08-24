@@ -428,8 +428,16 @@ def unavailable(chart_id, available):
     `available` is a mapping of field name to its type, which is what the
     pivot's output offers. The returned sentence is the hover text on a
     greyed gallery entry: what is missing, not merely that something is.
+
+    Nothing is greyed when there is no data. A visual that has not run its
+    query yet has no fields, and every type would fail -- a picker telling
+    somebody to choose and then refusing all eleven is worse than one that
+    checks nothing. The fields a type needs are what the later steps ask
+    for; that is the answer, not a wall of refusals.
     """
     chart = BY_ID[chart_id]
+    if not available:
+        return ""
     kinds = list((available or {}).values())
     for role in chart.roles:
         if not role.needs:
@@ -476,8 +484,10 @@ def read_more_accurately_than(chart_id, available):
     if here.family in (SPATIAL, FLOW):
         return ()
     needed = tuple(sorted(r.accepts for r in here.roles if r.needs))
+    # Labels, not ids: this is read by somebody choosing, and "bar" is what
+    # the code calls it rather than what the gallery does.
     return tuple(
-        c.id
+        c.label
         for c in CHART_TYPES
         if c.id != chart_id
         and c.encoding < here.encoding
