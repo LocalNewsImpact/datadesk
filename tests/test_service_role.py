@@ -322,13 +322,26 @@ def test_the_data_role_selects_its_own_urlconf():
 def test_the_console_is_absent_rather_than_refused():
     """Not 403, not a redirect -- absent. A hostname readers link to should
     have no admin behind it at all."""
-    joined = " ".join(str(e.pattern) for e in _data_urlconf().urlpatterns)
+    joined = " ".join(_data_routes())
     for forbidden in ("admin", "accounts", "review", "manage", "explorer"):
         assert forbidden not in joined, f"{forbidden} is reachable on the data host"
 
 
+def _data_routes():
+    """Every route the data front end serves, through the namespace."""
+    from django.urls import URLResolver
+
+    out = []
+    for entry in _data_urlconf().urlpatterns:
+        if isinstance(entry, URLResolver):
+            out += [str(entry.pattern) + str(p.pattern) for p in entry.url_patterns]
+        else:
+            out.append(str(entry.pattern))
+    return out
+
+
 def test_it_serves_the_two_things_a_reader_fetches():
-    routes = " ".join(str(p.pattern) for p in _data_urlconf().urlpatterns)
+    routes = " ".join(_data_routes())
     assert "embed/" in routes
     assert "data.json" in routes
 
@@ -394,3 +407,37 @@ def test_every_front_end_checks_it_is_reachable():
         f"services deployed with no invoker check: {sorted(missing)}. "
         "A refused binding would deploy green and 403 every request."
     )
+
+
+def test_the_data_front_end_can_reverse_what_its_templates_ask_for():
+    """The renderers reverse `visuals:data` to find their own feed. The
+    data urlconf declared its routes bare, so the embed raised
+    NoReverseMatch and returned 500 in production -- while `_health`
+    passed, because it reverses nothing.
+
+    A route is not exercised by the route beside it.
+    """
+    import importlib
+
+    from django.urls import URLResolver
+
+    module = importlib.reload(importlib.import_module("datadesk.urls_data"))
+    namespaces = {
+        entry.namespace
+        for entry in module.urlpatterns
+        if isinstance(entry, URLResolver)
+    }
+    assert "visuals" in namespaces
+
+
+def test_the_renderers_all_reverse_the_same_namespace():
+    """A renderer added later that reverses something else would 500 the
+    same way, and only on the data host."""
+    import re
+    from pathlib import Path
+
+    renderers = Path(__file__).resolve().parent.parent / "templates/visuals/renderers"
+    wanted = set()
+    for template in renderers.glob("*.html"):
+        wanted |= set(re.findall(r"{%\s*url\s+'([a-z_]+):", template.read_text()))
+    assert wanted <= {"visuals"}, f"renderers reverse {sorted(wanted)}"

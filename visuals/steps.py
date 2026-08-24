@@ -63,6 +63,14 @@ STEPS = (
         "",  # the panel says it, and says it about this chart
         ("dimensions", "measure", "roles", "only"),
     ),
+    Step(
+        "publish",
+        "Publish",
+        "Ready to publish?",
+        "Publishing pins the current data. The embed serves that until "
+        "you publish again.",
+        ("status",),
+    ),
 )
 
 BY_SLUG = {s.slug: s for s in STEPS}

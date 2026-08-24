@@ -1,0 +1,50 @@
+{% extends "visuals/steps/_shell.html" %}
+{% block panel %}
+{% comment %}
+Publishing and the embed code, which lived on the advanced-settings page
+and are not the same job: that page is where a visual's plumbing is
+changed, this is where its work is finished. Somebody looking for the code
+to paste was being sent to a page about data sources.
+{% endcomment %}
+
+{% if not ready %}
+<p class="notice">Nothing to publish yet — this visual has no data. An
+embed of it would render nothing on somebody else's page, which is worse
+than not existing.</p>
+
+{% elif published %}
+<div class="group">
+  <h4>Embed</h4>
+  <p class="notice">Paste both lines. No height: the framed page reports
+  its own and the script resizes to match.</p>
+  <pre class="embed-snippet"><code>{{ snippet }}</code></pre>
+</div>
+
+<div class="group">
+  <h4>What is being served</h4>
+  <p class="notice">
+    {% if pinned %}Pinned to version {{ pinned.version }},
+      taken {{ pinned.created_at|date:"j M Y, H:i" }}.{% else %}No snapshot pinned.{% endif %}
+    {% if latest and pinned and latest.version > pinned.version %}
+      <strong>Version {{ latest.version }} exists and is not being served</strong> —
+      publish again to pin it.
+    {% endif %}
+  </p>
+</div>
+
+<form method="post" class="action-bar">
+  {% csrf_token %}
+  <button type="submit" name="do" value="publish" class="primary">Publish the current data</button>
+  <button type="submit" name="do" value="unpublish" class="linklike">Unpublish</button>
+</form>
+
+{% else %}
+<p class="notice">Publishing pins the data as it is now. The embed serves
+that exact version until you publish again, so a chart in somebody's
+article cannot change under them without you deciding it should.</p>
+<form method="post" class="action-bar">
+  {% csrf_token %}
+  <button type="submit" name="do" value="publish" class="primary">Publish</button>
+</form>
+{% endif %}
+{% endblock %}

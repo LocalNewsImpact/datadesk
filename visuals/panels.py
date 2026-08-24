@@ -401,3 +401,42 @@ def field_panel(visual, post=None, user=None):
         "pairs": chart.pairs,
         "pair_note": pair_note,
     }
+
+
+# --- step 6: publishing, and the code somebody pastes ------------------------
+
+
+def publish_panel(visual, post=None, actor=None):
+    """Publish or withdraw, and hand over the embed.
+
+    The snippet lived on the advanced-settings page, which is not where
+    anybody looks for it: that page is where a visual's plumbing is
+    changed, and this is where its work is finished.
+    """
+    from visuals.embed import snippet
+    from visuals.models import Visual
+
+    if post is not None:
+        from visuals.services import publish, unpublish
+
+        wanted = post.get("do", "")
+        if wanted == "publish":
+            publish(visual, actor)
+        elif wanted == "unpublish":
+            unpublish(visual, actor)
+        else:
+            raise ValueError("Publish or unpublish")
+        # `publish` writes the visual itself, so nothing is returned for
+        # the step machinery to write on top of it.
+        return {}
+
+    snapshot = visual.snapshots.order_by("-version").first()
+    return {
+        "published": visual.status == Visual.PUBLISHED,
+        "snippet": snippet(visual),
+        "pinned": visual.pinned_snapshot,
+        "latest": snapshot,
+        # Publishing an empty visual produces an embed that renders
+        # nothing, which is worse on somebody's page than not existing.
+        "ready": snapshot is not None,
+    }

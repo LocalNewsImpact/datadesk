@@ -216,18 +216,13 @@
         {% endif %}
       </fieldset>
 
-      <fieldset>
-        <legend>Publish</legend>
-        {% if visual.status == "published" %}
-        <p class="notice">Embed: <code>&lt;iframe src="https://datadesk.localnewsimpact.org/embed/{{ visual.slug }}/" width="100%" height="480" frameborder="0"&gt;&lt;/iframe&gt;</code></p>
-        <form method="post">{% csrf_token %}<input type="hidden" name="form" value="publish"><button type="submit">Re-publish (pin latest snapshot)</button></form>
-        <form method="post">{% csrf_token %}<input type="hidden" name="form" value="unpublish"><button type="submit" class="linklike">Unpublish</button></form>
-        {% else %}
-        <p class="notice">Publishing pins the latest snapshot — the embed
-        serves that exact data until re-published.</p>
-        <form method="post">{% csrf_token %}<input type="hidden" name="form" value="publish"><button type="submit">Publish</button></form>
-        {% endif %}
-      </fieldset>
+      {% comment %}
+        Publishing and the embed moved to their own step. This page is where
+        a visual's plumbing is changed -- its data source, its query, its
+        snapshot -- and somebody looking for the code to paste was being
+        sent to a page about data sources.
+        {% endcomment %}
+        <p class="notice"><a href="{% url 'visuals:builder_step' visual.slug 'publish' %}">Publish and get the embed code &rarr;</a></p>
     </div>
 
     <div class="builder-preview">

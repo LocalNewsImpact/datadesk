@@ -398,6 +398,10 @@ def test_the_steps_are_the_order_the_prototype_settled():
         "data",
         "newsrooms",
         "fields",
+        # Publishing is the end of the flow, not a corner of the advanced
+        # settings page: it is where the work is finished and where the
+        # embed code is handed over.
+        "publish",
     ]
 
 
@@ -437,7 +441,8 @@ def test_the_last_step_leads_nowhere():
     from visuals.steps import next_after
 
     assert next_after("type") == "theme"
-    assert next_after("fields") is None
+    assert next_after("fields") == "publish"
+    assert next_after("publish") is None
 
 
 # --- the theme swatches ------------------------------------------------------
