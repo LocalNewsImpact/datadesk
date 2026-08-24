@@ -1637,3 +1637,5 @@ tr.prop td { border-bottom: 0; }
 .picker-list .row:hover{ background: var(--surface-2); }
 .picker .notice{ padding: 0 .55rem .4rem; }
 .picker .picker-count{ font-variant-numeric: tabular-nums; }
+/* What the two numbers on a ladder row mean, said once. */
+.tree-head .hint{ display: block; color: var(--text-3); font-size: .75rem; }

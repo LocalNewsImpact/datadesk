@@ -184,8 +184,10 @@ def newsrooms_panel(visual, post=None, tree=None):
         states.append(
             {
                 "code": code,
-                # MO is stored; Missouri is read.
+                # MO is stored; Missouri is read. A record with no state
+                # keeps the words the tree gave it.
                 "label": state_name(code) or code,
+                "unrecorded": code == "Not recorded",
                 "counties": counties,
                 "rooms": sum(len(c["rooms"]) for c in counties),
             }
