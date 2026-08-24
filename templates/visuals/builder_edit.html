@@ -84,6 +84,11 @@
             {% for kind in chart_kinds %}<option>{{ kind }}</option>{% endfor %}
           </select>
         </label>
+        {# A dropdown of eleven words is not how somebody picks a chart. The
+           gallery shows what each one is, what it needs, and which of them
+           cannot be built from the data on hand (ROADMAP item 20). #}
+        <p class="notice"><a href="{% url 'visuals:builder_type' visual.slug %}">See
+        the chart types, with what each one needs →</a></p>
         <p class="kind-hint notice" id="kind-hint"></p>
 
         <fieldset data-kinds="bar line area scatter donut">

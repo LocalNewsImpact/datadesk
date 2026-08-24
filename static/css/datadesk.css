@@ -1404,3 +1404,35 @@ tr.prop td { border-bottom: 0; }
   padding: .25rem .4rem; font-size: .82rem; box-sizing: border-box; }
 .queue-dock .tally.warn { color: #8a5a12; }
 .flag-label { display: block; font-weight: 600; font-size: .78rem; color: var(--text); margin-top: .2rem; }
+
+/* --- the chart-type gallery (ROADMAP item 20) -----------------------------
+   Types are cards, not a dropdown: somebody picks a chart by recognising it.
+   An unavailable type is dimmed and still readable, never hidden -- knowing
+   a dot map exists and needs coordinates is worth more than not knowing it
+   exists. */
+.type-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: var(--s-3);
+  margin: var(--s-2) 0 var(--s-4);
+}
+.type-card { display: flex; flex-direction: column; gap: .3rem; }
+.type-card > button {
+  display: flex; flex-direction: column; gap: .25rem; width: 100%;
+  padding: .7rem .8rem; text-align: left; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-md); color: var(--text);
+}
+.type-card > button:hover:not(:disabled) { border-color: var(--accent); }
+.type-card.on > button { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.type-name { font-weight: 600; }
+.type-blurb { color: var(--text-2); font-size: var(--fs-sm); }
+/* Dimmed, not removed. The reason sits under it in full contrast, because
+   the reason is the part somebody acts on. */
+.type-card.unavailable > button { opacity: .5; cursor: not-allowed; }
+.type-why, .type-req, .type-better, .type-also {
+  margin: 0; font-size: var(--fs-sm); line-height: 1.35;
+}
+.type-why { color: var(--text-2); }
+.type-req, .type-also { color: var(--text-3); }
+.type-better { color: var(--accent); }

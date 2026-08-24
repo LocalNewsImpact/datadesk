@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Choose a chart — {{ visual.title }}{% endblock %}
+
+{% block content %}
+<section class="card">
+  <p class="breadcrumb">
+    <a href="{% url 'visuals:builder_edit' visual.slug %}">← {{ visual.title }}</a>
+  </p>
+  <h1>What kind of chart?</h1>
+
+  {% if has_data %}
+  <p class="notice">The data on hand:
+    {% for name, kind in available %}<code>{{ name }}</code> ({{ kind }}){% if not forloop.last %}, {% endif %}{% endfor %}.
+    Types that cannot be built from it are dimmed and say what they would need.</p>
+  {% else %}
+  <p class="notice">No data yet, so nothing can be checked against it. Pick a
+  type and the fields it needs will be asked for next.</p>
+  {% endif %}
+
+  {% for group in groups %}
+  <h2 class="rec-head">{{ group.family }}</h2>
+  <div class="type-gallery">
+    {% for t in group.types %}
+    <form method="post" class="type-card{% if t.why_not %} unavailable{% endif %}{% if t.id == chosen %} on{% endif %}">
+      {% csrf_token %}
+      <input type="hidden" name="kind" value="{{ t.id }}">
+      <button type="submit" {% if t.why_not %}disabled{% endif %}
+              title="{% if t.why_not %}{{ t.why_not }}{% else %}{{ t.requires }}{% endif %}">
+        <span class="type-name">{{ t.label }}</span>
+        <span class="type-blurb">{{ t.blurb }}</span>
+      </button>
+      {% if t.why_not %}
+        <p class="type-why">{{ t.why_not }}</p>
+      {% else %}
+        <p class="type-req">{{ t.requires }}</p>
+      {% endif %}
+      {% if t.read_better %}
+        <p class="type-better">Read more accurately as
+          {% for other in t.read_better %}<strong>{{ other }}</strong>{% if not forloop.last %}, {% endif %}{% endfor %}.</p>
+      {% endif %}
+      {% if t.also %}
+        <p class="type-also">Also called: {{ t.also|join:", " }}</p>
+      {% endif %}
+    </form>
+    {% endfor %}
+  </div>
+  {% endfor %}
+
+  {% if empty_families %}
+  <p class="notice">Nothing yet for {{ empty_families|join:", " }} — the
+  Visual Vocabulary's remaining families, listed so the gap is visible.</p>
+  {% endif %}
+</section>
+{% endblock %}
