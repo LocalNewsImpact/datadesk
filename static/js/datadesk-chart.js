@@ -229,11 +229,15 @@
   }
 
   // Resolve a level's features; ids drive which per-state files load.
-  function boundaries(base, level, ids) {
+  function boundaries(base, level, ids, urls) {
     const spec = GEO_LEVELS[level] || GEO_LEVELS.states;
     if (!spec.perState) {
-      return fetchJSON(base + spec.file)
-        .then((topo) => toFeatures(topo, spec.object));
+      // The resolved URL where the page gave us one. It carries the
+      // manifest hash, which is both what makes it cacheable for good and
+      // what makes it the same URL the page preloads -- built here from a
+      // bare directory it was neither, and the file came down twice.
+      const url = (urls && urls[level]) || base + spec.file;
+      return fetchJSON(url).then((topo) => toFeatures(topo, spec.object));
     }
     const states = [...new Set((ids || []).map((id) => id.slice(0, 2)))]
       .filter((s) => /^\d\d$/.test(s));
@@ -569,7 +573,7 @@
     const joinIds = config.geo_join
       ? rows.map((r) => pad(r[config.geo_join], idLength))
       : [];
-    boundaries(opts.geoBase, level, joinIds).then((features) => {
+    boundaries(opts.geoBase, level, joinIds, opts.geoUrls).then((features) => {
       const marks = [];
       let colorOpt;
 
@@ -1005,7 +1009,7 @@
       ...points.map((p) => String(p.geoid || "")),
     ].filter(Boolean);
 
-    boundaries(opts.geoBase, "counties", ids).then((features) => {
+    boundaries(opts.geoBase, "counties", ids, opts.geoUrls).then((features) => {
       // Focus decides the frame, never what is drawn: every county in
       // view is painted, so a state without stories reads as "none"
       // rather than as a hole in the map.

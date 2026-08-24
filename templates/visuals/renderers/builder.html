@@ -13,12 +13,23 @@
   </figcaption>
 </figure>
 {{ visual.config|json_script:"dd-config" }}
-<script src="{% static 'js/d3.min.js' %}"></script>
-<script src="{% static 'js/plot.min.js' %}"></script>
-<script src="{% static 'js/topojson-client.min.js' %}"></script>
-<script src="{% static 'js/datadesk-chart.js' %}"></script>
+{% comment %}
+Only what this kind draws with. Plot reads globalThis.d3 rather than
+bundling it, so d3 comes with Plot and not instead of it; a table draws in
+plain DOM and needs none of the three. `libs` is decided server-side from
+the chart kind -- see visuals/builder.CHART_LIBS -- and an unknown kind
+gets all of them, so a new kind renders slowly rather than not at all.
+
+Deferred, so the parser is not blocked while 160KB of library arrives.
+They still execute in order, and all of them before DOMContentLoaded,
+which is what the init below now waits for.
+{% endcomment %}
+{% if "d3" in libs %}<script defer src="{% static 'js/d3.min.js' %}"></script>{% endif %}
+{% if "plot" in libs %}<script defer src="{% static 'js/plot.min.js' %}"></script>{% endif %}
+{% if "topojson" in libs %}<script defer src="{% static 'js/topojson-client.min.js' %}"></script>{% endif %}
+<script defer src="{% static 'js/datadesk-chart.js' %}"></script>
 <script>
-(function () {
+document.addEventListener("DOMContentLoaded", function () {
   const config = JSON.parse(document.getElementById("dd-config").textContent);
   const el = document.getElementById("dd-chart-{{ visual.slug }}");
   const toggle = document.querySelector('.dd-toggle[data-target="' + el.id + '"]');
@@ -52,7 +63,14 @@
     .then((payload) => {
       data = payload.data;
       chart = DatadeskChart.mount(el, config, data, {
+        // A base for the per-state files, whose names come from the data.
         geoBase: "{% static 'geo/' %}",
+        // ...and resolved, hashed URLs for the fixed levels.
+        geoUrls: {
+          nation: "{% static 'geo/nation-10m.json' %}",
+          states: "{% static 'geo/states-10m.json' %}",
+          counties: "{% static 'geo/counties-10m.json' %}",
+        },
       });
     })
     .catch((err) => {
@@ -60,5 +78,5 @@
       // the reason cannot tell a missing snapshot from a broken query.
       el.textContent = "The data could not be loaded — " + err.message + ".";
     });
-})();
+});
 </script>

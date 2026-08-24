@@ -1065,3 +1065,78 @@ def test_a_chart_with_no_map_preloads_nothing(client, visual, author):
     publish(visual, author)
     head = client.get(f"/embed/{visual.uuid}/").content.decode().split("</head>")[0]
     assert 'rel="preload"' not in head
+
+
+# --- what an embed downloads -------------------------------------------------
+
+
+def test_a_kind_loads_only_the_libraries_it_draws_with():
+    """Plot reads globalThis.d3 in its UMD factory rather than bundling it,
+    so d3 comes with Plot and not instead of it. The kinds that draw their
+    own SVG use d3 alone and were paying for Plot anyway; a table draws in
+    plain DOM and was paying for all three -- about 164KB gzipped, to
+    render a table."""
+    from visuals.builder import libs_for
+
+    assert libs_for("table") == ()
+    assert libs_for("donut") == ("d3",)
+    assert libs_for("storymap") == ("d3", "topojson")
+    assert libs_for("bar") == ("d3", "plot")
+    assert libs_for("choropleth") == ("d3", "plot", "topojson")
+
+
+def test_an_unknown_kind_loads_everything():
+    """A kind added without a line in the table should render slowly, not
+    fail to render."""
+    from visuals.builder import ALL_LIBS, libs_for
+
+    assert libs_for("something-new") == ALL_LIBS
+    assert libs_for(None) == ALL_LIBS
+
+
+def test_every_kind_the_builder_offers_declares_its_libraries():
+    """Otherwise it silently falls back to all three and the saving is
+    lost without anybody noticing."""
+    from visuals.builder import CHART_KINDS, CHART_LIBS
+
+    kinds = {k["id"] if isinstance(k, dict) else k for k in CHART_KINDS}
+    missing = kinds - set(CHART_LIBS)
+    assert not missing, f"no CHART_LIBS entry for {sorted(missing)}"
+
+
+def test_the_preload_and_the_fetch_name_the_same_url():
+    """The boundaries are resolved through the manifest, so they carry a
+    hash. Built from a bare directory instead, the runtime asked for the
+    unhashed name -- a different URL from the one the page preloads, so
+    the preload was wasted and the file came down twice."""
+    from pathlib import Path
+
+    js = (
+        Path(__file__).resolve().parent.parent / "static/js/datadesk-chart.js"
+    ).read_text()
+    template = (
+        Path(__file__).resolve().parent.parent
+        / "templates/visuals/renderers/builder.html"
+    ).read_text()
+
+    # The page resolves them...
+    assert "geoUrls" in template
+    assert "{% static 'geo/counties-10m.json' %}" in template
+    # ...and the runtime prefers what it was given over building its own.
+    assert "(urls && urls[level]) || base + spec.file" in js
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_a_table_embed_ships_no_chart_libraries(client, visual, author):
+    visual.config = dict(visual.config or {}, kind="table")
+    visual.save(update_fields=["config"])
+    visual.template = "builder"
+    visual.save(update_fields=["template"])
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+
+    body = client.get(f"/embed/{visual.uuid}/").content.decode()
+    assert "d3.min" not in body
+    assert "plot.min" not in body
+    assert "topojson" not in body
+    assert "datadesk-chart" in body  # it still needs the runtime itself
