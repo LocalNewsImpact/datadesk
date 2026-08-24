@@ -1021,3 +1021,47 @@ def test_the_snippet_inherits_the_visuals_choice(visual):
     # An explicit empty string is "follow the reader", which is a real
     # answer and must override the visual rather than inherit from it.
     assert "data-theme" not in snippet(visual, theme="")
+
+
+# --- what the embed costs to load --------------------------------------------
+
+
+def test_the_boundary_files_are_cached_like_everything_else_static():
+    """WhiteNoise caches what has a hash in its name, which is right and
+    misses the largest file the embed fetches. The chart runtime builds
+    those URLs itself -- `{% static 'geo/' %}` plus a filename it picks --
+    so a directory is what goes through the manifest and the files never
+    do. counties-10m.json is 822KB and arrived with the 60-second default,
+    re-downloaded every minute for every reader.
+    """
+    from datadesk.settings import _immutable_static
+
+    assert _immutable_static("", "/static/geo/counties-10m.json")
+    assert _immutable_static("", "/static/geo/tracts/29.json")
+    # The manifest's own naming still passes, and nothing else does.
+    assert _immutable_static("", "/static/js/d3.min.69faba9d2fff.js")
+    assert not _immutable_static("", "/static/js/plain.js")
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_a_map_starts_its_boundaries_before_it_needs_them(client, visual, author):
+    """Otherwise they are four round trips deep: page, scripts, data.json,
+    and only then does the runtime discover it wants the outlines."""
+    visual.config = dict(visual.config or {}, geo_level="counties")
+    visual.save(update_fields=["config"])
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+
+    head = client.get(f"/embed/{visual.uuid}/").content.decode().split("</head>")[0]
+    assert 'rel="preload"' in head
+    assert "counties-10m.json" in head
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_a_chart_with_no_map_preloads_nothing(client, visual, author):
+    """A preload the page never uses is a wasted download and a console
+    warning, and most visuals are not maps."""
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+    head = client.get(f"/embed/{visual.uuid}/").content.decode().split("</head>")[0]
+    assert 'rel="preload"' not in head

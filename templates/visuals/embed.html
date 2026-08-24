@@ -4,6 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ visual.title }}</title>
+  {% if geo_preload %}
+  {% comment %}
+  Started now rather than four round trips in. The runtime only asks for
+  the boundaries after data.json resolves, which is after the scripts,
+  which is after this page -- and it is the largest thing the embed
+  fetches.
+  {% endcomment %}
+  <link rel="preload" as="fetch" type="application/json"
+        href="{{ geo_preload }}" crossorigin>
+  {% endif %}
   <link rel="stylesheet" href="{% static 'css/tokens.css' %}">
   <link rel="stylesheet" href="{% static 'css/datadesk.css' %}">
   {% comment %}

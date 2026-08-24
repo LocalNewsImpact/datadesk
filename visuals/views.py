@@ -89,6 +89,33 @@ def _wired_datasets(user, spec):
     return sorted(readable)
 
 
+#: The fixed boundary files, by geo level. The per-state ones are chosen
+#: from the data itself and cannot be known before it arrives.
+_GEO_FILES = {
+    "nation": "nation-10m.json",
+    "states": "states-10m.json",
+    "counties": "counties-10m.json",
+}
+
+
+def _geo_preload(visual):
+    """The boundary file a map will want, so the browser can start it now.
+
+    Without this it is the last thing requested and the slowest: the page
+    loads, four scripts load, the runtime asks for data.json, and only
+    once that resolves does it discover it needs 822KB of county
+    outlines. Four round trips deep, on a page inside somebody else's
+    article.
+
+    Only the fixed levels. A tract or place map picks its files from the
+    GEOIDs in the data, so there is nothing to name until the data lands.
+    """
+    from django.templatetags.static import static
+
+    name = _GEO_FILES.get((visual.config or {}).get("geo_level"))
+    return static(f"geo/{name}") if name else None
+
+
 def _feed_url(visual, by_uuid, version=None, live=False):
     """Where this page's renderer fetches its rows.
 
@@ -393,6 +420,7 @@ def embed(request, slug=None, uuid=None):
             "renderer": f"visuals/renderers/{visual.template}.html",
             "feed": _feed_url(visual, by_uuid=uuid is not None, version=asked),
             "theme_stamp": _theme_for(request, visual),
+            "geo_preload": _geo_preload(visual),
         },
     )
     response["Content-Security-Policy"] = f"frame-ancestors {visual.frame_ancestors}"
