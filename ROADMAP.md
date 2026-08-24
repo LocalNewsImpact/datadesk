@@ -2506,6 +2506,62 @@ Points to settle while building:
   data, not a dataset anybody owns — the case item 1's `UNIVERSAL` scope
   exists for.
 
+## 24. One domain for everything published
+
+Three things are published to readers and each goes somewhere different:
+
+| | Today |
+|---|---|
+| The Source Directory's public feed | `localnewsimpact.github.io/NewsSourceDirectory/` — GitHub Pages, no custom domain |
+| `news-maps` | nothing; the repository has no Pages site |
+| Datadesk's visuals and embeds | the Cloud Run app itself, `/embed/<slug>/` |
+
+**Wanted:** all of it under `data.localnewsimpact.org` — the feed, the
+visuals, the embeds, and any data file a reader or a newsroom is meant to
+fetch.
+
+**The hostname already exists and does not work.** It resolves to
+50.16.132.48, the same host as `www.localnewsimpact.org`, whose certificate
+covers only `www` — so HTTPS to `data.` fails outright and plain HTTP 301s
+to the marketing site. Anything that starts using the name has to take that
+record over, and the first task is finding out what put it there.
+
+**Why it matters more than tidiness.** An embed's URL is written into
+somebody else's page and cannot be moved afterwards: item 22's snippet
+names a host, and every article carrying one pins that host forever. Today
+that host would be a Cloud Run service, which is an implementation detail
+we would be unable to change. The domain has to be decided before the
+embed ships, not after.
+
+**A static bucket serves it, decided 2026-08-24.** Not a question --
+item 16 already publishes visuals statically and this is the same store
+serving them under a name readers can trust. Cloud Run serves `/embed/`
+today because nothing else did yet, and that is a step on the way rather
+than the shape.
+
+It works for all three. Item 22's resize handshake is a script and a
+`postMessage` between two frames, so it needs no server. A published visual
+is public by definition, so nothing here has to vary a response by who is
+asking -- and anything that does is a page in the console, not a file on
+this domain.
+
+**What is still open:**
+
+- **Whether the feed moves too.** It is on GitHub Pages and works. Moving
+  it costs a redirect the WordPress plugin depends on; leaving it gives
+  readers two hostnames, which is what this item exists to stop.
+- **Versioning in the path.** Item 16 versions published visuals and item
+  22 wants an embed to name a version so a page does not silently change.
+  Both want a path shape and it should be decided once for the domain
+  rather than per publisher.
+- **What happens to the current URLs.** The feed's Pages address is
+  referenced by the WordPress plugin, which lives in another repository, so
+  a redirect has to exist before anything moves.
+
+**First step, and it needs nobody's decision:** find out what
+50.16.132.48 is and who owns the DNS record, because every option above
+begins with taking that name over.
+
 ## Sequence
 
 1. **Item 1** first: items 5 and 6 both need dataset-scoped roles, and
