@@ -97,6 +97,13 @@ _visuals = [
         visuals.data_json,
         name="data",
     ),
+    # The same rows as a spreadsheet. `?table=` picks one list where a
+    # payload carries several -- a map's areas or its points.
+    path(
+        "visuals/<uuid:uuid>/data.csv",
+        visuals.data_csv,
+        name="data_csv",
+    ),
     # Where the fallback link inside every snippet lands, for the reader
     # whose browser never ran the script.
     #
@@ -110,6 +117,7 @@ _visuals = [
     # The addresses already pasted into other people's articles.
     path("embed/<slug:slug>/", FOREVER(_to_uuid("visuals:embed"))),
     path("visuals/<slug:slug>/data.json", FOREVER(_to_uuid("visuals:data"))),
+    path("visuals/<slug:slug>/data.csv", FOREVER(_to_uuid("visuals:data_csv"))),
     path("visuals/<slug:slug>/", FOREVER(_to_uuid("visuals:page"))),
 ]
 

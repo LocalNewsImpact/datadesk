@@ -16,7 +16,7 @@ publisher pasted is what their page loads for good.
 EMBED_HOST = "data.localnewsimpact.org"
 
 
-def snippet(visual, host=EMBED_HOST, version=None):
+def snippet(visual, host=EMBED_HOST, version=None, theme=None):
     """The placeholder and the script, as plain text.
 
     Addressed by uuid, never by slug. The slug is unique, editable and
@@ -32,11 +32,24 @@ def snippet(visual, host=EMBED_HOST, version=None):
     A version pins the snippet to one snapshot for good. Without one the
     embed follows what is published, which is what most people want and
     why it is the default.
+
+    A theme pins its colours the same way. Without one the embed follows
+    the reader's own setting, which is right for a page of ours and wrong
+    inside somebody else's article: a light article on a reader's dark
+    laptop got a dark chart dropped into the middle of it. The publisher
+    knows what their page looks like; the reader's laptop does not.
     """
-    pin = f' data-version="{version}"' if version is not None else ""
-    query = f"?v={version}" if version is not None else ""
+    attrs = ""
+    params = []
+    if version is not None:
+        attrs += f' data-version="{version}"'
+        params.append(f"v={version}")
+    if theme in ("light", "dark"):
+        attrs += f' data-theme="{theme}"'
+        params.append(f"theme={theme}")
+    query = f"?{'&'.join(params)}" if params else ""
     return (
-        f'<div class="datadesk-visual" data-visual="{visual.uuid}"{pin}>'
+        f'<div class="datadesk-visual" data-visual="{visual.uuid}"{attrs}>'
         f'<a href="https://{host}/visuals/{visual.uuid}/{query}">{visual.title}</a>'
         f"</div>\n"
         f'<script src="https://{host}/static/js/datadesk-embed.js" async></script>'

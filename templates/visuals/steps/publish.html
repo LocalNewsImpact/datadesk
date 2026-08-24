@@ -17,7 +17,34 @@ than not existing.</p>
   <h4>Embed</h4>
   <p class="notice">Paste both lines. No height: the framed page reports
   its own and the script resizes to match.</p>
-  <pre class="embed-snippet"><code>{{ snippet }}</code></pre>
+
+  {% comment %}
+  Colour is the publisher's call, not the reader's. Left to follow the
+  reader, a chart lands dark in the middle of a light article whenever
+  that reader's laptop is set to dark -- which is what happens today. The
+  person pasting it knows what their page looks like.
+  {% endcomment %}
+  <fieldset class="theme-pick">
+    <legend>Colour</legend>
+    <label><input type="radio" name="embed-theme" value="auto" checked>
+      Follow the reader</label>
+    <label><input type="radio" name="embed-theme" value="light">
+      Always light</label>
+    <label><input type="radio" name="embed-theme" value="dark">
+      Always dark</label>
+  </fieldset>
+
+  <pre class="embed-snippet"><code id="embed-code">{{ snippet }}</code></pre>
+  {{ snippets|json_script:"embed-snippets" }}
+  <script>
+  (function () {
+    var all = JSON.parse(document.getElementById("embed-snippets").textContent);
+    var out = document.getElementById("embed-code");
+    document.querySelectorAll('input[name="embed-theme"]').forEach(function (r) {
+      r.addEventListener("change", function () { out.textContent = all[r.value]; });
+    });
+  })();
+  </script>
 </div>
 
 <div class="group">

@@ -22,9 +22,18 @@
     if (!slug || node.dataset.mounted) return;
     node.dataset.mounted = "1";
 
-    var src = ORIGIN + "/embed/" + encodeURIComponent(slug) + "/";
+    // Both are optional and both are pins. Absent, the embed follows what
+    // is published and what the reader's own device asks for; named, it
+    // holds still, which is what a publisher pasting into a fixed page
+    // needs -- a dark chart landing in a light article is the failure.
+    var params = [];
     var version = node.getAttribute("data-version");
-    if (version) src += "?v=" + encodeURIComponent(version);
+    if (version) params.push("v=" + encodeURIComponent(version));
+    var theme = node.getAttribute("data-theme");
+    if (theme === "light" || theme === "dark") params.push("theme=" + theme);
+
+    var src = ORIGIN + "/embed/" + encodeURIComponent(slug) + "/";
+    if (params.length) src += "?" + params.join("&");
 
     var frame = document.createElement("iframe");
     frame.src = src;
