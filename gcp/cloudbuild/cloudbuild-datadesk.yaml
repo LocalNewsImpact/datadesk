@@ -31,6 +31,18 @@ substitutions:
   # The public data front end (ROADMAP item 24). Same image, SERVICE_ROLE=data,
   # its own service so the console is absent from a hostname readers link to.
   _DATA_HOST: data.localnewsimpact.org
+  # One instance kept warm, which is the difference between a reader
+  # waiting for a container to start and a chart appearing. Everything
+  # else here scales to zero and should: a console has people signed in
+  # who will wait a moment, and this has an embed in somebody else's
+  # article that will not be waited for.
+  #
+  # It costs roughly $10 a month, which buys back a cold start on every
+  # first visit after idle. The node in the crawler's cluster sits at 3%
+  # CPU behind a load balancer that is already billed, so this is the
+  # interim answer rather than the cheapest one -- set it to 0 when the
+  # front end moves there.
+  _DATA_MIN_INSTANCES: '1'
   _DIRECTORY_VERSION: ''
   # Set by the caller. SHORT_SHA is a trigger-only builtin and is empty
   # under `builds submit`, so the commit travels as its own substitution.
@@ -147,7 +159,8 @@ steps:
           --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_DB_PASSWORD=crawler-ro-password:latest,CRAWLER_RW_DB_PASSWORD=crawler-rw-password:latest,GOOGLE_OAUTH_CLIENT_ID=google-oauth-client-id:latest,GOOGLE_OAUTH_CLIENT_SECRET=google-oauth-client-secret:latest" \
           --set-env-vars "^@^CLOUD_SQL_CONNECTION_NAME=${_SQL_INSTANCE}@DB_NAME=datadesk@DB_USER=datadesk@CRAWLER_DB_NAME=mizzou@CRAWLER_DB_USER=datadesk_ro@CRAWLER_RW_DB_USER=datadesk_rw@ALLOWED_AUTH_DOMAINS=localnewsimpact.org@DJANGO_ALLOWED_HOSTS=${_ADMIN_HOST},.run.app@DJANGO_CSRF_TRUSTED_ORIGINS=https://${_ADMIN_HOST}@SESSION_COOKIE_DOMAIN=.localnewsimpact.org" \
           --set-cloudsql-instances "${_SQL_INSTANCE}" \
-          --ingress all --allow-unauthenticated --min-instances 0
+          --ingress all --allow-unauthenticated \
+          --min-instances 0
 
   # gcloud reports a failed IAM binding as a warning and still exits zero, so
   # a deploy can report success while leaving the service unreachable. That is
@@ -314,7 +327,8 @@ steps:
           --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,GOOGLE_OAUTH_CLIENT_ID=google-oauth-client-id:latest,GOOGLE_OAUTH_CLIENT_SECRET=google-oauth-client-secret:latest" \
           --set-env-vars "^@^SERVICE_ROLE=sources@CLOUD_SQL_CONNECTION_NAME=${_SQL_INSTANCE}@DB_NAME=datadesk@DB_USER=directory@DB_SEARCH_PATH=directory,public@SITE_ID=2@ALLOWED_AUTH_DOMAINS=localnewsimpact.org@DJANGO_ALLOWED_HOSTS=${_SOURCES_HOST},.run.app@DJANGO_CSRF_TRUSTED_ORIGINS=https://${_SOURCES_HOST}@SESSION_COOKIE_DOMAIN=.localnewsimpact.org" \
           --set-cloudsql-instances "${_SQL_INSTANCE}" \
-          --ingress all --allow-unauthenticated --min-instances 0
+          --ingress all --allow-unauthenticated \
+          --min-instances 0
 
   - name: 'gcr.io/cloud-builders/gcloud'
     id: 'sources-reachable'
@@ -407,7 +421,8 @@ steps:
           --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_DB_PASSWORD=crawler-ro-password:latest" \
           --set-env-vars "^@^SERVICE_ROLE=data@CLOUD_SQL_CONNECTION_NAME=${_SQL_INSTANCE}@DB_NAME=datadesk@DB_USER=datadesk@CRAWLER_DB_NAME=mizzou@CRAWLER_DB_USER=datadesk_ro@DJANGO_ALLOWED_HOSTS=${_DATA_HOST},.run.app" \
           --set-cloudsql-instances "${_SQL_INSTANCE}" \
-          --ingress all --allow-unauthenticated --min-instances 0
+          --ingress all --allow-unauthenticated \
+          --min-instances "${_DATA_MIN_INSTANCES}"
 
   # gcloud reports a refused IAM binding as a warning and exits zero, so a
   # deploy reports success while every request gets a 403 before reaching

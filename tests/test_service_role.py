@@ -523,3 +523,38 @@ def test_warming_the_cache_does_not_sit_on_the_end_of_the_build():
     body = " ".join(warm["args"])
     execute = body.split("jobs execute", 1)[1]
     assert "--wait" not in execute
+
+
+def test_only_the_public_data_front_end_is_kept_warm():
+    """A console has people signed in who will wait a moment for a cold
+    start. An embed is in somebody else's article and will not be waited
+    for, so that one service holds an instance and the rest scale to zero.
+
+    Asserted because it is a standing cost: it should be one service on
+    purpose, never something that spread to the others by copy-paste.
+    """
+    import re
+    from pathlib import Path
+
+    import yaml
+
+    path = (
+        Path(__file__).resolve().parent.parent
+        / "gcp/cloudbuild/cloudbuild-datadesk.yaml"
+    )
+    spec = yaml.safe_load(path.read_text())
+    assert spec["substitutions"]["_DATA_MIN_INSTANCES"] == "1"
+
+    warm = {}
+    for step in spec["steps"]:
+        body = " ".join(step.get("args", []))
+        for service, flag in re.findall(
+            r"gcloud run deploy (\S+)(?:.|\n)*?--min-instances\s+(\S+)", body
+        ):
+            warm[service.replace("${_SERVICE}", "datadesk")] = flag.strip('"')
+
+    assert warm.get("datadesk-data") == "${_DATA_MIN_INSTANCES}"
+    for service, flag in warm.items():
+        if service == "datadesk-data":
+            continue
+        assert flag in ("0", ""), f"{service} is being kept warm too: {flag}"
