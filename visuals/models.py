@@ -95,10 +95,20 @@ class Visual(models.Model):
     )
 
     # frame-ancestors allowlist for the embed, space-separated origins.
+    # `'self'` was the default and it made every embed fail: only
+    # data.localnewsimpact.org could frame a page whose entire purpose is to
+    # be framed by somebody else's article. The permissive default is what
+    # publishing a visual already means. It is safe here because the embed
+    # has nothing to hijack -- the data front end carries no session, no
+    # sign-in and no write at all (urls_data.py). An author who wants a
+    # narrower list still writes one.
     frame_ancestors = models.CharField(
         max_length=500,
-        default="'self'",
-        help_text="CSP frame-ancestors sources, space-separated.",
+        default="*",
+        help_text=(
+            "CSP frame-ancestors sources, space-separated. "
+            "`*` lets any site embed this; name hosts to restrict it."
+        ),
     )
 
     created_by = models.ForeignKey(

@@ -441,3 +441,55 @@ def test_the_renderers_all_reverse_the_same_namespace():
     for template in renderers.glob("*.html"):
         wanted |= set(re.findall(r"{%\s*url\s+'([a-z_]+):", template.read_text()))
     assert wanted <= {"visuals"}, f"renderers reverse {sorted(wanted)}"
+
+
+# --- the two failures a reader actually hit ----------------------------------
+
+
+def test_the_snippets_fallback_link_resolves_on_the_host_it_names():
+    """The placeholder in every snippet links to /visuals/<slug>/ on the
+    data host, for the reader whose browser never ran the script. That URL
+    was declared only on the console, so the link 404'd on the one host it
+    was ever pointed at."""
+    from visuals.embed import EMBED_HOST, snippet
+
+    class _V:
+        slug = "boone-county-coverage"
+        title = "Where Boone County reports"
+
+    linked = snippet(_V())
+    assert f'href="https://{EMBED_HOST}/visuals/{_V.slug}/"' in linked
+
+    routes = _data_routes()
+    assert (
+        "visuals/<slug:slug>/" in routes
+    ), "the snippet's fallback link has no route on the data host"
+
+
+def test_the_public_page_is_not_the_walled_one():
+    """`page` raises 404 for anyone not signed in with a role. Wiring it to
+    a host that has no sign-in would 404 every reader."""
+    from django.urls import resolve
+
+    from visuals import views
+
+    assert views.public_page is not views.page
+
+    match = resolve("/visuals/boone-county-coverage/", urlconf=_data_urlconf())
+    # Cached views are wrapped, so compare the name `functools.wraps` kept.
+    assert (
+        match.func.__name__ == "public_page"
+    ), f"the data host routes the visual page to {match.func.__name__}"
+
+
+def test_a_visual_may_be_framed_by_somebody_elses_site():
+    """`'self'` as the default meant the only site allowed to frame an
+    embed was the one serving it, so every pasted snippet showed a browser
+    security refusal instead of a chart."""
+    from visuals.models import Visual
+
+    default = Visual._meta.get_field("frame_ancestors").get_default()
+    assert default == "*", (
+        f"frame_ancestors defaults to {default!r}; an embed nobody may "
+        "frame is not an embed"
+    )

@@ -53,6 +53,17 @@ _visuals = [
         BRIEFLY(visuals.data_json),
         name="data",
     ),
+    # Where the fallback link inside every snippet lands. It named this URL
+    # before the URL existed, so a reader whose browser never ran the
+    # script got a 404 on the host the snippet points at.
+    #
+    # `visuals.page` cannot serve it: that one keeps the sign-in wall and
+    # renders in the console's chrome, and this host has neither.
+    path(
+        "visuals/<slug:slug>/",
+        BRIEFLY(visuals.public_page),
+        name="page",
+    ),
 ]
 
 urlpatterns = [

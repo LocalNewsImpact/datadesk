@@ -110,9 +110,39 @@ def test_published_embed_and_feed_are_public(client, visual, author):
     publish(visual, author)
     embed = client.get("/embed/story-geography/")
     assert embed.status_code == 200
-    assert embed["Content-Security-Policy"] == "frame-ancestors 'self'"
+    # Any site, because that is what publishing a visual is for. This read
+    # `'self'` and passed, while every snippet pasted into an article showed
+    # a browser security refusal -- the only site permitted to frame the
+    # embed was the one already serving it.
+    assert embed["Content-Security-Policy"] == "frame-ancestors *"
     assert "X-Frame-Options" not in embed
     assert client.get("/visuals/story-geography/data.json").status_code == 200
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_the_data_host_serves_the_page_the_snippet_links_to(client, visual, author):
+    """A reader whose browser never ran the embed script follows the link
+    in the placeholder. It points at /visuals/<slug>/ on the data host,
+    where nothing was listening -- so the fallback was a 404."""
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+
+    page = client.get("/visuals/story-geography/")
+    assert page.status_code == 200
+    body = page.content.decode()
+    assert visual.title in body
+    # No console on this host: not a nav to one, not a sign-in.
+    assert "/accounts/" not in body
+    # And the snippet is here, because a newsroom that found the visual
+    # this way is exactly who wants to embed it.
+    assert "datadesk-embed.js" in body
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_the_data_host_does_not_leak_a_draft(client, visual):
+    """Nobody signs in here, so a draft has no audience it could be
+    previewed for."""
+    assert client.get("/visuals/story-geography/").status_code == 404
 
 
 def test_frame_ancestors_come_from_the_visual(client, visual, author):
