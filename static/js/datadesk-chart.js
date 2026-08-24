@@ -887,7 +887,14 @@
       // rather than as a hole in the map.
       const focus = String(config.focus || "").trim();
       let framed;
-      if (/^\d{5}$/.test(focus)) {
+      // An explicit list wins. The builder resolves "Boone, MO" and the
+      // chosen extent into the counties to paint, so a published map
+      // shows what its config says rather than what a rule re-derives.
+      const chosen = Array.isArray(config.frame) ? config.frame.map(String) : [];
+      if (chosen.length) {
+        const wanted = new Set(chosen);
+        framed = features.filter((f) => wanted.has(String(f.id)));
+      } else if (/^\d{5}$/.test(focus)) {
         // A county focus frames its whole state — a lone county floating
         // in white says nothing about where it is.
         framed = features.filter((f) => String(f.id).slice(0, 2) === focus.slice(0, 2));

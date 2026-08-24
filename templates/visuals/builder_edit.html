@@ -137,8 +137,29 @@
           <label>Point size <select name="size" data-columns data-optional></select></label>
           <label>Point label <select name="label" data-columns data-optional></select></label>
           <label class="inline"><input type="checkbox" name="geo_fit" value="1"> Zoom to data</label>
-          <label data-kinds="storymap">Focus (state or county FIPS)
-            <input type="text" name="focus" placeholder="29 or 29019">
+          <label data-kinds="storymap">Focus
+            <input type="text" name="focus" placeholder="Boone, MO — or Missouri, or 29019">
+            <label data-kinds="storymap">Centre on
+              <select name="focus_level">
+                <option value="">work it out</option>
+                <option value="city">a city</option>
+                <option value="county">a county</option>
+                <option value="state">a state</option>
+              </select>
+            </label>
+            <label data-kinds="storymap">Show
+              <select name="extent">
+                <option value="auto">wherever the stories are</option>
+                <option value="selected">only what is centred on</option>
+                <option value="county">its whole county</option>
+                <option value="state">its whole state</option>
+                <option value="custom">it and the counties named below</option>
+              </select>
+            </label>
+            <label data-kinds="storymap">Also show
+              <input type="text" name="extent_custom"
+                     placeholder="Callaway, MO; Howard, MO; 29053">
+            </label>
           </label>
         </fieldset>
 
