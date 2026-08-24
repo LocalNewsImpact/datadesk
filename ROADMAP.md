@@ -2562,6 +2562,74 @@ this domain.
 50.16.132.48 is and who owns the DNS record, because every option above
 begins with taking that name over.
 
+## 25. What is going wrong at a publisher
+
+**Wanted:** under Extraction, a report over articles in a terminal state
+saying what is obstructing each publisher — paywalled, blocked, little or
+no content, little or no discovery, little or no *local* content.
+
+The two review queues hold records awaiting a decision. This is not that:
+it reports a pattern across a publisher, and the answer is usually a
+conversation with the newsroom or a change to how we crawl them, not a row
+somebody dispositions.
+
+**The signals live in three places, and only two are queryable today.**
+
+*From the article status*, and countable now: `paywall` (2,161),
+`not_article` (1,258), `wire` (47,272), `out_of_scope` (3,769). Per
+publisher these are already a report — a newsroom whose articles are
+mostly `paywall` is a paywalled newsroom.
+
+*From enrichment*, and partly countable: `scope` is categorical and clean
+— `city_municipality`, `regional`, `statewide`, `national`,
+`elsewhere_to_local` — so "little local content" is a publisher whose
+articles skew national. But **`content_gate_reason` cannot be counted**:
+15,747 rows carry 6,280 distinct values, because it is prose a model wrote.
+"Story content present in both samples", the same with a full stop, "Full
+story content present", and six thousand more. Anything reading it needs a
+categorical field written beside it, at the point the model answers.
+
+*From logs and telemetry*, and not in Postgres at all: bot blocking,
+fetch failures, and discovery rates. An article that was never fetched has
+no row here to count. These are the crawler's own records, and reaching
+them is a different piece of work from the two above.
+
+**One table, rebuilt, rather than a dozen live queries.** A dashboard that
+fans out to Postgres, BigQuery and Cloud Logging on every load is as slow
+as its slowest source and as available as its least available one — and a
+timed-out log query is indistinguishable from a publisher with no problems,
+which is the worst way for a health report to fail.
+
+The drift that worries about is manageable, on one condition: **the table
+is derived output and the rebuild is its only writer.** Nothing edits a
+row, so a row can never disagree with its sources in a way a rebuild will
+not fix, and drift stops being a correctness question and becomes a
+staleness one — bounded by how often it runs and answerable by saying when
+it last ran. That is the shape `VisualSnapshot` and `ScanRun` already use.
+
+The condition is not automatic. A table somebody can correct by hand is a
+second source of truth, and the first time a row is edited the rebuild
+either overwrites the correction or is disabled to protect it. Neither is
+recoverable. The write boundary in `review/services.py` is where that would
+be enforced, by leaving it out.
+
+**Points to settle:**
+
+- **What a row is.** One per publisher per period is the obvious shape, but
+  a rate over what — every article, every article in a terminal state, or
+  every URL discovered including those never fetched? The last is the only
+  one that can express "little or no discovery", and it counts things that
+  have no article row.
+- **How often it rebuilds.** Nightly matches the crawler. Anything faster
+  wants a reason.
+- **Where the log-derived signals come from.** The crawler owns them, so
+  this either queries its logs or the crawler writes them somewhere on its
+  own schedule. The second is less coupling and more of somebody else's
+  work.
+- **`content_gate_reason` needs a categorical companion**, written where
+  the model answers. Without one, "low or no content" is not measurable
+  however the dashboard is built.
+
 ## Sequence
 
 1. **Item 1** first: items 5 and 6 both need dataset-scoped roles, and
