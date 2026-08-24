@@ -380,10 +380,32 @@ steps:
           --set-cloudsql-instances "${_SQL_INSTANCE}" \
           --ingress all --allow-unauthenticated --min-instances 0
 
+  # gcloud reports a refused IAM binding as a warning and exits zero, so a
+  # deploy reports success while every request gets a 403 before reaching
+  # Django. The other two front ends check for this; this one was added
+  # without the check and did exactly that on its first deploy.
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'data-reachable'
+    entrypoint: 'bash'
+    waitFor: ['data-candidate']
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        policy="$$(gcloud run services get-iam-policy datadesk-data \
+                   --region "${_REGION}" --project "$PROJECT_ID" --format=json)"
+        if ! echo "$$policy" | grep -q 'run.invoker'; then
+          echo "No invoker binding on datadesk-data -- deployed but nobody can reach it."
+          echo "Domain Restricted Sharing blocks this unless the project has an exception."
+          echo "See infra/README.md, 'Public ingress'."
+          exit 1
+        fi
+        echo "invoker binding present"
+
   - name: 'gcr.io/cloud-builders/gcloud'
     id: 'data-prove'
     entrypoint: 'bash'
-    waitFor: ['data-candidate']
+    waitFor: ['data-reachable']
     args:
       - '-c'
       - |

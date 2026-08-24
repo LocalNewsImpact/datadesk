@@ -355,3 +355,42 @@ def test_the_embed_is_still_framed_by_the_allowlist():
     ).read_text()
     assert "visuals.embed" in source
     assert "from visuals import views as visuals" in source
+
+
+def test_every_front_end_checks_it_is_reachable():
+    """gcloud reports a refused IAM binding as a warning and exits zero, so
+    a deploy reports success while every request gets a 403 before reaching
+    Django. The directory's first deploy did that; so did the data front
+    end's, because it was added without the check the other two carry.
+
+    Every service that takes public traffic needs one, and a new one added
+    without it should fail here rather than in production.
+    """
+    import re
+    from pathlib import Path
+
+    import yaml
+
+    spec = yaml.safe_load(
+        (
+            Path(__file__).resolve().parent.parent
+            / "gcp/cloudbuild/cloudbuild-datadesk.yaml"
+        ).read_text()
+    )
+    steps = {s["id"]: " ".join(s.get("args", [])) for s in spec["steps"]}
+
+    def names(pattern):
+        """Service names, however the config quotes or substitutes them."""
+        found = set()
+        for body in steps.values():
+            found |= set(re.findall(pattern, body))
+        return {s.strip('"').replace("${_SERVICE}", "datadesk") for s in found}
+
+    deployed = names(r"gcloud run deploy (\S+)")
+    checked = names(r"get-iam-policy (\S+)")
+
+    missing = deployed - checked
+    assert not missing, (
+        f"services deployed with no invoker check: {sorted(missing)}. "
+        "A refused binding would deploy green and 403 every request."
+    )
