@@ -88,12 +88,31 @@ def counties_in_state(fips):
     return [c for c, _ in _counties() if c.startswith(two)]
 
 
-def resolve(value, level=""):
+def state_of(datasets):
+    """The state a visual's datasets are about, or "".
+
+    A dataset carries `default_state`, so a map wired to one already knows
+    which Boone County is meant. Two datasets in different states have no
+    single answer and the author is asked.
+    """
+    from explorer.models import Dataset
+
+    states = {
+        (d.meta or {}).get("default_state", "").strip().upper()
+        for d in Dataset.objects.filter(slug__in=list(datasets or []))
+    }
+    states.discard("")
+    return states.pop() if len(states) == 1 else ""
+
+
+def resolve(value, level="", default_state=""):
     """(geoid, level) for a named place, or ("", "") if blank.
 
-    `level` names the rung. Without one the rung is inferred, which is why
-    naming it is better: a bare county name in eight states is refused
-    rather than guessed at.
+    `default_state` is the state the visual's datasets are about. With one,
+    "Boone" is Boone County, Missouri and needs no qualifying -- which is
+    the ordinary case, because a dataset is usually a state.
+
+    `level` names the rung. Without one the rung is inferred.
     """
     text = (value or "").strip()
     if not text:
@@ -106,6 +125,9 @@ def resolve(value, level=""):
     name, _, state_part = (p.strip() for p in text.rpartition(","))
     if not name:  # no comma: the whole string is the name
         name, state_part = text, ""
+    # The dataset's own state, when the author did not name one. A map of
+    # a Missouri dataset saying "Boone" means Boone County, Missouri.
+    state_part = state_part or (default_state or "").strip()
 
     if level == STATE or (not level and not state_part and state_code(text)):
         code = state_code(text)
@@ -146,7 +168,7 @@ def resolve(value, level=""):
     raise FocusError(f"No state, county or city called {name!r}.")
 
 
-def frame(geoid, level, extent=AUTO, custom=""):
+def frame(geoid, level, extent=AUTO, custom="", default_state=""):
     """The county FIPS a map should paint, or [] to let the renderer decide.
 
     A list, computed here, because the gazetteer is here: the renderer is
@@ -185,7 +207,7 @@ def frame(geoid, level, extent=AUTO, custom=""):
             if piece in known:
                 wanted.append(piece)
                 continue
-            found, found_level = resolve(piece)
+            found, found_level = resolve(piece, "", default_state)
             county = (
                 found[:5]
                 if found_level == COUNTY

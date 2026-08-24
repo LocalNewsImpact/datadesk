@@ -23,6 +23,8 @@ from visuals.geofocus import (
     resolve,
 )
 
+pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
+
 # --- naming the place --------------------------------------------------------
 
 
@@ -176,3 +178,56 @@ def test_the_builder_offers_every_rung_and_extent():
     assert 'name="extent_custom"' in form
     for value in (CITY, COUNTY, STATE):
         assert f'value="{value}"' in form
+
+
+# --- the dataset usually settles it -----------------------------------------
+#
+# A dataset is commonly a state, and carries `default_state`. So the
+# ambiguity above is mostly theoretical: a map of a Missouri dataset saying
+# "Boone" means Boone County, Missouri, and asking the author to type ", MO"
+# is asking them for something already recorded.
+
+
+def test_a_bare_name_resolves_against_the_datasets_state():
+    assert resolve("Boone", COUNTY, "MO") == ("29019", COUNTY)
+    assert resolve("Columbia", CITY, "MO") == ("2915670", CITY)
+
+
+def test_a_named_state_beats_the_datasets():
+    """The default fills a gap; it does not overrule what was typed."""
+    assert resolve("Boone, KY", COUNTY, "MO") == ("21015", COUNTY)
+
+
+def test_the_state_comes_from_what_the_visual_is_wired_to(crawler_schema):
+    from explorer.models import Dataset
+    from visuals.geofocus import state_of
+
+    Dataset.objects.create(
+        id="d-mo", slug="mizzou", label="Missouri", meta={"default_state": "MO"}
+    )
+    assert state_of(["mizzou"]) == "MO"
+
+
+def test_two_states_have_no_single_answer(crawler_schema):
+    """A map across Missouri and Pennsylvania cannot assume either, so the
+    author is asked rather than told."""
+    from explorer.models import Dataset
+    from visuals.geofocus import state_of
+
+    Dataset.objects.create(
+        id="d-mo2", slug="mizzou2", label="Missouri", meta={"default_state": "MO"}
+    )
+    Dataset.objects.create(
+        id="d-pa", slug="lehigh", label="Lehigh", meta={"default_state": "PA"}
+    )
+    assert state_of(["mizzou2", "lehigh"]) == ""
+    assert state_of([]) == ""
+
+
+def test_the_custom_list_uses_the_datasets_state_too():
+    """Naming neighbours should not need the state repeated on each."""
+    assert frame("29019", COUNTY, CUSTOM, "Callaway; Howard", "MO") == [
+        "29019",  # Boone, the focus, always painted
+        "29027",  # Callaway
+        "29089",  # Howard
+    ]

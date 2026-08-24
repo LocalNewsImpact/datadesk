@@ -237,7 +237,9 @@ def builder_edit(request, slug):
         form = request.POST.get("form")
         try:
             if form == "config":
-                config = config_from_form(request.POST)
+                from visuals.geofocus import state_of
+
+                config = config_from_form(request.POST, state_of(visual.datasets))
                 visual.config = config
                 visual.save(update_fields=["config", "updated_at"])
                 AuditLogEntry.objects.create(

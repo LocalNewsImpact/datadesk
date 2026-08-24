@@ -59,7 +59,7 @@ class BuilderError(ValueError):
     """User-facing builder problem."""
 
 
-def config_from_form(post):
+def config_from_form(post, default_state=""):
     """Assemble and validate a chart config from form fields."""
     kind = post.get("kind", "")
     if kind not in CHART_KINDS:
@@ -80,12 +80,16 @@ def config_from_form(post):
         from visuals.geofocus import AUTO, FocusError, frame, resolve
 
         try:
-            geoid, level = resolve(config["focus"], post.get("focus_level", ""))
+            geoid, level = resolve(
+                config["focus"], post.get("focus_level", ""), default_state
+            )
             config["focus"] = geoid
             config["focus_level"] = level
             extent = post.get("extent", AUTO) or AUTO
             config["extent"] = extent
-            counties = frame(geoid, level, extent, post.get("extent_custom", ""))
+            counties = frame(
+                geoid, level, extent, post.get("extent_custom", ""), default_state
+            )
         except FocusError as exc:
             raise BuilderError(str(exc)) from exc
         # The counties to paint, resolved now. The renderer is handed a list
