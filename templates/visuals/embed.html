@@ -6,7 +6,16 @@
   <title>{{ visual.title }}</title>
   <link rel="stylesheet" href="{% static 'css/tokens.css' %}">
   <link rel="stylesheet" href="{% static 'css/datadesk.css' %}">
-  <style>body { background: transparent; } main { padding: 0; }</style>
+  {% comment %}
+  Transparent so the embed takes the colour of the page it lands in --
+  unless it has been pinned, when the publisher asked for a particular
+  ground and the host's must not show through it. A light chart on a dark
+  page is not a light chart.
+  {% endcomment %}
+  <style>
+    body { background: {% if theme_stamp %}var(--bg){% else %}transparent{% endif %}; }
+    main { padding: 0; }
+  </style>
 </head>
 <body>
   <main>

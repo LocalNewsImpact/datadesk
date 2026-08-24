@@ -40,7 +40,7 @@ STEPS = (
         "Colour",
         "Which colours?",
         "Enough distinct steps for the categories in play.",
-        ("theme", "taxonomy"),
+        ("theme", "theme_mode", "taxonomy"),
     ),
     Step(
         "data",

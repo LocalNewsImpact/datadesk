@@ -118,15 +118,23 @@ def _feed_url(visual, by_uuid, version=None, live=False):
 _THEME_STAMPS = ("light", "dark")
 
 
-def _asked_for_theme(request):
-    """`?theme=light|dark`, or None to follow the reader's own setting.
+def _theme_for(request, visual):
+    """Which colours this embed holds still at, in order of who decided.
 
-    Stamped on <html>, where tokens.css already gives an explicit choice
-    precedence over the operating system in both directions. Anything else
-    is None rather than an error, for the same reason `?v=` is.
+    The URL wins, because whoever pasted the embed knows what their page
+    looks like. Failing that, the visual's own setting, because somebody
+    built it light or dark on purpose. Failing that, the reader's device.
+
+    That middle term is the one that was missing. A palette carries both
+    a light and a dark variant and its name picks neither, so a visual
+    built light had no way to say so and every embed asked the reader --
+    which is why one authored light rendered dark.
     """
     asked = request.GET.get("theme", "").strip().lower()
-    return asked if asked in _THEME_STAMPS else None
+    if asked in _THEME_STAMPS:
+        return asked
+    chosen = (visual.config or {}).get("theme_mode", "")
+    return chosen if chosen in _THEME_STAMPS else None
 
 
 def _asked_for_version(request):
@@ -384,7 +392,7 @@ def embed(request, slug=None, uuid=None):
             "visual": visual,
             "renderer": f"visuals/renderers/{visual.template}.html",
             "feed": _feed_url(visual, by_uuid=uuid is not None, version=asked),
-            "theme_stamp": _asked_for_theme(request),
+            "theme_stamp": _theme_for(request, visual),
         },
     )
     response["Content-Security-Policy"] = f"frame-ancestors {visual.frame_ancestors}"

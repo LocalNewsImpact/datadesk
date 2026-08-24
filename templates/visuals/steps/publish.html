@@ -26,12 +26,12 @@ than not existing.</p>
   {% endcomment %}
   <fieldset class="theme-pick">
     <legend>Colour</legend>
-    <label><input type="radio" name="embed-theme" value="auto" checked>
-      Follow the reader</label>
-    <label><input type="radio" name="embed-theme" value="light">
-      Always light</label>
-    <label><input type="radio" name="embed-theme" value="dark">
-      Always dark</label>
+    <label><input type="radio" name="embed-theme" value="auto"
+      {% if theme_mode == "auto" %}checked{% endif %}> Follow the reader</label>
+    <label><input type="radio" name="embed-theme" value="light"
+      {% if theme_mode == "light" %}checked{% endif %}> Always light</label>
+    <label><input type="radio" name="embed-theme" value="dark"
+      {% if theme_mode == "dark" %}checked{% endif %}> Always dark</label>
   </fieldset>
 
   <pre class="embed-snippet"><code id="embed-code">{{ snippet }}</code></pre>

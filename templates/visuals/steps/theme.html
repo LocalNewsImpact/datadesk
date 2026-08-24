@@ -18,6 +18,23 @@
     {% endfor %}
   </div>
   {% comment %}
+  Light or dark, which the palette above does not decide: every palette
+  has both variants and the name picks neither. Left unset, the chart
+  asks whoever is looking at it, so a visual built light appeared dark to
+  anybody whose laptop was set that way -- including in the middle of a
+  light article, which is where most of them end up.
+  {% endcomment %}
+  <fieldset class="theme-pick">
+    <legend>Light or dark</legend>
+    <label><input type="radio" name="theme_mode" value=""
+      {% if not theme_mode %}checked{% endif %}> Follow the reader</label>
+    <label><input type="radio" name="theme_mode" value="light"
+      {% if theme_mode == "light" %}checked{% endif %}> Light</label>
+    <label><input type="radio" name="theme_mode" value="dark"
+      {% if theme_mode == "dark" %}checked{% endif %}> Dark</label>
+  </fieldset>
+
+  {% comment %}
   A fixed taxonomy is what keeps one CIN need the same colour in every
   chart, which is the caveat about inconsistent encoding across a set.
   {% endcomment %}

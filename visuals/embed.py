@@ -39,6 +39,13 @@ def snippet(visual, host=EMBED_HOST, version=None, theme=None):
     laptop got a dark chart dropped into the middle of it. The publisher
     knows what their page looks like; the reader's laptop does not.
     """
+    # Unset means "whatever the visual was built as", not "ask the
+    # reader": somebody who chose light in the builder chose it for the
+    # embed too, and having to choose again on the way out is how the
+    # setting gets forgotten.
+    if theme is None:
+        theme = (visual.config or {}).get("theme_mode") or None
+
     attrs = ""
     params = []
     if version is not None:

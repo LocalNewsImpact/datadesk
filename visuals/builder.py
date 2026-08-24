@@ -28,6 +28,7 @@ _STRING_KEYS = (
     "series",
     "size",
     "theme",
+    "theme_mode",
     "taxonomy",
     "title",
     "from",
