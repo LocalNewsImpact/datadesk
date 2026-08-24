@@ -341,3 +341,67 @@ def _dataset_choices():
         return list(Dataset.objects.order_by("label").values("slug", "label"))
     except DatabaseError:
         return []
+
+
+@requires(DESIGN)
+def builder_type(request, slug):
+    """Step one: pick a visualization type.
+
+    The gallery, grouped by the question each family answers, with types
+    that cannot be built from the data on hand greyed and carrying the
+    reason. A type is never hidden — knowing a dot map exists and needs
+    coordinates is worth more than not knowing it exists.
+    """
+    from visuals.types import BY_ID, FAMILIES, column_types, gallery
+
+    visual = _get_visual(request, slug)
+    if not may_act_on(request.user, visual):
+        raise PermissionDenied("This visual is not yours to change.")
+
+    snapshot = visual.snapshots.order_by("-version").first()
+    data = snapshot.data if snapshot else []
+    rows = data.get("points", []) if isinstance(data, dict) else data
+    available = column_types(rows)
+
+    if request.method == "POST":
+        chosen = request.POST.get("kind", "")
+        if chosen not in BY_ID:
+            raise Http404("No such chart type")
+        # Keep everything else. Changing the type is the only step that can
+        # invalidate an earlier choice, and the rule is to keep the choice
+        # and mark it unusable rather than empty the form (ROADMAP item 20).
+        config = dict(visual.config or {})
+        config["kind"] = chosen
+        visual.config = config
+        visual.save(update_fields=["config", "updated_at"])
+        AuditLogEntry.objects.create(
+            actor=request.user,
+            action="visual:type",
+            target_table="visuals",
+            target_ids=[visual.slug],
+            after={"kind": chosen},
+            reason=f"chart type for {visual.slug}",
+        )
+        return redirect("visuals:builder_edit", visual.slug)
+
+    entries = gallery(available)
+    chosen = (visual.config or {}).get("kind", "")
+    grouped = [
+        {
+            "family": family,
+            "types": [e for e in entries if e["family"] == family],
+        }
+        for family in FAMILIES
+    ]
+    return render(
+        request,
+        "visuals/builder_type.html",
+        {
+            "visual": visual,
+            "groups": [g for g in grouped if g["types"]],
+            "empty_families": [g["family"] for g in grouped if not g["types"]],
+            "chosen": chosen,
+            "available": sorted(available.items()),
+            "has_data": bool(rows),
+        },
+    )
