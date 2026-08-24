@@ -8,6 +8,8 @@ serve the pinned version by default with an explicit opt-in to live data
 readers).
 """
 
+import uuid as uuid_lib
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -39,6 +41,17 @@ class Visual(models.Model):
         (INLINE, "uploaded data"),
         (CORPUS, "the research corpus"),
     ]
+
+    # What a published URL is built from, and the only identifier that can
+    # carry that promise. An embed URL is pasted into somebody else's
+    # article and can never be moved afterwards, so the thing naming it
+    # must be unable to change -- and `slug` can: it is unique, editable,
+    # and generated from the title, so a rename in the admin silently
+    # breaks every embed already in the wild and tells nobody.
+    #
+    # The slug stays, for reading and for the URLs already handed out. It
+    # is now a label rather than an address.
+    uuid = models.UUIDField(default=uuid_lib.uuid4, unique=True, editable=False)
 
     slug = models.SlugField(unique=True)
     title = models.CharField(max_length=200)

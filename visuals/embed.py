@@ -16,16 +16,28 @@ publisher pasted is what their page loads for good.
 EMBED_HOST = "data.localnewsimpact.org"
 
 
-def snippet(visual, host=EMBED_HOST):
+def snippet(visual, host=EMBED_HOST, version=None):
     """The placeholder and the script, as plain text.
+
+    Addressed by uuid, never by slug. The slug is unique, editable and
+    generated from the title, so renaming a visual would break every
+    snippet already pasted -- and the person who pasted it would never
+    find out. The uuid cannot be renamed, which is the only property this
+    address actually needs.
 
     No height anywhere: the framed page reports its own and the script
     resizes to match (ROADMAP item 22). The link inside the placeholder is
     what a reader sees if the script never loads, so it is not decoration.
+
+    A version pins the snippet to one snapshot for good. Without one the
+    embed follows what is published, which is what most people want and
+    why it is the default.
     """
+    pin = f' data-version="{version}"' if version is not None else ""
+    query = f"?v={version}" if version is not None else ""
     return (
-        f'<div class="datadesk-visual" data-visual="{visual.slug}">'
-        f'<a href="https://{host}/visuals/{visual.slug}/">{visual.title}</a>'
+        f'<div class="datadesk-visual" data-visual="{visual.uuid}"{pin}>'
+        f'<a href="https://{host}/visuals/{visual.uuid}/{query}">{visual.title}</a>'
         f"</div>\n"
         f'<script src="https://{host}/static/js/datadesk-embed.js" async></script>'
     )

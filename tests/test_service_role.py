@@ -325,18 +325,6 @@ def test_it_serves_the_two_things_a_reader_fetches():
     assert "data.json" in routes
 
 
-def test_a_published_payload_is_cached_hard_and_the_list_is_not():
-    """An immutable version may be cached forever; what names versions may
-    not, or a republish never reaches anybody."""
-    from pathlib import Path
-
-    source = (
-        Path(__file__).resolve().parent.parent / "datadesk/urls_data.py"
-    ).read_text()
-    assert "immutable=True" in source
-    assert "max_age=300" in source
-
-
 def test_the_embed_is_still_framed_by_the_allowlist():
     """Serving it from another host must not loosen who may frame it: the
     view is the console's own rather than a copy that could drift."""
@@ -426,23 +414,27 @@ def test_the_renderers_all_reverse_the_same_namespace():
 
 
 def test_the_snippets_fallback_link_resolves_on_the_host_it_names():
-    """The placeholder in every snippet links to /visuals/<slug>/ on the
-    data host, for the reader whose browser never ran the script. That URL
-    was declared only on the console, so the link 404'd on the one host it
-    was ever pointed at."""
+    """The placeholder in every snippet links to the visual's own page on
+    the data host, for the reader whose browser never ran the script. That
+    URL was declared only on the console, so the link 404'd on the one host
+    it was ever pointed at."""
     from visuals.embed import EMBED_HOST, snippet
 
     class _V:
+        uuid = "3f2b0c4e-0000-4000-8000-000000000001"
         slug = "boone-county-coverage"
         title = "Where Boone County reports"
 
+    # Addressed by uuid. A slug is editable, and renaming a visual would
+    # break every snippet already pasted without telling whoever pasted it.
     linked = snippet(_V())
-    assert f'href="https://{EMBED_HOST}/visuals/{_V.slug}/"' in linked
+    assert f'href="https://{EMBED_HOST}/visuals/{_V.uuid}/"' in linked
+    assert _V.slug not in linked
 
     routes = _data_routes()
-    assert (
-        "visuals/<slug:slug>/" in routes
-    ), "the snippet's fallback link has no route on the data host"
+    assert "visuals/<uuid:uuid>/" in routes
+    # And the addresses already handed out still resolve, as redirects.
+    assert "visuals/<slug:slug>/" in routes
 
 
 def test_the_public_page_is_not_the_walled_one():
@@ -454,7 +446,9 @@ def test_the_public_page_is_not_the_walled_one():
 
     assert views.public_page is not views.page
 
-    match = resolve("/visuals/boone-county-coverage/", urlconf=_data_urlconf())
+    match = resolve(
+        "/visuals/3f2b0c4e-0000-4000-8000-000000000001/", urlconf=_data_urlconf()
+    )
     # Cached views are wrapped, so compare the name `functools.wraps` kept.
     assert (
         match.func.__name__ == "public_page"

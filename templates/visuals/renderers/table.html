@@ -1,6 +1,6 @@
 {# The reference renderer: the feed as a table. Visuals are authored as #}
 {# code — a real visual gets its own template here plus a data source. #}
-<div class="visual-table" data-feed="{% url 'visuals:data' visual.slug %}"></div>
+<div class="visual-table" data-feed="{{ feed }}"></div>
 <script>
 (function () {
   const el = document.currentScript.previousElementSibling;

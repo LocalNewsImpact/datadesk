@@ -44,7 +44,7 @@
     }
   });
 
-  fetch("{% url 'visuals:data' visual.slug %}{% if live %}?live=1{% endif %}")
+  fetch("{{ feed }}")
     .then((r) => {
       if (!r.ok) throw new Error(r.status + " from the feed");
       return r.json();

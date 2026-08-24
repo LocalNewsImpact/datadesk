@@ -44,13 +44,14 @@ and neither of those exists on this host.
 
     <div class="figure">{% include renderer %}</div>
 
-    {% if visual.pinned_snapshot %}
+    {% if shown %}
     {# What the reader is looking at, dated. A visual pinned to a snapshot
        is not live, and saying so is the difference between a chart and a
        claim about today. #}
-    <p class="note">Data as of
-      {{ visual.pinned_snapshot.created_at|date:"j F Y" }}
-      (snapshot v{{ visual.pinned_snapshot.version }}).</p>
+    <p class="note">Data as of {{ shown.created_at|date:"j F Y" }}
+      (snapshot v{{ shown.version }}){% if pinned_by_url %} — this link is
+      pinned to that version; <a href="?">the current one</a> may
+      differ{% endif %}.</p>
     {% endif %}
 
     <details>
@@ -61,7 +62,7 @@ and neither of those exists on this host.
     </details>
 
     <footer>
-      <a href="{% url 'visuals:data' visual.slug %}">Download the data (JSON)</a>
+      <a href="{{ feed }}">Download the data (JSON)</a>
     </footer>
   </div>
 </body>
