@@ -267,3 +267,117 @@ def test_the_gallery_answers_the_whole_picker_in_one_call():
             "why_not",
             "read_better",
         }
+
+
+# --- the picker screen -------------------------------------------------------
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_picker_greys_what_the_data_cannot_build(client, crawler_schema):
+    """The gallery is rendered against the visual's own snapshot, so what is
+    dimmed reflects the data actually on hand rather than a general rule."""
+    from django.contrib.auth.models import User
+
+    from accounts.models import DATADESK, Grant
+    from visuals.models import Visual, VisualSnapshot
+
+    author = User.objects.create_user("designer", email="d@localnewsimpact.org")
+    Grant.objects.create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+
+    visual = Visual.objects.create(
+        slug="picker-test",
+        title="Picker",
+        template="builder",
+        source_kind="corpus",
+        created_by=author,
+    )
+    VisualSnapshot.objects.create(
+        visual=visual,
+        version=1,
+        data=[{"County": "Boone", "Articles": 12}],
+        created_by=author,
+    )
+
+    body = client.get(f"/visuals/builder/{visual.slug}/type/").content.decode()
+
+    # A bar can be drawn from a category and a number; a scatter cannot,
+    # and says why rather than merely being dim.
+    assert "Bar chart" in body
+    assert "Scatter plot" in body
+    assert "there is 1" in body, "the greyed reason names the shortage"
+    # And the accuracy suggestion is on the donut.
+    assert "Read more accurately as" in body
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_choosing_a_type_keeps_every_other_choice(client, crawler_schema):
+    """Changing the type is the only step that can invalidate an earlier
+    choice, and the rule is to keep it. A builder that empties the form
+    when somebody looks at another chart type teaches them not to explore."""
+    from django.contrib.auth.models import User
+
+    from accounts.models import DATADESK, Grant
+    from visuals.models import Visual
+
+    author = User.objects.create_user("designer2", email="d2@localnewsimpact.org")
+    Grant.objects.create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+
+    visual = Visual.objects.create(
+        slug="keeps-choices",
+        title="Keeps",
+        template="builder",
+        source_kind="corpus",
+        created_by=author,
+        config={"kind": "bar", "x": "County", "y": "Articles", "title": "Mine"},
+    )
+    client.post(f"/visuals/builder/{visual.slug}/type/", {"kind": "donut"})
+
+    visual.refresh_from_db()
+    assert visual.config["kind"] == "donut"
+    assert visual.config["x"] == "County", "the mapping survived"
+    assert visual.config["title"] == "Mine"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_an_unknown_type_is_refused(client, crawler_schema):
+    from django.contrib.auth.models import User
+
+    from accounts.models import DATADESK, Grant
+    from visuals.models import Visual
+
+    author = User.objects.create_user("designer3", email="d3@localnewsimpact.org")
+    Grant.objects.create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual = Visual.objects.create(
+        slug="refuses",
+        title="R",
+        template="builder",
+        source_kind="corpus",
+        created_by=author,
+    )
+    assert (
+        client.post(
+            f"/visuals/builder/{visual.slug}/type/", {"kind": "sunburst"}
+        ).status_code
+        == 404
+    )
+
+
+def test_a_column_of_census_codes_is_not_a_quantity():
+    """A county's FIPS is an identifier. A chart must not average it, and
+    offering it as a measure is how that happens."""
+    from visuals.types import GEO, NUMBER, column_types
+
+    found = column_types([{"county": "29019", "stories": 81}])
+    assert found["county"] == GEO
+    assert found["stories"] == NUMBER
+
+
+def test_one_unparseable_value_makes_a_column_text():
+    """A chart that silently drops the rows it cannot parse is worse than
+    one that is not offered."""
+    from visuals.types import TEXT, column_types
+
+    assert column_types([{"n": 1}, {"n": 2}, {"n": "n/a"}])["n"] == TEXT

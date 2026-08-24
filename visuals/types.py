@@ -466,3 +466,40 @@ def gallery(available):
         }
         for c in CHART_TYPES
     )
+
+
+# --- what the data on hand actually holds ------------------------------------
+
+
+def column_types(rows, sample=200):
+    """{column: NUMBER|TEXT|DATE|GEO} from the rows themselves.
+
+    Inferred rather than declared, because a visual's data can come from a
+    pivot, a bucket object, a BigQuery result or an uploaded CSV, and only
+    the first of those has a schema we control.
+
+    A column is a number only if every non-empty value in the sample is
+    one: a single "n/a" makes it text, because a chart that silently drops
+    the rows it cannot parse is worse than one that is not offered.
+    """
+    import datetime
+    import re
+
+    geoid = re.compile(r"^\d{2}$|^\d{5}$|^\d{7}$|^\d{11}$|^\d{15}$")
+    found = {}
+    for name in (rows[0].keys() if rows else ()):
+        values = [r.get(name) for r in rows[:sample] if r.get(name) not in (None, "")]
+        if not values:
+            found[name] = TEXT
+            continue
+        if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in values):
+            found[name] = NUMBER
+        elif all(isinstance(v, (datetime.date, datetime.datetime)) for v in values):
+            found[name] = DATE
+        elif all(isinstance(v, str) and geoid.match(v.strip()) for v in values):
+            # Census codes arrive as strings and are identifiers, not
+            # quantities: a chart must not average a county's FIPS.
+            found[name] = GEO
+        else:
+            found[name] = TEXT
+    return found
