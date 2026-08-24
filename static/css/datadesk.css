@@ -1506,3 +1506,30 @@ tr.prop td { border-bottom: 0; }
 .tree .kids{ padding-left: 1.2rem; }
 .tree .row.pub{ display: flex; align-items: center; gap: .4rem;
   padding: .24rem .5rem; font-size: var(--fs-sm); }
+
+/* --- the newsroom ladder ---------------------------------------------------
+   Native <details>, so the disclosure works with no JavaScript and keyboard
+   and screen readers get it for free. The default triangle is replaced with
+   a chevron that rotates: one control in two states rather than two glyphs
+   that have to be recognised as the same thing. */
+.tree summary{ list-style: none; }
+.tree summary::-webkit-details-marker{ display: none; }
+.tree summary::before{
+  content: ""; flex: 0 0 auto; width: .58rem; height: .58rem;
+  border-right: 1.6px solid var(--text-3); border-bottom: 1.6px solid var(--text-3);
+  transform: rotate(-45deg); transform-origin: 60% 60%;
+  transition: transform .12s ease;
+}
+.tree details[open] > summary::before{ transform: rotate(45deg); }
+.tree summary:hover::before{ border-color: var(--text); }
+.tree summary:focus-visible{ outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.tree{ border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface-2); max-height: 26rem; overflow-y: auto; }
+.tree > details > summary{ background: var(--surface); position: sticky; top: 0; z-index: 1; }
+.tree .row.pub:hover{ background: var(--surface); }
+/* The count is what makes a facet legible rather than a wall of checkboxes. */
+.tree em{ font-variant-numeric: tabular-nums; }
+
+/* A parent whose children are partly chosen must not claim they all are. */
+.tree input[type="checkbox"]:indeterminate{ opacity: .8; }

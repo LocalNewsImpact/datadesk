@@ -13,11 +13,15 @@ Sending nothing means every one of them -- storing exclusions would make
   <div class="tree">
     {% for s in states %}
     <details class="node state" open>
-      <summary><span class="label strong">{{ s.label }}</span>
+      <summary>
+        <input type="checkbox" class="branch" data-scope="state" aria-label="All newsrooms in {{ s.label }}">
+        <span class="label strong">{{ s.label }}</span>
         <em>{{ s.counties|length }} counties · {{ s.rooms }}</em></summary>
       {% for c in s.counties %}
       <details class="node county">
-        <summary><span class="label">{{ c.name }}</span>
+        <summary>
+          <input type="checkbox" class="branch" data-scope="county" aria-label="All newsrooms in {{ c.name }}">
+          <span class="label">{{ c.name }}</span>
           <em>{{ c.rooms|length }} · {{ c.count }}</em></summary>
         <div class="kids">
           {% for r in c.rooms %}
@@ -38,4 +42,38 @@ Sending nothing means every one of them -- storing exclusions would make
     <button type="submit" name="stay" value="1">Save and stay</button>
   </div>
 </form>
+
+<script>
+// A parent checkbox is a shortcut, not a value: it never submits, it sets
+// the leaves. Its own state is read back from them, so "some" is visible
+// rather than a parent claiming its children are all chosen.
+(function () {
+  const tree = document.querySelector(".tree");
+  if (!tree) return;
+  const leavesUnder = (el) => [...el.querySelectorAll('input[name="publishers"]')];
+
+  function refresh(el) {
+    const box = el.querySelector("summary > .branch");
+    if (!box) return;
+    const leaves = leavesUnder(el);
+    const on = leaves.filter((l) => l.checked).length;
+    box.checked = on === leaves.length && leaves.length > 0;
+    box.indeterminate = on > 0 && on < leaves.length;
+  }
+  const refreshAll = () => tree.querySelectorAll("details").forEach(refresh);
+
+  tree.addEventListener("change", (e) => {
+    if (e.target.classList.contains("branch")) {
+      leavesUnder(e.target.closest("details")).forEach((l) => {
+        l.checked = e.target.checked;
+      });
+    }
+    refreshAll();
+  });
+  // A click on the parent box should tick it, not open the disclosure.
+  tree.querySelectorAll(".branch").forEach((b) =>
+    b.addEventListener("click", (e) => e.stopPropagation()));
+  refreshAll();
+})();
+</script>
 {% endblock %}
