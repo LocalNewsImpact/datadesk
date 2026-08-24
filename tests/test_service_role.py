@@ -290,3 +290,68 @@ def test_the_build_graph_has_no_cycle():
 
     for node in deps:
         visit(node)
+
+
+# --- the public data front end (ROADMAP item 24) -----------------------------
+#
+# `data.localnewsimpact.org` is a hostname anybody may link to. The point of
+# it being a separate service rather than a host check on the console is that
+# the console does not exist there: not a login form, not a redirect to one,
+# not a URL that reverses to one.
+
+
+def _data_urlconf():
+    import importlib
+
+    return importlib.import_module("datadesk.urls_data")
+
+
+def test_the_data_role_selects_its_own_urlconf():
+    import importlib
+    import os
+
+    os.environ["SERVICE_ROLE"] = "data"
+    try:
+        module = importlib.reload(importlib.import_module("datadesk.settings"))
+        assert module.ROOT_URLCONF == "datadesk.urls_data"
+    finally:
+        del os.environ["SERVICE_ROLE"]
+        importlib.reload(importlib.import_module("datadesk.settings"))
+
+
+def test_the_console_is_absent_rather_than_refused():
+    """Not 403, not a redirect -- absent. A hostname readers link to should
+    have no admin behind it at all."""
+    joined = " ".join(str(e.pattern) for e in _data_urlconf().urlpatterns)
+    for forbidden in ("admin", "accounts", "review", "manage", "explorer"):
+        assert forbidden not in joined, f"{forbidden} is reachable on the data host"
+
+
+def test_it_serves_the_two_things_a_reader_fetches():
+    routes = " ".join(str(p.pattern) for p in _data_urlconf().urlpatterns)
+    assert "embed/" in routes
+    assert "data.json" in routes
+
+
+def test_a_published_payload_is_cached_hard_and_the_list_is_not():
+    """An immutable version may be cached forever; what names versions may
+    not, or a republish never reaches anybody."""
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parent.parent / "datadesk/urls_data.py"
+    ).read_text()
+    assert "immutable=True" in source
+    assert "max_age=300" in source
+
+
+def test_the_embed_is_still_framed_by_the_allowlist():
+    """Serving it from another host must not loosen who may frame it: the
+    view is the console's own rather than a copy that could drift."""
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parent.parent / "datadesk/urls_data.py"
+    ).read_text()
+    assert "visuals.embed" in source
+    assert "from visuals import views as visuals" in source

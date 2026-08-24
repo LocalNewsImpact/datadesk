@@ -28,6 +28,9 @@ substitutions:
   _SOURCES_PROJECT: lnic-source-directory
   _SOURCES_HOST: sources.localnewsimpact.org
   _SOURCES_SA: directory-run@lnic-source-directory.iam.gserviceaccount.com
+  # The public data front end (ROADMAP item 24). Same image, SERVICE_ROLE=data,
+  # its own service so the console is absent from a hostname readers link to.
+  _DATA_HOST: data.localnewsimpact.org
   _DIRECTORY_VERSION: ''
   # Set by the caller. SHORT_SHA is a trigger-only builtin and is empty
   # under `builds submit`, so the commit travels as its own substitution.
@@ -342,6 +345,81 @@ steps:
         code="$$(curl -s -o /dev/null -w '%{http_code}' "$$URL/_health")"
         echo "$$URL/_health -> $$code"
         [ "$$code" = "200" ] || { echo "sources-admin smoke test failed after traffic shift"; exit 1; }
+
+  # --- The public data front end -------------------------------------------
+  #
+  # Feeds, visual payloads and embeds, and nothing of the console. It runs
+  # after Datadesk's own rollout is proved, like the directory does, so a
+  # bad image is caught on one console before it reaches anything public.
+  #
+  # No migration: it owns no tables, and reads what the console has already
+  # written.
+
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'data-candidate'
+    entrypoint: 'bash'
+    waitFor: ['shift']
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        IMAGE="${_REGISTRY}/${_SERVICE}:${_SHORT_SHA}"
+        if gcloud run services describe datadesk-data --region "${_REGION}" \
+            --project "$PROJECT_ID" >/dev/null 2>&1; then
+          TRAFFIC_FLAGS="--no-traffic --tag=candidate"
+        else
+          echo "first deploy: service does not exist; deploying with traffic"
+          TRAFFIC_FLAGS=""
+        fi
+        gcloud run deploy datadesk-data \
+          $$TRAFFIC_FLAGS \
+          --image "$$IMAGE" --region "${_REGION}" --project "$PROJECT_ID" \
+          --service-account "${_RUN_SA}" \
+          --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_DB_PASSWORD=crawler-ro-password:latest" \
+          --set-env-vars "^@^SERVICE_ROLE=data@CLOUD_SQL_CONNECTION_NAME=${_SQL_INSTANCE}@DB_NAME=datadesk@DB_USER=datadesk@CRAWLER_DB_NAME=mizzou@CRAWLER_DB_USER=datadesk_ro@DJANGO_ALLOWED_HOSTS=${_DATA_HOST},.run.app" \
+          --set-cloudsql-instances "${_SQL_INSTANCE}" \
+          --ingress all --allow-unauthenticated --min-instances 0
+
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'data-prove'
+    entrypoint: 'bash'
+    waitFor: ['data-candidate']
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        URL="$$(gcloud run services describe datadesk-data --region "${_REGION}" \
+                --project "$PROJECT_ID" --format=json \
+                | python3 -c 'import json,sys; print(next((t["url"] for t in json.load(sys.stdin)["status"]["traffic"] if t.get("tag")=="candidate"), ""))')"
+        if [ -z "$$URL" ]; then
+          URL="$$(gcloud run services describe datadesk-data --region "${_REGION}" \
+                  --project "$PROJECT_ID" --format='value(status.url)')"
+        fi
+        [ -n "$$URL" ] || { echo "no URL to check"; exit 1; }
+        code=""
+        for _ in $$(seq 1 10); do
+          code="$$(curl -s -o /dev/null -w '%{http_code}' "$$URL/_health" || true)"
+          [ "$$code" = "200" ] && break
+          sleep 3
+        done
+        echo "candidate $$URL/_health -> $$code"
+        [ "$$code" = "200" ] || { echo "data candidate failed its health check"; exit 1; }
+
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'data-shift'
+    entrypoint: 'bash'
+    waitFor: ['data-prove']
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        gcloud run services update-traffic datadesk-data \
+          --region "${_REGION}" --project "$PROJECT_ID" --to-latest
+        URL="$$(gcloud run services describe datadesk-data --region "${_REGION}" \
+                --project "$PROJECT_ID" --format='value(status.url)')"
+        code="$$(curl -s -o /dev/null -w '%{http_code}' "$$URL/_health")"
+        echo "$$URL/_health -> $$code"
+        [ "$$code" = "200" ] || { echo "data smoke test failed"; exit 1; }
 
 # Two migrate jobs and two proved rollouts; the Actions equivalent ran in
 # about eleven minutes.
