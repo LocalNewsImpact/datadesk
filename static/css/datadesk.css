@@ -1406,33 +1406,58 @@ tr.prop td { border-bottom: 0; }
 .flag-label { display: block; font-weight: 600; font-size: .78rem; color: var(--text); margin-top: .2rem; }
 
 /* --- the chart-type gallery (ROADMAP item 20) -----------------------------
-   Types are cards, not a dropdown: somebody picks a chart by recognising it.
-   An unavailable type is dimmed and still readable, never hidden -- knowing
-   a dot map exists and needs coordinates is worth more than not knowing it
-   exists. */
+   The card answers, in order: can I use this, what is it, what is it for,
+   what would it take, what should I know. Weight and position follow that
+   order. Description and advice are different registers and never share a
+   treatment. */
+.type-filter { display: block; max-width: 26rem; margin: var(--s-3) 0; }
+.type-filter input { width: 100%; }
+
+.type-family { margin-bottom: var(--s-4); }
+.type-family > h2 {
+  font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-3); margin: 0 0 var(--s-2);
+}
 .type-gallery {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
   gap: var(--s-3);
-  margin: var(--s-2) 0 var(--s-4);
 }
-.type-card { display: flex; flex-direction: column; gap: .3rem; }
+
+/* The whole card is the target, so the reason lives inside the button --
+   against the thing it explains, not floating below it. */
+.type-card { display: flex; flex-direction: column; gap: .35rem; }
 .type-card > button {
-  display: flex; flex-direction: column; gap: .25rem; width: 100%;
-  padding: .7rem .8rem; text-align: left; cursor: pointer;
+  display: flex; flex-direction: column; gap: .3rem; width: 100%;
+  padding: .75rem .85rem; text-align: left; cursor: pointer;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--r-md); color: var(--text);
 }
 .type-card > button:hover:not(:disabled) { border-color: var(--accent); }
-.type-card.on > button { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.type-name { font-weight: 600; }
-.type-blurb { color: var(--text-2); font-size: var(--fs-sm); }
-/* Dimmed, not removed. The reason sits under it in full contrast, because
-   the reason is the part somebody acts on. */
-.type-card.unavailable > button { opacity: .5; cursor: not-allowed; }
-.type-why, .type-req, .type-better, .type-also {
-  margin: 0; font-size: var(--fs-sm); line-height: 1.35;
+.type-card > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.type-card.on > button { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+
+.type-name { font-weight: 600; line-height: 1.25; }
+.type-blurb { color: var(--text-2); font-size: var(--fs-sm); line-height: 1.35; }
+
+/* Availability is state, carried by the card. The sentence explains a state
+   already seen, so it is quiet -- and it is not dimmed with the rest, because
+   it is the part somebody acts on. */
+.type-card.unavailable > button { cursor: not-allowed; background: var(--surface-2); }
+.type-card.unavailable .type-name,
+.type-card.unavailable .type-blurb { opacity: .55; }
+.type-why {
+  font-size: var(--fs-sm); line-height: 1.35; color: var(--text-2);
+  padding-top: .35rem; border-top: 1px solid var(--border);
 }
-.type-why { color: var(--text-2); }
-.type-req, .type-also { color: var(--text-3); }
-.type-better { color: var(--accent); }
+
+/* Advice is a recommendation about the reader's choice, not a fact about the
+   chart. Different register, different colour, present only when there is
+   something to advise. */
+.type-advice {
+  margin: 0; font-size: var(--fs-sm); line-height: 1.35;
+  color: var(--tone-warn);
+}
+.type-card:not(.unavailable) .type-advice { color: var(--accent); }
+
+.type-nothing { color: var(--text-3); }

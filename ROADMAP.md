@@ -1971,6 +1971,54 @@ than presenting every setting for every chart type at once. `validTypes`
 is what makes step 4's checkbox list possible, and `required` is what tells
 the preview whether it can draw anything yet.
 
+**The theory the page is designed against.** Not a style preference — a
+rule that decides what goes where, and what does not appear at all.
+
+**The page is the sentence somebody arrived with.** The use case, verbatim:
+*"a chord diagram of the relationship between primary and secondary CIN
+categories from our March articles in Missouri."* That sentence has three
+clauses — the type, the data, the filter — and the builder's steps are
+those clauses in that order. When a step is done its clause is settled and
+reads back in the words the author used, not in the schema's words. The
+preview is the sentence rendered. A builder whose steps do not match the
+sentence makes somebody translate before they can begin, which is what
+ninety-one controls asked of them.
+
+**Every element earns its place by answering the next question, in order.**
+On any surface the reader asks, in this sequence: *Can I use this? What is
+it? What is it for? What would it take? What should I know?* Position and
+weight follow that order, and an element answering none of those questions
+is removed rather than made smaller. This is the test that fails the
+current form: a control for a chart type nobody has chosen answers no
+question anybody is asking.
+
+**Availability is state, not prose.** Whether a thing can be used is the
+first question, so it is carried by the element's own appearance — dimmed,
+disabled — and never by a sentence the reader has to find and parse. The
+sentence explains a state already seen. It follows that the reason must sit
+against the thing it explains, close enough that no scanning connects them,
+because a reason floating below three other lines is a fourth paragraph
+rather than an explanation.
+
+**Advice is a different register from description, and must look like one.**
+"Needs a number for value" is a fact about the chart. "Reads more accurately
+as a bar chart" is a recommendation about the reader's choice. They are
+different kinds of speech and share no styling: description is quiet and
+neutral, advice is coloured and appears only when there is something to
+advise. Two facts in one typeface is how a page becomes a wall.
+
+**What is searchable is not therefore visible.** A chord is also known as a
+network diagram and also answers Relationships and Movement or flow. All of
+that should find it and none of it should be printed on the card. Metadata
+that helps somebody *arrive* is not metadata that helps them *choose*, and
+putting the first on screen buries the second.
+
+**Nothing is hidden for being unsuitable.** Dimmed and explained, never
+absent. Somebody who cannot yet build a dot map should still learn that dot
+maps exist and take coordinates — that is how the tool teaches, and a
+picker that quietly shows fewer options to less prepared authors teaches
+them nothing.
+
 **Where the guidance comes from, and what each contributes.** Four sources,
 each answering a different part of the picker:
 

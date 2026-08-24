@@ -100,6 +100,22 @@ class ChartType:
     pairs: tuple = ()
     #: How its main quantity is read. See the ranking above.
     encoding: int = POSITION
+    #: Other questions this answers. The Data Viz Catalogue organises by
+    #: function rather than by one family, and a chart serves several: a
+    #: stacked bar is a comparison and a part-to-whole at once. `family` is
+    #: where the gallery files it; these are the other ways to find it.
+    functions: tuple = ()
+    #: The row counts it reads well at, from the Berkeley chart picker's
+    #: small/large split and the volume advice in their library guide: too
+    #: many lines is unreadable, a scatter overplots, similarly-sized pie
+    #: wedges mean pick something else. None either side means no limit.
+    rows_from: int = 1
+    rows_to: int = 0  # 0 = no upper limit
+    #: Whether the value axis must start at zero. A bar's length *is* the
+    #: quantity, so a truncated axis misstates it -- most of what Cairo's
+    #: How Charts Lie is about. A line shows change, and forcing zero can
+    #: flatten the thing being shown.
+    zero_baseline: bool = False
 
 
 # The Financial Times' Visual Vocabulary, which is the standard grouping for
@@ -176,6 +192,9 @@ CHART_TYPES = (
         ),
         also=("column", "ranking"),
         encoding=POSITION,
+        functions=("Comparisons", "Ranking"),
+        rows_to=30,
+        zero_baseline=True,
     ),
     ChartType(
         "line",
@@ -186,6 +205,9 @@ CHART_TYPES = (
         options=(_SORT, _TAXONOMY, *_AXIS_LABELS),
         also=("trend", "time series"),
         encoding=POSITION,
+        functions=("Data over time", "Patterns"),
+        rows_from=3,
+        zero_baseline=False,
     ),
     ChartType(
         "area",
@@ -195,6 +217,9 @@ CHART_TYPES = (
         roles=(Role("x", "Time", accepts=(DATE, TEXT)), _VALUE, _SERIES),
         options=(_SORT, _TAXONOMY, *_AXIS_LABELS),
         encoding=POSITION,
+        functions=("Data over time", "Part-to-a-whole"),
+        rows_from=3,
+        zero_baseline=True,
     ),
     ChartType(
         "scatter",
@@ -209,6 +234,9 @@ CHART_TYPES = (
         ),
         options=(_SORT, _TAXONOMY, *_AXIS_LABELS),
         encoding=POSITION,
+        functions=("Relationships", "Distribution"),
+        rows_from=8,
+        rows_to=5000,
     ),
     ChartType(
         "donut",
@@ -219,6 +247,9 @@ CHART_TYPES = (
         options=(Option("ylabel", "Label the value", "text"),),
         also=("pie",),
         encoding=ANGLE,
+        functions=("Proportions", "Part-to-a-whole"),
+        rows_to=6,
+        zero_baseline=True,
     ),
     ChartType(
         "chord",
@@ -233,6 +264,8 @@ CHART_TYPES = (
         pairs=("from", "to"),
         also=("network", "relationship"),
         encoding=LENGTH,
+        functions=("Relationships", "Movement or flow"),
+        rows_to=400,
     ),
     ChartType(
         "arc",
@@ -246,6 +279,8 @@ CHART_TYPES = (
         ),
         pairs=("from", "to"),
         encoding=LENGTH,
+        functions=("Relationships", "Movement or flow"),
+        rows_to=400,
     ),
     ChartType(
         "choropleth",
@@ -263,6 +298,7 @@ CHART_TYPES = (
         ),
         also=("heat map", "shaded", "county map"),
         encoding=SHADING,
+        functions=("Location", "Comparisons"),
     ),
     ChartType(
         "points",
@@ -281,6 +317,8 @@ CHART_TYPES = (
         ),
         also=("bubble map", "point map"),
         encoding=AREA,
+        functions=("Location", "Distribution"),
+        rows_to=5000,
     ),
     ChartType(
         "storymap",
@@ -302,6 +340,7 @@ CHART_TYPES = (
         ),
         also=("coverage map",),
         encoding=SHADING,
+        functions=("Location", "Distribution"),
     ),
     ChartType(
         "table",
@@ -309,6 +348,7 @@ CHART_TYPES = (
         TABLES,
         "The rows themselves.",
         encoding=NOT_QUANTITATIVE,
+        functions=("Reference tool",),
     ),
 )
 
@@ -447,7 +487,36 @@ def read_more_accurately_than(chart_id, available):
     )
 
 
-def gallery(available):
+def strains_at(chart_id, row_count):
+    """A caution about volume, or "".
+
+    Distinct from `unavailable`, and the distinction matters: this type can
+    be built, and will read badly. The Berkeley chart picker splits small
+    from large data sets as a first question; their library guide says why
+    -- too many lines is unreadable, a scatter overplots, and a pie whose
+    wedges are all much the same is a pie that should have been a bar.
+
+    A caution and not a refusal. The author can see the count and decide.
+    """
+    chart = BY_ID[chart_id]
+    if not row_count:
+        return ""
+    name = chart.label.lower()
+    article = "an" if name[0] in "aeiou" else "a"
+    if row_count < chart.rows_from:
+        return (
+            f"{row_count} rows is thin for {article} {name}; "
+            f"it reads from about {chart.rows_from}."
+        )
+    if chart.rows_to and row_count > chart.rows_to:
+        return (
+            f"{row_count} rows is a lot for {article} {name}; "
+            f"past about {chart.rows_to} it stops being readable."
+        )
+    return ""
+
+
+def gallery(available, row_count=0):
     """Every type, with the reason it cannot be used where that applies.
 
     The whole picker in one call: what is offered, grouped by the question
@@ -463,6 +532,9 @@ def gallery(available):
             "requires": requirement_of(c.id),
             "why_not": unavailable(c.id, available),
             "read_better": read_more_accurately_than(c.id, available),
+            "caution": strains_at(c.id, row_count),
+            "zero_baseline": c.zero_baseline,
+            "functions": c.functions,
         }
         for c in CHART_TYPES
     )
