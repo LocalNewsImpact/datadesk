@@ -103,3 +103,57 @@ def test_the_shared_files_are_collected_as_static(path, settings):
     the static tree would 404 for the other console."""
     assert path.exists()
     assert str(path).startswith(str(Path(settings.BASE_DIR) / "static"))
+
+
+# --- the colour theme toggle -------------------------------------------------
+
+
+def _tokens():
+    from pathlib import Path
+
+    return (
+        Path(__file__).resolve().parent.parent / "static/css/tokens.css"
+    ).read_text()
+
+
+def test_the_theme_has_three_states_not_two():
+    """An explicit choice, and auto. Without the third, somebody who has
+    never chosen is stuck on whatever the operating system says -- and an
+    explicit light on a dark machine would not hold."""
+    css = _tokens()
+    assert "@media (prefers-color-scheme: dark)" in css
+    assert ':root:not([data-theme="light"])' in css, "explicit light must win"
+    assert ':root[data-theme="dark"]' in css, "explicit dark must win too"
+
+
+def test_the_toggle_is_visible_without_signing_in():
+    """It is a preference about this browser, not a fact about an account,
+    so it does not wait for one."""
+    from pathlib import Path
+
+    base = (Path(__file__).resolve().parent.parent / "templates/base.html").read_text()
+    toggle = base.index('class="theme-toggle"')
+    guard = base.index("{% if user.is_authenticated %}", toggle - 2000)
+    assert toggle < guard, "the toggle sits inside the signed-in block"
+
+
+def test_the_stamp_lands_before_the_first_paint():
+    """Deferred, a dark reader sees a white flash on every page."""
+    from pathlib import Path
+
+    base = (Path(__file__).resolve().parent.parent / "templates/base.html").read_text()
+    head = base[: base.index("</head>")]
+    assert "datadesk-theme.js" in head
+    assert "defer" not in head[head.index("datadesk-theme.js") - 120 :][:160]
+
+
+def test_a_browser_that_refuses_storage_still_renders():
+    """Private windows and blocked site data throw on access rather than
+    returning null."""
+    from pathlib import Path
+
+    js = (
+        Path(__file__).resolve().parent.parent / "static/js/datadesk-theme.js"
+    ).read_text()
+    assert js.count("try {") >= 2
+    assert "catch" in js

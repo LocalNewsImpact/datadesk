@@ -92,8 +92,10 @@
 
 /* --- tokens: dark ------------------------------------------------------- */
 
+/* The system's choice, which applies unless somebody has made their own.
+   Guarded so an explicit light beats a dark OS. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0d1014;
     --surface: #14181e;
     --surface-2: #1a1f26;
@@ -128,3 +130,39 @@
     --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.5);
   }
 }
+
+/* An explicit dark choice, so the toggle wins over a light OS too. */
+:root[data-theme="dark"] {
+    --bg: #0d1014;
+    --surface: #14181e;
+    --surface-2: #1a1f26;
+    --surface-3: #232a33;
+    --sidebar-bg: #11151a;
+
+    --border: #262d36;
+    --border-strong: #3a4450;
+
+    --text: #e7ebf1;
+    --text-2: #a5aebc;
+    --text-3: #798394;
+
+    --accent: #6f9dff;
+    --accent-hover: #90b4ff;
+    --accent-soft: rgba(111, 157, 255, 0.14);
+    --on-accent: #0d1014;
+    --focus-ring: rgba(111, 157, 255, 0.55);
+
+    --tone-good: #56cc92;
+    --tone-good-soft: rgba(86, 204, 146, 0.14);
+    --tone-warn: #e3b25c;
+    --tone-warn-soft: rgba(227, 178, 92, 0.14);
+    --tone-bad: #ff8b83;
+    --tone-bad-soft: rgba(255, 139, 131, 0.14);
+    --tone-info: #6cc6ea;
+    --tone-info-soft: rgba(108, 198, 234, 0.14);
+    --tone-mute: #8b95a5;
+    --tone-mute-soft: rgba(139, 149, 165, 0.14);
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.5);
+  }

@@ -151,6 +151,14 @@ def data_panel(visual, post=None, choices=()):
 # --- step 4: the newsrooms ---------------------------------------------------
 
 
+#: What a missing value is called at each rung. Named per level -- "NA
+#: State" over "NA County" says which field the record is short of, where
+#: one word repeated says only that something is.
+UNRECORDED = "\u0000unrecorded"
+NA_STATE = "NA State"
+NA_COUNTY = "NA County"
+
+
 def newsrooms_panel(visual, post=None, tree=None):
     """State, then county, then newsroom.
 
@@ -162,13 +170,16 @@ def newsrooms_panel(visual, post=None, tree=None):
     spec = visual.spec or {}
     kept = set(spec.get("publishers") or ())
     states = []
-    for code in sorted(tree or {}):
+    # The sentinel sorts before every real name; a row for what is
+    # missing belongs after the places that are not.
+    for code in sorted(tree or {}, key=lambda c: (c == UNRECORDED, c)):
         counties = []
-        for county in sorted(tree[code]):
+        for county in sorted(tree[code], key=lambda c: (c == UNRECORDED, c)):
+            county_label = NA_COUNTY if county == UNRECORDED else county
             rooms = tree[code][county]
             counties.append(
                 {
-                    "name": county,
+                    "name": county_label,
                     "rooms": [
                         {
                             "id": r["id"],
@@ -184,10 +195,13 @@ def newsrooms_panel(visual, post=None, tree=None):
         states.append(
             {
                 "code": code,
-                # MO is stored; Missouri is read. A record with no state
-                # keeps the words the tree gave it.
-                "label": state_name(code) or code,
-                "unrecorded": code == "Not recorded",
+                # MO is stored; Missouri is read. A record carrying no state
+                # says which field it is short of, rather than one word that
+                # says only that something is absent.
+                "label": (
+                    NA_STATE if code == UNRECORDED else (state_name(code) or code)
+                ),
+                "unrecorded": code == UNRECORDED,
                 "counties": counties,
                 "rooms": sum(len(c["rooms"]) for c in counties),
             }

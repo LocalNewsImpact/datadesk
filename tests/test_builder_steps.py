@@ -457,8 +457,9 @@ def test_a_record_with_no_state_is_named_not_punctuated(
     client, author, visual, dataset
 ):
     """A missing state is not a place called "?" -- it is a record the scan
-    already flags, and saying so is more use than a mark nobody can act
-    on."""
+    already flags. And the label names the field: "NA State" over "NA
+    County" says which one is short, where one word repeated says only that
+    something is."""
     import uuid
 
     from explorer.models import DatasetSource, Source
@@ -472,8 +473,40 @@ def test_a_record_with_no_state_is_named_not_punctuated(
     DatasetSource.objects.create(id=str(uuid.uuid4()), dataset=dataset, source=orphan)
 
     body = step(client, visual, "newsrooms").content.decode()
-    assert "Not recorded" in body
+    assert "NA State" in body
+    assert "NA County" in body
     assert ">?<" not in body
+
+
+def test_the_missing_rows_sort_last(client, author, visual, newsroom):
+    """The sentinel sorts before every real name, so without a key the row
+    for what is absent would head the list. It is the exception, not the
+    first thing to read."""
+    import uuid
+
+    from explorer.models import DatasetSource, Source
+
+    orphan = Source.objects.create(
+        id=str(uuid.uuid4()),
+        host="none.example",
+        host_norm="none.example",
+        canonical_name="Nowhere Gazette",
+    )
+    DatasetSource.objects.create(
+        id=str(uuid.uuid4()),
+        dataset=newsroom.memberships.first().dataset,
+        source=orphan,
+    )
+    body = step(client, visual, "newsrooms").content.decode()
+    assert body.index("Missouri") < body.index("NA State")
+
+
+def test_the_buttons_say_what_happens(client, author, visual, dataset):
+    """ "Continue" and "Save and stay" describe the mechanism. "Next" moves
+    on; "Save" does not."""
+    body = step(client, visual, "data").content.decode()
+    assert ">Next<" in body and ">Save<" in body
+    assert "Continue" not in body and "Save and stay" not in body
 
 
 def test_the_two_numbers_on_a_row_are_explained(client, author, visual, newsroom):

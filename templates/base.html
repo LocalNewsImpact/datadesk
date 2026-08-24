@@ -18,6 +18,11 @@
   <link rel="stylesheet" href="{% static 'css/tokens.css' %}">
   <link rel="stylesheet" href="{% static 'css/datadesk.css' %}">
   <script src="{% static 'js/htmx.min.js' %}" defer></script>
+  {% comment %}
+  In the head and not deferred: the stamp has to land before the first
+  paint, or a dark reader sees a white flash on every page.
+  {% endcomment %}
+  <script src="{% static 'js/datadesk-theme.js' %}"></script>
 </head>
 <body>
   <div class="shell{% if not has_access %} no-sidebar{% endif %}">
@@ -54,6 +59,17 @@
         {% if not has_access %}
         <span class="wordmark"><a href="/">Datadesk</a></span>
         {% endif %}
+        {% comment %}
+        Three states, not two. Auto follows the operating system and is the
+        default; the other two are a decision that outlives it, because
+        somebody who wants dark all day on a machine set to light should not
+        have to change the machine.
+        {% endcomment %}
+        <div class="theme-toggle" role="group" aria-label="Colour theme">
+          <button type="button" data-theme-choice="light">Light</button>
+          <button type="button" data-theme-choice="dark">Dark</button>
+          <button type="button" data-theme-choice="system">Auto</button>
+        </div>
         {% if user.is_authenticated %}
         <nav class="session">
           <span class="identity">{{ user.email }}</span>
