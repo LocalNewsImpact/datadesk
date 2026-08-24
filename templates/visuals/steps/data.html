@@ -1,0 +1,29 @@
+{% extends "visuals/steps/_shell.html" %}
+{% block panel %}
+<form method="post">
+  {% csrf_token %}
+  <div class="group">
+    <h4>Datasets</h4>
+    <div class="pick">
+      {% for d in datasets %}
+      <label><input type="checkbox" name="datasets" value="{{ d.slug }}"
+        {% if d.on %}checked{% endif %}> {{ d.label }}</label>
+      {% empty %}
+      <p class="notice">No datasets you can draw on.</p>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="group">
+    <h4>Published between</h4>
+    <div class="range">
+      <input type="date" name="from" value="{{ date_from }}">
+      <span>and</span>
+      <input type="date" name="to" value="{{ date_to }}">
+    </div>
+  </div>
+  <div class="action-bar">
+    <button type="submit" class="primary">Continue</button>
+    <button type="submit" name="stay" value="1">Save and stay</button>
+  </div>
+</form>
+{% endblock %}

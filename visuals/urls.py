@@ -15,6 +15,11 @@ urlpatterns = [
         views.builder_type,
         name="builder_type",
     ),
+    path(
+        "visuals/builder/<slug:slug>/step/<str:step>/",
+        views.builder_step,
+        name="builder_step",
+    ),
     path("visuals/builder/<slug:slug>/", views.builder_edit, name="builder_edit"),
     path("visuals/<slug:slug>/", views.page, name="page"),
     path("visuals/<slug:slug>/data.json", views.data_json, name="data"),

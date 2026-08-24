@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% comment %}
+The shell every step renders inside: the sentence, the rail, the preview.
+Only the panel changes, so moving between steps is the same page with a
+different question in it rather than five pages that look alike.
+{% endcomment %}
+{% block title %}{{ step.label }} — {{ visual.title }}{% endblock %}
+
+{% block content %}
+<p class="sentence">
+  A
+  {% for text, kind in sentence %}
+    {% if kind == "said" %}<b>{{ text }}</b>
+    {% else %}<span class="gap{% if kind == 'here' %} here{% endif %}">{{ text }}</span>
+    {% endif %}
+    {% if forloop.counter == 1 and step.slug != "type" %}of{% endif %}
+  {% endfor %}{% if complete %}.{% else %}…{% endif %}
+</p>
+
+<div class="build">
+  <div class="build-rail">
+    <nav class="steps">
+      {% for s in steps %}
+        {% if s.ready %}
+          <a class="{% if s.on %}on{% elif s.done %}done{% endif %}"
+             href="{% url 'visuals:builder_step' visual.slug s.slug %}">{{ forloop.counter }}. {{ s.label }}</a>
+        {% else %}
+          <span class="not-yet" title="Pick a chart first">{{ forloop.counter }}. {{ s.label }}</span>
+        {% endif %}
+      {% endfor %}
+    </nav>
+
+    <div class="step-head">
+      <h1>{{ step.heading }}</h1>
+      <p>{{ step.note }}</p>
+    </div>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+    {% block panel %}{% endblock %}
+  </div>
+
+  <div class="build-stage">
+    <div class="stage-head">
+      <h2>{{ visual.title }}</h2>
+      <a href="{% url 'visuals:builder_edit' visual.slug %}">Everything else →</a>
+    </div>
+    <div class="canvas">
+      {% if complete %}
+        {% include renderer %}
+      {% else %}
+        <div class="empty">
+          <strong>Not enough yet</strong>
+          The preview fills in as the sentence above does.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

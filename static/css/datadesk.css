@@ -1461,3 +1461,48 @@ tr.prop td { border-bottom: 0; }
 .type-card:not(.unavailable) .type-advice { color: var(--accent); }
 
 .type-nothing { color: var(--text-3); }
+
+/* --- the builder's shell (ROADMAP item 20) --------------------------------
+   The sentence, the rail, and the chart. Only the panel changes between
+   steps, so moving between them is one page with a different question in
+   it rather than five pages that look alike. */
+.sentence{
+  /* The console has one face; the sentence earns its prominence from size
+     and weight rather than from a second family nobody chose. */
+  font-size: 1.24rem; font-weight: 400;
+  line-height: 1.4; color: var(--text-3); margin: 0 0 var(--s-3);
+  padding-bottom: var(--s-2); border-bottom: 1px solid var(--border);
+}
+.sentence b{ color: var(--text); font-weight: 600; }
+.sentence .gap{ border-bottom: 2px dotted var(--border-strong); }
+.sentence .gap.here{ color: var(--accent); border-bottom-color: var(--accent); }
+
+.build{ display: grid; grid-template-columns: 24rem 1fr; gap: var(--s-4); }
+@media (max-width: 60rem){ .build{ grid-template-columns: 1fr; } }
+.build-rail{ min-width: 0; }
+.build-stage{ min-width: 0; display: flex; flex-direction: column; gap: var(--s-2); }
+.build-stage .canvas{
+  flex: 1; min-height: 22rem; border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface);
+  display: grid; place-items: center; padding: var(--s-3);
+}
+
+.steps{ display: flex; flex-wrap: wrap; gap: .3rem; margin-bottom: var(--s-3); }
+.steps a, .steps .not-yet{
+  font-size: var(--fs-sm); padding: .28rem .6rem; border-radius: 99px;
+  border: 1px solid var(--border); color: var(--text-3); text-decoration: none;
+}
+.steps a.on{ border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.steps a.done{ color: var(--text-2); }
+/* Shown and refused, not hidden: knowing the step exists is worth more
+   than a rail that grows as you go. */
+.steps .not-yet{ opacity: .45; cursor: not-allowed; }
+
+.tree details{ border-bottom: 1px solid var(--border); }
+.tree summary{ display: flex; align-items: center; gap: .4rem; padding: .3rem .5rem;
+  cursor: pointer; font-size: var(--fs-sm); }
+.tree summary em{ margin-left: auto; font-style: normal; color: var(--text-3);
+  font-variant-numeric: tabular-nums; }
+.tree .kids{ padding-left: 1.2rem; }
+.tree .row.pub{ display: flex; align-items: center; gap: .4rem;
+  padding: .24rem .5rem; font-size: var(--fs-sm); }
