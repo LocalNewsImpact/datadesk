@@ -148,6 +148,11 @@ MEASURES = {
 
 # --- filters ----------------------------------------------------------------
 
+#: Prefix for a dimension's annotation alias. A dimension key is a name we
+#: chose and a model field is a name the crawler chose; nothing stops them
+#: colliding, and Django raises rather than guessing which was meant.
+DIM_PREFIX = "dim_"
+
 MAX_GROUPS = 5000
 # A rolled-up dimension groups on the raw coding first, which yields more
 # rows than the folded result; allow headroom before folding.
@@ -339,22 +344,27 @@ def run_spec(spec, scopes):
 
     qualifying = qualifying_values(spec, dim_keys[0], scopes)
 
-    annotations = {key: DIMENSIONS[key]["expr"] for key in dim_keys}
+    # Prefixed, because a dimension key is free to be the name of a field.
+    # `wire` was: Article.wire is a real column, so annotating an alias of
+    # that name raised "conflicts with a field on the model" and the whole
+    # dimension was unusable. A prefix nothing else uses cannot collide.
+    alias = {key: f"{DIM_PREFIX}{key}" for key in dim_keys}
+    annotations = {alias[key]: DIMENSIONS[key]["expr"] for key in dim_keys}
     # A rollup needs its companion columns (the coding level) in the group.
     extra = []
     for key in dim_keys:
         for i, path in enumerate(DIMENSIONS[key].get("with", ())):
-            name = f"{key}__with{i}"
+            name = f"{alias[key]}__with{i}"
             annotations[name] = F(path)
             extra.append(name)
     qs = qs.annotate(**annotations)
     if qualifying is not None:
-        qs = qs.filter(**{f"{dim_keys[0]}__in": qualifying})
+        qs = qs.filter(**{f"{alias[dim_keys[0]]}__in": qualifying})
     # Exclude rows with no value for a grouping dimension: an unlabeled
     # bucket in a chart reads as a category, which it is not.
     if not spec.get("keep_null"):
         for key in dim_keys:
-            qs = qs.exclude(**{f"{key}__isnull": True})
+            qs = qs.exclude(**{f"{alias[key]}__isnull": True})
 
     measure_label = MEASURES[measure_key]["label"]
     aggregates = {measure_key: MEASURES[measure_key]["agg"]()}
@@ -363,7 +373,7 @@ def run_spec(spec, scopes):
         aggregates["_w"] = weight_fn()
     limit = MAX_RAW_GROUPS if has_rollup else MAX_GROUPS
     rows = list(
-        qs.values(*dim_keys, *extra)
+        qs.values(*[alias[k] for k in dim_keys], *extra)
         .annotate(**aggregates)
         .order_by(f"-{measure_key}")[: limit + 1]
     )
