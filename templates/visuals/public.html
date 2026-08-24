@@ -29,6 +29,10 @@ and neither of those exists on this host.
     summary:hover { color: var(--text); }
     .drawer { display: flex; flex-direction: column; gap: .75rem;
               margin-top: .75rem; }
+    .files { list-style: none; margin: 0; padding: 0;
+             display: flex; flex-direction: column; gap: .4rem;
+             font-size: var(--fs-sm); }
+    .dim { color: var(--text-3); }
     pre { background: var(--surface-2); border: 1px solid var(--border);
           border-radius: var(--r-md); padding: 1rem; overflow-x: auto;
           font-family: var(--font-mono); font-size: var(--fs-xs);
@@ -66,10 +70,19 @@ and neither of those exists on this host.
         <p class="note">Paste this where the chart should appear. It sizes
           itself to whatever column it lands in.</p>
         <pre>{{ snippet }}</pre>
-        <p class="note"><a href="{{ feed }}">Download the data (JSON)</a>{% if shown %}
-          — snapshot v{{ shown.version }}{% endif %}.
-          {% if pinned_by_url %}This link is pinned to that version;
-          <a href="?">the current one</a> may differ.{% endif %}</p>
+        <p class="note">Take the data{% if shown %}, as it stood at snapshot
+          v{{ shown.version }}{% endif %}. A map carries its county totals
+          and its point layer separately, so they download separately.</p>
+        <ul class="files">
+          {% for file in downloads %}
+          <li><a href="{{ file.url }}">{{ file.label }}</a>
+            <span class="dim">{{ file.note }}</span></li>
+          {% endfor %}
+        </ul>
+        {% if pinned_by_url %}
+        <p class="note">This link is pinned to that version;
+          <a href="?">the current one</a> may differ.</p>
+        {% endif %}
       </div>
     </details>
   </div>

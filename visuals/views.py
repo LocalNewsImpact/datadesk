@@ -14,7 +14,7 @@ from urllib.parse import urlencode
 
 from django.core.cache import cache
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.text import slugify
@@ -111,6 +111,24 @@ def _feed_url(visual, by_uuid, version=None, live=False):
     return f"{url}?{urlencode(params)}" if params else url
 
 
+#: What an embed may pin its colours to. Absent means follow the reader,
+#: which is right for a page of our own and wrong for an embed: the person
+#: pasting it knows what their article looks like and the reader's laptop
+#: does not.
+_THEME_STAMPS = ("light", "dark")
+
+
+def _asked_for_theme(request):
+    """`?theme=light|dark`, or None to follow the reader's own setting.
+
+    Stamped on <html>, where tokens.css already gives an explicit choice
+    precedence over the operating system in both directions. Anything else
+    is None rather than an error, for the same reason `?v=` is.
+    """
+    asked = request.GET.get("theme", "").strip().lower()
+    return asked if asked in _THEME_STAMPS else None
+
+
 def _asked_for_version(request):
     """The `?v=` a reader pinned, or None for whatever is current.
 
@@ -196,6 +214,111 @@ def data_json(request, slug=None, uuid=None):
     return _cache_for(JsonResponse(payload), visual, versioned)
 
 
+def tables_in(data):
+    """The named row-lists inside a payload, as (name, rows).
+
+    A feed is not always a list of rows: the map kinds carry
+    {meta, areas, points}, named lists beside a metadata object. This
+    mirrors `tablesIn` in static/js/datadesk-chart.js deliberately -- the
+    table view and the download have to agree about what the data is, or
+    a reader sees two tables on the page and gets one of them in the file.
+    """
+    if isinstance(data, list):
+        return [("", data)] if data else []
+    if not isinstance(data, dict):
+        return []
+    return [(k, v) for k, v in data.items() if isinstance(v, list) and v]
+
+
+def _as_csv(rows):
+    """One list of rows as CSV text, columns from the first mapping."""
+    import csv as csv_module
+    import io
+
+    first = next((r for r in rows if isinstance(r, dict)), None)
+    buffer = io.StringIO()
+    if first is None:
+        # A list of bare values still has a column; it just has no name.
+        writer = csv_module.writer(buffer)
+        writer.writerow(["value"])
+        writer.writerows([[r] for r in rows])
+        return buffer.getvalue()
+    columns = list(first.keys())
+    writer = csv_module.DictWriter(buffer, fieldnames=columns, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row if isinstance(row, dict) else {columns[0]: row})
+    return buffer.getvalue()
+
+
+def data_csv(request, slug=None, uuid=None):
+    """The same rows as the JSON feed, as a spreadsheet.
+
+    `?table=` names one of the lists for a payload that has several. A
+    payload with one list ignores it, and a name that is not there is a
+    404 rather than the wrong file -- somebody who asked for the point
+    layer and silently received county totals has no way to tell.
+    """
+    visual = _get_visual(request, slug=slug, uuid=uuid)
+    try:
+        payload, versioned = _feed_payload(request, visual)
+    except DataSourceError as exc:
+        return JsonResponse({"error": str(exc)}, status=502)
+
+    groups = tables_in(payload["data"])
+    if not groups:
+        raise Http404("This visual has no tabular data")
+
+    wanted = request.GET.get("table")
+    if wanted:
+        groups = [g for g in groups if g[0] == wanted]
+        if not groups:
+            raise Http404(f"No table called {wanted!r} in this visual")
+    name, rows = groups[0]
+
+    stem = f"{visual.slug}-{name}" if name else visual.slug
+    version = payload.get("version")
+    if version:
+        stem = f"{stem}-v{version}"
+    response = HttpResponse(_as_csv(rows), content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{stem}.csv"'
+    return _cache_for(response, visual, versioned)
+
+
+def _downloads(visual, by_uuid, version=None):
+    """Every file a reader can take away: the whole payload as JSON, and
+    each row-list as CSV.
+
+    One CSV per list rather than one for the visual. A map carries county
+    totals and a point layer, and somebody who wants the totals in a
+    spreadsheet should not have to take the points to get them -- the same
+    split the table view makes on the page.
+    """
+    ident = visual.uuid if by_uuid else visual.slug
+    base = {"v": version} if version is not None else {}
+
+    def url(route, **extra):
+        params = {**base, **extra}
+        path = reverse(route, args=[ident])
+        return f"{path}?{urlencode(params)}" if params else path
+
+    files = [{"label": "JSON", "note": "the whole payload", "url": url("visuals:data")}]
+    snapshot = (
+        visual.snapshots.filter(version=version).first()
+        if version is not None
+        else visual.pinned_snapshot
+    )
+    for name, rows in tables_in(snapshot.data if snapshot else None):
+        files.append(
+            {
+                "label": f"CSV — {name}" if name else "CSV",
+                "note": f"{len(rows):,} rows",
+                "url": url("visuals:data_csv", **({"table": name} if name else {})),
+            }
+        )
+    return files
+
+
 def page(request, slug):
     """The full page — inside the sign-in wall (SCOPE.md §3)."""
     if not (request.user.is_authenticated and has_any_grant(request.user, APP)):
@@ -237,6 +360,7 @@ def public_page(request, slug=None, uuid=None):
             "renderer": f"visuals/renderers/{visual.template}.html",
             "snippet": embed_snippet(visual),
             "feed": _feed_url(visual, by_uuid=uuid is not None, version=asked),
+            "downloads": _downloads(visual, by_uuid=uuid is not None, version=asked),
             # What the reader is looking at, whether they pinned it or
             # took the current one.
             "shown": shown or visual.pinned_snapshot,
@@ -260,6 +384,7 @@ def embed(request, slug=None, uuid=None):
             "visual": visual,
             "renderer": f"visuals/renderers/{visual.template}.html",
             "feed": _feed_url(visual, by_uuid=uuid is not None, version=asked),
+            "theme_stamp": _asked_for_theme(request),
         },
     )
     response["Content-Security-Policy"] = f"frame-ancestors {visual.frame_ancestors}"

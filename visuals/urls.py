@@ -23,5 +23,6 @@ urlpatterns = [
     path("visuals/builder/<slug:slug>/", views.builder_edit, name="builder_edit"),
     path("visuals/<slug:slug>/", views.page, name="page"),
     path("visuals/<slug:slug>/data.json", views.data_json, name="data"),
+    path("visuals/<slug:slug>/data.csv", views.data_csv, name="data_csv"),
     path("embed/<slug:slug>/", views.embed, name="embed"),
 ]

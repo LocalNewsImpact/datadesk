@@ -1686,6 +1686,17 @@ tr.prop td { border-bottom: 0; }
    hand, rather than a button that silently does nothing. */
 .dd-copybox{ width: 100%; min-height: 6rem; font-family: var(--font-mono);
   font-size: .78rem; margin-top: .4rem; }
+/* Which colour the embed holds still at. Laid out in a row because the
+   three choices are one decision, not three settings. */
+.theme-pick{ border: 1px solid var(--border); border-radius: var(--r-sm);
+  padding: .5rem .7rem .6rem; margin: 0 0 var(--s-2);
+  display: flex; flex-wrap: wrap; gap: .25rem 1rem; align-items: center; }
+.theme-pick legend{ padding: 0 .3rem; font-size: .72rem; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text-3); }
+.theme-pick label{ display: inline-flex; align-items: center; gap: .35rem;
+  font-size: .82rem; color: var(--text-2); cursor: pointer; }
+.theme-pick input{ margin: 0; }
+
 /* The embed snippet: two lines somebody copies, so it wraps rather than
    scrolling sideways out of reach. */
 .embed-snippet{ white-space: pre-wrap; word-break: break-all;

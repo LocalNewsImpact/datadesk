@@ -853,3 +853,105 @@ def test_no_template_comment_spans_lines():
     assert (
         not offenders
     ), "these render as visible text; use {% comment %}: " + ", ".join(offenders)
+
+
+# --- colour is the publisher's call, and the data comes in two formats ------
+
+MAP_DATA = {
+    "meta": {"level": "county"},
+    "areas": [{"county": "Boone", "stories": 41}, {"county": "Callaway", "stories": 8}],
+    "points": [{"geoid": "29019", "name": "Columbia"}],
+}
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_an_embed_can_be_pinned_to_a_colour(client, visual, author):
+    """Left to follow the reader, a chart lands dark in the middle of a
+    light article whenever that reader's laptop is set to dark. The person
+    pasting it knows what their page looks like; the reader's laptop does
+    not."""
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+
+    loose = client.get(f"/embed/{visual.uuid}/").content.decode()
+    assert "data-theme" not in loose.split("<head>")[0]
+
+    for want in ("light", "dark"):
+        body = client.get(f"/embed/{visual.uuid}/?theme={want}").content.decode()
+        assert f'<html lang="en" data-theme="{want}">' in body
+
+    # Nonsense follows the reader rather than failing, as ?v= does.
+    odd = client.get(f"/embed/{visual.uuid}/?theme=chartreuse").content.decode()
+    assert "data-theme" not in odd.split("<head>")[0]
+
+
+def test_the_snippet_carries_the_colour_choice(visual):
+    from visuals.embed import snippet
+
+    assert "data-theme" not in snippet(visual)
+    light = snippet(visual, theme="light")
+    assert 'data-theme="light"' in light
+    assert "theme=light" in light  # the fallback link too, not only the div
+
+
+def test_the_loader_passes_the_colour_to_the_frame():
+    """The attribute is useless if the script drops it on the way."""
+    js = (
+        __import__("pathlib").Path(__file__).resolve().parent.parent
+        / "static/js/datadesk-embed.js"
+    ).read_text()
+    assert 'node.getAttribute("data-theme")' in js
+    assert '"theme=" + theme' in js
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_the_data_comes_as_csv_as_well_as_json(client, visual, author):
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+
+    csv = client.get(f"/visuals/{visual.uuid}/data.csv")
+    assert csv.status_code == 200
+    assert csv["Content-Type"].startswith("text/csv")
+    assert "attachment" in csv["Content-Disposition"]
+    body = csv.content.decode()
+    assert body.splitlines()[0] == "county,stories"
+    assert "Boone,41" in body
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_each_row_list_downloads_on_its_own(client, visual, author):
+    """A map carries county totals and a point layer. Somebody who wants
+    the totals in a spreadsheet should not have to take the points with
+    them, which is the same split the table view makes on the page."""
+    _snapshot(visual, author, MAP_DATA)
+    publish(visual, author)
+
+    areas = client.get(f"/visuals/{visual.uuid}/data.csv?table=areas")
+    assert areas.content.decode().splitlines()[0] == "county,stories"
+    points = client.get(f"/visuals/{visual.uuid}/data.csv?table=points")
+    assert points.content.decode().splitlines()[0] == "geoid,name"
+
+    # A table that is not there is a 404, not the other one.
+    assert client.get(f"/visuals/{visual.uuid}/data.csv?table=meta").status_code == 404
+    assert client.get(f"/visuals/{visual.uuid}/data.csv?table=nope").status_code == 404
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_the_page_lists_every_file_a_reader_can_take(client, visual, author):
+    _snapshot(visual, author, MAP_DATA)
+    publish(visual, author)
+    body = client.get(f"/visuals/{visual.uuid}/").content.decode()
+    assert "data.json" in body
+    assert "data.csv?table=areas" in body
+    assert "data.csv?table=points" in body
+
+
+def test_the_python_and_the_javascript_agree_about_what_a_table_is():
+    """The table view and the download have to make the same split, or a
+    reader sees two tables on the page and gets one of them in the file."""
+    from visuals.views import tables_in
+
+    assert [n for n, _ in tables_in(MAP_DATA)] == ["areas", "points"]
+    assert [n for n, _ in tables_in([{"a": 1}])] == [""]
+    for empty in ([], None, {}, {"meta": {"x": 1}}, "text", 7):
+        assert tables_in(empty) == [], empty

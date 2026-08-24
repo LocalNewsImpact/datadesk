@@ -434,6 +434,15 @@ def publish_panel(visual, post=None, actor=None):
     return {
         "published": visual.status == Visual.PUBLISHED,
         "snippet": snippet(visual),
+        # One per choice, so picking a theme is not a round trip. The
+        # embed follows the reader unless it is told not to, and inside
+        # somebody else's article it usually should be told: a light page
+        # on a reader's dark laptop got a dark chart in the middle of it.
+        "snippets": {
+            "auto": snippet(visual),
+            "light": snippet(visual, theme="light"),
+            "dark": snippet(visual, theme="dark"),
+        },
         "pinned": visual.pinned_snapshot,
         "latest": snapshot,
         # Publishing an empty visual produces an embed that renders
