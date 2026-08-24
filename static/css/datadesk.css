@@ -1669,3 +1669,20 @@ tr.prop td { border-bottom: 0; }
   background: var(--surface-2); font-size: var(--fs-sm); }
 .scan-bar .scan-when{ color: var(--text-2); }
 .scan-bar button[disabled]{ opacity: .55; cursor: not-allowed; }
+
+/* --- taking the table's data elsewhere ------------------------------------
+   The table view is where somebody looks at the numbers, so it is where
+   they will want them out. Flourish uploads a file; Datawrapper pastes. */
+.dd-export{ display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  margin-top: var(--s-2); padding-top: var(--s-2);
+  border-top: 1px solid var(--border); }
+.dd-export button{ font: inherit; font-size: var(--fs-sm); cursor: pointer;
+  padding: .26rem .6rem; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.dd-export button:hover{ border-color: var(--accent); color: var(--accent); }
+.dd-export-note{ margin-left: auto; color: var(--text-3); font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums; }
+/* The fallback when the clipboard is refused: something to copy from by
+   hand, rather than a button that silently does nothing. */
+.dd-copybox{ width: 100%; min-height: 6rem; font-family: var(--font-mono);
+  font-size: .78rem; margin-top: .4rem; }

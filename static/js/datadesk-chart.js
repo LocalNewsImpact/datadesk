@@ -417,6 +417,82 @@
     el.appendChild(plot);
   }
 
+  // --- taking the data somewhere else --------------------------------------
+  //
+  // The table view is where somebody looks at the numbers, so it is where
+  // they will want them out. Two formats, because the two tools take data
+  // two different ways: Flourish uploads a file, Datawrapper pastes into a
+  // box, and its box reads tab-separated the way a spreadsheet copies.
+
+  function asDelimited(rows, sep) {
+    const cols = Object.keys(rows[0]);
+    const cell = (v) => {
+      const s = v === null || v === undefined ? "" : String(v);
+      // A comma or a quote or a newline inside a value breaks the row it
+      // sits in unless it is quoted, and a quote inside a quoted value has
+      // to be doubled. Datawrapper and Flourish both read it this way.
+      return /["\n\r]|,|\t/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    return [cols.join(sep)]
+      .concat(rows.map((r) => cols.map((c) => cell(r[c])).join(sep)))
+      .join("\n");
+  }
+
+  function download(text, name, type) {
+    const url = URL.createObjectURL(new Blob([text], { type: type }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    link.click();
+    // Revoked on the next turn: revoking synchronously races the click in
+    // some browsers and the file arrives empty.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function exportBar(el, rows, slug) {
+    const bar = document.createElement("div");
+    bar.className = "dd-export";
+
+    const csv = document.createElement("button");
+    csv.type = "button";
+    csv.textContent = "Download CSV";
+    csv.title = "Flourish takes a CSV upload";
+    csv.addEventListener("click", () =>
+      download(asDelimited(rows, ","), (slug || "data") + ".csv", "text/csv"));
+
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.textContent = "Copy for Datawrapper";
+    copy.title = "Tab-separated, which is what its paste box reads";
+    copy.addEventListener("click", () => {
+      const text = asDelimited(rows, "\t");
+      const said = (ok) => {
+        copy.textContent = ok ? "Copied" : "Press \u2318C";
+        setTimeout(() => { copy.textContent = "Copy for Datawrapper"; }, 2000);
+      };
+      // Clipboard access needs a secure context and a permission that can
+      // be refused. A textarea the reader can copy from by hand is the
+      // fallback, rather than a button that silently does nothing.
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(() => said(true), () => said(false));
+      } else {
+        const box = document.createElement("textarea");
+        box.className = "dd-copybox";
+        box.value = text;
+        bar.appendChild(box);
+        box.select();
+        said(false);
+      }
+    });
+
+    const note = document.createElement("span");
+    note.className = "dd-export-note";
+    note.textContent = rows.length.toLocaleString() + " rows";
+
+    bar.append(csv, copy, note);
+    el.appendChild(bar);
+  }
+
   function renderTable(el, rows) {
     const cols = Object.keys(rows[0]);
     const table = document.createElement("table");
@@ -436,6 +512,9 @@
     }
     table.appendChild(tbody);
     el.replaceChildren(table);
+    // Every row, not the five hundred shown: somebody exporting wants the
+    // data, and the cap above is about what a page can render.
+    exportBar(el, rows, el.id.replace(/^dd-chart-/, ""));
   }
 
   function renderMap(el, config, rows, opts, t, width) {
