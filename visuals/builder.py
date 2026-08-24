@@ -72,6 +72,29 @@ def config_from_form(post):
     for key in _BOOL_KEYS:
         if post.get(key) == "1":
             config[key] = True
+    # The renderer frames on a FIPS code because that is what the boundary
+    # file is keyed by. Nobody knows Boone County is 29019, so the
+    # gazetteer resolves the name here rather than the author looking it
+    # up. Codes pass through unchanged.
+    if config.get("focus"):
+        from visuals.geofocus import AUTO, FocusError, frame, resolve
+
+        try:
+            geoid, level = resolve(config["focus"], post.get("focus_level", ""))
+            config["focus"] = geoid
+            config["focus_level"] = level
+            extent = post.get("extent", AUTO) or AUTO
+            config["extent"] = extent
+            counties = frame(geoid, level, extent, post.get("extent_custom", ""))
+        except FocusError as exc:
+            raise BuilderError(str(exc)) from exc
+        # The counties to paint, resolved now. The renderer is handed a list
+        # rather than a rule, so what a published map shows can be read off
+        # its config instead of re-derived from a gazetteer that moves.
+        if counties:
+            config["frame"] = counties
+        if custom := post.get("extent_custom", "").strip():
+            config["extent_custom"] = custom
     return config
 
 
