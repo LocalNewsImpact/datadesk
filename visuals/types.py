@@ -30,6 +30,27 @@ from dataclasses import dataclass, field
 #: What a dimension holds, for deciding which fields fit a role.
 NUMBER, TEXT, DATE, GEO = "number", "text", "date", "geo"
 
+# How accurately a quantity can be read off the page, from Cleveland and
+# McGill's ranking of elementary perceptual tasks (1984) -- the experimental
+# basis for the advice Cairo and every other teacher of this gives. Position
+# on a common scale is read most accurately; shading and saturation least.
+# Their headline result: readers judge a bar chart more accurately than a pie
+# of the same numbers.
+#
+# It is a lower number for a better reading, so two types that can draw the
+# same fields can be ordered by it. That is the difference between a picker
+# that says what is possible and one that says what is better -- and the
+# reason to keep the worse option available rather than hiding it: a donut
+# is sometimes the right call, and being told the trade-off is not the same
+# as being refused.
+POSITION = 1  # bar, line, scatter -- a common axis
+POSITION_APART = 2  # small multiples, non-aligned scales
+LENGTH = 3  # a stacked segment, a chord ribbon
+ANGLE = 5  # donut, pie
+AREA = 6  # a sized dot
+SHADING = 8  # a choropleth
+NOT_QUANTITATIVE = 99  # a table states the number rather than drawing it
+
 
 @dataclass(frozen=True)
 class Role:
@@ -77,18 +98,40 @@ class ChartType:
     also: tuple = field(default_factory=tuple)
     #: Roles that must come from one vocabulary. See the note above.
     pairs: tuple = ()
+    #: How its main quantity is read. See the ranking above.
+    encoding: int = POSITION
 
 
-# Families, in the order the gallery shows them.
-RANKING = "Ranking"
-EVOLUTION = "Evolution"
+# The Financial Times' Visual Vocabulary, which is the standard grouping for
+# this audience: nine categories by *what is being said*, not by the shape of
+# the data. Journalists already read it, so the gallery should not invent a
+# tenth vocabulary for them to learn. Deviation, Distribution and Magnitude
+# have no type yet and are declared anyway -- the gaps are the argument for
+# what to build next, and a family with nothing in it is a visible gap
+# rather than a silent one.
+DEVIATION = "Deviation"
 CORRELATION = "Correlation"
-PART_OF_WHOLE = "Part of a whole"
+RANKING = "Ranking"
+DISTRIBUTION = "Distribution"
+CHANGE_OVER_TIME = "Change over time"
+MAGNITUDE = "Magnitude"
+PART_TO_WHOLE = "Part-to-whole"
+SPATIAL = "Spatial"
 FLOW = "Flow"
-MAPS = "Maps"
 TABLES = "Tables"
 
-FAMILIES = (RANKING, EVOLUTION, CORRELATION, PART_OF_WHOLE, FLOW, MAPS, TABLES)
+FAMILIES = (
+    DEVIATION,
+    CORRELATION,
+    RANKING,
+    DISTRIBUTION,
+    CHANGE_OVER_TIME,
+    MAGNITUDE,
+    PART_TO_WHOLE,
+    SPATIAL,
+    FLOW,
+    TABLES,
+)
 
 # Shared by everything the generic renderer draws.
 _CATEGORY = Role("x", "Category", accepts=(TEXT, DATE))
@@ -132,23 +175,26 @@ CHART_TYPES = (
             *_AXIS_LABELS,
         ),
         also=("column", "ranking"),
+        encoding=POSITION,
     ),
     ChartType(
         "line",
         "Line chart",
-        EVOLUTION,
+        CHANGE_OVER_TIME,
         "Follow a value over time.",
         roles=(Role("x", "Time", accepts=(DATE, TEXT)), _VALUE, _SERIES),
         options=(_SORT, _TAXONOMY, *_AXIS_LABELS),
         also=("trend", "time series"),
+        encoding=POSITION,
     ),
     ChartType(
         "area",
         "Area chart",
-        EVOLUTION,
+        CHANGE_OVER_TIME,
         "Follow a value over time, filled to the baseline.",
         roles=(Role("x", "Time", accepts=(DATE, TEXT)), _VALUE, _SERIES),
         options=(_SORT, _TAXONOMY, *_AXIS_LABELS),
+        encoding=POSITION,
     ),
     ChartType(
         "scatter",
@@ -162,15 +208,17 @@ CHART_TYPES = (
             Role("size", "Dot size", accepts=(NUMBER,), needs=False),
         ),
         options=(_SORT, _TAXONOMY, *_AXIS_LABELS),
+        encoding=POSITION,
     ),
     ChartType(
         "donut",
         "Donut chart",
-        PART_OF_WHOLE,
+        PART_TO_WHOLE,
         "Shares of a single total.",
         roles=(_CATEGORY, _VALUE),
         options=(Option("ylabel", "Label the value", "text"),),
         also=("pie",),
+        encoding=ANGLE,
     ),
     ChartType(
         "chord",
@@ -184,6 +232,7 @@ CHART_TYPES = (
         ),
         pairs=("from", "to"),
         also=("network", "relationship"),
+        encoding=LENGTH,
     ),
     ChartType(
         "arc",
@@ -196,11 +245,12 @@ CHART_TYPES = (
             Role("value", "Amount", accepts=(NUMBER,), needs=False),
         ),
         pairs=("from", "to"),
+        encoding=LENGTH,
     ),
     ChartType(
         "choropleth",
         "Shaded map",
-        MAPS,
+        SPATIAL,
         "Areas shaded by a value.",
         roles=(
             Role("geo_join", "Area code", accepts=(GEO, TEXT)),
@@ -212,11 +262,12 @@ CHART_TYPES = (
             Option("geo_fit", "Zoom to the data", "toggle"),
         ),
         also=("heat map", "shaded", "county map"),
+        encoding=SHADING,
     ),
     ChartType(
         "points",
         "Dot map",
-        MAPS,
+        SPATIAL,
         "A dot per row, placed by coordinates.",
         roles=(
             Role("lat", "Latitude", accepts=(NUMBER,)),
@@ -229,11 +280,12 @@ CHART_TYPES = (
             Option("geo_fit", "Zoom to the data", "toggle"),
         ),
         also=("bubble map", "point map"),
+        encoding=AREA,
     ),
     ChartType(
         "storymap",
         "Story map",
-        MAPS,
+        SPATIAL,
         "Where stories are set, and which counties they cover.",
         roles=(),  # the pivot's story_map shape supplies both layers whole
         options=(
@@ -249,12 +301,14 @@ CHART_TYPES = (
             ),
         ),
         also=("coverage map",),
+        encoding=SHADING,
     ),
     ChartType(
         "table",
         "Table",
         TABLES,
         "The rows themselves.",
+        encoding=NOT_QUANTITATIVE,
     ),
 )
 
@@ -282,3 +336,133 @@ def can_draw(chart_id, filled):
     chart = BY_ID[chart_id]
     have = set(filled or ())
     return all(r.id in have for r in chart.roles if r.needs)
+
+
+# --- why a type is unavailable -----------------------------------------------
+#
+# Tableau's Show Me greys out the views that cannot be built from the fields
+# currently chosen, and hovering one says what it would need -- "1 or more
+# dimensions and 1 or more measures". Greying alone is a dead end; greying
+# plus the requirement is a next step.
+#
+# We can say more than Tableau can, because the corpus declares what its
+# dimensions mean. Tableau knows a field is a string; we know it is a county.
+
+#: How each accepted type reads in a sentence.
+_PLAIN = {
+    NUMBER: "a number",
+    TEXT: "a category",
+    DATE: "a date",
+    GEO: "a geography",
+}
+
+
+def _phrase(role):
+    """ "a category" / "a number or a date", for one role."""
+    parts = [_PLAIN.get(a, a) for a in role.accepts]
+    if len(parts) == 1:
+        return parts[0]
+    return " or ".join([", ".join(parts[:-1]), parts[-1]])
+
+
+def requirement_of(chart_id):
+    """What a type needs, in a sentence. Shown on a greyed entry."""
+    chart = BY_ID[chart_id]
+    required = [r for r in chart.roles if r.needs]
+    if not required:
+        return "Needs nothing in particular."
+    wants = ", ".join(f"{_phrase(r)} for {r.label.lower()}" for r in required)
+    sentence = f"Needs {wants}."
+    if chart.pairs:
+        first, second = chart.pairs
+        sentence += (
+            f" {first.title()} and {second} must come from the same set of "
+            "values — it compares a vocabulary with itself."
+        )
+    return sentence
+
+
+def unavailable(chart_id, available):
+    """Why this type cannot be built from `available`, or "" if it can.
+
+    `available` is a mapping of field name to its type, which is what the
+    pivot's output offers. The returned sentence is the hover text on a
+    greyed gallery entry: what is missing, not merely that something is.
+    """
+    chart = BY_ID[chart_id]
+    kinds = list((available or {}).values())
+    for role in chart.roles:
+        if not role.needs:
+            continue
+        if not any(k in role.accepts for k in kinds):
+            return (
+                f"No field here is {_phrase(role)}, which {role.label.lower()} needs."
+            )
+    # A role cannot be filled twice, so two roles wanting the same single
+    # field is a shortage rather than a match.
+    for accepts in {r.accepts for r in chart.roles if r.needs}:
+        wanted = sum(1 for r in chart.roles if r.needs and r.accepts == accepts)
+        have = sum(1 for k in kinds if k in accepts)
+        if have < wanted:
+            plain = _PLAIN.get(accepts[0], accepts[0])
+            verb = "is" if have == 1 else "are"
+            return f"Needs {wanted} fields that are {plain}; there {verb} {have}."
+    return ""
+
+
+def read_more_accurately_than(chart_id, available):
+    """Types that draw the same fields and are read more accurately.
+
+    The suggestion half of the picker. Greying says what is impossible;
+    this says what is available and better, which is the advice every
+    teacher of this gives and no builder acts on. Cleveland and McGill
+    measured it: readers judge a bar more accurately than a pie of the
+    same numbers.
+
+    A suggestion, never a substitution. A donut is sometimes the right
+    call, and being told the trade-off is not the same as being refused.
+    """
+    here = BY_ID[chart_id]
+    if here.encoding == NOT_QUANTITATIVE:
+        return ()
+    # Not within a family: the canonical advice crosses one. A pie is
+    # Part-to-whole and a bar is Ranking, and the whole point is that the
+    # bar reads better for the same numbers.
+    #
+    # But a map and a flow diagram are not chosen for their accuracy at
+    # reading a quantity -- they are chosen because the question is where,
+    # or between what. Offering a bar instead answers a different question
+    # more precisely, which is not an improvement.
+    if here.family in (SPATIAL, FLOW):
+        return ()
+    needed = tuple(sorted(r.accepts for r in here.roles if r.needs))
+    return tuple(
+        c.id
+        for c in CHART_TYPES
+        if c.id != chart_id
+        and c.encoding < here.encoding
+        and c.family not in (SPATIAL, FLOW)
+        and tuple(sorted(r.accepts for r in c.roles if r.needs)) == needed
+        and not unavailable(c.id, available)
+    )
+
+
+def gallery(available):
+    """Every type, with the reason it cannot be used where that applies.
+
+    The whole picker in one call: what is offered, grouped by the question
+    it answers, and for each greyed entry the thing that would ungrey it.
+    """
+    return tuple(
+        {
+            "id": c.id,
+            "label": c.label,
+            "family": c.family,
+            "blurb": c.blurb,
+            "also": c.also,
+            "requires": requirement_of(c.id),
+            "why_not": unavailable(c.id, available),
+            "read_better": read_more_accurately_than(c.id, available),
+        }
+        for c in CHART_TYPES
+    )

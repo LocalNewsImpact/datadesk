@@ -166,3 +166,104 @@ def test_no_type_asks_for_more_than_the_form_offers_today():
         missing = wanted - offered
         # `bands` is the known gap: read by the renderer, offered by nothing.
         assert missing <= {"bands"}, f"{chart.id} wants {missing}"
+
+
+# --- what the picker tells somebody choosing ---------------------------------
+#
+# Tableau's Show Me greys the views that cannot be built and, on hover, says
+# what they would need. Greying alone is a dead end; greying plus the
+# requirement is a next step. These assert the second half.
+
+
+def test_a_greyed_type_says_what_is_missing():
+    from visuals.types import NUMBER, TEXT, unavailable
+
+    only_text = {"County": TEXT}
+    reason = unavailable("bar", only_text)
+    assert "a number" in reason, reason
+
+    both = {"County": TEXT, "Articles": NUMBER}
+    assert unavailable("bar", both) == ""
+
+
+def test_two_roles_of_one_kind_need_two_fields():
+    """A role cannot be filled twice. One number does not make a scatter,
+    and saying 'needs 2, there is 1' is the sentence that leads somewhere."""
+    from visuals.types import NUMBER, TEXT, unavailable
+
+    reason = unavailable("scatter", {"County": TEXT, "Articles": NUMBER})
+    assert "2" in reason and "1" in reason, reason
+
+
+def test_the_requirement_reads_as_a_sentence():
+    from visuals.types import requirement_of
+
+    assert requirement_of("bar").startswith("Needs ")
+    # The pairing constraint is part of what a chord requires.
+    assert "same set of values" in requirement_of("chord")
+
+
+def test_a_donut_is_offered_but_a_bar_is_suggested():
+    """Cleveland and McGill's headline result: a bar is read more
+    accurately than a pie of the same numbers. Said where somebody is
+    choosing, not in a style guide nobody opens."""
+    from visuals.types import NUMBER, TEXT, read_more_accurately_than, unavailable
+
+    fields = {"County": TEXT, "Articles": NUMBER}
+    assert unavailable("donut", fields) == "", "a donut is still allowed"
+    assert "bar" in read_more_accurately_than("donut", fields)
+
+
+def test_nothing_is_suggested_over_a_map_or_a_flow():
+    """A map is chosen because the question is where, and a chord because
+    the question is between what. A bar answers a different question more
+    precisely, which is not an improvement."""
+    from visuals.types import NUMBER, TEXT, read_more_accurately_than
+
+    fields = {"County": TEXT, "Articles": NUMBER, "Other": TEXT}
+    assert read_more_accurately_than("choropleth", fields) == ()
+    assert read_more_accurately_than("chord", fields) == ()
+
+
+def test_a_bar_has_nothing_suggested_over_it():
+    """Position on a common scale is the top of the ranking."""
+    from visuals.types import NUMBER, TEXT, read_more_accurately_than
+
+    assert read_more_accurately_than("bar", {"County": TEXT, "Articles": NUMBER}) == ()
+
+
+def test_the_families_are_the_visual_vocabularys():
+    """The Financial Times' nine, which this audience already reads. Three
+    carry nothing yet -- a visible gap rather than a silent one."""
+    from collections import Counter
+
+    from visuals.types import (
+        DEVIATION,
+        DISTRIBUTION,
+        FAMILIES,
+        MAGNITUDE,
+    )
+
+    assert len(FAMILIES) == 10  # the nine, plus tables
+    have = Counter(c.family for c in CHART_TYPES)
+    for empty in (DEVIATION, DISTRIBUTION, MAGNITUDE):
+        assert empty in FAMILIES
+        assert have.get(empty, 0) == 0, f"{empty} has a type now; update the note"
+
+
+def test_the_gallery_answers_the_whole_picker_in_one_call():
+    from visuals.types import NUMBER, TEXT, gallery
+
+    entries = gallery({"County": TEXT, "Articles": NUMBER})
+    assert len(entries) == len(CHART_TYPES)
+    for entry in entries:
+        assert set(entry) == {
+            "id",
+            "label",
+            "family",
+            "blurb",
+            "also",
+            "requires",
+            "why_not",
+            "read_better",
+        }

@@ -1971,6 +1971,37 @@ than presenting every setting for every chart type at once. `validTypes`
 is what makes step 4's checkbox list possible, and `required` is what tells
 the preview whether it can draw anything yet.
 
+**Where the guidance comes from, and what each contributes.** Four sources,
+each answering a different part of the picker:
+
+| Source | What it gives |
+|---|---|
+| **FT Visual Vocabulary** | The nine families, grouped by *what is being said*: Deviation, Correlation, Ranking, Distribution, Change over Time, Magnitude, Part-to-whole, Spatial, Flow. This audience already reads it, so the gallery should not invent a tenth vocabulary to learn. |
+| **Tableau's Show Me** | The affordance for an unavailable type: grey it, and on hover say what it would need — "1 or more dimensions and 1 or more measures". Greying alone is a dead end. |
+| **from Data to Viz** | The decision tree is keyed on data types and counts — how many numeric, how many categorical, ordered or not — which is what a role's `accepts` and `needs` encode. |
+| **Cleveland & McGill (1984)**, which is the experimental basis for what Cairo and every other teacher of this says | The ranking of how accurately a quantity can be read: position on a common scale, then length, angle, area, shading, saturation. Their headline result is that readers judge a bar more accurately than a pie of the same numbers. |
+
+**The last of those is what turns greying into guidance.** Greying says what
+is impossible. The ranking says what is available and *better*: offered the
+same category and number, a donut is allowed and a bar is suggested beside
+it, because it will be read more accurately. `visuals/types.py` records the
+channel each type uses and `read_more_accurately_than()` does the
+comparison.
+
+It is a suggestion and never a substitution. A donut is sometimes the right
+call, and being told the trade-off is not the same as being refused.
+
+**Two exceptions, because accuracy is not the only thing being chosen.** No
+alternative is offered over a map or a flow diagram. A map is chosen because
+the question is *where*; a chord because the question is *between what*. A
+bar answers a different question more precisely, which is not an
+improvement.
+
+**And we can say more than Tableau can.** It knows a field is a string; the
+corpus declares that this one is a county. So the reason a type is greyed
+can name the missing thing rather than its type — and the checkbox list in
+step 4 can be filtered rather than merely validated.
+
 **The type picker is a gallery, and Superset's SIP-67 is the lesson.**
 Their gallery became unusable for the same reason ours did — abundance
 without organisation. What they concluded:
