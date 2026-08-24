@@ -127,7 +127,13 @@ def test_the_data_host_serves_the_page_the_snippet_links_to(client, visual, auth
     _snapshot(visual, author, ROWS_V1)
     publish(visual, author)
 
-    page = client.get("/visuals/story-geography/")
+    # The slug address is the one already pasted into articles; it now
+    # redirects, permanently, to the one that cannot move.
+    hop = client.get("/visuals/story-geography/")
+    assert hop.status_code == 301
+    assert hop["Location"] == f"/visuals/{visual.uuid}/"
+
+    page = client.get(hop["Location"])
     assert page.status_code == 200
     body = page.content.decode()
     assert visual.title in body
@@ -141,7 +147,11 @@ def test_the_data_host_serves_the_page_the_snippet_links_to(client, visual, auth
 @pytest.mark.urls("datadesk.urls_data")
 def test_the_data_host_does_not_leak_a_draft(client, visual):
     """Nobody signs in here, so a draft has no audience it could be
-    previewed for."""
+    previewed for -- and the slug redirect must not answer either. It
+    would 404 at the far end while confirming on the way that the visual
+    exists, and handing out its uuid.
+    """
+    assert client.get(f"/visuals/{visual.uuid}/").status_code == 404
     assert client.get("/visuals/story-geography/").status_code == 404
 
 
@@ -665,3 +675,137 @@ def test_the_snippet_is_built_in_one_place():
         if "datadesk-visual" in p.read_text()
     ]
     assert writers == [], f"{writers} build the snippet instead of importing it"
+
+
+# --- versions, and the caching that follows from them ------------------------
+#
+# `?v=` was accepted and ignored for as long as it existed: the embed script
+# already appended it from data-version, and the server read the pin no
+# matter what was asked for. Meanwhile the unversioned embed was served
+# `immutable, max-age=31536000` -- a year -- so republishing a visual never
+# reached anybody who had already loaded it.
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_a_version_serves_that_version_and_nothing_else(client, visual, author):
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)  # pins v1
+    _snapshot(visual, author, ROWS_V2)
+
+    base = f"/visuals/{visual.uuid}/data.json"
+    assert client.get(f"{base}?v=1").json()["data"] == ROWS_V1
+    assert client.get(f"{base}?v=2").json()["data"] == ROWS_V2
+    # No version asked: the pin, which is what an embed follows.
+    assert client.get(base).json()["version"] == 1
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_asking_for_a_version_that_is_not_there_is_not_answered_with_another(
+    client, visual, author
+):
+    """Silently serving the pin instead is the exact failure `?v=` exists
+    to prevent: the reader asked for one thing and was shown another with
+    no way to tell."""
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+    assert client.get(f"/visuals/{visual.uuid}/data.json?v=7").status_code == 404
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_a_republished_visual_reaches_a_reader_who_already_had_it(
+    client, visual, author
+):
+    """The unversioned URL means "current", so it cannot be immutable. A
+    version names one snapshot that will never change, so it can."""
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+
+    current = client.get(f"/visuals/{visual.uuid}/data.json")
+    assert "immutable" not in current["Cache-Control"]
+
+    pinned = client.get(f"/visuals/{visual.uuid}/data.json?v=1")
+    assert "immutable" in pinned["Cache-Control"]
+
+    # And the embed, which is the one that was being held for a year.
+    assert "immutable" not in client.get(f"/embed/{visual.uuid}/")["Cache-Control"]
+    assert "immutable" in client.get(f"/embed/{visual.uuid}/?v=1")["Cache-Control"]
+
+
+def test_a_draft_preview_is_never_cached(client, viewer, visual, author):
+    """A draft changes under the person previewing it, who is usually the
+    person editing it. Cached at all, they would be shown their own stale
+    work and conclude the save had not taken.
+
+    On the console, because the data host has no draft to preview -- there
+    is no sign-in there, so a draft is simply absent."""
+    _snapshot(visual, author, ROWS_V1)
+    feed = client.get("/visuals/story-geography/data.json")
+    assert feed.status_code == 200
+    assert feed["Cache-Control"] == "no-store"
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_a_pinned_embed_fetches_the_version_it_was_pinned_to(client, visual, author):
+    """The frame and the fetch inside it have to agree. An embed at ?v=1
+    that renders and then fetches whatever is current is worse than one
+    that ignores the version outright -- it looks pinned."""
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+    _snapshot(visual, author, ROWS_V2)
+
+    body = client.get(f"/embed/{visual.uuid}/?v=1").content.decode()
+    assert f"/visuals/{visual.uuid}/data.json?v=1" in body
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_a_mangled_version_is_read_as_current_rather_than_refused(
+    client, visual, author
+):
+    """URLs pasted into articles get truncated and appended to. Answering
+    with the current version is the useful reading of a request nobody
+    meant to malform."""
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+    for junk in ("", "abc", "-1", "0", "1.5"):
+        got = client.get(f"/visuals/{visual.uuid}/data.json?v={junk}")
+        assert got.status_code == 200, junk
+        assert got.json()["version"] == 1
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_the_slug_redirect_carries_the_version_across(client, visual, author):
+    """Dropping the query string would turn a reader's ?v=1 into "whatever
+    is current" without saying so."""
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+    hop = client.get("/embed/story-geography/?v=1")
+    assert hop.status_code == 301
+    assert hop["Location"] == f"/embed/{visual.uuid}/?v=1"
+
+
+def test_the_uuid_column_is_added_without_a_default():
+    """`AddField` evaluates a callable default once and writes that one
+    value to every existing row, so adding a unique uuid with
+    `default=uuid.uuid4` gives every visual the same one and the unique
+    index refuses to build:
+
+        IntegrityError: could not create unique index
+        DETAIL: Key (uuid)=(3c5ecdac-...) is duplicated.
+
+    An empty test database never shows this -- there are no existing rows
+    to collide -- which is why it is asserted on the migration itself.
+    """
+    from importlib import import_module
+
+    ops = import_module("visuals.migrations.0006_visual_uuid").Migration.operations
+    add = next(o for o in ops if o.__class__.__name__ == "AddField")
+    assert (
+        add.field.has_default() is False
+    ), "a default here is applied once, to every row, identically"
+    assert add.field.null is True
+
+    # And the constraint arrives only after the values do.
+    kinds = [o.__class__.__name__ for o in ops]
+    assert kinds == ["AddField", "RunPython", "AlterField"]
+    alter = ops[-1]
+    assert alter.field.unique is True

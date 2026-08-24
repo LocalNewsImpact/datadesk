@@ -10,11 +10,13 @@ The feed serves the pinned snapshot — the embed stability rule — and
 """
 
 import json
+from urllib.parse import urlencode
 
 from django.core.cache import cache
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils.text import slugify
 from django.views.decorators.clickjacking import xframe_options_exempt
 
@@ -40,8 +42,17 @@ from visuals.services import (
 _LIVE_CACHE_SECONDS = 300
 
 
-def _get_visual(request, slug):
-    visual = Visual.objects.filter(slug=slug).first()
+def _get_visual(request, slug=None, uuid=None):
+    """One visual, found by whichever name the caller was given.
+
+    The console routes by slug because a person reads it. The public host
+    routes by uuid because a person pasted it and can never take it back.
+    Both reach the same row and the same draft rule.
+    """
+    if uuid is not None:
+        visual = Visual.objects.filter(uuid=uuid).first()
+    else:
+        visual = Visual.objects.filter(slug=slug).first()
     if visual is None:
         raise Http404("No such visual")
     # Drafts: preview for signed-in users with a role, absent otherwise.
@@ -78,7 +89,54 @@ def _wired_datasets(user, spec):
     return sorted(readable)
 
 
+def _feed_url(visual, by_uuid, version=None, live=False):
+    """Where this page's renderer fetches its rows.
+
+    Built here rather than reversed in the template, because the two
+    front ends name the same route differently -- the console by slug,
+    the public host by uuid -- and the template cannot tell which it is
+    rendering under. Guessing is worse than it sounds: a UUID is a valid
+    slug, so reversing one against the slug route succeeds and returns a
+    URL that 404s.
+
+    The version rides along, or an embed pinned to v3 would frame v3 and
+    then fetch whatever is current into it.
+    """
+    url = reverse("visuals:data", args=[visual.uuid if by_uuid else visual.slug])
+    params = {}
+    if live:
+        params["live"] = "1"
+    if version is not None:
+        params["v"] = version
+    return f"{url}?{urlencode(params)}" if params else url
+
+
+def _asked_for_version(request):
+    """The `?v=` a reader pinned, or None for whatever is current.
+
+    Anything that is not a positive integer is None rather than an error.
+    A URL pasted into an article gets mangled -- truncated, appended to,
+    passed through a tracker -- and answering with the current version is
+    the useful reading of a request nobody meant to malform.
+    """
+    raw = request.GET.get("v")
+    if raw is None:
+        return None
+    try:
+        asked = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return asked if asked > 0 else None
+
+
 def _feed_payload(request, visual):
+    """The rows to serve, and whether the URL that asked can be cached.
+
+    Second return value is the whole point of `?v=`. A version names one
+    immutable snapshot, so that response may be cached for a year. A URL
+    without one means "current", and caching *that* hard is why a
+    republished visual never reached anybody who had already loaded it.
+    """
     live = request.GET.get("live") == "1"
     if live and visual.allow_live:
 
@@ -88,7 +146,16 @@ def _feed_payload(request, visual):
         data = cache.get_or_set(
             f"visuals.live.{visual.slug}", fetch, _LIVE_CACHE_SECONDS
         )
-        version = None
+        return {"slug": visual.slug, "version": None, "data": data}, False
+
+    asked = _asked_for_version(request)
+    if asked is not None:
+        snapshot = visual.snapshots.filter(version=asked).first()
+        if snapshot is None:
+            # Named a version that does not exist. Not the pinned one
+            # instead: a reader asked for v3 and silently getting v7 is
+            # the failure `?v=` exists to prevent.
+            raise Http404(f"No version {asked} of this visual")
     else:
         snapshot = visual.pinned_snapshot
         if snapshot is None:
@@ -96,22 +163,37 @@ def _feed_payload(request, visual):
             snapshot = visual.snapshots.order_by("-version").first()
         if snapshot is None:
             raise Http404("No data snapshot yet")
-        data = snapshot.data
-        version = snapshot.version
-    return {"slug": visual.slug, "version": version, "data": data}
+
+    payload = {"slug": visual.slug, "version": snapshot.version, "data": snapshot.data}
+    return payload, asked is not None
 
 
-def data_json(request, slug):
-    visual = _get_visual(request, slug)
+#: A year, for a URL that names one immutable snapshot.
+_PINNED = "public, max-age=31536000, immutable"
+#: An hour, for one that means "current" and changes when it is republished.
+_CURRENT = "public, max-age=3600"
+
+
+def _cache_for(response, visual, versioned):
+    """How long this URL may be believed.
+
+    Only a published visual is cached at all: a draft is a preview, and
+    the person previewing it is the one editing it.
+    """
+    if visual.status != Visual.PUBLISHED:
+        response["Cache-Control"] = "no-store"
+    else:
+        response["Cache-Control"] = _PINNED if versioned else _CURRENT
+    return response
+
+
+def data_json(request, slug=None, uuid=None):
+    visual = _get_visual(request, slug=slug, uuid=uuid)
     try:
-        payload = _feed_payload(request, visual)
+        payload, versioned = _feed_payload(request, visual)
     except DataSourceError as exc:
         return JsonResponse({"error": str(exc)}, status=502)
-    response = JsonResponse(payload)
-    if visual.status == Visual.PUBLISHED:
-        # Nightly-fresh is the contract; an hour of cache is invisible.
-        response["Cache-Control"] = "public, max-age=3600"
-    return response
+    return _cache_for(JsonResponse(payload), visual, versioned)
 
 
 def page(request, slug):
@@ -122,11 +204,15 @@ def page(request, slug):
     return render(
         request,
         "visuals/page.html",
-        {"visual": visual, "renderer": f"visuals/renderers/{visual.template}.html"},
+        {
+            "visual": visual,
+            "renderer": f"visuals/renderers/{visual.template}.html",
+            "feed": _feed_url(visual, by_uuid=False),
+        },
     )
 
 
-def public_page(request, slug):
+def public_page(request, slug=None, uuid=None):
     """Where an embed's fallback link lands (ROADMAP item 24).
 
     `page` above cannot serve this. It keeps the sign-in wall and renders
@@ -138,29 +224,46 @@ def public_page(request, slug):
     on the host the snippet names. The snippet is shown on the page too:
     a newsroom that finds a visual this way is exactly who needs it.
     """
-    visual = _get_visual(request, slug)
-    return render(
+    visual = _get_visual(request, slug=slug, uuid=uuid)
+    asked = _asked_for_version(request)
+    shown = visual.snapshots.filter(version=asked).first() if asked else None
+    if asked is not None and shown is None:
+        raise Http404(f"No version {asked} of this visual")
+    response = render(
         request,
         "visuals/public.html",
         {
             "visual": visual,
             "renderer": f"visuals/renderers/{visual.template}.html",
             "snippet": embed_snippet(visual),
+            "feed": _feed_url(visual, by_uuid=uuid is not None, version=asked),
+            # What the reader is looking at, whether they pinned it or
+            # took the current one.
+            "shown": shown or visual.pinned_snapshot,
+            "pinned_by_url": shown is not None,
         },
     )
+    return _cache_for(response, visual, shown is not None)
 
 
 @xframe_options_exempt
-def embed(request, slug):
+def embed(request, slug=None, uuid=None):
     """The iframe-safe embed, framed only by the allowlist."""
-    visual = _get_visual(request, slug)
+    visual = _get_visual(request, slug=slug, uuid=uuid)
+    asked = _asked_for_version(request)
+    if asked is not None and not visual.snapshots.filter(version=asked).exists():
+        raise Http404(f"No version {asked} of this visual")
     response = render(
         request,
         "visuals/embed.html",
-        {"visual": visual, "renderer": f"visuals/renderers/{visual.template}.html"},
+        {
+            "visual": visual,
+            "renderer": f"visuals/renderers/{visual.template}.html",
+            "feed": _feed_url(visual, by_uuid=uuid is not None, version=asked),
+        },
     )
     response["Content-Security-Policy"] = f"frame-ancestors {visual.frame_ancestors}"
-    return response
+    return _cache_for(response, visual, asked is not None)
 
 
 @requires(READ)
