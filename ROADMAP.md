@@ -1923,22 +1923,84 @@ and it is a far smaller thing to ask than "upload a CSV and match its
 keys". The author is choosing a slice of something that already exists
 and is already correct.
 
-**The steps, in our terms:**
+**The steps, decided 2026-08-24.** Type first, not data first:
 
-1. **Choose the slice.** Measure, dimension or two, filters, datasets.
-   The result is a small table — the pivot already returns a few hundred
-   aggregated rows rather than every story, which is what keeps an embed
-   from downloading megabytes to draw one map.
-2. **See the table, and what it will not draw.** Same place, immediately.
-   This is where the coverage report belongs.
-3. **Choose a chart type that fits the shape** — and the shape is known,
-   because the pivot returned it. One dimension and a measure is a bar or
-   a column; a geographic dimension is a map; two dimensions is a stacked
-   bar or a heatmap. The gallery can offer the types that *work* for the
-   slice and grey the rest, which neither Flourish nor Datawrapper can do
-   because neither knows what the data means.
-4. **Refine, annotate, lay out.**
-5. **Publish and embed.**
+1. **Pick a visualization type**, and a subtype where one applies.
+2. **Pick a colour theme.**
+3. **Pick filters** — geography, time, dataset, scope.
+4. **Pick the data**: a checkbox list of the fields that fit the type
+   chosen in step 1.
+
+**The preview is present from step one, empty, and updates at every step.**
+Going back changes one choice and keeps the rest.
+
+**Why type first, when RAWGraphs is data first.** RAWGraphs opens with an
+upload because it cannot know what it is about to receive; the chart types
+are offered afterwards because only then is the shape known. Our data is
+fixed and described — `visuals/corpus.py` declares twenty-three dimensions
+and a set of measures, and their types are known before anybody opens the
+builder. So the ordering that tool is forced into is not one we inherit.
+Choosing the type first is also how somebody actually arrives: they want a
+map of coverage, not "whatever three columns support".
+
+It follows that step 4 can be a checkbox list rather than a mapping
+exercise. The type declares the roles it needs and what each will accept;
+the list shows the dimensions that qualify and hides the rest. Nobody drags
+a column onto an axis and is told afterwards that a date cannot be a
+category.
+
+**What the type has to declare, and RAWGraphs has the shape of it.** Its
+chart interface is the closest thing to a specification for the
+architectural requirement above, and it is worth copying rather than
+reinventing:
+
+```
+dimensions: [
+  { id, name, required, validTypes: ["number"|"string"|"date"|"boolean"],
+    multiple, minValues, maxValues, aggregation }
+]
+visualOptions: {
+  <key>: { type, label, default, group, requiredDimensions }
+}
+```
+
+`requiredDimensions` is the answer to the hundred-and-one controls. An
+option is not shown until the dimension it configures has been chosen — so
+the panel is empty at the start and grows as the chart takes shape, rather
+than presenting every setting for every chart type at once. `validTypes`
+is what makes step 4's checkbox list possible, and `required` is what tells
+the preview whether it can draw anything yet.
+
+**The type picker is a gallery, and Superset's SIP-67 is the lesson.**
+Their gallery became unusable for the same reason ours did — abundance
+without organisation. What they concluded:
+
+- **Categorise by the question, not by the data.** Distribution, Ranking,
+  Correlation, Part of a Whole, Evolution, Flow, Maps. Somebody arrives
+  with a question, not with a column count.
+- **Variations are separate entries, not a toggle.** Donut and pie,
+  horizontal and vertical bar, stacked and grouped. Their reasoning: these
+  are different charts and the choice should be conscious. That is what
+  "subtype where applicable" means here — it belongs in the gallery, seen
+  and picked, not buried in a settings panel afterwards.
+- **Every entry carries a thumbnail, a sentence on what it is for, and the
+  data it needs.** Plus tags for the names people actually use — "spider"
+  finds the radar chart.
+
+We can do one thing neither Flourish, Datawrapper nor Superset can: **grey
+out the types that cannot work.** They cannot, because they do not know
+what the data means. We do — the corpus declares it. A type needing two
+measures is visibly unavailable when the datasets on offer carry one, with
+the reason on hover.
+
+**Going back must not cost anything, which is a state decision.** One
+config object, and each step writes its own keys. Nothing is cleared on
+navigation. Changing the type is the only step that can invalidate an
+earlier choice — a field that fitted a bar chart may not fit a map — and
+the rule there is to keep the choice, mark it unusable, and say why. A
+builder that silently empties the fields when somebody looks at a different
+chart type teaches people not to explore, which is the whole failure being
+fixed.
 
 **The chart types wanted, and what each needs from the pivot.** These are
 examples rather than a closed list, but they are enough to size the work,
@@ -2188,13 +2250,20 @@ components, and the editor components that do exist — Plotly's, Vega's —
 are forms, which is the thing being escaped. The editing layer is ours
 either way, and the rendering can stay where it is.
 
-**First step, and it needs no decision:** read the ninety-one controls
-against the renderers and separate the ones a chart genuinely needs from
-the ones that exist because a form was the only way to offer them. Then
-write, per chart type, the short list of roles it needs a column for —
-the ID/Name/Colour-by list. Those two lists are what the new design is
-built around, and the second is what makes swapping a type possible
-without starting again.
+**First step, and it needs no decision:** read the controls against the
+renderers and separate the ones a chart genuinely needs from the ones that
+exist because a form was the only way to offer them. Then write, per chart
+type, the declaration above — its `dimensions` with `validTypes` and
+`required`, and its `visualOptions` each tagged with the
+`requiredDimensions` that bring it into view. Those two lists are what the
+new design is built around, and the second is what makes swapping a type
+possible without starting again.
+
+It is now a hundred and one controls, not ninety-one: **27 `<select>`, 27
+`<input>` and 47 `<label>` across 7 fieldsets**. Six were added on
+2026-08-24 building item 23, which is the argument for doing this rather
+than a reason to wait — the form grows every time somebody works around
+it.
 
 **Second step, and the one with the most value per hour:** the coverage
 report. For a given slice, say how many of the geography's units it
