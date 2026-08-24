@@ -1,0 +1,34 @@
+{% extends "visuals/steps/_shell.html" %}
+{% block panel %}
+{% if not chart %}
+<p class="notice">Pick a chart type first — what it needs is what this asks for.</p>
+{% else %}
+{% if pairs %}<p class="notice">{{ pairs.0 }} and {{ pairs.1 }} must come from
+the same set of values.</p>{% endif %}
+<form method="post">
+  {% csrf_token %}
+  {% for role in roles %}
+  <div class="role">
+    <h4>{{ role.label }} <span class="accepts">— {{ role.accepts }}{% if role.optional %}, optional{% endif %}</span></h4>
+    <select class="var" name="role-{{ role.id }}">
+      <option value="">Choose{% if role.optional %} (optional){% endif %}</option>
+      {% for v in role.options %}
+      <option value="{{ v.id }}" {% if v.on %}selected{% endif %}>{{ v.label }}</option>
+      {% endfor %}
+    </select>
+    {% comment %}
+    Once a variable is chosen its values can be narrowed. Sending none of
+    them means all of them, so nothing has to be listed to mean "no filter".
+    {% endcomment %}
+    {% if role.kept %}
+    <p class="values-none">Kept: {{ role.kept|join:", " }}
+      <button type="submit" name="only-{{ role.chosen }}" value="">Keep all</button></p>
+    {% endif %}
+  </div>
+  {% endfor %}
+  <div class="action-bar">
+    <button type="submit" class="primary">Save</button>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

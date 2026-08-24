@@ -1,0 +1,41 @@
+{% extends "visuals/steps/_shell.html" %}
+{% block panel %}
+{% comment %}
+State, then county, then newsroom. A flat list of two hundred names is not a
+choice anybody can make; the ladder is the one the data already sits on, and
+checking a state is how you take all of it without ticking eighty boxes.
+Sending nothing means every one of them -- storing exclusions would make
+"all" a list that goes stale the moment a publisher is added.
+{% endcomment %}
+<form method="post">
+  {% csrf_token %}
+  <p class="tree-head">{% if kept == total %}All {{ total }} newsrooms{% else %}{{ kept }} of {{ total }} kept{% endif %}</p>
+  <div class="tree">
+    {% for s in states %}
+    <details class="node state" open>
+      <summary><span class="label strong">{{ s.label }}</span>
+        <em>{{ s.counties|length }} counties · {{ s.rooms }}</em></summary>
+      {% for c in s.counties %}
+      <details class="node county">
+        <summary><span class="label">{{ c.name }}</span>
+          <em>{{ c.rooms|length }} · {{ c.count }}</em></summary>
+        <div class="kids">
+          {% for r in c.rooms %}
+          <label class="row pub">
+            <input type="checkbox" name="publishers" value="{{ r.id }}"
+              {% if r.on %}checked{% endif %}>
+            <span class="label">{{ r.name }}</span><em>{{ r.count }}</em>
+          </label>
+          {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
+    </details>
+    {% endfor %}
+  </div>
+  <div class="action-bar">
+    <button type="submit" class="primary">Continue</button>
+    <button type="submit" name="stay" value="1">Save and stay</button>
+  </div>
+</form>
+{% endblock %}

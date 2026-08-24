@@ -1,0 +1,26 @@
+{% extends "visuals/steps/_shell.html" %}
+{% block panel %}
+<form method="post">
+  {% csrf_token %}
+  <div class="swatches">
+    {% for t in themes %}
+    <label class="swatch{% if t.on %} on{% endif %}">
+      <input type="radio" name="theme" value="{{ t.id }}" {% if t.on %}checked{% endif %}>
+      <span>{{ t.label }}</span>
+    </label>
+    {% endfor %}
+  </div>
+  {% comment %}
+  A fixed taxonomy is what keeps one CIN need the same colour in every
+  chart, which is the caveat about inconsistent encoding across a set.
+  {% endcomment %}
+  <label class="inline">
+    <input type="checkbox" name="taxonomy" value="1" {% if taxonomy %}checked{% endif %}>
+    Colour the ten CIN needs the same way in every chart
+  </label>
+  <div class="action-bar">
+    <button type="submit" class="primary">Continue</button>
+    <button type="submit" name="stay" value="1">Save and stay</button>
+  </div>
+</form>
+{% endblock %}

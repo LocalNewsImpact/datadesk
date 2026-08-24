@@ -1,0 +1,43 @@
+{% extends "visuals/steps/_shell.html" %}
+{% block panel %}
+{% comment %}
+The gallery. A type that cannot be built from the data on hand is dimmed and
+carries the reason; it is never hidden, because knowing a dot map exists and
+needs coordinates is worth more than not knowing it exists.
+{% endcomment %}
+{% if row_count %}
+<p class="notice">Checked against {{ row_count }} row{{ row_count|pluralize }}:
+  {% for name, kind in available %}<code>{{ name }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}.</p>
+{% else %}
+<p class="notice">No data yet. Pick a type and the fields it needs are what
+the later steps ask for.</p>
+{% endif %}
+
+{% for group in groups %}
+<section class="type-family">
+  <h3>{{ group.family }}</h3>
+  <div class="type-gallery">
+    {% for t in group.types %}
+    <form method="post" class="type-card{% if t.why_not %} unavailable{% endif %}{% if t.id == chosen %} on{% endif %}">
+      {% csrf_token %}
+      <input type="hidden" name="kind" value="{{ t.id }}">
+      <button type="submit" {% if t.why_not %}disabled{% endif %}>
+        <span class="type-name">{{ t.label }}</span>
+        <span class="type-blurb">{{ t.blurb }}</span>
+        {% if t.why_not %}<span class="type-why">{{ t.why_not }}</span>{% endif %}
+      </button>
+      {% if t.read_better %}
+        <p class="type-advice">Reads more accurately as
+          {% for other in t.read_better %}{{ other }}{% if not forloop.last %} or {% endif %}{% endfor %}</p>
+      {% elif t.caution %}
+        <p class="type-advice">{{ t.caution }}</p>
+      {% endif %}
+    </form>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% if empty_families %}
+<p class="notice">Nothing yet under {{ empty_families|join:", " }}.</p>
+{% endif %}
+{% endblock %}
