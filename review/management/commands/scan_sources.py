@@ -85,9 +85,11 @@ class Command(BaseCommand):
 
         made = collections.Counter()
         refreshed = 0
+        live_keys = set()
         for source in sources:
             for item in self._flags_for(source, context, evidence, options):
                 key = (source.id, item["flag"], item["field"])
+                live_keys.add(key)
                 if key in existing:
                     refreshed += self._refresh(pending_rows[key], item, options)
                     continue
@@ -120,12 +122,54 @@ class Command(BaseCommand):
                 f"{'would clear' if options['dry_run'] else 'cleared'} "
                 f"{retired} already answered"
             )
+        # A check that has been corrected leaves behind the proposals it
+        # wrongly raised, and nothing was clearing them: _retire_settled
+        # sweeps questions a person has answered, not questions the app
+        # has stopped asking.
+        withdrawn = self._withdraw_unraised(sources, live_keys, options)
+        if withdrawn:
+            self.stdout.write(
+                f"{'would withdraw' if options['dry_run'] else 'withdrew'} "
+                f"{withdrawn} no longer flagged"
+            )
         self.stdout.write(
             f"{len(sources)} publishers scanned; "
             f"{'would queue' if options['dry_run'] else 'queued'} {total}"
         )
+        # A check that has been corrected leaves behind the proposals it
+        # wrongly raised, and nothing was clearing them: `_retire_settled`
+        # sweeps questions a person has answered, not questions the app has
+        # stopped asking. The misfiled-column check flagged every name that
+        # is both a city and a county -- St. Louis, Jackson, Jasper -- and
+        # fixing it left ninety-odd of them in the queue for good.
         for flag, count in made.most_common():
             self.stdout.write(f"  {flag}: {count}")
+
+    def _withdraw_unraised(self, sources, live_keys, options):
+        """Delete pending rows for scanned sources that no longer flag.
+
+        Either the record was corrected or the check was. Both mean the
+        question is not being asked any more, and a queue holding questions
+        nothing asks is a queue nobody trusts.
+
+        Only sources this run actually scanned: a proposal on a record
+        outside the dataset was not re-examined and must not be swept on
+        the strength of not having been looked at.
+        """
+        scanned = {source.id for source in sources}
+        pending = ChangeProposal.objects.filter(
+            target="sources",
+            state=ChangeProposal.PENDING,
+            record_id__in=scanned,
+        )
+        stale = [
+            row.pk
+            for row in pending
+            if (row.record_id, row.flag, row.field) not in live_keys
+        ]
+        if stale and not options["dry_run"]:
+            ChangeProposal.objects.filter(pk__in=stale).delete()
+        return len(stale)
 
     def _retire_settled(self, sources, settled, existing, options):
         """Clear questions still in the queue that have already been answered.
