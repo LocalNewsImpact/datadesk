@@ -60,7 +60,7 @@ STEPS = (
         "fields",
         "Fields",
         "Which fields?",
-        "Each slot offers only the variables that fit it.",
+        "",  # the panel says it, and says it about this chart
         ("dimensions", "measure", "roles", "only"),
     ),
 )

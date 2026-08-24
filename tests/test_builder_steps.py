@@ -407,3 +407,47 @@ def test_the_picker_opens_when_nothing_is_chosen(client, author, visual, dataset
     visual.save()
     body = step(client, visual, "data").content.decode()
     assert '<details class="picker" open>' not in body
+
+
+# --- what the page calls things ----------------------------------------------
+
+
+def test_the_sentence_names_a_dataset_not_its_slug(visual, dataset):
+    """The spec stores "mizzou" and the sentence should say "Missouri".
+    Reading a key back to somebody is the schema talking."""
+    from visuals.sentence import parts_for
+
+    visual.config = {"kind": "chord"}
+    visual.spec = {"datasets": ["mizzou"]}
+    said = {text for _, text, kind in parts_for(visual) if kind == "said"}
+    assert "Missouri" in said
+    assert "mizzou" not in said
+
+
+def test_a_dataset_that_no_longer_exists_falls_back_to_its_slug(visual, crawler_schema):
+    """Better a key than an empty gap: a visual wired to something since
+    removed should say so rather than read as though nothing was chosen."""
+    from visuals.sentence import parts_for
+
+    visual.config = {"kind": "chord"}
+    visual.spec = {"datasets": ["gone"]}
+    assert "gone" in {text for _, text, kind in parts_for(visual) if kind == "said"}
+
+
+def test_a_slot_says_what_it_takes_in_plain_words(client, author, visual, dataset):
+    """ "a category", not "text". The gallery already says it this way and
+    the panel said it the other."""
+    visual.config = {"kind": "chord"}
+    visual.save()
+    body = step(client, visual, "fields").content.decode()
+    assert "a category" in body
+    assert "&mdash; text" not in body and "— text" not in body
+
+
+def test_the_pairing_note_names_the_slots_above_it(client, author, visual, dataset):
+    """ "From and To", which is what they are called on screen. "from and
+    to" reads as a fragment of the code."""
+    visual.config = {"kind": "chord"}
+    visual.save()
+    body = step(client, visual, "fields").content.decode()
+    assert "From and To must come from the same set of values" in body

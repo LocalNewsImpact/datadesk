@@ -33,6 +33,21 @@ def _named(spec, chart):
     return out
 
 
+def _dataset_label(slug):
+    """A dataset's name, not its slug. The spec stores "mizzou" and the
+    sentence should say "Missouri" -- the slug is a key, and reading one
+    back to somebody is the schema talking."""
+    from django.db import DatabaseError
+
+    from explorer.models import Dataset
+
+    try:
+        found = Dataset.objects.filter(slug=slug).values_list("label", flat=True)
+        return found[0] if found else slug
+    except (DatabaseError, IndexError):
+        return slug
+
+
 def parts_for(visual, step=""):
     """[(lead, text, kind)] where kind is 'said', 'gap' or 'here'.
 
@@ -67,7 +82,7 @@ def parts_for(visual, step=""):
 
     picked = spec.get("datasets") or ([spec["dataset"]] if spec.get("dataset") else [])
     if len(picked) == 1:
-        out.append(("in", picked[0].replace("-", " "), "said"))
+        out.append(("in", _dataset_label(picked[0]), "said"))
     elif picked:
         out.append(("across", f"{len(picked)} datasets", "said"))
     else:
