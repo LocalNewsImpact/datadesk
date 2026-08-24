@@ -448,7 +448,8 @@ def test_the_snippet_carries_no_height():
 def test_the_snippet_names_the_public_host_not_the_console():
     """An embed URL is written into somebody else's article and cannot be
     moved afterwards, so it must not name an implementation detail."""
-    from visuals.admin import EMBED_HOST, VisualAdmin
+    from visuals.admin import VisualAdmin
+    from visuals.embed import EMBED_HOST
     from visuals.models import Visual
 
     visual = Visual(slug="v", title="A chart")
@@ -595,3 +596,42 @@ def test_a_failed_feed_says_what_went_wrong():
     ).read_text()
     assert "err.message" in renderer
     assert "if (!r.ok) throw" in renderer, "a 404 resolves; only .json() would fail"
+
+
+def test_the_builder_and_the_admin_hand_out_the_same_snippet():
+    """It was written twice and the two drifted the first time one
+    changed: the admin moved to the data host and a responsive script, and
+    the builder went on offering an iframe at height 480 aimed at the
+    console. An embed URL cannot be moved once pasted, so a stale snippet
+    is what somebody's article loads for good."""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    # The snippet lives on the publish step now; the settings page links
+    # to it rather than carrying a second copy.
+    template = (root / "templates/visuals/steps/publish.html").read_text()
+    assert "{{ snippet }}" in template
+    settings_page = (root / "templates/visuals/builder_edit.html").read_text()
+    assert "datadesk-visual" not in settings_page
+    # Nothing may build one by hand any more.
+    for name in (
+        "templates/visuals/builder_edit.html",
+        "templates/visuals/steps/publish.html",
+        "visuals/admin.py",
+    ):
+        text = (root / name).read_text()
+        assert "iframe src" not in text, f"{name} still writes its own"
+        assert not re.search(r'height="\d+"', text), f"{name} carries a height"
+
+
+def test_the_snippet_is_built_in_one_place():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    writers = [
+        p.name
+        for p in [root / "visuals/admin.py", root / "visuals/views.py"]
+        if "datadesk-visual" in p.read_text()
+    ]
+    assert writers == [], f"{writers} build the snippet instead of importing it"

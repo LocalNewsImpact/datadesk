@@ -23,7 +23,7 @@
       {% for visual in visuals %}
       <tr>
         <td><a href="{% url 'visuals:page' visual.slug %}">{{ visual.title }}</a>
-            {% if visual.template == "builder" and visual.actionable %}<a class="edit-link" href="{% url 'visuals:builder_step' visual.slug 'type' %}">edit</a><a class="edit-link" href="{% url 'visuals:builder_edit' visual.slug %}">everything else</a>{% endif %}</td>
+            {% if visual.template == "builder" and visual.actionable %}<a class="edit-link" href="{% url 'visuals:builder_step' visual.slug 'type' %}">edit</a><a class="edit-link" href="{% url 'visuals:builder_edit' visual.slug %}">settings</a>{% endif %}</td>
         <td>{{ visual.status }}</td>
         <td>{% if visual.pinned_snapshot %}v{{ visual.pinned_snapshot.version }}{% else %}—{% endif %}</td>
         <td>{{ visual.published_at|date:"Y-m-d"|default:"—" }}</td>

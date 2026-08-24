@@ -672,3 +672,61 @@ def test_an_unknown_subset_is_refused(client, author, visual, dataset):
     visual.refresh_from_db()
     assert (visual.spec or {}).get("subset") != "everything"
     assert response.status_code == 200
+
+
+# --- publishing, and the code somebody pastes --------------------------------
+
+
+def test_the_embed_code_is_where_somebody_would_look_for_it(
+    client, author, visual, dataset
+):
+    """It lived on the advanced-settings page. That page is where a
+    visual's plumbing is changed; somebody looking for the code to paste
+    was being sent to a page about data sources."""
+    from visuals.models import Visual, VisualSnapshot
+
+    VisualSnapshot.objects.create(
+        visual=visual, version=1, data=[{"a": 1}], created_by=author
+    )
+    visual.status = Visual.PUBLISHED
+    visual.save()
+
+    body = step(client, visual, "publish").content.decode()
+    assert "datadesk-visual" in body
+    assert "data.localnewsimpact.org" in body
+
+
+def test_an_empty_visual_cannot_be_published(client, author, visual, dataset):
+    """An embed of it renders nothing on somebody else's page, which is
+    worse than not existing."""
+    body = step(client, visual, "publish").content.decode()
+    assert "Nothing to publish yet" in body
+    assert 'value="publish"' not in body
+
+
+def test_the_publish_step_says_which_version_is_being_served(
+    client, author, visual, dataset
+):
+    """A snapshot newer than the pinned one means the embed is serving
+    something other than what the builder shows."""
+    from visuals.models import Visual, VisualSnapshot
+
+    old = VisualSnapshot.objects.create(
+        visual=visual, version=1, data=[{"a": 1}], created_by=author
+    )
+    visual.pinned_snapshot = old
+    visual.status = Visual.PUBLISHED
+    visual.save()
+    VisualSnapshot.objects.create(
+        visual=visual, version=2, data=[{"a": 2}], created_by=author
+    )
+
+    body = step(client, visual, "publish").content.decode()
+    assert "Pinned to version 1" in body
+    assert "Version 2 exists and is not being served" in body
+
+
+def test_the_settings_page_no_longer_publishes(client, author, visual, dataset):
+    body = client.get(f"/visuals/builder/{visual.slug}/").content.decode()
+    assert "Publish and get the embed code" in body
+    assert 'name="form" value="publish"' not in body

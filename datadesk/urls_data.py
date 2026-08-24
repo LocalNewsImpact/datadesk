@@ -16,7 +16,7 @@ a published visual is published, and an unpublished one is not here.
 """
 
 from django.http import JsonResponse
-from django.urls import path
+from django.urls import include, path
 from django.views.decorators.cache import cache_control
 from django.views.decorators.clickjacking import xframe_options_exempt
 
@@ -35,8 +35,11 @@ FOREVER = cache_control(public=True, max_age=31536000, immutable=True)
 BRIEFLY = cache_control(public=True, max_age=300)
 
 
-urlpatterns = [
-    path("_health", healthz, name="healthz"),
+# Under the `visuals` namespace, because the renderer templates reverse
+# `visuals:data` to find their own feed. Declared bare, the embed raised
+# NoReverseMatch and returned 500 -- and `_health` passed, because it
+# reverses nothing. A route is not exercised by the route beside it.
+_visuals = [
     # The embed and its data. Framing is decided per visual by the
     # allowlist the console records, which is why the embed view stays the
     # one the console already uses rather than a copy.
@@ -50,4 +53,9 @@ urlpatterns = [
         BRIEFLY(visuals.data_json),
         name="data",
     ),
+]
+
+urlpatterns = [
+    path("_health", healthz, name="healthz"),
+    path("", include((_visuals, "visuals"), namespace="visuals")),
 ]

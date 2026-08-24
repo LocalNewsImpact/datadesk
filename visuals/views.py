@@ -23,6 +23,7 @@ from accounts.decorators import APP, requires
 from accounts.privileges import DESIGN, READ
 from audit.models import AuditLogEntry
 from visuals.builder import CHART_KINDS, BuilderError, config_from_form, parse_upload
+from visuals.embed import snippet as embed_snippet
 from visuals.models import BIGQUERY, CORPUS, GCS, INLINE, Visual
 from visuals.services import (
     DataSourceError,
@@ -330,6 +331,7 @@ def builder_edit(request, slug):
             "columns": columns,
             "chart_kinds": CHART_KINDS,
             "config_json": json.dumps(visual.config or {}),
+            "embed_snippet": embed_snippet(visual),
             "spec_json": json.dumps(visual.spec or {}),
             "preview_json": json.dumps(rows[:5000]),
             "dimensions": [
@@ -511,13 +513,15 @@ def builder_step(request, slug, step):
         extra["choices"] = _readable_datasets(request.user)
     elif step == "newsrooms":
         extra["tree"] = _newsroom_tree(visual)
+    elif step == "publish":
+        extra["actor"] = request.user
     elif step == "fields":
         # Until the data step saves, the visual is wired to nothing and a
         # facet would count over an empty queryset. The author's own scopes
         # stand in while they are still building it.
         extra["user"] = request.user
 
-    panel = getattr(panels, f"{step}_panel" if step != "fields" else "field_panel")
+    panel = getattr(panels, "field_panel" if step == "fields" else f"{step}_panel")
     error = ""
 
     if request.method == "POST":
