@@ -24,7 +24,13 @@ from accounts.access import ALL_SCOPES, has_any_grant
 from accounts.decorators import APP, requires
 from accounts.privileges import DESIGN, READ
 from audit.models import AuditLogEntry
-from visuals.builder import CHART_KINDS, BuilderError, config_from_form, parse_upload
+from visuals.builder import (
+    CHART_KINDS,
+    BuilderError,
+    config_from_form,
+    libs_for,
+    parse_upload,
+)
 from visuals.embed import snippet as embed_snippet
 from visuals.models import BIGQUERY, CORPUS, GCS, INLINE, Visual
 from visuals.services import (
@@ -366,6 +372,7 @@ def page(request, slug):
             "visual": visual,
             "renderer": f"visuals/renderers/{visual.template}.html",
             "feed": _feed_url(visual, by_uuid=False),
+            "libs": libs_for((visual.config or {}).get("kind")),
         },
     )
 
@@ -396,6 +403,7 @@ def public_page(request, slug=None, uuid=None):
             "snippet": embed_snippet(visual),
             "feed": _feed_url(visual, by_uuid=uuid is not None, version=asked),
             "downloads": _downloads(visual, by_uuid=uuid is not None, version=asked),
+            "libs": libs_for((visual.config or {}).get("kind")),
             # What the reader is looking at, whether they pinned it or
             # took the current one.
             "shown": shown or visual.pinned_snapshot,
@@ -421,6 +429,7 @@ def embed(request, slug=None, uuid=None):
             "feed": _feed_url(visual, by_uuid=uuid is not None, version=asked),
             "theme_stamp": _theme_for(request, visual),
             "geo_preload": _geo_preload(visual),
+            "libs": libs_for((visual.config or {}).get("kind")),
         },
     )
     response["Content-Security-Policy"] = f"frame-ancestors {visual.frame_ancestors}"

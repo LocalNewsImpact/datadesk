@@ -143,3 +143,38 @@ def parse_upload(uploaded_file):
                 out[column] = value or None
         typed.append(out)
     return typed
+
+
+# Which of the runtime's three libraries each kind actually uses, so an
+# embed downloads what it draws with and nothing else.
+#
+# Plot reads globalThis.d3 in its UMD factory rather than bundling it, so
+# d3 is a dependency of Plot and not an alternative to it. The kinds that
+# draw their own SVG -- donut, chord, arc, storymap -- use d3 alone and
+# were paying for Plot regardless; a table draws in plain DOM and was
+# paying for all of it.
+#
+# Anything not named here loads everything. A kind added without a line in
+# this table should render slowly, not fail to render.
+CHART_LIBS = {
+    "table": (),
+    "donut": ("d3",),
+    "chord": ("d3",),
+    "arc": ("d3",),
+    "storymap": ("d3", "topojson"),
+    "bar": ("d3", "plot"),
+    "line": ("d3", "plot"),
+    "area": ("d3", "plot"),
+    "scatter": ("d3", "plot"),
+    "choropleth": ("d3", "plot", "topojson"),
+    "points": ("d3", "plot", "topojson"),
+}
+
+#: Every library, for a kind this table does not know about.
+ALL_LIBS = ("d3", "plot", "topojson")
+
+
+def libs_for(kind):
+    """The runtime libraries a kind needs, in load order."""
+    wanted = set(CHART_LIBS.get(kind, ALL_LIBS))
+    return tuple(lib for lib in ALL_LIBS if lib in wanted)
