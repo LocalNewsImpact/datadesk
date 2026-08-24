@@ -21,7 +21,7 @@
 
   <nav class="queue-facets" aria-label="What is wrong">
     <a href="?state={{ state }}" class="facet-chip {% if not flag %}on{% endif %}">
-      Everything wrong <span>{{ pending_total }}</span>
+      Review all <span>{{ pending_total }}</span>
     </a>
     {% for key, label, defect, count in flags %}
     <a href="?flag={{ key }}&state={{ state }}" title="{{ defect }}"

@@ -1161,3 +1161,55 @@ def test_a_proposal_naming_the_state_can_be_accepted(client, editor, mo):
     client.post("/review/proposals/", {f"d-{proposal.pk}": "accept"})
     bare.refresh_from_db()
     assert (bare.meta or {}).get("state") == "MO"
+
+
+def test_a_name_that_is_both_a_city_and_a_county_is_not_misfiled(mo, editor):
+    """Missouri has a St. Louis city and a St. Louis County, a Jackson and
+    a Jackson County, a Jasper and a Jasper County. A name being both is
+    ordinary. Flagging every one buried the real mapping errors under
+    dozens that were not.
+    """
+    for name in ("St. Louis", "Jackson", "Jasper"):
+        source = Source.objects.create(
+            id=f"s-both-{name.replace('. ', '').replace(' ', '')}",
+            host=f"{name.lower().replace('. ', '').replace(' ', '')}.example",
+            host_norm=f"{name.lower().replace('. ', '').replace(' ', '')}.example",
+            city=name,
+            county=name,
+            owner="Someone",
+            meta={"state": "MO"},
+        )
+        flags = _scanned(mo, source)
+        assert "county_misfiled" not in flags, f"{name} county"
+        assert "city_misfiled" not in flags, f"{name} city"
+
+
+def test_a_value_wrong_for_its_own_field_is_still_caught(mo, editor):
+    """The guard must not swallow the case it was written for."""
+    Source.objects.create(
+        id="s-owner-x",
+        host="ox.example",
+        host_norm="ox.example",
+        owner="Nexstar Media Inc",
+        meta={"state": "MO"},
+    )
+    wrong = Source.objects.create(
+        id="s-mis-x",
+        host="mx.example",
+        host_norm="mx.example",
+        city="Columbia",
+        county="Nexstar Media Inc",
+        meta={"state": "MO"},
+    )
+    flags = _scanned(mo, wrong)
+    assert "county_misfiled" in flags
+
+
+def test_the_queue_filter_does_not_claim_the_records_are_all_wrong(
+    client, editor, crawler_schema
+):
+    """ "Everything wrong 19" reads as a claim about the filtered records
+    rather than a way to clear the filter and see the whole queue."""
+    body = client.get("/review/proposals/").content.decode()
+    assert "Review all" in body
+    assert "Everything wrong" not in body

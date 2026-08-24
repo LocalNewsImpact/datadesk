@@ -86,6 +86,19 @@ def _looks_like(value, field, source, context):
     return ""
 
 
+def _valid_for(value, field, source, context):
+    """Whether `value` is a legitimate entry for `field`."""
+    from datasets.geo import canonical_county
+    from datasets.places import place_geoid
+
+    state = context["state_of"](source)
+    if field == "county":
+        return bool(state) and bool(canonical_county(state, value)[1])
+    if field == "city":
+        return bool(state) and bool(place_geoid(state, value))
+    return True
+
+
 def _misfiled(field):
     """A value that belongs to a different column.
 
@@ -93,11 +106,19 @@ def _misfiled(field):
     as a nonsense county rather than as a mapping error. This names it:
     'Nexstar Media Inc is an owner, not a county' is a repair somebody can
     make, where 'not a county in MO' is a puzzle.
+
+    A value legitimate for its own field is never misfiled, whatever else
+    it also happens to be. Missouri has a St. Louis city and a St. Louis
+    County, a Jasper and a Jasper County; a name being both is ordinary,
+    and flagging every one of them buried the real mapping errors under
+    dozens that were not.
     """
 
     def check(source, context):
         value = (getattr(source, field, "") or "").strip()
         if not value:
+            return False, "", ""
+        if _valid_for(value, field, source, context):
             return False, "", ""
         actually = _looks_like(value, field, source, context)
         if not actually:
