@@ -438,3 +438,65 @@ def test_the_last_step_leads_nowhere():
 
     assert next_after("type") == "theme"
     assert next_after("fields") is None
+
+
+# --- the theme swatches ------------------------------------------------------
+
+
+def test_every_theme_the_panel_offers_exists_in_the_runtime():
+    """A theme offered here and absent there saves a value the chart falls
+    back from, so the author picks a palette and gets the default."""
+    import re
+    from pathlib import Path
+
+    from visuals.panels import THEMES
+
+    js = (
+        Path(__file__).resolve().parent.parent / "static/js/datadesk-chart.js"
+    ).read_text()
+    block = js[js.index("const THEMES = {") : js.index("  function theme(")]
+    defined = set(re.findall(r"^    ([a-z]+): \{", block, re.M))
+    for theme_id, _, _ in THEMES:
+        assert theme_id in defined, f"{theme_id} is offered and not defined"
+
+
+def test_a_swatch_shows_the_colours_the_chart_will_use():
+    """Copied rather than read, because Python cannot run the JS. A palette
+    changed there and not here shows the wrong swatch, which is worse than
+    no swatch -- so the first colour of each is held to the runtime."""
+    import re
+    from pathlib import Path
+
+    from visuals.panels import THEMES
+
+    js = (
+        Path(__file__).resolve().parent.parent / "static/js/datadesk-chart.js"
+    ).read_text()
+    block = js[js.index("const THEMES = {") : js.index("  function theme(")]
+    base = re.search(r"const LIGHT = \{\s*series: \[([^\]]*)\]", js).group(1)
+    base = [c.strip().strip('"') for c in base.split(",") if c.strip()]
+
+    for theme_id, _, colours in THEMES:
+        segment = block[block.index(f"    {theme_id}: {{") :]
+        light = segment[: segment.index("dark:")] if "dark:" in segment else segment
+        found = re.search(r"series: \[([^\]]*)\]", light)
+        actual = (
+            [c.strip().strip('"') for c in found.group(1).split(",") if c.strip()]
+            if found
+            else base
+        )
+        assert list(colours) == actual[: len(colours)], (
+            f"{theme_id}: the swatch shows {list(colours)} and the chart "
+            f"draws {actual[: len(colours)]}"
+        )
+
+
+def test_the_swatch_keeps_a_focus_ring():
+    """The radio is hidden so the palette can be the target, which takes
+    the ring with it unless the label carries one."""
+    from pathlib import Path
+
+    css = (
+        Path(__file__).resolve().parent.parent / "static/css/datadesk.css"
+    ).read_text()
+    assert ".swatch:focus-within" in css

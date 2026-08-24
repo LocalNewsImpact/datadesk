@@ -17,12 +17,24 @@ the same set of values.</p>{% endif %}
       {% endfor %}
     </select>
     {% comment %}
-    Once a variable is chosen its values can be narrowed. Sending none of
-    them means all of them, so nothing has to be listed to mean "no filter".
+    Once a variable is chosen its values can be narrowed. Counted, because a
+    facet without counts is a wall of checkboxes and the count is what says
+    whether narrowing leaves anything to draw. All boxes ticked submits every
+    value, which the panel reads back as no filter at all.
     {% endcomment %}
-    {% if role.kept %}
-    <p class="values-none">Kept: {{ role.kept|join:", " }}
-      <button type="submit" name="only-{{ role.chosen }}" value="">Keep all</button></p>
+    {% if role.values %}
+    <details class="values"{% if role.kept %} open{% endif %}>
+      <summary>{% if role.kept %}{{ role.kept|length }} of {{ role.values|length }} kept{% else %}All {{ role.values|length }} values{% endif %}</summary>
+      <div class="values-list">
+        {% for v in role.values %}
+        <label class="row">
+          <input type="checkbox" name="only-{{ role.chosen }}" value="{{ v.value }}"
+            {% if v.on %}checked{% endif %}>
+          <span class="label">{{ v.value }}</span><em>{{ v.count }}</em>
+        </label>
+        {% endfor %}
+      </div>
+    </details>
     {% endif %}
   </div>
   {% endfor %}

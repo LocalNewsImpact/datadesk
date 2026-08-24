@@ -247,3 +247,90 @@ def test_every_parent_control_is_named_for_a_screen_reader(
     for line in body.splitlines():
         if 'class="branch"' in line:
             assert "aria-label=" in line
+
+
+# --- the value facets --------------------------------------------------------
+
+
+@pytest.fixture
+def corpus(dataset, newsroom):
+    """A handful of articles so a facet has something to count."""
+    from explorer.models import Article, CandidateLink
+
+    link = CandidateLink.objects.create(
+        id="cl1", url="https://komu.example/1", source=newsroom
+    )
+    for i, label in enumerate(["Civic Life", "Civic Life", "Sports"]):
+        Article.objects.create(
+            id=f"a{i}", status="ok", candidate_link=link, primary_label=label
+        )
+    return dataset
+
+
+def test_a_chosen_dimension_offers_its_values_with_counts(
+    client, author, visual, corpus
+):
+    """A facet without counts is a wall of checkboxes; the count is what
+    says whether narrowing leaves anything to draw."""
+    visual.config = {"kind": "bar"}
+    visual.spec = {"roles": {"x": "cin_primary"}}
+    visual.save()
+    body = step(client, visual, "fields").content.decode()
+    assert "Civic Life" in body
+    assert "Sports" in body
+
+
+def test_a_measure_offers_no_values(client, author, visual, corpus):
+    """A measure has a range, not a set of values to tick."""
+    visual.config = {"kind": "bar"}
+    visual.spec = {"roles": {"y": "articles"}}
+    visual.save()
+    body = step(client, visual, "fields").content.decode()
+    assert 'name="only-articles"' not in body
+
+
+def test_ticking_every_value_is_not_a_filter(client, author, visual, corpus):
+    """Storing them all would go stale the moment one is added, which is
+    why the newsroom step stores nothing for "all" either."""
+    visual.config = {"kind": "bar"}
+    visual.save()
+    step(
+        client,
+        visual,
+        "fields",
+        **{
+            "role-x": "cin_primary",
+            "role-y": "articles",
+            "only-cin_primary": ["Civic Life", "Sports"],
+        },
+    )
+    visual.refresh_from_db()
+    assert not (visual.spec.get("only") or {}).get("cin_primary")
+
+
+def test_ticking_some_values_is_a_filter(client, author, visual, corpus):
+    visual.config = {"kind": "bar"}
+    visual.save()
+    step(
+        client,
+        visual,
+        "fields",
+        **{
+            "role-x": "cin_primary",
+            "role-y": "articles",
+            "only-cin_primary": ["Sports"],
+        },
+    )
+    visual.refresh_from_db()
+    assert visual.spec["only"]["cin_primary"] == ["Sports"]
+
+
+def test_a_facet_that_cannot_be_counted_leaves_the_picker_working(
+    client, author, visual
+):
+    """No crawler tables here at all. A facet that fails should not take
+    the page down -- the variable can still be chosen."""
+    visual.config = {"kind": "bar"}
+    visual.spec = {"roles": {"x": "cin_primary"}}
+    visual.save()
+    assert step(client, visual, "fields").status_code == 200

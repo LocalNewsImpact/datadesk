@@ -491,6 +491,11 @@ def builder_step(request, slug, step):
         extra["choices"] = _readable_datasets(request.user)
     elif step == "newsrooms":
         extra["tree"] = _newsroom_tree(visual)
+    elif step == "fields":
+        # Until the data step saves, the visual is wired to nothing and a
+        # facet would count over an empty queryset. The author's own scopes
+        # stand in while they are still building it.
+        extra["user"] = request.user
 
     panel = getattr(panels, f"{step}_panel" if step != "fields" else "field_panel")
     error = ""
