@@ -310,3 +310,15 @@ def name_for_geoid(geoid, fallback=None):
 def level_for_geoid(geoid):
     """The Census rung a code's length implies, or None."""
     return _LEVEL_BY_LENGTH.get(len((geoid or "").strip()))
+
+
+def state_name(value):
+    """The full name for a state, for showing to somebody. "" if unknown.
+
+    Records store the postal code: it is what the gazetteer joins on and
+    what nearly all of them already hold. This is the reading end -- MO
+    becomes Missouri wherever a person sees it, so the column stays uniform
+    without anybody having to read an abbreviation.
+    """
+    code = state_code(value)
+    return _STATE_NAME_BY_CODE.get(code, "") if code else ""

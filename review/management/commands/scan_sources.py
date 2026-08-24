@@ -57,6 +57,7 @@ class Command(BaseCommand):
         )
         sources = list(Source.objects.filter(id__in=ids))
         context = {
+            "default_state": default_state,
             "state_of": lambda s: state_code(
                 (s.meta or {}).get("state") or default_state
             ),
@@ -199,10 +200,16 @@ class Command(BaseCommand):
             flagged, detail, better = flag.check(source, context)
             if not flagged:
                 continue
-            field = flag.field.split(".")[0]
-            current = (
-                (getattr(source, field, "") or "") if hasattr(source, field) else ""
-            )
+            # A dotted field is a key inside a JSON column. Splitting on the
+            # dot and keeping the first half looked for an attribute called
+            # `meta` and reported "" for every state defect, so the reviewer
+            # was shown a blank where the wrong value should have been.
+            field, _, inner = flag.field.partition(".")
+            holder = getattr(source, field, None)
+            if inner:
+                current = (holder or {}).get(inner) or "" if holder is not None else ""
+            else:
+                current = (holder or "") if hasattr(source, field) else ""
             candidate = evidence.get((source.host_norm, field), {})
             proposed = better
             origin = "corpus scan"
