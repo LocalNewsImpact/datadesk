@@ -140,8 +140,14 @@ def test_the_data_host_serves_the_page_the_snippet_links_to(client, visual, auth
     # No console on this host: not a nav to one, not a sign-in.
     assert "/accounts/" not in body
     # And the snippet is here, because a newsroom that found the visual
-    # this way is exactly who wants to embed it.
+    # this way is exactly who wants to embed it -- but folded away. A
+    # reader came for the chart, not for the plumbing.
     assert "datadesk-embed.js" in body
+    assert "<details>" in body and "<details open" not in body
+    snippet_at = body.index("datadesk-embed.js")
+    assert (
+        body.index("<details>") < snippet_at
+    ), "the embed code must sit inside the disclosure, not above it"
 
 
 @pytest.mark.urls("datadesk.urls_data")
@@ -588,11 +594,17 @@ def test_a_value_containing_the_separator_is_quoted():
 
 def test_the_export_carries_every_row_not_the_rendered_ones():
     """The table renders five hundred because that is what a page can
-    show. Somebody exporting wants the data."""
+    show. Somebody exporting wants the data.
+
+    The cap is in `oneTable`, which draws one list; the export is wired in
+    `renderTable`, which walks them. Asserting on one function's body
+    would pass while the other quietly changed."""
     js = _chart_js()
-    table = js[js.index("function renderTable(") :]
-    assert "rows.slice(0, 500)" in table
-    assert "exportBar(el, rows," in table, "the cap must not reach the export"
+    drawing = js[js.index("function oneTable(") : js.index("function renderTable(")]
+    walking = js[js.index("function renderTable(") :]
+    assert "rows.slice(0, 500)" in drawing
+    assert "rows.slice(0, 500)" not in walking, "the cap must not reach the export"
+    assert "exportBar(el, rows," in walking
 
 
 def test_a_refused_clipboard_leaves_something_to_copy_from():
@@ -809,3 +821,35 @@ def test_the_uuid_column_is_added_without_a_default():
     assert kinds == ["AddField", "RunPython", "AlterField"]
     alter = ops[-1]
     assert alter.field.unique is True
+
+
+def test_no_template_comment_spans_lines():
+    """Django's `{# #}` is single-line only. Spanning lines it is not a
+    comment at all -- the parser does not recognise it, and the whole
+    thing renders as text on the page.
+
+    This has now shipped twice: once in the theme gallery, where a
+    five-line note drew itself as a card, and once on the public visual
+    page, where a note about snapshot dates appeared above the chart.
+    Both were written as prose about the code and both were published to
+    readers. `{% comment %}` is what spans lines.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent / "templates"
+    offenders = []
+    for path in sorted(root.rglob("*.html")):
+        text = path.read_text()
+        i = 0
+        while (start := text.find("{#", i)) != -1:
+            end = text.find("#}", start)
+            if end == -1:
+                offenders.append(f"{path.name}: unclosed {{#")
+                break
+            if "\n" in text[start:end]:
+                line = text[:start].count("\n") + 1
+                offenders.append(f"{path.relative_to(root)}:{line}")
+            i = end + 2
+    assert (
+        not offenders
+    ), "these render as visible text; use {% comment %}: " + ", ".join(offenders)

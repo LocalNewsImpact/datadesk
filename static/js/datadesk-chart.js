@@ -493,28 +493,73 @@
     el.appendChild(bar);
   }
 
-  function renderTable(el, rows) {
-    const cols = Object.keys(rows[0]);
+  // A feed is not always a list of rows. The map kinds carry
+  // {meta, areas, points} -- named lists plus a metadata object -- which
+  // the chart path has always understood and this one had not:
+  // `Object.keys(rows[0])` read `undefined` and threw, so "View data" was
+  // dead on every map ever published, with the failure only in the console.
+  function tablesIn(data) {
+    if (Array.isArray(data)) return data.length ? [{ name: "", rows: data }] : [];
+    if (!data || typeof data !== "object") return [];
+    return Object.entries(data)
+      .filter(([, v]) => Array.isArray(v) && v.length)
+      .map(([name, rows]) => ({ name, rows }));
+  }
+
+  function oneTable(rows) {
+    // The first row that is actually an object. A list of bare numbers or
+    // strings has no columns to name, and keying off row zero regardless
+    // gave `0, 1, 2` as headers.
+    const first = rows.find((r) => r && typeof r === "object" && !Array.isArray(r));
+    const cols = first ? Object.keys(first) : null;
     const table = document.createElement("table");
     table.className = "dd-table";
-    table.innerHTML = "<thead><tr>" +
-      cols.map((c) => `<th>${c}</th>`).join("") + "</tr></thead>";
+    if (cols) {
+      table.innerHTML = "<thead><tr>" +
+        cols.map((c) => `<th>${c}</th>`).join("") + "</tr></thead>";
+    }
     const tbody = document.createElement("tbody");
     for (const row of rows.slice(0, 500)) {
       const tr = document.createElement("tr");
-      for (const c of cols) {
+      for (const c of cols || [null]) {
+        const value = c === null ? row : row?.[c];
         const td = document.createElement("td");
-        td.textContent = row[c] ?? "";
-        if (isFiniteNumber(row[c])) td.className = "num";
+        td.textContent = value ?? "";
+        if (isFiniteNumber(value)) td.className = "num";
         tr.appendChild(td);
       }
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
-    el.replaceChildren(table);
-    // Every row, not the five hundred shown: somebody exporting wants the
-    // data, and the cap above is about what a page can render.
-    exportBar(el, rows, el.id.replace(/^dd-chart-/, ""));
+    return table;
+  }
+
+  function renderTable(el, data) {
+    const groups = tablesIn(data);
+    const slug = el.id.replace(/^dd-chart-/, "");
+    if (!groups.length) {
+      const note = document.createElement("p");
+      note.className = "dd-note";
+      note.textContent = "This visual has no tabular data to show.";
+      el.replaceChildren(note);
+      return;
+    }
+    el.replaceChildren();
+    for (const { name, rows } of groups) {
+      if (name && groups.length > 1) {
+        const heading = document.createElement("h3");
+        heading.className = "dd-table-name";
+        heading.textContent = name;
+        el.appendChild(heading);
+      }
+      el.appendChild(oneTable(rows));
+      // One export per list rather than one for the page: a reader who
+      // wants the county totals should not have to take the point layer
+      // with them to get it.
+      // Every row, not the five hundred shown: somebody exporting wants
+      // the data, and the cap above is about what a page can render.
+      exportBar(el, rows, name ? `${slug}-${name}` : slug);
+    }
   }
 
   function renderMap(el, config, rows, opts, t, width) {
