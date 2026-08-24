@@ -172,7 +172,13 @@ if SERVICE_ROLE == "sources":
 # ROOT_URLCONF and LOGIN_REDIRECT_URL have defaults further down this
 # file, and an earlier conditional assignment would be silently replaced
 # by them.
-ROOT_URLCONF = "datadesk.urls_sources" if SERVICE_ROLE == "sources" else "datadesk.urls"
+ROOT_URLCONF = {
+    "sources": "datadesk.urls_sources",
+    # The public data front end (ROADMAP item 24): feeds, payloads and
+    # embeds, and no console. Nothing of the console exists in that urlconf
+    # rather than existing and refusing.
+    "data": "datadesk.urls_data",
+}.get(SERVICE_ROLE, "datadesk.urls")
 
 TEMPLATES = [
     {
