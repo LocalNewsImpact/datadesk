@@ -451,3 +451,39 @@ def test_the_pairing_note_names_the_slots_above_it(client, author, visual, datas
     visual.save()
     body = step(client, visual, "fields").content.decode()
     assert "From and To must come from the same set of values" in body
+
+
+def test_a_record_with_no_state_is_named_not_punctuated(
+    client, author, visual, dataset
+):
+    """A missing state is not a place called "?" -- it is a record the scan
+    already flags, and saying so is more use than a mark nobody can act
+    on."""
+    import uuid
+
+    from explorer.models import DatasetSource, Source
+
+    orphan = Source.objects.create(
+        id=str(uuid.uuid4()),
+        host="nowhere.example",
+        host_norm="nowhere.example",
+        canonical_name="Nowhere Gazette",
+    )
+    DatasetSource.objects.create(id=str(uuid.uuid4()), dataset=dataset, source=orphan)
+
+    body = step(client, visual, "newsrooms").content.decode()
+    assert "Not recorded" in body
+    assert ">?<" not in body
+
+
+def test_the_two_numbers_on_a_row_are_explained(client, author, visual, newsroom):
+    """ "3 · 0" says nothing on its own. What each number counts is said
+    once above the tree and again on hover."""
+    body = step(client, visual, "newsrooms").content.decode()
+    assert "counties · newsrooms" in body
+    assert "newsroom" in body and "article" in body
+
+
+def test_one_county_is_not_one_counties(client, author, visual, newsroom):
+    body = step(client, visual, "newsrooms").content.decode()
+    assert "1 counties" not in body

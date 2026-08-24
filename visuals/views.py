@@ -428,6 +428,12 @@ def builder_type(request, slug):
 # --- the builder, one step at a time -----------------------------------------
 
 
+#: Stands in for a state or county a publisher record does not carry. Named
+#: rather than "?" because the reader can do something about it: these are
+#: the records `scan_sources` raises county_missing and state_missing on.
+UNRECORDED = "Not recorded"
+
+
 def _newsroom_tree(visual):
     """State -> county -> newsrooms, for the datasets this visual draws on.
 
@@ -451,8 +457,11 @@ def _newsroom_tree(visual):
     )
     tree = {}
     for source in Source.objects.filter(id__in=ids):
-        state = ((source.meta or {}).get("state") or "").strip() or "?"
-        county = (source.county or "").strip() or "?"
+        # A publisher record needs a state and a county. One missing is not
+        # a place called "?" -- it is a record the scan already flags, and
+        # saying so is more use than a punctuation mark nobody can act on.
+        state = ((source.meta or {}).get("state") or "").strip() or UNRECORDED
+        county = (source.county or "").strip() or UNRECORDED
         tree.setdefault(state, {}).setdefault(county, []).append(
             {
                 "id": source.id,

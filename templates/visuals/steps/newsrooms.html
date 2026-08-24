@@ -9,20 +9,21 @@ Sending nothing means every one of them -- storing exclusions would make
 {% endcomment %}
 <form method="post">
   {% csrf_token %}
-  <p class="tree-head">{% if kept == total %}All {{ total }} newsrooms{% else %}{{ kept }} of {{ total }} kept{% endif %}</p>
+  <p class="tree-head">{% if kept == total %}All {{ total }} newsrooms{% else %}{{ kept }} of {{ total }} kept{% endif %}
+    <span class="hint">counties · newsrooms, then newsrooms · articles</span></p>
   <div class="tree">
     {% for s in states %}
     <details class="node state" open>
       <summary>
         <input type="checkbox" class="branch" data-scope="state" aria-label="All newsrooms in {{ s.label }}">
         <span class="label strong">{{ s.label }}</span>
-        <em>{{ s.counties|length }} counties · {{ s.rooms }}</em></summary>
+        <em title="{{ s.counties|length }} count{{ s.counties|length|pluralize:"y,ies" }}, {{ s.rooms }} newsroom{{ s.rooms|pluralize }}">{{ s.counties|length }} count{{ s.counties|length|pluralize:"y,ies" }} · {{ s.rooms }}</em></summary>
       {% for c in s.counties %}
       <details class="node county">
         <summary>
           <input type="checkbox" class="branch" data-scope="county" aria-label="All newsrooms in {{ c.name }}">
           <span class="label">{{ c.name }}</span>
-          <em>{{ c.rooms|length }} · {{ c.count }}</em></summary>
+          <em title="{{ c.rooms|length }} newsroom{{ c.rooms|pluralize }}, {{ c.count }} article{{ c.count|pluralize }}">{{ c.rooms|length }} · {{ c.count }}</em></summary>
         <div class="kids">
           {% for r in c.rooms %}
           <label class="row pub">
