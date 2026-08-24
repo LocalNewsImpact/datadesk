@@ -2,16 +2,33 @@
 {% block panel %}
 <form method="post">
   {% csrf_token %}
+  {% comment %}
+  A searchable list with the choices shown as chips above it. A column of
+  checkboxes is fine for four datasets and unusable for a hundred, and the
+  chips are what answers "what have I picked" without scrolling back
+  through the list to find the ticks.
+  {% endcomment %}
   <div class="group">
     <h4>Datasets</h4>
-    <div class="pick">
-      {% for d in datasets %}
-      <label><input type="checkbox" name="datasets" value="{{ d.slug }}"
-        {% if d.on %}checked{% endif %}> {{ d.label }}</label>
-      {% empty %}
-      <p class="notice">No datasets you can draw on.</p>
-      {% endfor %}
-    </div>
+    <div class="chips" id="dataset-chips" aria-live="polite"></div>
+    <details class="picker"{% if not chosen_count %} open{% endif %}>
+      <summary><span class="picker-count">{{ chosen_count }} of {{ datasets|length }} chosen</span></summary>
+      <input type="search" class="picker-find" id="dataset-find"
+             placeholder="Missouri, Lehigh…" autocomplete="off"
+             aria-label="Find a dataset">
+      <div class="picker-list" id="dataset-list">
+        {% for d in datasets %}
+        <label class="row" data-find="{{ d.label }} {{ d.slug }}">
+          <input type="checkbox" name="datasets" value="{{ d.slug }}"
+            data-label="{{ d.label }}" {% if d.on %}checked{% endif %}>
+          <span class="label">{{ d.label }}</span>
+        </label>
+        {% empty %}
+        <p class="notice">No datasets you can draw on.</p>
+        {% endfor %}
+      </div>
+      <p class="notice" id="dataset-none" hidden>Nothing matches that.</p>
+    </details>
   </div>
   <div class="group">
     <h4>Published between</h4>
@@ -26,4 +43,53 @@
     <button type="submit" name="stay" value="1">Save and stay</button>
   </div>
 </form>
+
+<script>
+// Chips mirror the ticks; they are not a second place a choice lives. The
+// checkboxes are what submits, so removing a chip unticks its box.
+(function () {
+  var list = document.getElementById("dataset-list");
+  if (!list) return;
+  var chips = document.getElementById("dataset-chips");
+  var find = document.getElementById("dataset-find");
+  var count = document.querySelector(".picker-count");
+  var none = document.getElementById("dataset-none");
+  var total = list.querySelectorAll('input[type="checkbox"]').length;
+
+  function boxes() {
+    return [].slice.call(list.querySelectorAll('input[type="checkbox"]'));
+  }
+  function draw() {
+    var on = boxes().filter(function (b) { return b.checked; });
+    chips.innerHTML = "";
+    on.forEach(function (b) {
+      var chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip";
+      chip.textContent = b.dataset.label;
+      chip.setAttribute("aria-label", "Remove " + b.dataset.label);
+      chip.addEventListener("click", function () {
+        b.checked = false;
+        draw();
+      });
+      chips.appendChild(chip);
+    });
+    if (count) count.textContent = on.length + " of " + total + " chosen";
+  }
+  list.addEventListener("change", draw);
+  if (find) {
+    find.addEventListener("input", function () {
+      var q = find.value.trim().toLowerCase();
+      var shown = 0;
+      [].slice.call(list.querySelectorAll(".row")).forEach(function (row) {
+        var hit = !q || row.dataset.find.toLowerCase().indexOf(q) !== -1;
+        row.hidden = !hit;
+        if (hit) shown++;
+      });
+      none.hidden = shown > 0;
+    });
+  }
+  draw();
+})();
+</script>
 {% endblock %}

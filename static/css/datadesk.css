@@ -1569,3 +1569,71 @@ tr.prop td { border-bottom: 0; }
 .canvas .empty{ text-align: center; color: var(--text-3); max-width: 26rem; }
 .canvas .empty strong{ display: block; font-size: 1.05rem; color: var(--text-2);
   font-weight: 600; margin-bottom: .3rem; }
+
+/* --- builder panel furniture ----------------------------------------------
+   The step templates used class names the console's stylesheet never
+   carried, so a list of checkboxes rendered as one run-on line. */
+.build-rail .group{ margin-bottom: var(--s-3); }
+.build-rail .group > h4{ margin: 0 0 .35rem; font-size: var(--fs-sm);
+  font-weight: 600; }
+
+/* One choice per line. Several on one line reads as a sentence, and a
+   dataset called "VT Community News" then runs into the next one. */
+.build-rail .pick{ display: flex; flex-direction: column; gap: .1rem; }
+.build-rail .pick > label{ display: flex; align-items: center; gap: .5rem;
+  padding: .3rem .4rem; border-radius: 5px; font-size: var(--fs-sm);
+  cursor: pointer; }
+.build-rail .pick > label:hover{ background: var(--surface-2); }
+
+.build-rail .range{ display: flex; align-items: center; gap: .5rem; }
+.build-rail .range input{ flex: 1; min-width: 0; }
+.build-rail .range span{ color: var(--text-3); font-size: var(--fs-sm); }
+
+.build-rail .role{ margin-bottom: var(--s-3); }
+.build-rail .role > h4{ margin: 0 0 .3rem; font-size: var(--fs-sm); font-weight: 600; }
+.build-rail .role .accepts{ font-weight: 400; color: var(--text-3); }
+.build-rail select.var{ width: 100%; }
+
+.build-rail .action-bar{ margin-top: var(--s-3); }
+/* A gap in the sentence is not a link; it is a hole waiting to be filled. */
+.sentence .gap{ text-decoration: none; cursor: default; }
+
+/* Headings the step shell and the panels use. */
+.build-rail .step-head{ margin-bottom: var(--s-2); }
+.build-rail .step-head h1{ font-size: 1.2rem; margin: 0; }
+.build-rail .step-head p{ margin: .2rem 0 0; color: var(--text-3); font-size: var(--fs-sm); }
+.build-stage .stage-head{ display: flex; align-items: baseline;
+  justify-content: space-between; gap: var(--s-3); }
+.build-stage .stage-head h2{ margin: 0; font-size: 1.15rem; }
+.tree .tree-head{ margin: 0 0 .4rem; font-size: var(--fs-sm); color: var(--text-3); }
+.build-rail .tree-head{ margin: 0 0 .4rem; font-size: var(--fs-sm); color: var(--text-3); }
+/* Hooks used only in compound selectors, named so nothing goes unstyled. */
+.tree .node{ }
+.tree .node.state > summary{ font-weight: 600; }
+.tree .node.county > summary{ font-weight: 400; }
+.tree .branch{ margin: 0; }
+.tree .label.strong{ font-weight: 600; }
+
+/* --- a picker that survives a hundred options ------------------------------
+   Chips mirror the ticks rather than holding a second copy of the choice:
+   the checkboxes are what submits, so removing a chip unticks its box. */
+.chips{ display: flex; flex-wrap: wrap; gap: .3rem; margin-bottom: .4rem; }
+.chips:empty{ display: none; }
+.chip{ display: inline-flex; align-items: center; gap: .3rem; font: inherit;
+  font-size: var(--fs-sm); padding: .16rem .5rem; border-radius: 99px;
+  border: 1px solid var(--accent); background: var(--accent-soft);
+  color: var(--accent); cursor: pointer; }
+.chip::after{ content: "×"; font-size: .95em; opacity: .8; }
+.chip:hover{ background: var(--accent); color: var(--surface); }
+
+.picker{ border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); }
+.picker > summary{ padding: .4rem .55rem; font-size: var(--fs-sm);
+  color: var(--text-3); cursor: pointer; }
+.picker-find{ width: calc(100% - 1.1rem); margin: 0 .55rem .35rem; }
+.picker-list{ max-height: 14rem; overflow-y: auto; }
+.picker-list .row{ display: flex; align-items: center; gap: .5rem;
+  padding: .28rem .55rem; font-size: var(--fs-sm); cursor: pointer; }
+.picker-list .row:hover{ background: var(--surface-2); }
+.picker .notice{ padding: 0 .55rem .4rem; }
+.picker .picker-count{ font-variant-numeric: tabular-nums; }
