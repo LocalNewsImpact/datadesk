@@ -217,12 +217,26 @@ steps:
   # release job has no credentials for. Deployed with every release so the
   # image stays in step; Cloud Scheduler runs it on a schedule.
   #
-  # After the shift, not before. Run earlier it primed the cache against the
-  # revision being replaced, and blocked the rollout while doing it.
+  # After the migration, not after the shift. Two reasons were written down
+  # for waiting on the shift and only one was ever real.
+  #
+  # It must not block the rollout -- warming takes about two and a half
+  # minutes of execution. It does not: this fires the job without --wait,
+  # so the shift proceeds while the cache fills behind it.
+  #
+  # It was also said to prime the cache "against the revision being
+  # replaced". There is no such thing here. The cache is a table in the
+  # application database (settings.py: DatabaseCache), shared by every
+  # revision, so what this fills is what the new revision reads whichever
+  # one is serving when it runs.
+  #
+  # What it genuinely depends on is the migration: warming reads through
+  # the ORM, and a schema that has not been migrated yet is a warm job that
+  # fails or caches the wrong shape.
   - name: 'gcr.io/cloud-builders/gcloud'
     id: 'warm-job'
     entrypoint: 'bash'
-    waitFor: ['shift']
+    waitFor: ['migrate']
     args:
       - '-c'
       - |
@@ -255,10 +269,19 @@ steps:
   # search_path=directory,public, so an unqualified CREATE TABLE from some
   # *other* app's unapplied migration would put its table in the directory
   # schema. Naming the app is what makes that impossible.
+  # After Datadesk's migration, not after its traffic shift. This runs in
+  # another project against another schema as another database user, and
+  # nothing about it needs the console's new revision to be live -- waiting
+  # on the shift put the whole directory chain, five steps and about two and
+  # a half minutes of it, on the end of the build for no reason.
+  #
+  # It does need `migrate`. `configure_site` writes django_site, which lives
+  # in `public` and is created by Datadesk's own migration; the directory's
+  # tables are its own, but that one row is shared.
   - name: 'gcr.io/cloud-builders/gcloud'
     id: 'sources-migrate'
     entrypoint: 'bash'
-    waitFor: ['shift']
+    waitFor: ['migrate']
     args:
       - '-c'
       - |
@@ -330,10 +353,16 @@ steps:
         echo "candidate $$URL/_health -> $$code"
         [ "$$code" = "200" ] || { echo "sources-admin candidate failed its health check; traffic not shifted"; exit 1; }
 
+  # Both: its own candidate proved, and Datadesk's rollout proved. The
+  # second is the guard that used to sit on `sources-migrate` -- a bad
+  # image is caught on one console before it reaches another. It belongs
+  # here, on the step that moves traffic, rather than four steps earlier on
+  # one that moves none: gating the migration bought the same safety and
+  # charged the whole directory chain for it.
   - name: 'gcr.io/cloud-builders/gcloud'
     id: 'sources-shift'
     entrypoint: 'bash'
-    waitFor: ['sources-prove']
+    waitFor: ['sources-prove', 'shift']
     args:
       - '-c'
       - |
