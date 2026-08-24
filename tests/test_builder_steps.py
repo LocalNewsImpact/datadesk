@@ -217,3 +217,33 @@ def test_an_unknown_step_is_a_404(client, author, visual):
     assert (
         client.get(f"/visuals/builder/{visual.slug}/step/nonsense/").status_code == 404
     )
+
+
+# --- the ladder's own behaviour ----------------------------------------------
+
+
+def test_the_disclosure_needs_no_javascript(client, author, visual, newsroom):
+    """Native <details>, so it opens with the keyboard and reads correctly
+    to a screen reader without anything of ours running."""
+    body = step(client, visual, "newsrooms").content.decode()
+    assert "<details" in body
+    assert "<summary" in body
+
+
+def test_a_parent_checkbox_is_a_shortcut_not_a_value(client, author, visual, newsroom):
+    """It sets the leaves and is never submitted. If it carried a value,
+    checking a state would post a state where a list of newsrooms belongs."""
+    body = step(client, visual, "newsrooms").content.decode()
+    assert 'class="branch"' in body
+    assert 'name="publishers"' in body
+    branch_line = next(line for line in body.splitlines() if 'class="branch"' in line)
+    assert "name=" not in branch_line, "a shortcut must not submit"
+
+
+def test_every_parent_control_is_named_for_a_screen_reader(
+    client, author, visual, newsroom
+):
+    body = step(client, visual, "newsrooms").content.decode()
+    for line in body.splitlines():
+        if 'class="branch"' in line:
+            assert "aria-label=" in line
