@@ -65,7 +65,7 @@
               data-why="{{ p.detail }}"
               data-failed="{% if p.check_failed %}1{% else %}0{% endif %}">
             <th scope="row">
-              {{ p.field }}
+              {{ p.field_label }}
               <span class="flag-label">{{ p.flag_label }}</span>
               {% if p.detail %}<span class="finding">{{ p.detail }}</span>{% endif %}
             </th>
@@ -86,7 +86,7 @@
             <td class="option">
               <input type="text" class="fixval" name="v-{{ p.pk }}"
                      placeholder="{{ p.useful_suggestion|default:'another value' }}"
-                     value="" aria-label="A different value for {{ p.field }}">
+                     value="" aria-label="A different value for {{ p.field_label }}">
               <button type="button" class="verb fix" data-verb="fix">
                 <b>Fix</b><i>Use this</i></button>
               <input type="hidden" name="d-{{ p.pk }}" value="">

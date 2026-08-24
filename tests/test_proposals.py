@@ -348,6 +348,9 @@ def test_the_scan_does_not_queue_a_record_with_nothing_wrong(crawler_schema, edi
         city="Columbia",
         county="Boone",
         owner="CherryRoad Media",
+        # Its own state, not the dataset's. A record carrying none is a
+        # record with something wrong -- see the tests below.
+        meta={"state": "MO"},
     )
     DatasetSource.objects.create(id="ds10", dataset=dataset, source=fine)
 
@@ -958,3 +961,203 @@ def test_a_reviewer_can_correct_a_field_while_accepting_the_publisher(
 
     source = Source.objects.get(host_norm="santafetimes.example")
     assert source.owner == "Lexington Area Chamber of Commerce, Inc."
+
+
+# --- a publisher record's required fields ------------------------------------
+#
+# County, city and state are required. What made them invisible was not a
+# missing check but a check that returned early: `state_missing` only fired
+# when a city was recorded, so a record with none of the three was flagged
+# for two and never for the third.
+
+
+def _scanned(dataset, source):
+    from django.core.management import call_command
+
+    from explorer.models import DatasetSource
+
+    DatasetSource.objects.create(id=f"ds-{source.id}", dataset=dataset, source=source)
+    call_command("scan_sources", dataset=dataset.slug)
+    return {p.flag: p for p in ChangeProposal.objects.filter(record_id=source.id)}
+
+
+@pytest.fixture
+def mo(crawler_schema):
+    from explorer.models import Dataset
+
+    return Dataset.objects.create(
+        id="d-mo", slug="mo", label="Missouri", meta={"default_state": "MO"}
+    )
+
+
+def test_a_record_with_no_state_is_flagged_even_with_no_city(mo, editor):
+    """The bug: the check bailed before looking, so twenty-two sources with
+    no city, county or state were flagged for two of the three."""
+    bare = Source.objects.create(id="s-bare", host="b.example", host_norm="b.example")
+    flags = _scanned(mo, bare)
+    assert "state_missing" in flags
+    assert "county_missing" in flags
+    assert "city_missing" in flags
+
+
+def test_the_datasets_default_state_is_proposed_not_applied(mo, editor):
+    """The likeliest answer, offered. A Missouri dataset can hold an outlet
+    that is not in Missouri, and inheriting the default would write that in
+    without anybody looking."""
+    bare = Source.objects.create(id="s-bare2", host="c.example", host_norm="c.example")
+    flags = _scanned(mo, bare)
+    assert flags["state_missing"].proposed_value == "MO"
+    assert "defaults to MO" in flags["state_missing"].detail
+
+
+def test_a_state_written_out_in_full_is_flagged(mo, editor):
+    """'MO' and 'Missouri' are the same place and sort into different
+    groups. The postal code is what is stored; screens show the full name."""
+    spelt = Source.objects.create(
+        id="s-spelt",
+        host="d.example",
+        host_norm="d.example",
+        city="Columbia",
+        county="Boone",
+        owner="Someone",
+        meta={"state": "Missouri"},
+    )
+    flags = _scanned(mo, spelt)
+    assert "state_unknown" in flags
+    assert flags["state_unknown"].proposed_value == "MO"
+    assert flags["state_unknown"].current_value == "Missouri", "the wrong value shows"
+
+
+def test_an_owner_in_the_county_column_says_so(mo, editor):
+    """'Nexstar Media Inc is an owner, not a county' is a repair somebody
+    can make. 'Not a county in MO' is a puzzle."""
+    Source.objects.create(
+        id="s-owner",
+        host="e.example",
+        host_norm="e.example",
+        owner="Nexstar Media Inc",
+        meta={"state": "MO"},
+    )
+    misfiled = Source.objects.create(
+        id="s-mis",
+        host="f.example",
+        host_norm="f.example",
+        city="Columbia",
+        county="Nexstar Media Inc",
+        meta={"state": "MO"},
+    )
+    flags = _scanned(mo, misfiled)
+    assert "county_misfiled" in flags
+    assert "is an owner, not a county" in flags["county_misfiled"].detail
+    del misfiled
+
+
+def test_a_city_in_the_county_column_says_so(mo, editor):
+    """Brookfield is a city in Linn County and sits in the county column of
+    a real record."""
+    wrong = Source.objects.create(
+        id="s-brook",
+        host="g.example",
+        host_norm="g.example",
+        city="Brookfield",
+        county="Brookfield",
+        owner="Someone",
+        meta={"state": "MO"},
+    )
+    flags = _scanned(mo, wrong)
+    assert "county_misfiled" in flags
+    assert "is a city, not a county" in flags["county_misfiled"].detail
+
+
+def test_a_correct_record_is_not_flagged_for_geography(mo, editor):
+    good = Source.objects.create(
+        id="s-good",
+        host="h.example",
+        host_norm="h.example",
+        canonical_name="The Columbia Example",
+        city="Columbia",
+        county="Boone",
+        owner="CherryRoad Media",
+        meta={"state": "MO"},
+    )
+    flags = _scanned(mo, good)
+    for key in ("state_missing", "state_unknown", "county_misfiled", "city_misfiled"):
+        assert key not in flags, f"{key} fired on a clean record"
+
+
+# --- a required field that could not be written ------------------------------
+#
+# The state is a required field of a publisher record and had no way to be
+# written at all: the source form did not carry it, and accepting a proposal
+# that named it hit the write boundary. So the scan could ask for a state and
+# nothing could supply one.
+
+
+def test_the_state_is_inside_the_write_boundary():
+    from explorer.models import Source
+    from review.services import WRITABLE
+
+    assert "meta.state" in WRITABLE[Source]
+    assert "meta" not in WRITABLE[Source], "the rest of the blob stays closed"
+
+
+def test_writing_the_state_leaves_the_rest_of_the_blob_alone(crawler_schema, editor):
+    """A dotted write replaces one key. Writing the whole column would drop
+    whatever else the record kept there."""
+    from review.services import audited_update
+
+    source = Source.objects.create(
+        id="s-meta",
+        host="m.example",
+        host_norm="m.example",
+        meta={"state": "", "notes": "keep me", "rss": "https://m.example/feed"},
+    )
+    audited_update(
+        editor, [source], {"meta.state": "MO"}, action="source:edit", reason="test"
+    )
+    source.refresh_from_db()
+    assert source.meta["state"] == "MO"
+    assert source.meta["notes"] == "keep me"
+    assert source.meta["rss"] == "https://m.example/feed"
+
+
+def test_a_state_write_can_be_reverted(crawler_schema, editor):
+    """Whatever writes it has to be undoable like every other audited
+    change, which means `before` has to record the key and not the blob."""
+    from review.services import audited_update, revert
+
+    source = Source.objects.create(
+        id="s-rev",
+        host="r.example",
+        host_norm="r.example",
+        meta={"state": "Missouri", "notes": "keep me"},
+    )
+    entry = audited_update(
+        editor, [source], {"meta.state": "MO"}, action="source:edit", reason="normalise"
+    )
+    assert entry.before["s-rev"]["meta.state"] == "Missouri"
+
+    revert(editor, entry, reason="undo")
+    source.refresh_from_db()
+    assert source.meta["state"] == "Missouri"
+    assert source.meta["notes"] == "keep me"
+
+
+def test_a_proposal_naming_the_state_can_be_accepted(client, editor, mo):
+    """The whole point: the scan proposes MO, and accepting it writes MO.
+    Before this the proposal could be raised and never applied."""
+    bare = Source.objects.create(
+        id="s-accept",
+        host="a2.example",
+        host_norm="a2.example",
+        city="Columbia",
+        county="Boone",
+        owner="Someone",
+    )
+    flags = _scanned(mo, bare)
+    proposal = flags["state_missing"]
+    assert proposal.proposed_value == "MO"
+
+    client.post("/review/proposals/", {f"d-{proposal.pk}": "accept"})
+    bare.refresh_from_db()
+    assert (bare.meta or {}).get("state") == "MO"
