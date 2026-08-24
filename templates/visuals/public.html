@@ -29,6 +29,7 @@ and neither of those exists on this host.
     summary:hover { color: var(--text); }
     .drawer { display: flex; flex-direction: column; gap: .75rem;
               margin-top: .75rem; }
+    .credit { font-size: var(--fs-sm); }
     .files { list-style: none; margin: 0; padding: 0;
              display: flex; flex-direction: column; gap: .4rem;
              font-size: var(--fs-sm); }
@@ -62,6 +63,20 @@ and neither of those exists on this host.
     {% endcomment %}
     {% if shown %}
     <p class="note">Data as of {{ shown.created_at|date:"j F Y" }}.</p>
+    {% endif %}
+
+    {% if attribution %}
+    {% comment %}
+    Out in the open, not inside the drawer. A reader deciding whether to
+    trust the chart needs to know whose data it is; somebody wanting the
+    embed code has come looking and will open a disclosure to find it.
+    {% endcomment %}
+    <p class="note credit">
+      {% for row in attribution %}{% if not forloop.first %} · {% endif %}{{ row.dataset }}:
+        {% if row.owner %}{{ row.owner }}{% endif %}{% if row.contact %}
+        (<a href="mailto:{{ row.contact }}">{{ row.contact }}</a>){% endif %}
+      {% endfor %}
+    </p>
     {% endif %}
 
     <details>

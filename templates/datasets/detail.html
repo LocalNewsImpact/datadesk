@@ -13,6 +13,28 @@
     <input type="hidden" name="form" value="fields">
     <label class="stacked">Name <input type="text" name="name" value="{{ dataset.name|default:'' }}"></label>
     <label class="stacked">Description <textarea name="description" rows="3">{{ dataset.description|default:'' }}</textarea></label>
+    {% comment %}
+    Attribution, not access. The grants elsewhere say who may read this
+    dataset; this is the name and address it publishes, which is a
+    different question that happens to look similar. A visual built on
+    this dataset carries these into somebody else's article.
+    {% endcomment %}
+    <div class="pair">
+      <label class="stacked">Owner
+        <input type="text" name="owner_name"
+               value="{{ dataset.owner_name|default:'' }}"
+               placeholder="Who to credit">
+      </label>
+      <label class="stacked">Owner contact
+        <input type="email" name="owner_email"
+               value="{{ dataset.owner_email|default:'' }}"
+               placeholder="Who to ask">
+      </label>
+    </div>
+    <p class="notice">Published with every visual built on this dataset —
+    on the visual's own page and in its data feed. Left blank, nothing is
+    credited.</p>
+
     <div class="action-bar">
       <label>Default state
         <input type="text" name="default_state" value="{{ default_state }}" maxlength="2" placeholder="MO" style="width:4rem">

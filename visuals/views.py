@@ -150,6 +150,38 @@ def _unmapped_roles(visual):
     return ", ".join(wanted[:-1]) + f" and {wanted[-1]} fields"
 
 
+def _attribution(visual):
+    """Who to credit and who to ask, for the datasets this visual draws on.
+
+    Read from the datasets themselves rather than from the visual, because
+    the dataset is what the claim is about -- and rather than from the
+    grants in `accounts`, which say who may *read* a dataset. Publishing
+    those as attribution would put staff account addresses into a feed
+    anybody can fetch.
+
+    Datasets with nobody recorded are left out entirely, so a page shows
+    real attribution or none, never a row with an empty name in it.
+    """
+    slugs = visual.datasets or []
+    if not slugs:
+        return []
+    from explorer.models import Dataset
+
+    rows = Dataset.objects.filter(slug__in=slugs).order_by("label")
+    out = []
+    for dataset in rows:
+        if not (dataset.owner_name or dataset.owner_email):
+            continue
+        out.append(
+            {
+                "dataset": dataset.label or dataset.slug,
+                "owner": dataset.owner_name or "",
+                "contact": dataset.owner_email or "",
+            }
+        )
+    return out
+
+
 def _feed_url(visual, by_uuid, version=None, live=False):
     """Where this page's renderer fetches its rows.
 
@@ -251,7 +283,14 @@ def _feed_payload(request, visual):
         if snapshot is None:
             raise Http404("No data snapshot yet")
 
-    payload = {"slug": visual.slug, "version": snapshot.version, "data": snapshot.data}
+    payload = {
+        "slug": visual.slug,
+        "version": snapshot.version,
+        # Travels with the rows. Somebody who takes the JSON and republishes
+        # it has everything they need to credit it without coming back here.
+        "attribution": _attribution(visual),
+        "data": snapshot.data,
+    }
     return payload, asked is not None
 
 
@@ -431,6 +470,7 @@ def public_page(request, slug=None, uuid=None):
             "snippet": embed_snippet(visual),
             "feed": _feed_url(visual, by_uuid=uuid is not None, version=asked),
             "downloads": _downloads(visual, by_uuid=uuid is not None, version=asked),
+            "attribution": _attribution(visual),
             "libs": libs_for((visual.config or {}).get("kind")),
             # What the reader is looking at, whether they pinned it or
             # took the current one.
