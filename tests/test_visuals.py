@@ -420,3 +420,95 @@ def test_two_dimensions_that_both_shadow_fields(crawler_schema):
         {"shape": "grouped", "dimensions": ["wire", "status"], "measure": "articles"},
         ALL_SCOPES,
     )
+
+
+# --- the embed a publisher actually pastes (ROADMAP item 22) -----------------
+
+
+def _js(name):
+    from pathlib import Path
+
+    return (Path(__file__).resolve().parent.parent / f"static/js/{name}").read_text()
+
+
+def test_the_snippet_carries_no_height():
+    """480px was wrong for every visual and the person embedding cannot
+    know the right number, because it depends on the reader's screen."""
+    from visuals.admin import VisualAdmin
+    from visuals.models import Visual
+
+    visual = Visual(slug="v", title="A chart")
+    visual.pk = 1
+    code = str(VisualAdmin.embed_code(None, visual))
+    assert "height=" not in code
+    assert "datadesk-visual" in code
+    assert "datadesk-embed.js" in code
+
+
+def test_the_snippet_names_the_public_host_not_the_console():
+    """An embed URL is written into somebody else's article and cannot be
+    moved afterwards, so it must not name an implementation detail."""
+    from visuals.admin import EMBED_HOST, VisualAdmin
+    from visuals.models import Visual
+
+    visual = Visual(slug="v", title="A chart")
+    visual.pk = 1
+    code = str(VisualAdmin.embed_code(None, visual))
+    assert EMBED_HOST == "data.localnewsimpact.org"
+    assert "datadesk.localnewsimpact.org" not in code
+
+
+def test_the_placeholder_holds_a_link_for_when_the_script_fails():
+    """The loader appends rather than replaces, so whatever the publisher
+    pasted survives. An embed that silently renders nothing is worse than
+    one that renders a link."""
+    from visuals.admin import VisualAdmin
+    from visuals.models import Visual
+
+    visual = Visual(slug="v", title="A chart")
+    visual.pk = 1
+    code = str(VisualAdmin.embed_code(None, visual))
+    assert "&lt;a href=" in code
+    assert "A chart" in code
+    assert "node.appendChild(frame)" in _js("datadesk-embed.js")
+
+
+def test_the_loader_checks_the_origin_of_every_message():
+    """It runs on somebody else's page. A height message from anywhere but
+    the visual's own origin is another site resizing our frame."""
+    loader = _js("datadesk-embed.js")
+    assert "event.origin !== ORIGIN" in loader
+    assert 'data.type !== "datadesk:height"' in loader
+
+
+def test_the_loader_leaves_no_trace_on_the_host_page():
+    """No cookies, no analytics, one global as a guard against being
+    included twice."""
+    loader = _js("datadesk-embed.js")
+    for forbidden in ("document.cookie", "localStorage", "fetch(", "XMLHttpRequest"):
+        assert forbidden not in loader, forbidden
+    assert loader.count("window.__datadeskEmbed") == 2
+
+
+def test_the_frame_reports_its_height_on_change_not_on_a_timer():
+    """A chart redraws when a legend wraps or a font arrives. A timer
+    reports that up to a second late; an observer reports it as it
+    happens."""
+    reporter = _js("datadesk-embed-height.js")
+    assert "ResizeObserver" in reporter
+    assert "setInterval" not in reporter
+
+
+def test_a_pixel_of_jitter_is_not_a_resize():
+    """Reporting one would loop with a parent whose own layout shifts by a
+    pixel in response."""
+    assert "Math.abs(now - last) < 2" in _js("datadesk-embed-height.js")
+
+
+def test_the_framed_page_loads_the_reporter():
+    from pathlib import Path
+
+    page = (
+        Path(__file__).resolve().parent.parent / "templates/visuals/embed.html"
+    ).read_text()
+    assert "datadesk-embed-height.js" in page
