@@ -1,54 +1,85 @@
 {% extends "base.html" %}
 {% block title %}Choose a chart — {{ visual.title }}{% endblock %}
 
+{# The card answers, in order: can I use this, what is it, what is it for,
+   what would it take, what should I know. Anything answering none of those
+   is not here. Availability is carried by the card's own state; the reason
+   sits against the thing it explains. Description and advice are different
+   registers and are styled as such. What is searchable -- aliases, the other
+   functions a type serves -- feeds the filter and is not printed. #}
+
 {% block content %}
-<section class="card">
+<section class="card card-wide">
   <p class="breadcrumb">
     <a href="{% url 'visuals:builder_edit' visual.slug %}">← {{ visual.title }}</a>
   </p>
-  <h1>What kind of chart?</h1>
 
+  <h1>What kind of chart?</h1>
   {% if has_data %}
-  <p class="notice">The data on hand:
-    {% for name, kind in available %}<code>{{ name }}</code> ({{ kind }}){% if not forloop.last %}, {% endif %}{% endfor %}.
-    Types that cannot be built from it are dimmed and say what they would need.</p>
+  <p class="notice">Checked against this visual's {{ row_count }} row{{ row_count|pluralize }}:
+    {% for name, kind in available %}<code>{{ name }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}.</p>
   {% else %}
-  <p class="notice">No data yet, so nothing can be checked against it. Pick a
-  type and the fields it needs will be asked for next.</p>
+  <p class="notice">No data yet. Pick a type and the fields it needs are what
+  the next step asks for.</p>
   {% endif %}
+
+  <label class="type-filter">Find a chart
+    <input type="search" id="type-filter" autocomplete="off"
+           placeholder="spider, network, over time, part of a whole…">
+  </label>
 
   {% for group in groups %}
-  <h2 class="rec-head">{{ group.family }}</h2>
-  <div class="type-gallery">
-    {% for t in group.types %}
-    <form method="post" class="type-card{% if t.why_not %} unavailable{% endif %}{% if t.id == chosen %} on{% endif %}">
-      {% csrf_token %}
-      <input type="hidden" name="kind" value="{{ t.id }}">
-      <button type="submit" {% if t.why_not %}disabled{% endif %}
-              title="{% if t.why_not %}{{ t.why_not }}{% else %}{{ t.requires }}{% endif %}">
-        <span class="type-name">{{ t.label }}</span>
-        <span class="type-blurb">{{ t.blurb }}</span>
-      </button>
-      {% if t.why_not %}
-        <p class="type-why">{{ t.why_not }}</p>
-      {% else %}
-        <p class="type-req">{{ t.requires }}</p>
-      {% endif %}
-      {% if t.read_better %}
-        <p class="type-better">Read more accurately as
-          {% for other in t.read_better %}<strong>{{ other }}</strong>{% if not forloop.last %}, {% endif %}{% endfor %}.</p>
-      {% endif %}
-      {% if t.also %}
-        <p class="type-also">Also called: {{ t.also|join:", " }}</p>
-      {% endif %}
-    </form>
-    {% endfor %}
-  </div>
+  <section class="type-family" data-family="{{ group.family }}">
+    <h2>{{ group.family }}</h2>
+    <div class="type-gallery">
+      {% for t in group.types %}
+      <form method="post"
+            class="type-card{% if t.why_not %} unavailable{% endif %}{% if t.id == chosen %} on{% endif %}"
+            data-find="{{ t.label }} {{ t.blurb }} {{ t.also|join:' ' }} {{ t.functions|join:' ' }} {{ group.family }}">
+        {% csrf_token %}
+        <input type="hidden" name="kind" value="{{ t.id }}">
+        <button type="submit" {% if t.why_not %}disabled{% endif %}>
+          <span class="type-name">{{ t.label }}</span>
+          <span class="type-blurb">{{ t.blurb }}</span>
+          {% if t.why_not %}<span class="type-why">{{ t.why_not }}</span>{% endif %}
+        </button>
+        {% if t.read_better %}
+          <p class="type-advice">Reads more accurately as
+            {% for other in t.read_better %}{{ other }}{% if not forloop.last %} or {% endif %}{% endfor %}</p>
+        {% elif t.caution %}
+          <p class="type-advice">{{ t.caution }}</p>
+        {% endif %}
+      </form>
+      {% endfor %}
+    </div>
+  </section>
   {% endfor %}
 
+  <p class="type-nothing" id="type-nothing" hidden>Nothing matches that.</p>
+
   {% if empty_families %}
-  <p class="notice">Nothing yet for {{ empty_families|join:", " }} — the
-  Visual Vocabulary's remaining families, listed so the gap is visible.</p>
+  <p class="notice">Nothing yet under {{ empty_families|join:", " }}.</p>
   {% endif %}
 </section>
+
+<script>
+// Aliases and functions are searchable and not printed: what helps somebody
+// arrive is not what helps them choose.
+(function () {
+  const box = document.getElementById("type-filter");
+  const cards = [...document.querySelectorAll(".type-card")];
+  const families = [...document.querySelectorAll(".type-family")];
+  const nothing = document.getElementById("type-nothing");
+  box.addEventListener("input", () => {
+    const q = box.value.trim().toLowerCase();
+    cards.forEach((c) => {
+      c.hidden = q && !c.dataset.find.toLowerCase().includes(q);
+    });
+    families.forEach((f) => {
+      f.hidden = ![...f.querySelectorAll(".type-card")].some((c) => !c.hidden);
+    });
+    nothing.hidden = families.some((f) => !f.hidden);
+  });
+})();
+</script>
 {% endblock %}

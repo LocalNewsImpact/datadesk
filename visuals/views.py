@@ -384,7 +384,7 @@ def builder_type(request, slug):
         )
         return redirect("visuals:builder_edit", visual.slug)
 
-    entries = gallery(available)
+    entries = gallery(available, len(rows))
     chosen = (visual.config or {}).get("kind", "")
     grouped = [
         {
@@ -403,5 +403,6 @@ def builder_type(request, slug):
             "chosen": chosen,
             "available": sorted(available.items()),
             "has_data": bool(rows),
+            "row_count": len(rows),
         },
     )

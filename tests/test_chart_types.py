@@ -263,9 +263,12 @@ def test_the_gallery_answers_the_whole_picker_in_one_call():
             "family",
             "blurb",
             "also",
+            "functions",
             "requires",
             "why_not",
             "read_better",
+            "caution",
+            "zero_baseline",
         }
 
 
@@ -307,7 +310,7 @@ def test_the_picker_greys_what_the_data_cannot_build(client, crawler_schema):
     assert "Scatter plot" in body
     assert "there is 1" in body, "the greyed reason names the shortage"
     # And the accuracy suggestion is on the donut.
-    assert "Read more accurately as" in body
+    assert "Reads more accurately as" in body
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
