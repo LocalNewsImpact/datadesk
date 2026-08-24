@@ -11,6 +11,16 @@
 set -euo pipefail
 
 SCRIPT="${1:?usage: apply.sh <file.sql>}"
+
+# The usage above says a bare name, and psql resolves -f against the caller's
+# directory, so `./infra/sql/apply.sh create_crawler_write_role.sql` -- the
+# form this script documents -- failed with "No such file or directory" from
+# anywhere but infra/sql. A bare name is resolved against this script's own
+# directory; a path that exists is left alone.
+if [ ! -f "$SCRIPT" ] && [ -f "$(dirname "$0")/$SCRIPT" ]; then
+  SCRIPT="$(dirname "$0")/$SCRIPT"
+fi
+[ -f "$SCRIPT" ] || { echo "no such SQL file: $1" >&2; exit 1; }
 INSTANCE="${INSTANCE:-mizzou-news-crawler:us-central1:mizzou-db-prod}"
 SQL_PROJECT="${SQL_PROJECT:-mizzou-news-crawler}"
 APP_PROJECT="${APP_PROJECT:-lnic-datadesk}"
