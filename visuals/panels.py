@@ -233,6 +233,16 @@ def variables():
     return VARIABLES
 
 
+def _plainly(role):
+    """What a slot takes, in the words the gallery uses."""
+    from visuals.types import _PLAIN
+
+    words = [_PLAIN.get(a, a) for a in role.accepts]
+    if len(words) == 1:
+        return words[0]
+    return " or ".join([", ".join(words[:-1]), words[-1]])
+
+
 def _values_for(visual, dim_key, kept, user=None):
     """[(value, count, kept)] for a chosen dimension, or [].
 
@@ -322,7 +332,9 @@ def field_panel(visual, post=None, user=None):
             {
                 "id": role.id,
                 "label": role.label,
-                "accepts": ", ".join(role.accepts),
+                # "a category or a date", not "text, date". The gallery
+                # already says it this way; the panel said it the other.
+                "accepts": _plainly(role),
                 "optional": not role.needs,
                 "options": [dict(v, on=v["id"] == chosen) for v in fits],
                 "chosen": chosen,
@@ -332,8 +344,20 @@ def field_panel(visual, post=None, user=None):
                 "values": _values_for(visual, chosen, kept, user),
             }
         )
+    # Named, not lettered: "From and To" is what the slots above are
+    # called, where "from and to" reads as a fragment of the code.
+    pair_note = ""
+    if chart.pairs:
+        first, second = (
+            next(r.label for r in chart.roles if r.id == p) for p in chart.pairs
+        )
+        pair_note = (
+            f"{first} and {second} must come from the same set of values \u2014 "
+            f"a {chart.label.lower()} compares a vocabulary with itself."
+        )
     return {
         "chart": chart,
         "roles": slots,
         "pairs": chart.pairs,
+        "pair_note": pair_note,
     }
