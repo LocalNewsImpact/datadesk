@@ -1654,3 +1654,8 @@ tr.prop td { border-bottom: 0; }
   font-weight: 600; }
 .theme-toggle button:focus-visible{ outline: 2px solid var(--accent);
   outline-offset: -2px; }
+/* A subset choice needs its explanation beside it: "complete" and
+   "enriched" both sound like done, and what differs is the contents. */
+.build-rail .pick > label > span{ display: flex; flex-direction: column; }
+.build-rail .pick em{ font-style: normal; color: var(--text-3); font-size: .78rem;
+  line-height: 1.3; }

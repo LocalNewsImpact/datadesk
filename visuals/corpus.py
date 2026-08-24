@@ -153,6 +153,39 @@ MEASURES = {
 #: colliding, and Django raises rather than guessing which was meant.
 DIM_PREFIX = "dim_"
 
+# --- which articles a visual may draw ----------------------------------------
+#
+# An article's `status` says both how far the pipeline took it and why it
+# stopped. Everything below is terminal except `paused`, which is still in
+# flight: a visual drawn from it would change under the reader, so nothing
+# may draw it, ever, whatever else is asked for.
+#
+# Beyond that there are two useful sets, and they differ by what survived
+# the filters rather than by how finished they are. Obituaries, weather,
+# opinion, paywall stubs and wire copy are all finished; they were diverted
+# before enrichment.
+IN_FLIGHT = ("paused",)
+
+#: Reached enrichment. `enrichment_skipped` belongs here because the skip is
+#: a recorded decision at that stage rather than a diversion before it.
+#: These are the rows the crawler exports to BigQuery -- 15,552 in each, as
+#: of 2026-08-24, which is what makes this a definition and not a guess.
+ENRICHED_STATUSES = ("enriched", "enrichment_skipped")
+
+COMPLETE = "complete"
+ENRICHED = "enriched"
+SUBSETS = {
+    COMPLETE: (
+        "Complete",
+        "Everything the pipeline finished with, including obituaries, "
+        "weather, opinion, paywall stubs and wire copy.",
+    ),
+    ENRICHED: (
+        "Enriched",
+        "What reached enrichment, which is what is exported to BigQuery.",
+    ),
+}
+
 MAX_GROUPS = 5000
 # A rolled-up dimension groups on the raw coding first, which yields more
 # rows than the folded result; allow headroom before folding.
@@ -257,6 +290,12 @@ def _base_queryset(spec, scopes):
     dataset.
     """
     qs = Article.objects.all()
+    # Never in flight. A visual drawn from an article the pipeline has not
+    # finished with would change under the reader, so this is not a filter
+    # somebody chooses -- it is a floor under every one of them.
+    qs = qs.exclude(status__in=IN_FLIGHT)
+    if spec.get("subset") == ENRICHED:
+        qs = qs.filter(status__in=ENRICHED_STATUSES)
     if scopes is not ALL_SCOPES:
         if not scopes:
             qs = qs.none()

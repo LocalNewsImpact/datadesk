@@ -91,6 +91,13 @@ def parts_for(visual, step=""):
     rooms = spec.get("publishers") or []
     if rooms:
         out.append(("from", f"{len(rooms)} newsrooms", "said"))
+
+    # Which subset, always. A chart of everything and a chart of the
+    # exported set look identical and mean different things.
+    from visuals.corpus import COMPLETE, SUBSETS
+
+    subset = spec.get("subset") or COMPLETE
+    out.append(("", SUBSETS[subset][0].lower(), "said"))
     return out
 
 

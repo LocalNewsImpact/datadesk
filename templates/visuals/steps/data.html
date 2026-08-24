@@ -30,6 +30,23 @@
       <p class="notice" id="dataset-none" hidden>Nothing matches that.</p>
     </details>
   </div>
+  {% comment %}
+  How much of what those newsrooms published. Nothing in flight is offered
+  at all -- an article the pipeline has not finished with would change under
+  the reader, so it is a floor rather than a choice.
+  {% endcomment %}
+  <div class="group">
+    <h4>How much of it</h4>
+    <div class="pick">
+      {% for s in subsets %}
+      <label>
+        <input type="radio" name="subset" value="{{ s.id }}" {% if s.on %}checked{% endif %}>
+        <span><strong>{{ s.label }}</strong><em>{{ s.note }}</em></span>
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+
   <div class="group">
     <h4>Published between</h4>
     <div class="range">
