@@ -379,3 +379,44 @@ def test_no_filter_matches_an_outlet_by_its_host():
     ]
     assert "host_norm" not in base
     assert "host__" not in base
+
+
+# --- a dimension key is not a field name -------------------------------------
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_every_dimension_can_actually_be_grouped_by(crawler_schema):
+    """`wire` raised "The annotation 'wire' conflicts with a field on the
+    model" and the dimension was simply unusable -- Article.wire is a real
+    column, and the dimension key was used verbatim as the alias.
+
+    A dimension key is a name we chose; a model field is a name the crawler
+    chose. Nothing stops them colliding, and Django raises rather than
+    guessing. This runs every dimension so the next collision is a failing
+    test rather than a chart nobody can build.
+    """
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import DIMENSIONS, run_spec
+
+    broken = []
+    for key in DIMENSIONS:
+        try:
+            run_spec(
+                {"shape": "grouped", "dimensions": [key], "measure": "articles"},
+                ALL_SCOPES,
+            )
+        except Exception as exc:  # noqa: BLE001 - the point is which ones fail
+            broken.append(f"{key}: {type(exc).__name__} {exc}")
+    assert broken == [], "dimensions that cannot be grouped by: " + "; ".join(broken)
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_two_dimensions_that_both_shadow_fields(crawler_schema):
+    """The pair case, which is what a chord and a stacked bar both use."""
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import run_spec
+
+    run_spec(
+        {"shape": "grouped", "dimensions": ["wire", "status"], "measure": "articles"},
+        ALL_SCOPES,
+    )
