@@ -142,6 +142,7 @@ def data_panel(visual, post=None, choices=()):
             {"slug": d["slug"], "label": d["label"], "on": d["slug"] in picked}
             for d in choices
         ],
+        "chosen_count": len(picked),
         "date_from": spec.get("from", ""),
         "date_to": spec.get("to", ""),
     }

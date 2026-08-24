@@ -350,3 +350,60 @@ def test_no_template_comment_leaks_into_the_page():
                     f"{template.name}:{number} opens {{# #}} and does not close "
                     "it on the same line; use {% comment %}"
                 )
+
+
+def test_every_class_the_panels_use_is_styled():
+    """A template naming a class the stylesheet never carried renders as
+    unstyled markup -- a list of checkboxes came out as one run-on line,
+    which no test of behaviour would notice.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    css = (root / "static/css/datadesk.css").read_text()
+    used = set()
+    for template in (root / "templates/visuals/steps").glob("*.html"):
+        for value in re.findall(r'class="([^"{}]+)"', template.read_text()):
+            used |= {c for c in value.split() if c}
+    # Anywhere in the stylesheet, not a standalone rule: several are hooks
+    # that only ever appear in a compound selector -- `.node.state`,
+    # `.row .label`. What this catches is a class nothing styles at all.
+    missing = sorted(c for c in used if f".{c}" not in css)
+    assert not missing, f"classes nothing styles: {missing}"
+
+
+# --- the dataset picker at a hundred datasets --------------------------------
+
+
+def test_the_dataset_picker_is_searchable_with_chips(client, author, visual, dataset):
+    """A column of checkboxes is fine for four datasets and unusable for a
+    hundred. The chips are what answers "what have I picked" without
+    scrolling back through the list to find the ticks."""
+    body = step(client, visual, "data").content.decode()
+    assert 'id="dataset-find"' in body
+    assert 'id="dataset-chips"' in body
+    assert "of 1 chosen" in body
+
+
+def test_the_chips_are_not_a_second_place_a_choice_lives(
+    client, author, visual, dataset
+):
+    """The checkboxes are what submits. If a chip carried its own value,
+    removing one would leave the box ticked and the two would disagree."""
+    body = step(client, visual, "data").content.decode()
+    start = body.index('id="dataset-chips"')
+    chips = body[start : body.index("</div>", start)]
+    assert "<input" not in chips, "a chip must not carry a value"
+    assert 'name="datasets"' in body
+
+
+def test_the_picker_opens_when_nothing_is_chosen(client, author, visual, dataset):
+    """Closed on an empty picker hides the only thing to do on the step."""
+    body = step(client, visual, "data").content.decode()
+    assert '<details class="picker" open>' in body
+
+    visual.spec = {"datasets": ["mizzou"]}
+    visual.save()
+    body = step(client, visual, "data").content.decode()
+    assert '<details class="picker" open>' not in body
