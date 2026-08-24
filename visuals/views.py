@@ -126,6 +126,30 @@ def page(request, slug):
     )
 
 
+def public_page(request, slug):
+    """Where an embed's fallback link lands (ROADMAP item 24).
+
+    `page` above cannot serve this. It keeps the sign-in wall and renders
+    inside the console's chrome, and the reader arriving here came from
+    somebody else's article with no account and no session -- the data
+    front end has no sign-in to offer them.
+
+    Every published snippet points at this URL, and until now it was a 404
+    on the host the snippet names. The snippet is shown on the page too:
+    a newsroom that finds a visual this way is exactly who needs it.
+    """
+    visual = _get_visual(request, slug)
+    return render(
+        request,
+        "visuals/public.html",
+        {
+            "visual": visual,
+            "renderer": f"visuals/renderers/{visual.template}.html",
+            "snippet": embed_snippet(visual),
+        },
+    )
+
+
 @xframe_options_exempt
 def embed(request, slug):
     """The iframe-safe embed, framed only by the allowlist."""
