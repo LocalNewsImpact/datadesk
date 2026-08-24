@@ -512,3 +512,86 @@ def test_the_framed_page_loads_the_reporter():
         Path(__file__).resolve().parent.parent / "templates/visuals/embed.html"
     ).read_text()
     assert "datadesk-embed-height.js" in page
+
+
+# --- taking the table's data elsewhere (ROADMAP item 20) ---------------------
+
+
+def _chart_js():
+    from pathlib import Path
+
+    return (
+        Path(__file__).resolve().parent.parent / "static/js/datadesk-chart.js"
+    ).read_text()
+
+
+def test_the_table_view_offers_both_formats():
+    """Flourish uploads a file; Datawrapper pastes into a box, and its box
+    reads tab-separated the way a spreadsheet copies. One format would
+    serve one tool."""
+    js = _chart_js()
+    assert "Download CSV" in js
+    assert "Copy for Datawrapper" in js
+    assert 'asDelimited(rows, ",")' in js
+    assert 'asDelimited(rows, "\\t")' in js
+
+
+def test_a_value_containing_the_separator_is_quoted():
+    """A comma or a quote or a newline inside a value breaks the row it
+    sits in. Publisher names carry commas -- "Stone County Republican /
+    Crane Chronicle" is one of ours."""
+    js = _chart_js()
+    assert 'replace(/"/g, \'""\')' in js
+    assert '/["\\n\\r]|,|\\t/' in js
+
+
+def test_the_export_carries_every_row_not_the_rendered_ones():
+    """The table renders five hundred because that is what a page can
+    show. Somebody exporting wants the data."""
+    js = _chart_js()
+    table = js[js.index("function renderTable(") :]
+    assert "rows.slice(0, 500)" in table
+    assert "exportBar(el, rows," in table, "the cap must not reach the export"
+
+
+def test_a_refused_clipboard_leaves_something_to_copy_from():
+    """Clipboard access needs a secure context and a permission that can be
+    refused. A button that silently does nothing is worse than a box."""
+    js = _chart_js()
+    assert "window.isSecureContext" in js
+    assert "dd-copybox" in js
+
+
+def test_the_object_url_outlives_the_click():
+    """Revoking synchronously races the click in some browsers and the file
+    arrives empty."""
+    js = _chart_js()
+    assert "setTimeout(() => URL.revokeObjectURL(url)" in js
+
+
+def test_the_view_data_button_works_when_the_feed_does_not():
+    """It was wired inside the fetch's `.then`, so a feed that failed left
+    the button attached to nothing: no error, no explanation, a control
+    that looked live and was not."""
+    from pathlib import Path
+
+    renderer = (
+        Path(__file__).resolve().parent.parent
+        / "templates/visuals/renderers/builder.html"
+    ).read_text()
+    listener = renderer.index("toggle.addEventListener")
+    fetch = renderer.index("fetch(")
+    assert listener < fetch, "the toggle is wired after the fetch again"
+
+
+def test_a_failed_feed_says_what_went_wrong():
+    """A reader who cannot see the reason cannot tell a missing snapshot
+    from a broken query."""
+    from pathlib import Path
+
+    renderer = (
+        Path(__file__).resolve().parent.parent
+        / "templates/visuals/renderers/builder.html"
+    ).read_text()
+    assert "err.message" in renderer
+    assert "if (!r.ok) throw" in renderer, "a 404 resolves; only .json() would fail"

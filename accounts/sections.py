@@ -87,7 +87,7 @@ SECTION_GROUPS = (
         "sections": (
             {
                 "url": "review:proposals",
-                "label": "Proposed changes",
+                "label": "Review queue",
                 "note": "Publisher records the scan flagged, awaiting a decision.",
             },
             {
