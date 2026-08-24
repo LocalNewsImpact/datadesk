@@ -428,10 +428,11 @@ def builder_type(request, slug):
 # --- the builder, one step at a time -----------------------------------------
 
 
-#: Stands in for a state or county a publisher record does not carry. Named
-#: rather than "?" because the reader can do something about it: these are
-#: the records `scan_sources` raises county_missing and state_missing on.
-UNRECORDED = "Not recorded"
+#: Stands in for a state or county a publisher record does not carry. One
+#: sentinel so the grouping has a key; the label says which field is
+#: missing, because "Not recorded" under "Not recorded" tells a reader that
+#: something is absent without saying what.
+UNRECORDED = "\u0000unrecorded"
 
 
 def _newsroom_tree(visual):
