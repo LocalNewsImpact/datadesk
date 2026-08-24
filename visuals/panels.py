@@ -95,6 +95,11 @@ def theme_panel(visual, post=None):
         if name not in THEME_IDS:
             raise ValueError("No such theme")
         config = {"theme": name}
+        # Light or dark, or neither. A palette has both variants and the
+        # name picks neither of them, so until now "I made it light" was
+        # not recorded anywhere and the embed asked the reader's laptop.
+        mode = post.get("theme_mode", "")
+        config["theme_mode"] = mode if mode in ("light", "dark") else ""
         # A fixed taxonomy is what keeps one CIN need the same colour in
         # every chart. It belongs to this step because it is a colour
         # decision, not a data one.
@@ -112,6 +117,7 @@ def theme_panel(visual, post=None):
             for i, label, colours in THEMES
         ],
         "taxonomy": config.get("taxonomy") == "cin",
+        "theme_mode": config.get("theme_mode", ""),
     }
 
 
@@ -439,10 +445,14 @@ def publish_panel(visual, post=None, actor=None):
         # somebody else's article it usually should be told: a light page
         # on a reader's dark laptop got a dark chart in the middle of it.
         "snippets": {
-            "auto": snippet(visual),
+            # "auto" means follow the reader, so it is the one variant
+            # that has to override the visual's own setting rather than
+            # inherit it.
+            "auto": snippet(visual, theme=""),
             "light": snippet(visual, theme="light"),
             "dark": snippet(visual, theme="dark"),
         },
+        "theme_mode": (visual.config or {}).get("theme_mode", "") or "auto",
         "pinned": visual.pinned_snapshot,
         "latest": snapshot,
         # Publishing an empty visual produces an embed that renders

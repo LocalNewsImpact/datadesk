@@ -424,6 +424,7 @@ def test_the_snippets_fallback_link_resolves_on_the_host_it_names():
         uuid = "3f2b0c4e-0000-4000-8000-000000000001"
         slug = "boone-county-coverage"
         title = "Where Boone County reports"
+        config = {}  # the snippet reads theme_mode from here
 
     # Addressed by uuid. A slug is editable, and renaming a visual would
     # break every snippet already pasted without telling whoever pasted it.

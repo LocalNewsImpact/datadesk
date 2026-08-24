@@ -955,3 +955,69 @@ def test_the_python_and_the_javascript_agree_about_what_a_table_is():
     assert [n for n, _ in tables_in([{"a": 1}])] == [""]
     for empty in ([], None, {}, {"meta": {"x": 1}}, "text", 7):
         assert tables_in(empty) == [], empty
+
+
+# --- a visual built light stays light ----------------------------------------
+
+
+def _light(visual):
+    visual.config = dict(visual.config or {}, theme="datadesk", theme_mode="light")
+    visual.save(update_fields=["config"])
+    return visual
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_a_visual_built_light_is_light_without_being_asked(client, visual, author):
+    """A palette carries both a light and a dark variant and its name picks
+    neither, so "I built it light" was recorded nowhere and every embed
+    asked the reader's device instead. One authored light rendered dark."""
+    _light(visual)
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+
+    head = client.get(f"/embed/{visual.uuid}/").content.decode().split("<body")[0]
+    assert 'data-theme="light"' in head
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_a_pinned_embed_paints_its_own_ground(client, visual, author):
+    """Transparent is right when the embed follows the reader -- it takes
+    the colour of the page it lands in. Pinned, it is wrong: the host's
+    dark background shows straight through a light chart, and a light
+    chart on a dark page is not a light chart."""
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+
+    loose = client.get(f"/embed/{visual.uuid}/").content.decode()
+    assert "background: transparent" in loose
+
+    pinned = client.get(f"/embed/{visual.uuid}/?theme=light").content.decode()
+    assert "background: var(--bg)" in pinned
+    assert "background: transparent" not in pinned
+
+
+@pytest.mark.urls("datadesk.urls_data")
+def test_the_url_still_beats_what_the_visual_says(client, visual, author):
+    """Whoever pastes the embed knows what their page looks like; the
+    person who built the chart three months ago does not."""
+    _light(visual)
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+    head = (
+        client.get(f"/embed/{visual.uuid}/?theme=dark")
+        .content.decode()
+        .split("<body")[0]
+    )
+    assert 'data-theme="dark"' in head
+
+
+def test_the_snippet_inherits_the_visuals_choice(visual):
+    """Choosing light in the builder and having to choose it again on the
+    way out is how the setting gets forgotten."""
+    from visuals.embed import snippet
+
+    _light(visual)
+    assert 'data-theme="light"' in snippet(visual)
+    # An explicit empty string is "follow the reader", which is a real
+    # answer and must override the visual rather than inherit from it.
+    assert "data-theme" not in snippet(visual, theme="")
