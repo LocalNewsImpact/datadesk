@@ -815,14 +815,28 @@ UNRECORDED = "\u0000unrecorded"
 def _newsroom_tree(visual):
     """State -> county -> newsrooms, for the datasets this visual draws on.
 
-    Built from the sources themselves rather than a cached shape: a
-    publisher added yesterday should appear without anything being rebuilt.
+    Built from the sources themselves rather than a stored shape, so a
+    publisher added yesterday appears without anything being rebuilt --
+    but held for ten minutes once built, because building it counts every
+    article in every dataset the visual is wired to, and walking back and
+    forth through the builder should not pay that each time.
     """
+    from django.core.cache import cache
     from django.db.models import Count
 
     from explorer.models import Article, DatasetSource, Source
+    from visuals.corpus import CORPUS_CACHE_SECONDS, _cache_key
 
     scopes = scopes_of(visual)
+    # 13 to 24 seconds without this: a count of articles per source across
+    # every dataset the visual is wired to, rebuilt on every visit to the
+    # step. Keyed on the scopes, because those decide which sources are in
+    # it and a key without them would show one author another's newsrooms.
+    key = _cache_key("visuals.newsroom_tree", sorted(scopes) if scopes else [])
+    hit = cache.get(key)
+    if hit is not None:
+        return hit
+
     members = DatasetSource.objects.all()
     if scopes:
         members = members.filter(dataset__slug__in=scopes)
@@ -850,6 +864,7 @@ def _newsroom_tree(visual):
     for state in tree:
         for county in tree[state]:
             tree[state][county].sort(key=lambda r: -r["count"])
+    cache.set(key, tree, CORPUS_CACHE_SECONDS)
     return tree
 
 
