@@ -31,6 +31,7 @@ from visuals.services import (
     publish,
     record_snapshot,
     refresh_snapshot,
+    scopes_of,
     unpublish,
     visible_to,
 )
@@ -332,6 +333,22 @@ def builder_edit(request, slug):
     )
 
 
+def _readable_datasets(user):
+    """The datasets this person may draw on, as the picker's options.
+
+    Offering one they cannot read invites a refusal on the next screen;
+    `datasets_for` is the same helper every other scoped picker uses.
+    """
+    from django.db import DatabaseError
+
+    from explorer.scoping import datasets_for
+
+    try:
+        return list(datasets_for(user, READ).order_by("label").values("slug", "label"))
+    except DatabaseError:
+        return []
+
+
 def _dataset_choices():
     from django.db import DatabaseError
 
@@ -406,3 +423,131 @@ def builder_type(request, slug):
             "row_count": len(rows),
         },
     )
+
+
+# --- the builder, one step at a time -----------------------------------------
+
+
+def _newsroom_tree(visual):
+    """State -> county -> newsrooms, for the datasets this visual draws on.
+
+    Built from the sources themselves rather than a cached shape: a
+    publisher added yesterday should appear without anything being rebuilt.
+    """
+    from django.db.models import Count
+
+    from explorer.models import Article, DatasetSource, Source
+
+    scopes = scopes_of(visual)
+    members = DatasetSource.objects.all()
+    if scopes:
+        members = members.filter(dataset__slug__in=scopes)
+    ids = set(members.values_list("source_id", flat=True))
+    counts = dict(
+        Article.objects.filter(candidate_link__source_id__in=ids)
+        .values_list("candidate_link__source_id")
+        .annotate(n=Count("id"))
+        .values_list("candidate_link__source_id", "n")
+    )
+    tree = {}
+    for source in Source.objects.filter(id__in=ids):
+        state = ((source.meta or {}).get("state") or "").strip() or "?"
+        county = (source.county or "").strip() or "?"
+        tree.setdefault(state, {}).setdefault(county, []).append(
+            {
+                "id": source.id,
+                "name": source.canonical_name or source.host,
+                "count": counts.get(source.id, 0),
+            }
+        )
+    for state in tree:
+        for county in tree[state]:
+            tree[state][county].sort(key=lambda r: -r["count"])
+    return tree
+
+
+@requires(DESIGN)
+def builder_step(request, slug, step):
+    """One step of the builder.
+
+    Every step renders the same shell -- the sentence, the rail, the
+    preview -- and swaps the panel. A step writes only the keys it owns, so
+    coming back to an earlier one changes that choice and leaves the rest
+    (ROADMAP item 20).
+    """
+    from visuals import panels
+    from visuals.sentence import is_complete, parts_for
+    from visuals.steps import BY_SLUG, STEPS, next_after, reached
+
+    if step not in BY_SLUG:
+        raise Http404("No such step")
+    visual = _get_visual(request, slug)
+    if not may_act_on(request.user, visual):
+        raise PermissionDenied("This visual is not yours to change.")
+
+    here = BY_SLUG[step]
+    extra = {}
+    if step == "data":
+        extra["choices"] = _readable_datasets(request.user)
+    elif step == "newsrooms":
+        extra["tree"] = _newsroom_tree(visual)
+
+    panel = getattr(panels, f"{step}_panel" if step != "fields" else "field_panel")
+    error = ""
+
+    if request.method == "POST":
+        try:
+            written = panel(visual, request.POST, **extra)
+        except ValueError as exc:
+            error = str(exc)
+        else:
+            fields = []
+            for holder, values in written.items():
+                current = dict(getattr(visual, holder) or {})
+                current.update(values)
+                setattr(visual, holder, current)
+                fields.append(holder)
+            if "spec" in written:
+                visual.source_kind = CORPUS
+                visual.datasets = _wired_datasets(request.user, visual.spec)
+                fields.append("datasets")
+            visual.save(update_fields=[*fields, "updated_at"])
+            AuditLogEntry.objects.create(
+                actor=request.user,
+                action=f"visual:{step}",
+                target_table="visuals",
+                target_ids=[visual.slug],
+                after=dict(*written.values()),
+                reason=f"{here.label.lower()} for {visual.slug}",
+            )
+            if request.POST.get("stay"):
+                return redirect("visuals:builder_step", visual.slug, step)
+            onward = next_after(step)
+            return redirect("visuals:builder_step", visual.slug, onward or step)
+
+    context = panel(visual, **extra)
+    done = reached(visual)
+    context.update(
+        {
+            "visual": visual,
+            "step": here,
+            "steps": [
+                {
+                    "slug": s.slug,
+                    "label": s.label,
+                    "on": s.slug == step,
+                    "done": s.slug in done,
+                    # Nothing after the type can be decided until there is
+                    # one, so those are shown and refused rather than hidden.
+                    "ready": s.slug == "type" or "type" in done,
+                }
+                for s in STEPS
+            ],
+            "sentence": parts_for(visual, step),
+            "complete": is_complete(visual),
+            "renderer": f"visuals/renderers/{visual.template}.html",
+            "live": True,
+            "error": error,
+        }
+    )
+    return render(request, f"visuals/steps/{step}.html", context)

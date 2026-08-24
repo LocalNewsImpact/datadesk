@@ -1,0 +1,261 @@
+"""What each builder step reads and writes.
+
+One function per step. Each takes the visual and the POST, writes only the
+keys its `Step` declares, and returns the context its panel renders with.
+Nothing here renders; nothing here touches another step's keys. That second
+rule is what makes going back cost nothing, and `tests/test_chart_types.py`
+asserts no two steps claim the same key.
+
+The sentence across the top is assembled from the same state, so what a
+panel writes and what the page says can never drift.
+"""
+
+from datasets.geo import state_name
+from visuals.types import BY_ID, FAMILIES, column_types, gallery
+
+# The runtime's own themes (static/js/datadesk-chart.js). Named here so the
+# panel offers what exists rather than a list that goes stale beside it; a
+# test holds the two together.
+THEMES = (
+    ("datadesk", "Datadesk"),
+    ("lnic", "LNIC"),
+    ("mizzou", "Mizzou"),
+    ("rji", "RJI"),
+)
+
+
+def _rows(visual):
+    snapshot = visual.snapshots.order_by("-version").first()
+    data = snapshot.data if snapshot else []
+    return data.get("points", []) if isinstance(data, dict) else data
+
+
+# --- step 1: the chart type --------------------------------------------------
+
+
+def type_panel(visual, post=None):
+    rows = _rows(visual)
+    available = column_types(rows)
+    if post is not None:
+        chosen = post.get("kind", "")
+        if chosen not in BY_ID:
+            raise ValueError("No such chart type")
+        # Changing the type is the only step that can invalidate an earlier
+        # choice. The rule is to keep the choice and mark it unusable, never
+        # to empty the form (ROADMAP item 20).
+        return {"config": {"kind": chosen}}
+    entries = gallery(available, len(rows))
+    grouped = [
+        {"family": f, "types": [e for e in entries if e["family"] == f]}
+        for f in FAMILIES
+    ]
+    return {
+        "groups": [g for g in grouped if g["types"]],
+        "empty_families": [
+            f for f in FAMILIES if not any(e["family"] == f for e in entries)
+        ],
+        "chosen": (visual.config or {}).get("kind", ""),
+        "available": sorted(available.items()),
+        "row_count": len(rows),
+    }
+
+
+# --- step 2: the colours -----------------------------------------------------
+
+
+def theme_panel(visual, post=None):
+    if post is not None:
+        name = post.get("theme", "")
+        if name not in dict(THEMES):
+            raise ValueError("No such theme")
+        config = {"theme": name}
+        # A fixed taxonomy is what keeps one CIN need the same colour in
+        # every chart. It belongs to this step because it is a colour
+        # decision, not a data one.
+        config["taxonomy"] = "cin" if post.get("taxonomy") else ""
+        return {"config": config}
+    config = visual.config or {}
+    return {
+        "themes": [
+            {"id": i, "label": label, "on": config.get("theme", "datadesk") == i}
+            for i, label in THEMES
+        ],
+        "taxonomy": config.get("taxonomy") == "cin",
+    }
+
+
+# --- step 3: the slice -------------------------------------------------------
+
+
+def data_panel(visual, post=None, choices=()):
+    """Datasets and a date range. Which fields to draw comes later."""
+    if post is not None:
+        picked = [s for s in post.getlist("datasets") if s]
+        allowed = {d["slug"] for d in choices}
+        outside = set(picked) - allowed
+        if outside:
+            # A slug typed into a form must not reach past the author's
+            # grants, the same rule the spec's single-dataset field follows.
+            raise ValueError(f"Not yours to draw on: {sorted(outside)}")
+        return {
+            "spec": {
+                "datasets": picked,
+                "from": post.get("from", "").strip(),
+                "to": post.get("to", "").strip(),
+            }
+        }
+    spec = visual.spec or {}
+    picked = spec.get("datasets") or ([spec["dataset"]] if spec.get("dataset") else [])
+    return {
+        "datasets": [
+            {"slug": d["slug"], "label": d["label"], "on": d["slug"] in picked}
+            for d in choices
+        ],
+        "date_from": spec.get("from", ""),
+        "date_to": spec.get("to", ""),
+    }
+
+
+# --- step 4: the newsrooms ---------------------------------------------------
+
+
+def newsrooms_panel(visual, post=None, tree=None):
+    """State, then county, then newsroom.
+
+    An empty list means every one of them. Storing exclusions instead would
+    make "all" a list that goes stale the moment a publisher is added.
+    """
+    if post is not None:
+        return {"spec": {"publishers": [p for p in post.getlist("publishers") if p]}}
+    spec = visual.spec or {}
+    kept = set(spec.get("publishers") or ())
+    states = []
+    for code in sorted(tree or {}):
+        counties = []
+        for county in sorted(tree[code]):
+            rooms = tree[code][county]
+            counties.append(
+                {
+                    "name": county,
+                    "rooms": [
+                        {
+                            "id": r["id"],
+                            "name": r["name"],
+                            "count": r["count"],
+                            "on": not kept or r["id"] in kept,
+                        }
+                        for r in rooms
+                    ],
+                    "count": sum(r["count"] for r in rooms),
+                }
+            )
+        states.append(
+            {
+                "code": code,
+                # MO is stored; Missouri is read.
+                "label": state_name(code) or code,
+                "counties": counties,
+                "rooms": sum(len(c["rooms"]) for c in counties),
+            }
+        )
+    total = sum(s["rooms"] for s in states)
+    return {"states": states, "kept": len(kept) or total, "total": total}
+
+
+# --- step 5: the fields ------------------------------------------------------
+#
+# This is where the pivot is decided, which the first prototype assumed had
+# already happened. A role offers the variables whose type fits it, and once
+# one is chosen its values can be narrowed.
+
+
+def _variables():
+    """Every dimension and measure a pivot can use, with what it holds."""
+    from visuals.corpus import DIMENSIONS, MEASURES
+
+    kinds = {
+        "month": "date",
+        "year": "date",
+        "geo_state": "geo",
+        "geo_county": "geo",
+        "geo_place": "geo",
+    }
+    out = [
+        {"id": k, "label": v["label"], "kind": kinds.get(k, "text"), "measure": False}
+        for k, v in DIMENSIONS.items()
+    ]
+    out += [
+        {"id": k, "label": v["label"], "kind": "number", "measure": True}
+        for k, v in MEASURES.items()
+    ]
+    return out
+
+
+VARIABLES = None
+
+
+def variables():
+    global VARIABLES
+    if VARIABLES is None:
+        VARIABLES = _variables()
+    return VARIABLES
+
+
+def field_panel(visual, post=None):
+    config, spec = visual.config or {}, visual.spec or {}
+    chart = BY_ID.get(config.get("kind", ""))
+    if post is not None:
+        if chart is None:
+            raise ValueError("Pick a chart type first")
+        known = {v["id"] for v in variables()}
+        roles, dimensions, measure = {}, [], ""
+        for role in chart.roles:
+            picked = post.get(f"role-{role.id}", "").strip()
+            if not picked:
+                continue
+            if picked not in known:
+                raise ValueError(f"No such variable: {picked}")
+            roles[role.id] = picked
+            if any(v["id"] == picked and v["measure"] for v in variables()):
+                measure = picked
+            elif picked not in dimensions:
+                dimensions.append(picked)
+        only = {}
+        for key, values in post.lists():
+            if key.startswith("only-"):
+                kept = [v for v in values if v]
+                if kept:
+                    only[key[5:]] = kept
+        return {
+            "spec": {
+                "roles": roles,
+                "dimensions": dimensions,
+                "measure": measure or "articles",
+                "only": only,
+            }
+        }
+
+    if chart is None:
+        return {"chart": None, "roles": []}
+    picked = spec.get("roles") or {}
+    only = spec.get("only") or {}
+    slots = []
+    for role in chart.roles:
+        fits = [v for v in variables() if v["kind"] in role.accepts]
+        chosen = picked.get(role.id, "")
+        slots.append(
+            {
+                "id": role.id,
+                "label": role.label,
+                "accepts": ", ".join(role.accepts),
+                "optional": not role.needs,
+                "options": [dict(v, on=v["id"] == chosen) for v in fits],
+                "chosen": chosen,
+                "kept": only.get(chosen, []),
+            }
+        )
+    return {
+        "chart": chart,
+        "roles": slots,
+        "pairs": chart.pairs,
+    }
