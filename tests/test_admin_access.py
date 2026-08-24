@@ -261,3 +261,25 @@ def test_the_groups_read_in_the_order_the_sidebar_shows_them(client, crawler_sch
 
 def test_a_user_with_no_role_sees_no_groups():
     assert groups_for(None) == ()
+
+
+def test_the_two_queues_are_called_the_same_thing():
+    """Both are the same job -- records something flagged, waiting on a
+    person. "Proposed changes" under Sources and "Review queue" under
+    Extraction described one process with two names. The group header says
+    which records: publishers here, articles there."""
+    from accounts.sections import SECTION_GROUPS
+
+    labels = {}
+    for group in SECTION_GROUPS:
+        for section in group["sections"]:
+            # Some sections are external links carrying `site` rather
+            # than a named route.
+            if section.get("url") in ("review:proposals", "review:queue"):
+                labels[section["url"]] = (group["label"], section["label"])
+
+    assert labels["review:proposals"][1] == "Review queue"
+    assert labels["review:queue"][1] == "Review queue"
+    assert (
+        labels["review:proposals"][0] != labels["review:queue"][0]
+    ), "two sections with one label need different headers to tell apart"

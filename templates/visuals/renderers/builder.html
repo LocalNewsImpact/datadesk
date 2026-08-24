@@ -22,24 +22,43 @@
   const config = JSON.parse(document.getElementById("dd-config").textContent);
   const el = document.getElementById("dd-chart-{{ visual.slug }}");
   const toggle = document.querySelector('.dd-toggle[data-target="' + el.id + '"]');
+  // Wired before the fetch, not inside it. Attached in the `.then` the
+  // button did nothing at all when the feed failed -- no error, no
+  // explanation, a control that looked live and was not.
+  let chart = null;
+  let data = null;
+  let showingTable = false;
+
+  toggle.addEventListener("click", () => {
+    if (data === null) {
+      el.textContent = "No data to show yet.";
+      return;
+    }
+    showingTable = !showingTable;
+    if (showingTable) {
+      DatadeskChart.renderTable(el, data);
+      toggle.textContent = "View chart";
+    } else if (chart) {
+      chart.redraw();
+      toggle.textContent = "View data";
+    }
+  });
+
   fetch("{% url 'visuals:data' visual.slug %}{% if live %}?live=1{% endif %}")
-    .then((r) => r.json())
-    .then(({ data }) => {
-      const chart = DatadeskChart.mount(el, config, data, {
+    .then((r) => {
+      if (!r.ok) throw new Error(r.status + " from the feed");
+      return r.json();
+    })
+    .then((payload) => {
+      data = payload.data;
+      chart = DatadeskChart.mount(el, config, data, {
         geoBase: "{% static 'geo/' %}",
       });
-      let showingTable = false;
-      toggle.addEventListener("click", () => {
-        showingTable = !showingTable;
-        if (showingTable) {
-          DatadeskChart.renderTable(el, data);
-          toggle.textContent = "View chart";
-        } else {
-          chart.redraw();
-          toggle.textContent = "View data";
-        }
-      });
     })
-    .catch(() => { el.textContent = "Feed unavailable."; });
+    .catch((err) => {
+      // What went wrong, not that something did: a reader who cannot see
+      // the reason cannot tell a missing snapshot from a broken query.
+      el.textContent = "The data could not be loaded — " + err.message + ".";
+    });
 })();
 </script>
