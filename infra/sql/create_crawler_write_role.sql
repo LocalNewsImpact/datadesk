@@ -48,7 +48,12 @@ GRANT UPDATE (author, title, content, text, status, wire_check_status)
 -- most certain predictions in every confidence filter and chart.
 GRANT UPDATE (skip_reason, geo_skip_reason, scope, scope_confidence)
   ON article_enrichment TO datadesk_rw;
-GRANT UPDATE (canonical_name, city, county, owner, type)
+-- `metadata` carries the state, which is a required field of a publisher
+-- record. Postgres grants a column, not a key inside one, so this is wider
+-- than the application allows -- review/services.py permits `meta.state`
+-- and nothing else in that blob. The narrower list is the one a reviewer
+-- can act through; this only has to stop being the thing that refuses.
+GRANT UPDATE (canonical_name, city, county, owner, type, metadata)
   ON sources TO datadesk_rw;
 
 -- Phase 4: dataset management (SCOPE.md §2.4). Creation columns include

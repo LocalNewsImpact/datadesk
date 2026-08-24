@@ -228,3 +228,55 @@ def test_level_for_geoid():
     assert level_for_geoid("29019000100") == "tract"
     assert level_for_geoid("290190001001000") == "block"
     assert level_for_geoid("123") is None
+
+
+def test_the_sql_grants_cover_every_writable_field():
+    """Two lists that must agree, and nothing made them.
+
+    Postgres is the real write boundary -- the router's docstring says so.
+    The application's WRITABLE tuple was widened to allow a state and the
+    grant was not, so the app permitted a write that the database refused,
+    and the failure surfaced as `permission denied for table sources` in a
+    management command rather than as a test.
+
+    Postgres grants a column, not a key inside one, so a dotted field is
+    checked as its column. The grant is allowed to be wider than the
+    application; it may never be narrower.
+    """
+    import re
+    from pathlib import Path
+
+    from explorer.models import Article, ArticleEnrichment, Dataset, Source
+    from review.services import WRITABLE
+
+    sql = (
+        Path(__file__).resolve().parent.parent
+        / "infra/sql/create_crawler_write_role.sql"
+    ).read_text()
+
+    granted = {}
+    for columns, table in re.findall(
+        r"GRANT UPDATE \(([^)]*)\)\s*ON (\w+) TO datadesk_rw", sql, re.S
+    ):
+        granted[table] = {c.strip() for c in columns.split(",")}
+
+    tables = {
+        Article: "articles",
+        ArticleEnrichment: "article_enrichment",
+        Source: "sources",
+        Dataset: "datasets",
+    }
+
+    def column_of(model, field):
+        """The database column, which is not always the field's name --
+        Source.meta is stored as `metadata`, and a grant names the column."""
+        return model._meta.get_field(field).column
+
+    for model, table in tables.items():
+        wanted = {column_of(model, f.partition(".")[0]) for f in WRITABLE[model]}
+        missing = wanted - granted.get(table, set())
+        assert not missing, (
+            f"{table}: the application writes {sorted(missing)} and the grant "
+            "does not allow it. Widen create_crawler_write_role.sql and apply "
+            "it, or narrow WRITABLE."
+        )
