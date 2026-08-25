@@ -1837,18 +1837,15 @@ def test_a_visual_with_gaps_left_still_cannot_be_published(
 #: same row: a scatter plots one against the other, and a point map wants
 #: a latitude and a longitude.
 #:
-#: A point map is the nearer of the two. Every county and place FIPS has
-#: a centroid -- INTPTLAT/INTPTLONG, in the gazetteers this repo already
-#: vendors -- so a geo dimension could carry its own coordinates and a
-#: point map could take a place rather than two numbers. That is a change
-#: to what the pivot emits, and it is the same change census data joined
-#: on FIPS will want.
+#: A dot map used to be here and no longer is. Every county and place
+#: GEOID has a centroid in the gazetteers this repo vendors, so a geo
+#: dimension now carries its own coordinates and a dot map takes a place
+#: rather than two numbers.
 #:
 #: Named here rather than left out, so that "not walked" is a statement
 #: with a reason attached and the list cannot quietly grow.
 NEEDS_TWO_MEASURES = {
     "scatter": "plots one measure against another; the pivot emits one",
-    "points": "wants a latitude and a longitude; the pivot emits one number",
 }
 
 
@@ -1885,9 +1882,12 @@ FIELDS_FOR = {
     # fills those slots here is what the fields step actually offers,
     # which is a real gap in what a point map can be built out of and a
     # separate question from whether the walk works.
+    # A place, and how big to draw each dot. Where the places are comes
+    # from the pivot, which writes the centroid of a geo dimension beside
+    # it.
     "points": {
-        "role-lat": "articles",
-        "role-lon": "cost_sum",
+        "role-place": "geo_county",
+        "role-size": "articles",
         "role-label": "point_place",
     },
 }
@@ -2244,3 +2244,46 @@ def test_asking_for_a_version_that_exists_serves_that_one_forever(
     assert "immutable" in one["Cache-Control"]
     # One that does not exist is refused rather than quietly redirected.
     assert reader.get(f"/visuals/{visual.slug}/data.json?v=9").status_code == 404
+
+
+def test_a_place_carries_its_own_coordinates(client, author, visual, corpus):
+    """A pivot grouped by a county or a place writes where that place is,
+    from the Census gazetteer's internal point. This is what lets a dot
+    map take a place: latitude and longitude as two separate measures
+    could never both be filled, a pivot having one measure to give."""
+    from visuals.corpus import LAT_LABEL, LON_LABEL, run_spec
+
+    rows, _meta = run_spec(
+        {
+            "datasets": ["mizzou"],
+            "subset": "complete",
+            "dimensions": ["geo_county"],
+            "measure": "articles",
+        },
+        frozenset(["mizzou"]),
+    )
+    assert rows, "nothing grouped by county"
+    for row in rows:
+        assert LAT_LABEL in row and LON_LABEL in row, f"no coordinates: {row}"
+        # Missouri, not the Gulf of Guinea: a lookup that misses must
+        # leave the columns out rather than store a pair of zeroes.
+        assert 35 < row[LAT_LABEL] < 41, row
+        assert -96 < row[LON_LABEL] < -89, row
+
+
+def test_a_pivot_with_no_geography_carries_no_coordinates(client, author, corpus):
+    """Columns that mean "where this is" have no meaning on a row that is
+    not anywhere -- a CIN need is not a place."""
+    from visuals.corpus import LAT_LABEL, run_spec
+
+    rows, _meta = run_spec(
+        {
+            "datasets": ["mizzou"],
+            "subset": "complete",
+            "dimensions": ["cin_primary"],
+            "measure": "articles",
+        },
+        frozenset(["mizzou"]),
+    )
+    assert rows
+    assert all(LAT_LABEL not in row for row in rows)

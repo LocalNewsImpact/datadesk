@@ -51,6 +51,7 @@ _STRING_KEYS = (
     "bands",
     "lat",
     "lon",
+    "place",
 )
 _BOOL_KEYS = ("horizontal", "stacked", "geo_fit")
 # "stack" is a string ("percent") rather than a flag.

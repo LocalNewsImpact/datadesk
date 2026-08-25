@@ -106,6 +106,7 @@ STEPS = (
             "config:value",
             "config:geo_join",
             "config:geo_value",
+            "config:place",
             "config:lat",
             "config:lon",
         ),
