@@ -44,7 +44,7 @@ def _newsroom_count_targets():
 
     from explorer.models import Dataset
     from visuals.corpus import _cache_key
-    from visuals.views import newsroom_counts_for
+    from visuals.views import newsroom_counts_for, newsroom_tree_for
 
     try:
         slugs = sorted(Dataset.objects.values_list("slug", flat=True))
@@ -56,6 +56,17 @@ def _newsroom_count_targets():
         label = f"newsroom counts ({scopes[0] if scopes else 'all datasets'})"
         key = _cache_key("visuals.newsroom_counts", scopes)
         targets.append((label, key, lambda s=scopes: newsroom_counts_for(s)))
+        # The tree beside the counts. It is the more expensive of the two
+        # -- every source in every dataset, arranged -- and the facet
+        # cascade reads it as well as the newsroom step, so an unwarmed
+        # tree is two screens waiting rather than one.
+        targets.append(
+            (
+                f"newsroom tree ({scopes[0] if scopes else 'all datasets'})",
+                _cache_key("visuals.newsroom_tree", scopes),
+                lambda s=scopes: newsroom_tree_for(s),
+            )
+        )
     return tuple(targets)
 
 

@@ -3162,3 +3162,68 @@ def test_the_new_dimensions_are_offered_where_they_fit(
         "How the location was decided",
     ):
         assert offered in body, f"{offered} is not offered"
+
+
+# --- a facet arranged the way the newsroom step arranges it ------------------
+
+
+def test_a_publisher_facet_cascades_by_county(
+    client, author, visual, corpus, two_newsrooms
+):
+    """A flat list of 179 publishers is the same information with the
+    arrangement thrown away -- and it costs an aggregate over the
+    articles, where the tree is the source table and one counts map the
+    warmer has already filled."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": "sankey", "theme": "datadesk"}
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {
+        "datasets": ["mizzou"],
+        "roles": {"from": "publisher_name", "to": "cin_primary", "value": "articles"},
+    }
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+
+    got = client.get(f"/visuals/builder/{visual.slug}/values/from/").json()
+    assert got["cascade"] is True
+    assert got["groups"], "no counties"
+    # Each row carries the name a reader uses and the value the pivot
+    # groups by, which are not the same thing for a publisher.
+    row = got["groups"][0]["values"][0]
+    assert set(row) >= {"value", "name", "n", "kept"}
+    # The group's total is its rows', so a heading cannot disagree with
+    # what is under it.
+    for group in got["groups"]:
+        assert group["n"] == sum(r["n"] for r in group["values"])
+
+
+def test_a_facet_with_no_arrangement_stays_a_list(
+    client, author, visual, corpus, two_newsrooms
+):
+    """A CIN need does not live in a county. Only the dimensions that are
+    already arranged get arranged."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": "bar", "theme": "datadesk"}
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {"datasets": ["mizzou"], "roles": {"x": "cin_primary"}}
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+
+    got = client.get(f"/visuals/builder/{visual.slug}/values/x/").json()
+    assert "cascade" not in got
+    assert got["values"], "no values"
+
+
+def test_the_warmer_fills_the_tree_the_facet_reads(client, author, corpus):
+    """The cascade is instant only because the tree is already built. The
+    warmer filled the counts and not the tree, which is the expensive
+    half."""
+    from explorer.management.commands.warm_caches import (
+        _newsroom_count_targets,
+    )
+
+    labels = [label for label, _key, _fill in _newsroom_count_targets()]
+    assert any("newsroom tree" in label for label in labels), labels
+    assert any("newsroom counts" in label for label in labels), labels

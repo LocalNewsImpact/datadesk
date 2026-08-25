@@ -143,7 +143,8 @@ to fill disclosures that start closed.
           if (!rows.length) return;
           var name = "only-" + list.dataset.for;
           list.innerHTML = "";
-          rows.forEach(function (v) {
+
+          function tick(v) {
             var label = document.createElement("label");
             label.className = "row";
             var input = document.createElement("input");
@@ -153,12 +154,48 @@ to fill disclosures that start closed.
             input.checked = narrowed ? !!on[v.value] : true;
             var text = document.createElement("span");
             text.className = "label";
-            text.textContent = v.value;
+            // The name where there is one -- a publisher is "KOMU 8",
+            // not "komu.com" -- while the value is what gets stored.
+            text.textContent = v.name || v.value;
             var count = document.createElement("em");
-            count.textContent = v.n.toLocaleString();
+            count.textContent = (v.n || 0).toLocaleString();
             label.append(input, text, count);
-            list.appendChild(label);
-          });
+            return label;
+          }
+
+          // Arranged where the server arranged it: a publisher inside its
+          // county, a city inside its county inside its state -- the shape
+          // the newsroom step already shows, because it is the same
+          // sources. A flat list of 179 publishers is the same information
+          // with the arrangement thrown away.
+          if (payload.cascade) {
+            payload.groups.forEach(function (group) {
+              var box = document.createElement("details");
+              box.className = "facet-group";
+              var head = document.createElement("summary");
+              head.textContent = group.label;
+              var n = document.createElement("em");
+              n.textContent = (group.n || 0).toLocaleString();
+              head.appendChild(n);
+              box.appendChild(head);
+              // Ticking the heading ticks everything under it, which is
+              // what a county of eleven newsrooms is for.
+              var all = document.createElement("label");
+              all.className = "row facet-all";
+              var every = document.createElement("input");
+              every.type = "checkbox";
+              every.addEventListener("change", function () {
+                box.querySelectorAll('input[name="' + name + '"]').forEach(
+                  function (i) { i.checked = every.checked; });
+              });
+              all.append(every, document.createTextNode("All of these"));
+              box.appendChild(all);
+              group.values.forEach(function (v) { box.appendChild(tick(v)); });
+              list.appendChild(box);
+            });
+            return;
+          }
+          rows.forEach(function (v) { list.appendChild(tick(v)); });
         })
         .catch(function () { loaded = false; })
         .finally(function () { list.removeAttribute("aria-busy"); });
