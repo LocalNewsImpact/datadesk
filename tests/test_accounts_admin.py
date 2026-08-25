@@ -187,6 +187,35 @@ def test_an_invited_address_may_sign_in_and_a_stranger_may_not(settings):
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
+def test_an_account_an_admin_created_may_sign_in_with_google(settings):
+    """The add-account screen writes a user and a grant, not an invitation.
+    An account made that way was refused at the Google door -- the reported
+    case: an editor on Mizzou, provisioned in the admin, who had never
+    signed in because the only door she was pointed to said 403."""
+    settings.ALLOWED_AUTH_DOMAINS = ["localnewsimpact.org"]
+
+    assert not _admits("h.artman@missouri.edu", hd="missouri.edu")
+
+    user = User.objects.create(username="h.artman", email="h.artman@missouri.edu")
+    assert _admits(
+        "h.artman@missouri.edu", hd="missouri.edu"
+    ), "an account an admin created was refused"
+    # Case is not a different person, here either.
+    assert _admits("H.Artman@Missouri.edu", hd="missouri.edu")
+
+    # Switching the account off is how access is taken away; it has to close
+    # this door as well as the password one.
+    user.is_active = False
+    user.save(update_fields=["is_active"])
+    assert not _admits(
+        "h.artman@missouri.edu", hd="missouri.edu"
+    ), "a deactivated account still got in"
+
+    # An address nobody has provisioned is still a stranger.
+    assert not _admits("stranger@example.com")
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
 def test_signing_in_makes_the_grant_the_invitation_promised(settings):
     """A grant needs a user and a user does not exist until Google has
     said who they are. Invited and never granted is a successful sign-in
