@@ -925,9 +925,8 @@ def test_choosing_newsrooms_actually_narrows_the_chart(client, author, visual, c
 
 
 def test_a_chart_carries_its_own_title(client, author, visual):
-    """`visual.title` names the record in the console. The title a reader
-    sees is a different sentence for a different person, and nothing in
-    the stepped flow could set it."""
+    """Nothing in the stepped flow could set the title a reader sees; only
+    the advanced settings page could, and that page is about plumbing."""
     step(
         client,
         visual,
@@ -939,7 +938,8 @@ def test_a_chart_carries_its_own_title(client, author, visual):
     visual.refresh_from_db()
     assert visual.config["title"] == "How CIN needs pair up"
     assert visual.config["subtitle"] == "Primary against alternate, March 2026"
-    assert visual.title == "Walk", "the record's own name is left alone"
+    # One title: the record answers to the same name the chart carries.
+    assert visual.title == "How CIN needs pair up"
 
 
 def test_the_title_box_opens_on_the_record_name(client, author, visual):
@@ -1039,7 +1039,67 @@ def test_an_empty_map_says_which_kind_of_empty_it_is():
     ).read_text()
 
     assert "def _why_nothing_mapped(" in corpus
-    assert "The newsrooms chosen published nothing" in corpus
-    assert "no locations the map could place" in corpus
+    # Counts, not a guess: "the newsrooms published nothing" is not
+    # something a reader should take on trust when they know the county
+    # has newspapers. Each filter is relaxed in turn and reported.
+    assert "None of the {chosen:,} newsrooms chosen published" in corpus
+    assert "though {ignoring_newsrooms:,} articles in this data did" in corpus
+    assert "articles sit " in corpus
     # And the runtime prefers it to its own generic line.
     assert "empty_because" in js
+
+
+def test_naming_a_chart_renames_it_everywhere(client, author, visual):
+    """The record carried its own title, set when the visual was created
+    and never again, so renaming a chart left the listing, the browser tab
+    and the preview's heading showing what it had been called on the day
+    it was made."""
+    step(client, visual, "theme", theme="datadesk", title="How CIN needs pair up")
+    visual.refresh_from_db()
+
+    assert visual.config["title"] == "How CIN needs pair up"
+    assert visual.title == "How CIN needs pair up"
+
+    # The listing shows it...
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    assert "How CIN needs pair up" in client.get("/visuals/").content.decode()
+    # ...and so does the heading above the preview.
+    assert "How CIN needs pair up" in step(client, visual, "theme").content.decode()
+
+
+def test_an_empty_title_leaves_the_record_named(client, author, visual):
+    """A chart drawn without a heading is a choice; a record with no name
+    is a row nobody can find."""
+    was = visual.title
+    step(client, visual, "theme", theme="datadesk", title="")
+    visual.refresh_from_db()
+
+    assert visual.config["title"] == ""
+    assert visual.title == was
+
+
+def test_the_empty_map_names_the_filter_that_empties_it(client, author, corpus):
+    """A reader who knows the county has newspapers should not have to
+    take "they published nothing" on trust. Whichever filter takes the
+    total from something to nothing is the one reported."""
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import _why_nothing_mapped
+
+    # A newsroom that exists but is not the one with articles.
+    other = Source.objects.create(
+        id="s-empty",
+        host="quiet.example",
+        host_norm="quiet.example",
+        canonical_name="Quiet Weekly",
+        county="Jackson",
+    )
+    DatasetSource.objects.create(id="ds-empty", dataset=corpus, source=other)
+
+    said = _why_nothing_mapped({"publishers": ["s-empty"]}, ALL_SCOPES)
+    assert "None of the 1 newsrooms chosen published" in said
+    assert "3 articles in this data did" in said, "it should count the rest"
+
+    # And a date range with nothing in it names the dates instead.
+    said = _why_nothing_mapped({"from": "1999-01-01", "to": "1999-12-31"}, ALL_SCOPES)
+    assert "Nothing published between 1999-01-01 and 1999-12-31" in said
+    assert "3 articles sit" in said

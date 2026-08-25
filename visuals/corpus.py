@@ -572,29 +572,45 @@ def run_story_map(spec, scopes):
 
 
 def _why_nothing_mapped(spec, scopes):
-    """Which of the three reasons an empty map is empty.
+    """Which filter empties the map, with the numbers behind it.
 
-    "No mapped stories" is true and useless. It does not distinguish a
-    slice with no articles in it, a set of newsrooms that published none
-    in that window, and a map centred on a place none of the chosen
-    newsrooms write about -- and that last one is what a duplicated map
-    becomes when it is retargeted at one county and left filtered to
-    another's newsrooms. Each needs a different thing done about it.
+    "No mapped stories" is true and useless, and so is a guess dressed as
+    a diagnosis -- "the newsrooms published nothing" is not something a
+    reader should have to take on trust when they know the county has
+    newspapers. So each filter is relaxed in turn and the counts are
+    reported: whichever one takes the total from something to nothing is
+    the one to change.
     """
-    narrowed = _base_queryset(spec, scopes)
-    if not narrowed.exists():
-        if spec.get("publishers"):
-            return (
-                "The newsrooms chosen published nothing in this date range. "
-                "Widen the dates, or choose more newsrooms."
-            )
-        return "No articles in this slice. Widen the dates or the datasets."
-    # There are articles; they simply have no place attached, or none the
-    # gazetteer could place.
-    return (
-        "These articles have no locations the map could place. "
-        "They may not be enriched yet."
-    )
+    narrowed = _base_queryset(spec, scopes).count()
+    if narrowed:
+        return (
+            f"{narrowed:,} articles match, and none carry a location the map "
+            "can place. They may not be enriched yet."
+        )
+
+    # Same slice, without the newsroom filter.
+    without_publishers = dict(spec)
+    without_publishers.pop("publishers", None)
+    ignoring_newsrooms = _base_queryset(without_publishers, scopes).count()
+    chosen = len(spec.get("publishers") or ())
+    if chosen and ignoring_newsrooms:
+        return (
+            f"None of the {chosen:,} newsrooms chosen published between "
+            f"{spec.get('from') or 'the start'} and {spec.get('to') or 'now'}, "
+            f"though {ignoring_newsrooms:,} articles in this data did. "
+            "Check the newsrooms, or widen the dates."
+        )
+
+    # Same slice, without the dates either.
+    undated = {k: v for k, v in without_publishers.items() if k not in ("from", "to")}
+    ignoring_dates = _base_queryset(undated, scopes).count()
+    if ignoring_dates:
+        return (
+            f"Nothing published between {spec.get('from') or 'the start'} and "
+            f"{spec.get('to') or 'now'}. {ignoring_dates:,} articles sit "
+            "outside that range."
+        )
+    return "No articles in the datasets this visual is wired to."
 
 
 def _cache_key(prefix, *parts):
