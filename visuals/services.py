@@ -229,10 +229,16 @@ def duplicate(visual, actor):
       status     draft. A copy of a published visual that arrived
                  published would put an unreviewed chart on the data host
                  the moment it was made.
-      snapshots  none. They are captured runs of the source, and the copy
-                 has not run it yet; carrying them over would date the
-                 copy's data to the original's last refresh and say so.
-      pin        none, following the snapshots.
+      snapshots  none, and so no pin -- for anything with a source to
+                 re-run. They are captured runs of it, and the copy has
+                 not run it yet; carrying them would date the copy's data
+                 to the original's last refresh and say so on the page.
+
+                 Uploaded data is the exception, and it has to be. There
+                 is no source behind it: the rows *are* the snapshot, so a
+                 copy without one is a visual that can never draw anything
+                 and has no way to be given data. That one carries the
+                 pinned rows across as its own first snapshot.
 
     `created_by` is whoever asked for the copy, not whoever wrote the
     original. They are the one who has to answer for it now.
@@ -260,6 +266,15 @@ def duplicate(visual, actor):
         frame_ancestors=visual.frame_ancestors,
         created_by=actor,
     )
+    if visual.source_kind == INLINE:
+        source = visual.pinned_snapshot or visual.snapshots.order_by("-version").first()
+        if source is not None:
+            snapshot = VisualSnapshot.objects.create(
+                visual=copy, version=1, data=source.data, created_by=actor
+            )
+            copy.pinned_snapshot = snapshot
+            copy.save(update_fields=["pinned_snapshot"])
+
     AuditLogEntry.objects.create(
         actor=actor,
         action="visual:duplicate",
