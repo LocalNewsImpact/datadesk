@@ -586,14 +586,33 @@ def index(request):
 
 @requires(DESIGN)
 def folder_create(request):
-    """Make a project folder."""
+    """Make a project folder, and say so either way.
+
+    The first version did the work and reported nothing: an empty name and
+    a name already taken both redirected to a page that looked exactly as
+    it had before. Somebody pressing the button and seeing no folder has
+    no way to tell whether it failed, whether it worked and is hidden, or
+    whether the button does anything at all -- and pressing it again is
+    the reasonable next move, which also does nothing.
+    """
+    from django.contrib import messages
+
     from visuals.models import Folder
 
     if request.method != "POST":
         raise Http404("Use the form")
+
     name = (request.POST.get("name") or "").strip()
-    if name and not Folder.objects.filter(name__iexact=name).exists():
-        Folder.objects.create(name=name[:120], created_by=request.user)
+    if not name:
+        messages.error(request, "Give the folder a name before adding it.")
+    elif (existing := Folder.objects.filter(name__iexact=name).first()) is not None:
+        # Not an error: the folder they asked for is there. Saying so
+        # beats refusing silently, and beats a second folder with the
+        # same name in a different case.
+        messages.info(request, f"“{existing.name}” already exists.")
+    else:
+        folder = Folder.objects.create(name=name[:120], created_by=request.user)
+        messages.success(request, f"Added “{folder.name}”.")
     return redirect("visuals:index")
 
 

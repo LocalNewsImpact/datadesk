@@ -1532,3 +1532,27 @@ def test_the_folder_list_is_not_repeated_down_the_page(client, designer):
     assert body.count('name="folder"') == 3
     # ...and hidden until the grip beside it is used.
     assert body.count("<select") == body.count("hidden>")
+
+
+def test_the_folder_form_says_what_it_did(client, designer):
+    """The first version did the work and reported nothing. An empty name
+    and a name already taken both redirected to a page that looked exactly
+    as it had before, so pressing the button and seeing no folder left no
+    way to tell whether it failed, whether it worked and is hidden, or
+    whether the button does anything -- and pressing it again is the
+    reasonable next move, which also does nothing."""
+    from visuals.models import Folder
+
+    def outcome(name):
+        response = client.post("/visuals/folders/new/", {"name": name}, follow=True)
+        return [str(m) for m in response.context["messages"]]
+
+    assert outcome("   ") == ["Give the folder a name before adding it."]
+    assert not Folder.objects.exists()
+
+    assert outcome("Board deck") == ["Added “Board deck”."]
+    assert Folder.objects.count() == 1
+
+    # Same folder, different case: not an error, and not a second folder.
+    assert outcome("board DECK") == ["“Board deck” already exists."]
+    assert Folder.objects.count() == 1
