@@ -138,22 +138,15 @@ def _kind_label(visual):
 
 
 def _unmapped_roles(visual):
-    """The fields a chart still needs, as a phrase, or None when it has
-    them all. `is_complete` answers the whole sentence; this answers only
-    the part the preview can do something about."""
-    from visuals.types import CHART_TYPES
+    """What the preview is still waiting for, or None when it has it all.
 
-    kind = (visual.config or {}).get("kind")
-    chart = next((c for c in CHART_TYPES if c.id == kind), None)
-    if chart is None:
-        return None
-    picked = (visual.spec or {}).get("roles") or {}
-    wanted = [r.label.lower() for r in chart.roles if not picked.get(r.id)]
-    if not wanted:
-        return None
-    if len(wanted) == 1:
-        return f"a {wanted[0]} field"
-    return ", ".join(wanted[:-1]) + f" and {wanted[-1]} fields"
+    `is_complete` answers the whole sentence; this answers only the part
+    the preview can do something about -- and it is the same question the
+    publish step asks, so both read it from one place.
+    """
+    from visuals.panels import unmapped_fields
+
+    return unmapped_fields(visual)
 
 
 def _attribution(visual):

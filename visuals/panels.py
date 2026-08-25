@@ -452,6 +452,48 @@ def newsrooms_panel(visual, post=None, tree=None):
 # one is chosen its values can be narrowed.
 
 
+def unmapped_fields(visual):
+    """What a chart still needs before it can draw, as a phrase, or None.
+
+    Required roles only. An optional role reported as missing says the
+    preview is waiting for something it is not waiting for -- a bar draws
+    perfectly well without a series -- and once publishing asks this
+    question too, saying so would refuse a chart that is finished.
+
+    A table has no roles and needs columns instead, which the sentence at
+    the top of the page never mentions: it says what a visual is *of*,
+    and columns are not one of those things. Nothing else would notice an
+    empty one, so an embed of it would render a table of nothing.
+    """
+    config, spec = visual.config or {}, visual.spec or {}
+    chart = BY_ID.get(config.get("kind", ""))
+    if chart is None:
+        return None
+    if _picks_columns(chart):
+        return None if (spec.get("dimensions") or []) else "columns to show"
+    picked = spec.get("roles") or {}
+    wanted = [r.label.lower() for r in chart.roles if r.needs and not picked.get(r.id)]
+    if not wanted:
+        return None
+    if len(wanted) == 1:
+        return f"a {wanted[0]} field"
+    return ", ".join(wanted[:-1]) + f" and {wanted[-1]} fields"
+
+
+def _picks_columns(chart):
+    """Whether this kind groups by whatever is ticked.
+
+    A chart with roles fills them; a story map has neither because its
+    two layers come out of the enrichment whole. What is left is a table,
+    which is the rows themselves and so groups by anything -- and had no
+    way to say so at all, which meant the pivot refused it for having no
+    dimensions and a table could not be built.
+    """
+    from visuals.services import STORY_MAP_KIND
+
+    return not chart.roles and chart.id != STORY_MAP_KIND
+
+
 def _variables():
     """Every dimension and measure a pivot can use, with what it holds."""
     from visuals.corpus import DIMENSIONS, MEASURES
@@ -539,6 +581,19 @@ def field_panel(visual, post=None, user=None):
             raise ValueError("Pick a chart type first")
         known = {v["id"] for v in variables()}
         roles, dimensions, measure = {}, [], ""
+        if _picks_columns(chart):
+            # A table is the rows themselves, so it groups by whatever
+            # somebody ticks rather than by filling slots with meanings a
+            # table does not have. The pivot takes a list of dimensions,
+            # which is what this is.
+            columns = {v["id"] for v in variables() if not v["measure"]}
+            dimensions = [c for c in post.getlist("columns") if c in columns]
+            if not dimensions:
+                raise ValueError("Pick at least one column to group by")
+            measure = post.get("measure", "").strip()
+            numbers = {v["id"] for v in variables() if v["measure"]}
+            if measure and measure not in numbers:
+                raise ValueError(f"No such count: {measure}")
         for role in chart.roles:
             picked = post.get(f"role-{role.id}", "").strip()
             if not picked:
@@ -583,7 +638,25 @@ def field_panel(visual, post=None, user=None):
         }
 
     if chart is None:
-        return {"chart": None, "roles": []}
+        return {"chart": None, "roles": [], "columns": []}
+    if _picks_columns(chart):
+        chosen = spec.get("dimensions") or []
+        return {
+            "chart": chart,
+            "roles": [],
+            # Every dimension, with what is ticked already ticked. No
+            # counts beside them: that is one aggregate over the corpus
+            # per row, for a list somebody is reading rather than
+            # narrowing, and it is what took this step to 65 seconds.
+            "columns": [
+                dict(v, on=v["id"] in chosen) for v in variables() if not v["measure"]
+            ],
+            "measures": [
+                dict(v, on=v["id"] == (spec.get("measure") or "articles"))
+                for v in variables()
+                if v["measure"]
+            ],
+        }
     picked = spec.get("roles") or {}
     only = spec.get("only") or {}
     slots = []
@@ -629,6 +702,7 @@ def field_panel(visual, post=None, user=None):
     return {
         "chart": chart,
         "roles": slots,
+        "columns": [],
         "pairs": chart.pairs,
         "pair_note": pair_note,
     }
@@ -693,5 +767,6 @@ def publish_panel(visual, post=None, actor=None):
         # What is being asked is whether the visual can draw, which is
         # the same question the sentence at the top of the page answers
         # and the preview beside it has already acted on.
-        "ready": snapshot is not None or is_complete(visual),
+        "ready": snapshot is not None
+        or (is_complete(visual) and not unmapped_fields(visual)),
     }

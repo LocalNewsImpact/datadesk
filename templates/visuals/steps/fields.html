@@ -2,6 +2,42 @@
 {% block panel %}
 {% if not chart %}
 <p class="notice">Pick a chart type first — what it needs is what this asks for.</p>
+{% elif columns %}
+{% comment %}
+A table is the rows themselves, so it groups by whatever is ticked rather
+than by filling slots with meanings a table does not have. The pivot takes
+a list of dimensions, and this is that list.
+
+No counts beside the names: that is one aggregate over the corpus per row,
+for a list being read rather than narrowed, and it is what took this step
+to 65 seconds.
+{% endcomment %}
+<form method="post" id="step-form">
+  {% csrf_token %}
+  <div class="role">
+    <h4>Columns <span class="accepts">— tick any</span></h4>
+    <div class="values-list">
+      {% for c in columns %}
+      <label class="row">
+        <input type="checkbox" name="columns" value="{{ c.id }}" {% if c.on %}checked{% endif %}>
+        <span class="label">{{ c.label }}</span>
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="role">
+    <h4>Count <span class="accepts">— a number</span></h4>
+    <select class="var" name="measure">
+      {% for m in measures %}
+      <option value="{{ m.id }}" {% if m.on %}selected{% endif %}>{{ m.label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="action-bar">
+    <button type="submit" class="primary" name="stay" value="1"
+      title="Save these columns and redraw the preview with them">Update</button>
+  </div>
+</form>
 {% elif not roles %}
 {% comment %}
 A story map declares no roles: its geography comes from the enrichment
