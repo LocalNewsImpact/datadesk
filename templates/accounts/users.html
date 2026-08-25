@@ -19,8 +19,8 @@
           <th scope="col">Email</th>
           <th scope="col">Username</th>
           <th scope="col" class="shrink">Role</th>
+          <th scope="col">Datasets</th>
           <th scope="col">Last sign-in</th>
-          <th scope="col">Joined</th>
           <th scope="col" class="shrink">Active</th>
         </tr>
       </thead>
@@ -34,8 +34,61 @@
             {% else %}<span class="absent">none</span>{% endif %}
             {% if person.locked %}<span class="sub">superuser</span>{% endif %}
           </td>
+          {% comment %}
+          What somebody holds on each dataset, and the only place it can
+          be changed. It was counted here and never listed, so a role an
+          invitation gave could be created and then not moved, promoted
+          or taken away by anything on any screen.
+
+          An empty role is "none", which is how a dataset is taken away
+          without taking the account with it.
+          {% endcomment %}
+          <td class="grants">
+            {% if person.locked %}
+            <span class="sub">everything</span>
+            {% else %}
+            {% for g in person.datasets %}
+            <form method="post" action="{% url 'accounts:set_dataset_grant' %}" class="grant-row">
+              {% csrf_token %}
+              <input type="hidden" name="user_id" value="{{ person.user.id }}">
+              <input type="hidden" name="scope" value="{{ g.scope }}">
+              <span class="grant-scope">{{ g.scope }}</span>
+              <label class="visually-hidden" for="role-{{ person.user.id }}-{{ g.scope }}">Role on {{ g.scope }}</label>
+              <select id="role-{{ person.user.id }}-{{ g.scope }}" name="role">
+                {% for value, label in dataset_roles %}
+                <option value="{{ value }}" {% if value == g.role %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+                <option value="">Remove</option>
+              </select>
+              <button type="submit" class="linklike">Apply</button>
+            </form>
+            {% empty %}
+            <span class="absent">none</span>
+            {% endfor %}
+
+            {% if datasets %}
+            <form method="post" action="{% url 'accounts:set_dataset_grant' %}" class="grant-row grant-add">
+              {% csrf_token %}
+              <input type="hidden" name="user_id" value="{{ person.user.id }}">
+              <label class="visually-hidden" for="add-scope-{{ person.user.id }}">Add a dataset</label>
+              <select id="add-scope-{{ person.user.id }}" name="scope" required>
+                <option value="">Add a dataset…</option>
+                {% for d in datasets %}
+                <option value="{{ d.slug }}">{{ d.label|default:d.slug }}</option>
+                {% endfor %}
+              </select>
+              <label class="visually-hidden" for="add-role-{{ person.user.id }}">Role</label>
+              <select id="add-role-{{ person.user.id }}" name="role">
+                {% for value, label in dataset_roles %}
+                <option value="{{ value }}" {% if value == default_role %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="linklike">Give</button>
+            </form>
+            {% endif %}
+            {% endif %}
+          </td>
           <td class="nowrap">{{ person.user.last_login|date:"Y-m-d H:i"|default:"never" }}</td>
-          <td class="nowrap">{{ person.user.date_joined|date:"Y-m-d" }}</td>
           <td class="shrink">{% if person.user.is_active %}yes{% else %}<span class="chip" data-status="not_article">disabled</span>{% endif %}</td>
         </tr>
         {% empty %}

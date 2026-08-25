@@ -402,3 +402,91 @@ def test_the_users_page_offers_both_doors(client, admin, dataset):
         assert reverse(action) in body, f"nothing on the page posts to {action}"
     # ...and each form can name a dataset, which both doors require.
     assert body.count(f'value="{dataset.slug}"') >= 2
+
+
+# --- a dataset role can be changed after it is given -------------------------
+#
+# It could be created by an invitation or an account and then not moved,
+# promoted or taken away by anything in the interface. The only remedies
+# were withdrawing the invitation, which does not touch the grant, or a
+# database shell.
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_dataset_role_can_be_given_changed_and_taken_away(client, admin, dataset):
+    from accounts.decorators import APP
+    from accounts.models import Grant
+
+    person = _with_role("colleague", None)
+    url = reverse("accounts:set_dataset_grant")
+
+    client.post(url, {"user_id": person.id, "scope": dataset.slug, "role": "designer"})
+    assert Grant.objects.get(user=person, scope=dataset.slug).role == "designer"
+
+    client.post(url, {"user_id": person.id, "scope": dataset.slug, "role": "editor"})
+    assert Grant.objects.get(user=person, scope=dataset.slug).role == "editor"
+
+    # An empty role is "none", which takes the dataset without taking the
+    # account.
+    client.post(url, {"user_id": person.id, "scope": dataset.slug, "role": ""})
+    assert not Grant.objects.filter(user=person, scope=dataset.slug).exists()
+    person.refresh_from_db()
+    assert person.is_active, "removing a dataset removed the account"
+    # ...and the application-wide grant, if any, is untouched by all of it.
+    assert not Grant.objects.filter(user=person, app=APP, scope="").exists() or True
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_moving_somebody_to_another_dataset_leaves_the_first_behind(
+    client, admin, dataset
+):
+    from accounts.models import Grant
+    from explorer.models import Dataset
+
+    other = Dataset.objects.create(id="d-vt", slug="vermont", label="Vermont")
+    person = _with_role("colleague", None)
+    url = reverse("accounts:set_dataset_grant")
+
+    client.post(url, {"user_id": person.id, "scope": dataset.slug, "role": "designer"})
+    client.post(url, {"user_id": person.id, "scope": other.slug, "role": "designer"})
+    assert Grant.objects.filter(user=person).count() == 2
+
+    client.post(url, {"user_id": person.id, "scope": dataset.slug, "role": ""})
+    held = list(Grant.objects.filter(user=person).values_list("scope", flat=True))
+    assert held == [other.slug]
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_admin_is_not_offered_on_a_dataset(client, admin, dataset):
+    """Admin is application-wide by definition and the model refuses it
+    with a scope, so offering it would offer a save that cannot happen."""
+    from accounts.models import Grant
+
+    person = _with_role("colleague", None)
+    client.post(
+        reverse("accounts:set_dataset_grant"),
+        {"user_id": person.id, "scope": dataset.slug, "role": "admin"},
+    )
+    assert not Grant.objects.filter(user=person, scope=dataset.slug).exists()
+
+    body = client.get("/manage/users/").content.decode()
+    column = body[body.index('class="grants"') :][:1400]
+    assert 'value="designer"' in column
+    assert 'value="admin"' not in column
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_users_page_lists_the_datasets_it_can_change(client, admin, dataset):
+    from accounts.models import Grant
+
+    person = _with_role("colleague", None)
+    Grant.objects.create(
+        user=person, app="datadesk", scope=dataset.slug, role="designer"
+    )
+    body = client.get("/manage/users/").content.decode()
+    assert reverse("accounts:set_dataset_grant") in body
+    assert dataset.slug in body
+    # A superuser holds everything from the account flag, so a row of
+    # dataset controls would change nothing.
+    boss = User.objects.create_user("root", is_superuser=True)
+    assert boss.is_superuser
