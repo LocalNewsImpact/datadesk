@@ -135,6 +135,40 @@ chord -- and running them while the step rendered took it to 65 seconds,
 to fill disclosures that start closed.
 {% endcomment %}
 <script>
+// A parent checkbox is a shortcut, not a value: it never submits, it sets
+// the leaves. Its own state is read back from them, so "some" shows as
+// indeterminate rather than a parent claiming its children are all
+// chosen. The newsroom step does this too -- same tree, same behaviour.
+function wire(tree, name) {
+  var leavesUnder = function (el) {
+    return [].slice.call(el.querySelectorAll('input[name="' + name + '"]'));
+  };
+  function refresh(el) {
+    var box = el.querySelector("summary > .branch");
+    if (!box) return;
+    var leaves = leavesUnder(el);
+    var on = leaves.filter(function (l) { return l.checked; }).length;
+    box.checked = on === leaves.length && leaves.length > 0;
+    box.indeterminate = on > 0 && on < leaves.length;
+  }
+  var refreshAll = function () {
+    tree.querySelectorAll("details").forEach(refresh);
+  };
+  tree.addEventListener("change", function (e) {
+    if (e.target.classList.contains("branch")) {
+      leavesUnder(e.target.closest("details")).forEach(function (l) {
+        l.checked = e.target.checked;
+      });
+    }
+    refreshAll();
+  });
+  // A click on the parent box should tick it, not open the disclosure.
+  tree.querySelectorAll(".branch").forEach(function (b) {
+    b.addEventListener("click", function (e) { e.stopPropagation(); });
+  });
+  refreshAll();
+}
+
 (function () {
   var base = "{% url 'visuals:role_values' visual.slug 'ROLE' %}";
   document.querySelectorAll("details.values[data-role]").forEach(function (box) {
@@ -159,7 +193,7 @@ to fill disclosures that start closed.
 
           function tick(v) {
             var label = document.createElement("label");
-            label.className = "row";
+            label.className = "row pub";
             var input = document.createElement("input");
             input.type = "checkbox";
             input.name = name;
@@ -171,41 +205,54 @@ to fill disclosures that start closed.
             // not "komu.com" -- while the value is what gets stored.
             text.textContent = v.name || v.value;
             var count = document.createElement("em");
+            count.className = "tally";
             count.textContent = (v.n || 0).toLocaleString();
             label.append(input, text, count);
             return label;
           }
 
-          // Arranged where the server arranged it: a publisher inside its
-          // county, a city inside its county inside its state -- the shape
-          // the newsroom step already shows, because it is the same
-          // sources. A flat list of 179 publishers is the same information
-          // with the arrangement thrown away.
+          // A level of the tree: a disclosure whose summary carries a box
+          // that takes all of it. The same shape as the newsroom step,
+          // because it is the same sources and somebody already knows how
+          // to work it -- a state opens into counties, a county into
+          // publishers, and any level can be taken whole.
+          function branch(group, kind, children) {
+            var box = document.createElement("details");
+            box.className = "node " + kind;
+            if (kind === "state") box.open = true;
+            var head = document.createElement("summary");
+            var all = document.createElement("input");
+            all.type = "checkbox";
+            all.className = "branch";
+            all.setAttribute("aria-label", "All of " + group.label);
+            var text = document.createElement("span");
+            text.className = kind === "state" ? "label strong" : "label";
+            text.textContent = group.label;
+            var count = document.createElement("em");
+            count.textContent = (group.n || 0).toLocaleString();
+            head.append(all, text, count);
+            box.appendChild(head);
+            var kids = document.createElement("div");
+            kids.className = "kids";
+            children.forEach(function (child) { kids.appendChild(child); });
+            box.appendChild(kids);
+            return box;
+          }
+
           if (payload.cascade) {
-            payload.groups.forEach(function (group) {
-              var box = document.createElement("details");
-              box.className = "facet-group";
-              var head = document.createElement("summary");
-              head.textContent = group.label;
-              var n = document.createElement("em");
-              n.textContent = (group.n || 0).toLocaleString();
-              head.appendChild(n);
-              box.appendChild(head);
-              // Ticking the heading ticks everything under it, which is
-              // what a county of eleven newsrooms is for.
-              var all = document.createElement("label");
-              all.className = "row facet-all";
-              var every = document.createElement("input");
-              every.type = "checkbox";
-              every.addEventListener("change", function () {
-                box.querySelectorAll('input[name="' + name + '"]').forEach(
-                  function (i) { i.checked = every.checked; });
+            var tree = document.createElement("div");
+            tree.className = "tree";
+            (payload.tree || []).forEach(function (state) {
+              var inner = (state.groups || []).map(function (county) {
+                return branch(county, "county", county.values.map(tick));
               });
-              all.append(every, document.createTextNode("All of these"));
-              box.appendChild(all);
-              group.values.forEach(function (v) { box.appendChild(tick(v)); });
-              list.appendChild(box);
+              // A county facet has no third level: the counties are the
+              // values, so the state opens straight onto them.
+              (state.values || []).forEach(function (v) { inner.push(tick(v)); });
+              tree.appendChild(branch(state, "state", inner));
             });
+            list.appendChild(tree);
+            wire(tree, name);
             return;
           }
           rows.forEach(function (v) { list.appendChild(tick(v)); });
