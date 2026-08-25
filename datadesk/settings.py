@@ -365,7 +365,17 @@ LOGIN_REDIRECT_URL = "/admin/" if SERVICE_ROLE == "sources" else "/"
 ACCOUNT_LOGOUT_REDIRECT_URL = "/"
 
 ACCOUNT_LOGIN_METHODS = {"email"}
-ACCOUNT_SIGNUP_FIELDS = ["email*"]
+# `password1` is here so the *login* form has a password field: allauth
+# reads this list to decide whether passwords are used at all, and
+# deletes the field from the sign-in form when it is absent
+# (allauth.account.forms.LoginForm._setup_password_field). Without it
+# somebody given a password could set one from the link they were sent
+# and then had nowhere to type it.
+#
+# It does not open registration. That is `is_open_for_signup`, which
+# stays False in accounts.adapters.NoPublicSignupAdapter -- an admin
+# makes every account.
+ACCOUNT_SIGNUP_FIELDS = ["email*", "password1*"]
 ACCOUNT_ADAPTER = "accounts.adapters.NoPublicSignupAdapter"
 SOCIALACCOUNT_ADAPTER = "accounts.adapters.DomainRestrictedAdapter"
 

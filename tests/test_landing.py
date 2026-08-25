@@ -46,9 +46,13 @@ def test_health_endpoint(client, db):
 
 
 @pytest.mark.django_db
-def test_sign_in_page_offers_google_and_not_signup(client, settings):
-    """Signup is closed and Google is the only path, so the page must not
-    invite either a password or an account of one's own."""
+def test_sign_in_page_offers_both_doors_and_no_signup(client, settings):
+    """Two kinds of account, so two ways in. Signup is still closed.
+
+    The page offered Google alone, which is what it was when Google was
+    the only way in -- so an account made with a password could set one
+    from the link it was sent and then had nowhere to type it.
+    """
     settings.SOCIALACCOUNT_PROVIDERS = {
         "google": {
             "APP": {"client_id": "x", "secret": "y", "key": ""},
@@ -59,6 +63,9 @@ def test_sign_in_page_offers_google_and_not_signup(client, settings):
     content = response.content.decode()
     assert response.status_code == 200
     assert "Continue with Google" in content
+    # ...and somewhere to type a password an administrator gave out.
+    assert 'type="password"' in content, "a password account has nowhere to sign in"
+    assert "administrator gave you a password" in content
+    # Nobody registers themselves, which is the part that has not changed.
     assert "sign up" not in content.lower()
-    assert "Remember Me" not in content
     assert "created by an administrator" in content

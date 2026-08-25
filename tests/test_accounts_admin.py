@@ -490,3 +490,53 @@ def test_the_users_page_lists_the_datasets_it_can_change(client, admin, dataset)
     # dataset controls would change nothing.
     boss = User.objects.create_user("root", is_superuser=True)
     assert boss.is_superuser
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_password_account_can_actually_sign_in(client, admin, dataset, settings):
+    """The whole path: an admin makes the account, the person sets a
+    password from the link, and then signs in with it.
+
+    Each half worked and the middle did not. The sign-in page offered
+    Google alone -- what it was when Google was the only way in -- so a
+    password could be set and then had nowhere to be typed.
+    """
+    from django.contrib.auth.tokens import default_token_generator
+    from django.test import Client
+    from django.utils.encoding import force_bytes
+    from django.utils.http import urlsafe_base64_encode
+
+    settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    client.post(
+        reverse("accounts:add_account"),
+        {"email": "colleague@example.edu", "scope": dataset.slug, "role": "editor"},
+    )
+    person = User.objects.get(email="colleague@example.edu")
+
+    anon = Client()
+    anon.post(
+        reverse(
+            "set_password",
+            args=[
+                urlsafe_base64_encode(force_bytes(person.pk)),
+                default_token_generator.make_token(person),
+            ],
+        ),
+        {
+            "new_password1": "a-long-enough-passphrase",
+            "new_password2": "a-long-enough-passphrase",
+        },
+    )
+
+    # The sign-in page has somewhere to type it...
+    page = anon.get("/accounts/login/").content.decode()
+    assert 'name="password"' in page, "the password field is missing from sign-in"
+
+    # ...and it works, without any Google account or domain in sight.
+    answer = anon.post(
+        "/accounts/login/",
+        {"login": "colleague@example.edu", "password": "a-long-enough-passphrase"},
+    )
+    assert answer.status_code in (302, 200), answer.status_code
+    assert answer.wsgi_request.user.is_authenticated, "signed in and was not"
+    assert answer.wsgi_request.user.pk == person.pk

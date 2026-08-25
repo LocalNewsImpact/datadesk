@@ -1944,3 +1944,13 @@ tr.dragging{ opacity: .5; }
   font-size: var(--fs-sm); }
 .site-footer a{ color: var(--text-3); text-decoration: none; }
 .site-footer a:hover{ color: var(--text); text-decoration: underline; }
+
+/* The second door on the sign-in page: present, and plainly the
+   exception rather than the usual way in. */
+.auth-or{ display: flex; align-items: center; gap: .75rem;
+  margin: 1.5rem 0 1rem; color: var(--text-3); font-size: var(--fs-sm); }
+.auth-or::before, .auth-or::after{ content: ""; flex: 1 1 auto;
+  border-top: 1px solid var(--border); }
+.auth-password p{ margin: .5rem 0; }
+.auth-password input[type="email"], .auth-password input[type="text"],
+.auth-password input[type="password"]{ width: 100%; }
