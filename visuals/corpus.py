@@ -19,6 +19,7 @@ from django.db.models import Avg, Count, F, Q, Sum
 from django.db.models.functions import Substr, TruncMonth, TruncYear
 
 from accounts.access import ALL_SCOPES
+from datasets.geo import centroid
 from explorer.models import Article, DatasetSource
 
 # --- dimensions -------------------------------------------------------------
@@ -194,6 +195,17 @@ MAX_RAW_GROUPS = 50_000
 
 def measure_label_for(key):
     return MEASURES[key]["label"]
+
+
+#: The columns a geo dimension brings with it, named as the pivot names
+#: everything else: by what a reader would call them.
+LAT_LABEL = "Latitude"
+LON_LABEL = "Longitude"
+
+#: Levels the gazetteers here can place. A state has no centroid worth
+#: plotting -- the middle of Missouri is not a place anybody reported
+#: from -- so a state-grouped pivot carries no coordinates.
+_CENTRED = ("counties", "places")
 
 
 def _fold(rows, dim_keys, extra, rollups, measure_key, measures):
@@ -459,6 +471,20 @@ def run_spec(spec, scopes):
                 if hasattr(value, "date") and not isinstance(value, str)
                 else value
             )
+            # A place says where it is. The Census gazetteer carries an
+            # internal point for every county and place, so a row grouped
+            # by one can carry its own coordinates -- which is what lets a
+            # point map take a place rather than a latitude and a
+            # longitude as two separate measures. A pivot emits one
+            # measure per query, so as two measures it could not be drawn
+            # at all.
+            #
+            # The first geo dimension wins: a second pair of coordinates
+            # in one row would be two answers to "where is this".
+            if DIMENSIONS[key].get("geo_level") in _CENTRED and LAT_LABEL not in item:
+                lat, lon = centroid(str(value or ""))
+                if lat is not None:
+                    item[LAT_LABEL], item[LON_LABEL] = lat, lon
         value = row[measure_key]
         item[measure_label] = float(value) if isinstance(value, float) else value
         out.append(item)

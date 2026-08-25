@@ -304,10 +304,19 @@ CHART_TYPES = (
         "points",
         "Dot map",
         SPATIAL,
-        "A dot per row, placed by coordinates.",
+        "A dot per place, sized by a count.",
+        # A place, not a pair of numbers. Latitude and longitude as two
+        # separate measures could never be filled from the corpus: a
+        # pivot emits one measure per query, so the second slot always
+        # named a column the rows did not have and a dot map could not be
+        # built at all.
+        #
+        # Every county and place GEOID has a centroid in the Census
+        # gazetteer, so a row grouped by a place carries its own
+        # coordinates -- see `corpus.LAT_LABEL`. Choosing where the dots
+        # are is choosing which places they are.
         roles=(
-            Role("lat", "Latitude", accepts=(NUMBER,)),
-            Role("lon", "Longitude", accepts=(NUMBER,)),
+            Role("place", "Places", accepts=(GEO,)),
             Role("size", "Dot size", accepts=(NUMBER,), needs=False),
             Role("label", "Label", accepts=(TEXT,), needs=False),
         ),

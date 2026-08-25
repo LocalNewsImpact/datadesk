@@ -53,6 +53,7 @@ STEPS = (
             "config:theme",
             "config:theme_mode",
             "config:taxonomy",
+            "config:credit",
         ),
     ),
     Step(
@@ -106,6 +107,7 @@ STEPS = (
             "config:value",
             "config:geo_join",
             "config:geo_value",
+            "config:place",
             "config:lat",
             "config:lon",
         ),

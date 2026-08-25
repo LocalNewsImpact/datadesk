@@ -138,6 +138,15 @@
           <label data-kinds="choropleth">Palette
             <select name="geo_palette"><option value="sequential">sequential</option><option value="diverging">diverging</option></select>
           </label>
+          {% comment %}
+          A dot map takes places and is given their coordinates: the pivot
+          writes the centroid of a geo dimension beside it, so latitude
+          and longitude are columns to read rather than columns to
+          choose. They stay choosable here because a source outside the
+          corpus arrives with real coordinates of its own and nothing
+          derives those.
+          {% endcomment %}
+          <label data-kinds="points">Places <select name="place" data-columns data-optional></select></label>
           <label>Latitude <select name="lat" data-columns data-optional></select></label>
           <label>Longitude <select name="lon" data-columns data-optional></select></label>
           <label>Point size <select name="size" data-columns data-optional></select></label>

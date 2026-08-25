@@ -99,6 +99,50 @@ def _load_counties():
     return _counties
 
 
+#: Centroids, by GEOID. The Census gazetteers carry an internal point for
+#: every county and every place -- INTPTLAT / INTPTLONG, a point
+#: guaranteed to lie inside the shape rather than the arithmetic centre,
+#: which for a crescent-shaped county is in the sea.
+#:
+#: This is what lets a pivot that groups by a place say where that place
+#: is. Without it a point map had to be given a latitude and a longitude
+#: as two separate measures, and a pivot emits one measure per query, so
+#: a point map could not be drawn from the corpus at all.
+_centroids = None
+
+
+def _load_centroids():
+    global _centroids
+    if _centroids is None:
+        table = {}
+        for path in (_COUNTIES, _PLACES_CSV):
+            with open(path, newline="") as fh:
+                for row in csv.DictReader(fh):
+                    try:
+                        table[row["GEOID"]] = (
+                            float(row["INTPTLAT"]),
+                            float(row["INTPTLONG"]),
+                        )
+                    except (TypeError, ValueError):
+                        # A row without a usable point is left out rather
+                        # than stored as a pair of zeroes, which is a real
+                        # place in the Gulf of Guinea.
+                        continue
+        _centroids = table
+    return _centroids
+
+
+def centroid(geoid):
+    """(lat, lon) for a county or place GEOID, or (None, None).
+
+    Keyed by the GEOID alone: county codes are five digits and place
+    codes seven, so the two cannot collide. A state has no entry -- the
+    gazetteers here are counties and places, and a point at the middle of
+    a state is not a place anybody reported from.
+    """
+    return _load_centroids().get((geoid or "").strip(), (None, None))
+
+
 def canonical_county(state, name):
     """(fips, canonical_name) for a county in a state, or (None, None).
 
