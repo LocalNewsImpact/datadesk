@@ -139,15 +139,14 @@ def test_the_data_host_serves_the_page_the_snippet_links_to(client, visual, auth
     assert visual.title in body
     # No console on this host: not a nav to one, not a sign-in.
     assert "/accounts/" not in body
-    # And the snippet is here, because a newsroom that found the visual
-    # this way is exactly who wants to embed it -- but folded away. A
-    # reader came for the chart, not for the plumbing.
-    assert "datadesk-embed.js" in body
-    assert "<details>" in body and "<details open" not in body
-    snippet_at = body.index("datadesk-embed.js")
-    assert (
-        body.index("<details>") < snippet_at
-    ), "the embed code must sit inside the disclosure, not above it"
+    # The data leads the page: a reader checking a chart wants the numbers
+    # under it, and folding those below the fold asked them to go looking
+    # for the one thing the page exists to back up.
+    assert "data.json" in body
+    # No embed code. Whoever pastes an embed is the author, and the author
+    # is in the builder, where the publish step hands it over.
+    assert "datadesk-embed.js" not in body
+    assert "<details>" not in body
 
 
 @pytest.mark.urls("datadesk.urls_data")
@@ -1170,12 +1169,10 @@ def test_a_visual_credits_the_dataset_it_draws_on(
     _snapshot(visual, author, ROWS_V1)
     publish(visual, author)
 
-    page = client.get(f"/visuals/{visual.uuid}/").content.decode()
-    assert "Missouri School of Journalism" in page
-    assert "lnic@example.org" in page
-
-    # And it travels with the rows, so somebody republishing the JSON has
-    # what they need without coming back here.
+    # It travels with the rows rather than being written into the page,
+    # because that is where the chart reads it: the credit belongs beside
+    # the numbers, in the view that shows them, and the same payload
+    # serves the embed on somebody else's site.
     feed = client.get(f"/visuals/{visual.uuid}/data.json").json()
     assert feed["attribution"] == [
         {
@@ -1215,3 +1212,54 @@ def test_attribution_is_not_taken_from_who_may_read_the_dataset():
     assert "Grant" not in body
     assert "scopes_for" not in body
     assert "owner_name" in body and "owner_email" in body
+
+
+def test_the_credit_sits_with_the_numbers_not_on_the_page():
+    """A reader who opens the data is the one checking the chart, and this
+    is the answer to "says who?". It also has to work inside an embed,
+    where there is no page of ours to put a credit on -- which is why it
+    rides in the feed and is drawn by the runtime."""
+    from pathlib import Path
+
+    js = (
+        Path(__file__).resolve().parent.parent / "static/js/datadesk-chart.js"
+    ).read_text()
+    assert "function creditLine(" in js
+    assert "mailto:" in js
+    # Drawn under the table, after the rows and the export.
+    table = js[js.index("function renderTable(") :]
+    assert "creditLine(el, credits)" in table
+
+
+def test_the_source_line_names_the_consortium_unless_told_otherwise():
+    """ "LNIC research corpus" was free text typed once, and it read as a
+    database name rather than a publisher."""
+    from pathlib import Path
+
+    template = (
+        Path(__file__).resolve().parent.parent
+        / "templates/visuals/renderers/builder.html"
+    ).read_text()
+    assert 'default:"Local News Impact Consortium"' in template
+    # And the designer can name the dataset instead, linked to its contact.
+    assert "credit_name" in template and "credit_email" in template
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_naming_the_dataset_credits_it_and_links_its_contact(
+    visual, author, owned_dataset
+):
+    from visuals.views import _credit_line
+
+    visual.datasets = ["mizzou"]
+    visual.save(update_fields=["datasets"])
+
+    # Unset: the consortium publishes it, and the template says so.
+    assert _credit_line(visual) == (None, None)
+
+    visual.config = dict(visual.config or {}, credit="dataset")
+    visual.save(update_fields=["config"])
+    assert _credit_line(visual) == (
+        "Missouri School of Journalism",
+        "lnic@example.org",
+    )

@@ -41,6 +41,7 @@ _STRING_KEYS = (
     "ylabel",
     "subtitle",
     "source",
+    "credit",
     "geo_level",
     "geo_join",
     "geo_value",

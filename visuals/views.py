@@ -182,6 +182,24 @@ def _attribution(visual):
     return out
 
 
+def _credit_line(visual):
+    """Whose name sits on the chart, and where a reader writes to.
+
+    The consortium publishes what is built here, so that is the default
+    and needs no configuration. `credit: "dataset"` names the dataset
+    instead -- for a chart built on somebody else's data, where crediting
+    the consortium would be taking their work -- and then the name links
+    to the contact that dataset publishes.
+    """
+    if (visual.config or {}).get("credit") != "dataset":
+        return None, None
+    rows = _attribution(visual)
+    if not rows:
+        return None, None
+    first = rows[0]
+    return first["owner"] or first["dataset"], first["contact"]
+
+
 def _feed_url(visual, by_uuid, version=None, live=False):
     """Where this page's renderer fetches its rows.
 
@@ -440,6 +458,8 @@ def page(request, slug):
             "renderer": f"visuals/renderers/{visual.template}.html",
             "feed": _feed_url(visual, by_uuid=False),
             "libs": libs_for((visual.config or {}).get("kind")),
+            "credit_name": _credit_line(visual)[0],
+            "credit_email": _credit_line(visual)[1],
         },
     )
 
@@ -467,11 +487,12 @@ def public_page(request, slug=None, uuid=None):
         {
             "visual": visual,
             "renderer": f"visuals/renderers/{visual.template}.html",
-            "snippet": embed_snippet(visual),
             "feed": _feed_url(visual, by_uuid=uuid is not None, version=asked),
             "downloads": _downloads(visual, by_uuid=uuid is not None, version=asked),
             "attribution": _attribution(visual),
             "libs": libs_for((visual.config or {}).get("kind")),
+            "credit_name": _credit_line(visual)[0],
+            "credit_email": _credit_line(visual)[1],
             # What the reader is looking at, whether they pinned it or
             # took the current one.
             "shown": shown or visual.pinned_snapshot,
@@ -498,6 +519,8 @@ def embed(request, slug=None, uuid=None):
             "theme_stamp": _theme_for(request, visual),
             "geo_preload": _geo_preload(visual),
             "libs": libs_for((visual.config or {}).get("kind")),
+            "credit_name": _credit_line(visual)[0],
+            "credit_email": _credit_line(visual)[1],
         },
     )
     response["Content-Security-Policy"] = f"frame-ancestors {visual.frame_ancestors}"
@@ -948,6 +971,8 @@ def builder_step(request, slug, step):
             # an undefined name resolves to "" and "d3" in "" is false.
             "feed": _feed_url(visual, by_uuid=False, live=True),
             "libs": libs_for((visual.config or {}).get("kind")),
+            "credit_name": _credit_line(visual)[0],
+            "credit_email": _credit_line(visual)[1],
             # What the preview is still waiting for, so it can say so
             # rather than drawing an empty chart that looks like a
             # finished one.

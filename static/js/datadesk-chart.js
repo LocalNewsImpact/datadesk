@@ -268,7 +268,7 @@
       return;
     }
 
-    if (kind === "table") return renderTable(el, rows);
+    if (kind === "table") return renderTable(el, rows, opts && opts.credits);
     if (kind === "choropleth" || kind === "points") {
       return renderMap(el, config, rows, opts, t, width);
     }
@@ -538,7 +538,30 @@
     return table;
   }
 
-  function renderTable(el, data) {
+  // Who to credit and who to ask, shown with the numbers rather than on
+  // the page around them. A reader who opens the data is the one checking
+  // the chart, and this is the answer to "says who?" -- it also travels
+  // into the embed, where there is no page of ours to put it on.
+  function creditLine(el, credits) {
+    if (!credits || !credits.length) return;
+    const p = document.createElement("p");
+    p.className = "dd-credit";
+    credits.forEach((c, i) => {
+      if (i) p.appendChild(document.createTextNode(" · "));
+      p.appendChild(document.createTextNode(`${c.dataset}: `));
+      if (c.contact) {
+        const a = document.createElement("a");
+        a.href = `mailto:${c.contact}`;
+        a.textContent = c.owner || c.contact;
+        p.appendChild(a);
+      } else {
+        p.appendChild(document.createTextNode(c.owner || ""));
+      }
+    });
+    el.appendChild(p);
+  }
+
+  function renderTable(el, data, credits) {
     const groups = tablesIn(data);
     const slug = el.id.replace(/^dd-chart-/, "");
     if (!groups.length) {
@@ -564,6 +587,7 @@
       // the data, and the cap above is about what a page can render.
       exportBar(el, rows, name ? `${slug}-${name}` : slug);
     }
+    creditLine(el, credits);
   }
 
   function renderMap(el, config, rows, opts, t, width) {
