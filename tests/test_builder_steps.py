@@ -7,6 +7,8 @@ silent -- a form that quietly empties when somebody looks at another chart
 type teaches them not to explore.
 """
 
+from unittest import mock
+
 import pytest
 from django.contrib.auth.models import User
 
@@ -271,13 +273,26 @@ def test_a_chosen_dimension_offers_its_values_with_counts(
     client, author, visual, corpus
 ):
     """A facet without counts is a wall of checkboxes; the count is what
-    says whether narrowing leaves anything to draw."""
+    says whether narrowing leaves anything to draw.
+
+    Fetched when the facet is opened rather than while the step renders --
+    it is one aggregate over the corpus per role, and running three of
+    them before anything drew took the step to 65 seconds."""
     visual.config = {"kind": "bar"}
     visual.spec = {"roles": {"x": "cin_primary"}}
     visual.save()
+
+    # The step itself draws without them...
     body = step(client, visual, "fields").content.decode()
-    assert "Civic Life" in body
-    assert "Sports" in body
+    assert 'data-role="x"' in body, "no facet to open"
+    assert "Civic Life" not in body, "the step should not be counting yet"
+
+    # ...and opening the facet is what asks.
+    values = client.get(f"/visuals/builder/{visual.slug}/values/x/").json()["values"]
+    names = [v["value"] for v in values]
+    assert "Civic Life" in names
+    assert "Sports" in names
+    assert all(isinstance(v["n"], int) for v in values), "counted, not just listed"
 
 
 def test_a_measure_offers_no_values(client, author, visual, corpus):
@@ -784,3 +799,88 @@ def test_the_preview_follows_the_data_rather_than_the_pin(client, author, visual
     _complete_chord(visual)
     body = step(client, visual, "fields").content.decode()
     assert "live=1" in body
+
+
+# --- what the builder costs to walk through ----------------------------------
+
+
+def test_the_newsroom_tree_is_not_rebuilt_on_every_visit(
+    client, author, visual, newsroom
+):
+    """Building it counts every article in every dataset the visual is
+    wired to. In production that step took 13 to 24 seconds, and the
+    fields step after it 32 to 65, because both did their counting again
+    on every arrival."""
+    from django.core.cache import cache
+
+    from visuals.views import _newsroom_tree
+
+    cache.clear()
+    visual.datasets = ["mizzou"]
+    visual.save(update_fields=["datasets"])
+
+    first = _newsroom_tree(visual)
+    with mock.patch("explorer.models.Article.objects") as never:
+        again = _newsroom_tree(visual)
+        assert not never.called, "the tree was rebuilt from the corpus"
+    assert again == first
+
+
+def test_a_cached_count_cannot_cross_between_what_two_people_may_read(crawler_schema):
+    """The key decides who sees what. Scopes are the grant -- a key
+    without them would hand one author counts over a dataset they hold no
+    grant on, from a cache entry somebody else warmed."""
+    from visuals.corpus import _cache_key
+
+    # The key derives a corpus version, which reads the crawler tables --
+    # hence the fixture. That version is the other half of this: it is
+    # what lets the answers be kept for a week rather than minutes.
+    spec = {"dataset": "mizzou", "from": "2026-03-01"}
+    mine = _cache_key("corpus.values", "cin_primary", spec, ["mizzou"], 200)
+    theirs = _cache_key("corpus.values", "cin_primary", spec, ["lehigh"], 200)
+    everything = _cache_key("corpus.values", "cin_primary", spec, "*", 200)
+    assert len({mine, theirs, everything}) == 3
+
+    # And the spec itself: a different slice is a different answer.
+    other = _cache_key(
+        "corpus.values", "cin_primary", {**spec, "from": "2026-04-01"}, ["mizzou"], 200
+    )
+    assert other != mine
+
+
+def test_a_counted_answer_is_kept_until_the_corpus_moves(crawler_schema):
+    """These numbers change when the pipeline syncs -- at most every six
+    hours, sometimes not for months. Expiring them on a timer pays for a
+    recount every few minutes whether or not anything changed, and each
+    recount is tens of seconds.
+
+    So the key carries a version and the entry is kept for a week: a stale
+    entry is not possible, only an unused one.
+    """
+    from django.core.cache import cache
+
+    from visuals.corpus import CORPUS_CACHE_SECONDS, _cache_key, corpus_version
+
+    assert CORPUS_CACHE_SECONDS >= 24 * 3600, "kept for a day at least"
+
+    cache.delete("corpus.version")
+    before = corpus_version()
+    key_before = _cache_key("x", ["mizzou"])
+
+    # Nothing changed: same version, same key, so the answer is reused.
+    cache.delete("corpus.version")
+    assert corpus_version() == before
+    assert _cache_key("x", ["mizzou"]) == key_before
+
+    # A newsroom joins a dataset. The counts move, so the key must.
+    source = Source.objects.create(
+        id="s-new", host="new.example", host_norm="new.example"
+    )
+    DatasetSource.objects.create(
+        id="ds-new",
+        dataset=Dataset.objects.create(id="d2", slug="d2", label="D2"),
+        source=source,
+    )
+    cache.delete("corpus.version")
+    assert corpus_version() != before
+    assert _cache_key("x", ["mizzou"]) != key_before

@@ -558,6 +558,68 @@ def run_story_map(spec, scopes):
     return {"points": points, "areas": areas, "meta": meta}
 
 
+def _cache_key(prefix, *parts):
+    """A short, total key for a corpus answer.
+
+    Everything that changes the answer goes in, and `scopes` above all:
+    it is what a person is allowed to read, so a key without it would
+    serve one author's counts to somebody with no grant on that dataset.
+    Hashed because a spec with a publisher list is longer than a cache
+    key may be.
+    """
+    import hashlib
+    import json
+
+    blob = json.dumps(parts, sort_keys=True, default=str)
+    return (
+        f"{prefix}.{corpus_version()}."
+        f"{hashlib.sha1(blob.encode()).hexdigest()[:24]}"
+    )
+
+
+#: How long a counted answer is kept. Long, because the key carries the
+#: version below: a stale entry is not possible, only an unused one. These
+#: numbers change when the pipeline syncs -- at most every six hours, and
+#: sometimes not for months -- so counting them once and keeping them is
+#: the shape of the problem, not a ten-minute guess at it.
+CORPUS_CACHE_SECONDS = 7 * 24 * 3600
+
+#: How often the *version* is re-derived. This is the only query that runs
+#: on a schedule rather than on a change, so it is the one that has to be
+#: cheap: a max over an unindexed column and a count of a small table.
+#: Five minutes is the longest a sync can go unnoticed.
+VERSION_CACHE_SECONDS = 300
+
+
+def corpus_version():
+    """A stamp that changes when the corpus does, and not otherwise.
+
+    Used in every cache key here, which is what lets the answers be kept
+    for a week: an entry cannot go stale, because data that has moved
+    lands under a different key. The alternative -- a short expiry -- pays
+    for a recount every few minutes whether or not anything changed, and
+    these recounts take tens of seconds.
+
+    Two parts. The newest article covers a sync, and the number of
+    dataset memberships covers a newsroom joining or leaving a dataset,
+    which changes the counts without adding an article.
+    """
+    from django.core.cache import cache
+    from django.db.models import Max
+
+    from explorer.models import Article, DatasetSource
+
+    hit = cache.get("corpus.version")
+    if hit is not None:
+        return hit
+    newest = Article.objects.aggregate(m=Max("created_at"))["m"]
+    stamp = (
+        f"{newest.isoformat() if newest else 'empty'}:{DatasetSource.objects.count()}"
+    )
+    cache.set("corpus.version", stamp, VERSION_CACHE_SECONDS)
+    return stamp
+
+
 def values_of(dim_key, spec, scopes, limit=200):
     """[(value, articles)] for a dimension, most common first.
 
@@ -572,6 +634,25 @@ def values_of(dim_key, spec, scopes, limit=200):
     """
     if dim_key not in DIMENSIONS:
         raise CorpusSpecError(f"Unknown dimension: {dim_key}")
+
+    # Counting these took the fields step to 65 seconds: one aggregate over
+    # the whole article corpus per role a chart declares, three for a chord,
+    # each joined through candidate_links to sources. The columns are
+    # indexed; the cost is 164,000 rows grouped and counted, three times,
+    # every time somebody arrives at the step.
+    from django.core.cache import cache
+
+    key = _cache_key(
+        "corpus.values",
+        dim_key,
+        spec,
+        sorted(scopes) if scopes is not ALL_SCOPES else "*",
+        limit,
+    )
+    hit = cache.get(key)
+    if hit is not None:
+        return hit
+
     alias = f"{DIM_PREFIX}{dim_key}"
     qs = _base_queryset(spec, scopes).annotate(**{alias: DIMENSIONS[dim_key]["expr"]})
     rows = (
@@ -580,4 +661,6 @@ def values_of(dim_key, spec, scopes, limit=200):
         .annotate(n=Count("id"))
         .order_by("-n")[:limit]
     )
-    return [(str(r[alias]), r["n"]) for r in rows]
+    out = [(str(r[alias]), r["n"]) for r in rows]
+    cache.set(key, out, CORPUS_CACHE_SECONDS)
+    return out

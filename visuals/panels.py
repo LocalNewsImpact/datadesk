@@ -210,16 +210,19 @@ def newsrooms_panel(visual, post=None, tree=None):
             counties.append(
                 {
                     "name": county_label,
+                    # No counts. Article totals per newsroom are an
+                    # aggregate over the corpus and arrive after the step
+                    # has drawn, filled in by the page and rolled up into
+                    # the county there -- so nothing here adds them, and
+                    # nothing here waits for them.
                     "rooms": [
                         {
                             "id": r["id"],
                             "name": r["name"],
-                            "count": r["count"],
                             "on": not kept or r["id"] in kept,
                         }
                         for r in rooms
                     ],
-                    "count": sum(r["count"] for r in rooms),
                 }
             )
         states.append(
@@ -354,7 +357,19 @@ def field_panel(visual, post=None, user=None):
             # Every value ticked is not a filter. Storing them all would go
             # stale the moment one is added, which is why the newsroom step
             # stores nothing for "all" either.
-            if kept and len(kept) < len(_values_for(visual, dim, [], user)):
+            #
+            # Counting how many there are is the expensive part, so it runs
+            # only when the answer can differ from what is already stored.
+            # A save that never opened this facet posts the stored set back
+            # verbatim, and re-deciding it would mean re-counting the
+            # corpus to reach the same conclusion.
+            # `or` short-circuits, so an unchanged set never reaches the
+            # count.
+            stored = (spec.get("only") or {}).get(dim) or []
+            if kept and (
+                sorted(kept) == sorted(stored)
+                or len(kept) < len(_values_for(visual, dim, [], user))
+            ):
                 only[dim] = kept
         return {
             "spec": {
@@ -385,9 +400,17 @@ def field_panel(visual, post=None, user=None):
                 "options": [dict(v, on=v["id"] == chosen) for v in fits],
                 "chosen": chosen,
                 "kept": kept,
-                # The values on offer, counted, and only for a dimension --
-                # a measure has no values to narrow, it has a range.
-                "values": _values_for(visual, chosen, kept, user),
+                # Not fetched here. Listing every value of a dimension with
+                # its count is an aggregate over the whole corpus, one per
+                # role, and it took this step to 65 seconds -- to fill a
+                # disclosure that starts closed. The step draws with what
+                # the spec already knows, and the list arrives when
+                # somebody opens it.
+                #
+                # `kept` is what survives without it: those are stored on
+                # the visual, so a save that never opened the facet posts
+                # them back unchanged.
+                "values": [],
             }
         )
     # Named, not lettered: "From and To" is what the slots above are

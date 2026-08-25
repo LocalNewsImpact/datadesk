@@ -8,7 +8,16 @@
   {% if visual.config.subtitle %}<p class="dd-subtitle">{{ visual.config.subtitle }}</p>{% endif %}
   <div class="dd-chart" id="dd-chart-{{ visual.slug }}">Loading…</div>
   <figcaption class="dd-footer">
-    {% if visual.config.source %}<span class="dd-source">Source: {{ visual.config.source }}</span>{% endif %}
+    {% comment %}
+    Everything built here is published by the consortium, so that is the
+    line unless somebody says otherwise -- "LNIC research corpus" was free
+    text typed once and it read as a database name rather than a
+    publisher. A designer can name the dataset instead, in which case it
+    links to whoever that dataset says to ask.
+    {% endcomment %}
+    <span class="dd-source">Source:
+      {% if credit_name %}<a href="{% if credit_email %}mailto:{{ credit_email }}{% else %}#{% endif %}">{{ credit_name }}</a>{% else %}{{ visual.config.source|default:"Local News Impact Consortium" }}{% endif %}
+    </span>
     <button type="button" class="dd-toggle" data-target="dd-chart-{{ visual.slug }}">View data</button>
   </figcaption>
 </figure>
@@ -38,6 +47,7 @@ document.addEventListener("DOMContentLoaded", function () {
   // explanation, a control that looked live and was not.
   let chart = null;
   let data = null;
+  let credits = null;
   let showingTable = false;
 
   toggle.addEventListener("click", () => {
@@ -47,7 +57,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     showingTable = !showingTable;
     if (showingTable) {
-      DatadeskChart.renderTable(el, data);
+      DatadeskChart.renderTable(el, data, credits);
       toggle.textContent = "View chart";
     } else if (chart) {
       chart.redraw();
@@ -62,6 +72,9 @@ document.addEventListener("DOMContentLoaded", function () {
     })
     .then((payload) => {
       data = payload.data;
+      // Travels with the rows, so the embed on somebody else's page can
+      // say whose data it is without a page of ours to say it on.
+      credits = payload.attribution;
       chart = DatadeskChart.mount(el, config, data, {
         // A base for the per-state files, whose names come from the data.
         geoBase: "{% static 'geo/' %}",

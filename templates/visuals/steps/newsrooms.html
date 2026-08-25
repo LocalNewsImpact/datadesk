@@ -23,13 +23,13 @@ Sending nothing means every one of them -- storing exclusions would make
         <summary>
           <input type="checkbox" class="branch" data-scope="county" aria-label="All newsrooms in {{ c.name }}">
           <span class="label">{{ c.name }}</span>
-          <em title="{{ c.rooms|length }} newsroom{{ c.rooms|pluralize }}, {{ c.count }} article{{ c.count|pluralize }}">{{ c.rooms|length }} · {{ c.count }}</em></summary>
+          <em>{{ c.rooms|length }} · <span class="tally" data-county></span></em></summary>
         <div class="kids">
           {% for r in c.rooms %}
           <label class="row pub">
             <input type="checkbox" name="publishers" value="{{ r.id }}"
               {% if r.on %}checked{% endif %}>
-            <span class="label">{{ r.name }}</span><em>{{ r.count }}</em>
+            <span class="label">{{ r.name }}</span><em class="tally" data-room="{{ r.id }}"></em>
           </label>
           {% endfor %}
         </div>
@@ -78,3 +78,43 @@ Sending nothing means every one of them -- storing exclusions would make
 })();
 </script>
 {% endblock %}
+
+{% comment %}
+Article counts arrive after the tree has drawn. Counting them is an
+aggregate over every article in every dataset the visual is wired to, and
+inline it took this step to 24 seconds -- during which nothing at all
+appeared, to decorate names that were already on screen.
+{% endcomment %}
+<script>
+(function () {
+  var url = "{% url 'visuals:newsroom_counts' visual.slug %}";
+  fetch(url, {credentials: "same-origin"})
+    .then(function (r) { return r.ok ? r.json() : {counts: {}}; })
+    .then(function (payload) {
+      var counts = payload.counts || {};
+      var total = 0;
+      document.querySelectorAll("[data-room]").forEach(function (el) {
+        var n = counts[el.dataset.room] || 0;
+        el.textContent = n.toLocaleString();
+        total += n;
+      });
+      // Roll the newsroom numbers up into the county they sit under, so
+      // the summary agrees with the rows inside it.
+      document.querySelectorAll(".node.county").forEach(function (node) {
+        var sum = 0;
+        node.querySelectorAll("[data-room]").forEach(function (el) {
+          sum += counts[el.dataset.room] || 0;
+        });
+        var slot = node.querySelector("[data-county]");
+        if (slot) slot.textContent = sum.toLocaleString();
+      });
+    })
+    .catch(function () {
+      // A count that cannot be fetched leaves the picker working. The
+      // names and the checkboxes are what the step is for.
+      document.querySelectorAll(".tally").forEach(function (el) {
+        el.textContent = "\u2014";
+      });
+    });
+})();
+</script>

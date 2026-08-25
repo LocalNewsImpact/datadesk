@@ -1686,8 +1686,19 @@ tr.prop td { border-bottom: 0; }
    hand, rather than a button that silently does nothing. */
 .dd-copybox{ width: 100%; min-height: 6rem; font-family: var(--font-mono);
   font-size: .78rem; margin-top: .4rem; }
+/* Whose data this is, under the table that shows it. Quiet, because it
+   is a citation and not a heading. */
+.dd-credit{ margin: var(--s-2) 0 0; font-size: .78rem; color: var(--text-3); }
+.dd-credit a{ color: inherit; text-decoration: underline; }
+
+/* A count that has not arrived yet. An ellipsis rather than a spinner or
+   a zero: the row is already readable, and a zero would be a lie for the
+   second it took to be replaced. */
+.node .tally:empty::before{ content: "\2026"; opacity: .45; }
+
 /* Two fields that are one thought -- a name and how to reach them. Side
    by side above a certain width, stacked below it. */
+.files-lead{ font-size: .82rem; }
 .pair{ display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2);
   margin: 0 0 var(--s-2); }
 @media (max-width: 40rem){ .pair{ grid-template-columns: 1fr; } }
