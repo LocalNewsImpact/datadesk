@@ -1724,6 +1724,20 @@ tr.prop td { border-bottom: 0; }
 .visuals-list tr[draggable]{ cursor: grab; }
 .visuals-list .empty-folder td{ font-size: .82rem; }
 
+/* The handle. Six dots on the left of the row is what people already
+   look for on something reorderable, so it needs no caption -- and it
+   keeps the drag off the row itself, where it would start on the way to
+   every click and make the text unselectable. */
+.grip-cell{ width: 1.6rem; padding-right: 0; }
+.grip{ display: block; padding: .2rem .25rem; background: none; border: 0;
+  color: var(--text-3); cursor: grab; border-radius: var(--r-sm); }
+.grip:hover{ color: var(--text); background: var(--surface-2); }
+.grip:active{ cursor: grabbing; }
+.grip svg{ fill: currentColor; display: block; }
+tr.dragging{ opacity: .5; }
+
+/* Shown when the grip beside it is used. One of these on every row is a
+   wall of identical dropdowns, and the list is meant to be read. */
 .move-select{ font-size: .76rem; padding: .05rem .25rem; margin-left: .5rem;
   background: var(--surface-2); color: var(--text-2);
   border: 1px solid var(--border); border-radius: var(--r-sm); }
