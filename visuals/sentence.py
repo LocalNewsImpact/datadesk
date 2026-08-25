@@ -33,6 +33,29 @@ def _named(spec, chart):
     return out
 
 
+def _measured(spec, chart):
+    """The measures filling this chart's required slots, as labels, but
+    only once every one of them is filled.
+
+    The counterpart to `_named`, for the chart whose subject *is* its
+    numbers. Partial is nothing: naming one axis of a scatter says the
+    fields are chosen when half of them are.
+    """
+    from visuals.panels import variables
+
+    by_id = {v["id"]: v for v in variables()}
+    picked = spec.get("roles") or {}
+    out = []
+    for role in chart.roles:
+        if not role.needs:
+            continue
+        chosen = picked.get(role.id)
+        if not chosen:
+            return []
+        out.append(by_id.get(chosen, {}).get("label", chosen))
+    return out
+
+
 def _dataset_label(slug):
     """A dataset's name, not its slug. The spec stores "mizzou" and the
     sentence should say "Missouri" -- the slug is a key, and reading one
@@ -67,11 +90,21 @@ def parts_for(visual, step=""):
 
     if chart and chart.roles:
         named = _named(spec, chart)
-        out.append(
-            ("of", " × ".join(named), "said")
-            if named
-            else gap("of", "some fields", "fields")
-        )
+        if not named:
+            # Every required slot filled, and every one of them a number:
+            # a scatter plots two measures against each other, so the
+            # measures are its subject rather than a count taken as read.
+            # Reading "filled" off the pretty text meant a scatter could
+            # never finish its sentence and so could never be published,
+            # whatever anybody chose.
+            named = _measured(spec, chart)
+            out.append(
+                ("of", " against ".join(named), "said")
+                if named
+                else gap("of", "some fields", "fields")
+            )
+        else:
+            out.append(("of", " × ".join(named), "said"))
 
     when = ""
     if spec.get("from") and spec.get("to"):
