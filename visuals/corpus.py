@@ -214,7 +214,9 @@ def _fold(rows, dim_keys, extra, rollups, measure_key, measures):
         for key in dim_keys:
             value = row[key]
             if rollups.get(key):
-                level = row.get(f"{key}__with0")
+                # `extra` columns keep the alias in their own name, and
+                # the rename above rewrites only the dimensions.
+                level = row.get(f"{key}__with0", row.get(f"{DIM_PREFIX}{key}__with0"))
                 value = mappers[rollups[key]](value, level)
                 if value is None:
                     dropped = True
@@ -429,6 +431,16 @@ def run_spec(spec, scopes):
     )
     truncated = len(rows) > limit
     rows = rows[:limit]
+
+    # Back to the plain dimension names. The alias exists only so an
+    # annotation cannot collide with a real column -- `wire` is both a
+    # dimension and a field on Article -- and everything downstream, the
+    # fold and the output, is written in terms of the dimension. Without
+    # this the rows arrive keyed `dim_cin_primary` and the first read of
+    # `cin_primary` raises KeyError, which is every pivot that has a
+    # dimension and no rollup.
+    back = {v: k for k, v in alias.items()}
+    rows = [{back.get(k, k): v for k, v in row.items()} for row in rows]
 
     if has_rollup:
         rows = _fold(rows, dim_keys, extra, rollups, measure_key, MEASURES)

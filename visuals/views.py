@@ -89,9 +89,17 @@ def _wired_datasets(user, spec):
     if readable is ALL_SCOPES:
         readable = set(Dataset.objects.values_list("slug", flat=True))
 
-    named = (spec or {}).get("dataset")
+    # The plural is what the data step writes and what the newsroom tree
+    # is built from. Reading only the singular left a visual wired to
+    # every dataset its author could read, so the tree offered newsrooms
+    # from four states to somebody who had chosen one.
+    named = (spec or {}).get("datasets") or []
+    if isinstance(named, str):
+        named = [named]
+    if not named and (one := (spec or {}).get("dataset")):
+        named = [one]
     if named:
-        return [named] if named in readable else []
+        return sorted(set(named) & set(readable))
     return sorted(readable)
 
 
@@ -466,7 +474,13 @@ def page(request, slug):
         {
             "visual": visual,
             "renderer": f"visuals/renderers/{visual.template}.html",
-            "feed": _feed_url(visual, by_uuid=False),
+            # A draft has no pinned snapshot, so this page asked for one
+            # and got a 404 -- on the only page that shows a draft at all.
+            # Whoever may change the visual may see what it currently
+            # draws, which is the rule the builder's preview already uses.
+            "feed": _feed_url(
+                visual, by_uuid=False, live=may_act_on(request.user, visual)
+            ),
             "libs": libs_for((visual.config or {}).get("kind")),
             "credit_name": _credit_line(visual)[0],
             "credit_email": _credit_line(visual)[1],

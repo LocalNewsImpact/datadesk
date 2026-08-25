@@ -2,6 +2,16 @@
 {% block panel %}
 {% if not chart %}
 <p class="notice">Pick a chart type first — what it needs is what this asks for.</p>
+{% elif not roles %}
+{% comment %}
+A story map declares no roles: its geography comes from the enrichment
+rather than from columns somebody picks. The page rendered as a heading
+and a lone Update button, which reads as a step that failed to load.
+{% endcomment %}
+<p class="notice">A {{ chart.label|lower }} takes its geography from the
+data itself — the places each story names — so there are no fields to
+choose here. What it draws is set by the datasets, dates and newsrooms in
+the steps before this one.</p>
 {% else %}
 {% if pair_note %}<p class="notice">{{ pair_note }}</p>{% endif %}
 <form method="post" id="step-form">
