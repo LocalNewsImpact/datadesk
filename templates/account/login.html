@@ -1,11 +1,20 @@
 {% extends "allauth/layouts/base.html" %}
 {% load socialaccount %}
 {% comment %}
-allauth's default login page leads with an email-and-password form and
-invites the visitor to sign up. Neither applies here: signup is closed
-(accounts.adapters.NoPublicSignupAdapter) and Google is the only
-sign-in path (SCOPE.md §2.1). So the page offers the one thing that
-works, and says plainly where an account comes from.
+Two doors, because there are two kinds of account.
+
+Most people sign in with the organisation's Google account. Somebody at
+an institution that does not use Google has an address and a password
+instead -- the same person, the same grants, only the door differs.
+
+This page offered Google alone, which is what it was when Google was the
+only way in. An account made with a password could set one from the link
+it was sent and then had nowhere to type it.
+
+allauth's own form is used rather than a hand-rolled one: it is what
+carries the rate limiting, the "remember me" and the error messages, and
+a second implementation of a login form is a second place to get one
+wrong.
 {% endcomment %}
 {% block head_title %}Sign in{% endblock %}
 {% block content %}
@@ -21,10 +30,28 @@ works, and says plainly where an account comes from.
       {% endif %}
       <button type="submit">Continue with Google</button>
     </form>
-    <p class="auth-note">Accounts are created by an administrator — there is no
-    self-signup. A new account has no role until one is assigned.</p>
-  {% else %}
-    <p class="auth-note">Google sign-in is not configured on this deployment.
-    Superusers can use the <a href="/admin/">admin login</a>.</p>
+  {% endif %}
+
+  {% comment %}
+  Below the Google button and separated from it, because it is the
+  exception rather than the usual way in -- but present, which is the
+  whole point.
+  {% endcomment %}
+  <div class="auth-or">
+    <span>or, if an administrator gave you a password</span>
+  </div>
+  <form method="post" action="{% url 'account_login' %}" class="auth-password">
+    {% csrf_token %}
+    {{ form.as_p }}
+    {% if redirect_field_value %}
+    <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
+    {% endif %}
+    <button type="submit">Sign in</button>
+  </form>
+
+  <p class="auth-note">Accounts are created by an administrator — there is no
+  self-signup. A new account has no role until one is assigned.</p>
+  {% if not socialaccount_providers %}
+  <p class="auth-note">Google sign-in is not configured on this deployment.</p>
   {% endif %}
 {% endblock %}
