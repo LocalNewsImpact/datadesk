@@ -1698,6 +1698,14 @@ tr.prop td { border-bottom: 0; }
   background: var(--surface-2); color: var(--text-2); cursor: pointer; }
 .stage-head .refresh:hover{ color: var(--text); border-color: var(--accent); }
 
+/* A button that has to sit in a row of links without looking like a
+   button -- it creates a record, so it must be a form, but it is the same
+   kind of small action as the links beside it. */
+.inline-form{ display: inline; }
+.inline-form button.edit-link{ background: none; border: 0; padding: 0;
+  font: inherit; color: var(--accent); cursor: pointer; }
+.inline-form button.edit-link:hover{ text-decoration: underline; }
+
 /* A count that has not arrived yet. An ellipsis rather than a spinner or
    a zero: the row is already readable, and a zero would be a lie for the
    second it took to be replaced. */

@@ -213,3 +213,59 @@ def unpublish(visual, actor):
             reason=f"unpublished {visual.slug}",
         )
     return visual
+
+
+def duplicate(visual, actor):
+    """A working copy of a visual, so the original can keep serving.
+
+    What is copied is the recipe -- the chart, the slice, the fields, the
+    look. What is not is everything that makes the original *the*
+    original:
+
+      uuid       a fresh one, because a uuid is a published address. Two
+                 visuals sharing one would mean an embed somebody pasted
+                 pointing at whichever the database returned first.
+      slug       derived, and deduped, for the same reason.
+      status     draft. A copy of a published visual that arrived
+                 published would put an unreviewed chart on the data host
+                 the moment it was made.
+      snapshots  none. They are captured runs of the source, and the copy
+                 has not run it yet; carrying them over would date the
+                 copy's data to the original's last refresh and say so.
+      pin        none, following the snapshots.
+
+    `created_by` is whoever asked for the copy, not whoever wrote the
+    original. They are the one who has to answer for it now.
+    """
+    from django.utils.text import slugify
+
+    base = slugify(f"{visual.slug}-copy")[:40] or "visual-copy"
+    slug, n = base, 2
+    while Visual.objects.filter(slug=slug).exists():
+        slug = f"{base}-{n}"
+        n += 1
+
+    copy = Visual.objects.create(
+        slug=slug,
+        title=f"{visual.title} (copy)",
+        status=Visual.DRAFT,
+        source_kind=visual.source_kind,
+        query=visual.query,
+        bucket_path=visual.bucket_path,
+        template=visual.template,
+        config=dict(visual.config or {}),
+        spec=dict(visual.spec or {}),
+        datasets=list(visual.datasets or []),
+        allow_live=visual.allow_live,
+        frame_ancestors=visual.frame_ancestors,
+        created_by=actor,
+    )
+    AuditLogEntry.objects.create(
+        actor=actor,
+        action="visual:duplicate",
+        target_table="visuals",
+        target_ids=[copy.slug],
+        after={"copied_from": visual.slug},
+        reason=f"{copy.slug} copied from {visual.slug}",
+    )
+    return copy
