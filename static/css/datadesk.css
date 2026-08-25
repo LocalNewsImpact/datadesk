@@ -1722,9 +1722,22 @@ a.button{ display: inline-block; font-family: inherit;
 a.button:hover{ background: var(--surface-2); }
 
 .new-folder{ display: flex; gap: .5rem; margin: 0; }
-.new-folder input{ flex: 1 1 18rem; max-width: 24rem; }
-/* "Add folder" broke across two lines beside a field wide enough to take
-   the space it needed. */
+/* The three controls are one row of equal-height things, so they share
+   the button's box: same font size, same padding, same border width. An
+   input left to its own defaults sits a pixel or two proud of a button
+   beside it, which reads as misalignment rather than as a difference. */
+/* The controls, not their wrapper: `> *` also matched the form holding
+   two of them and drew a border round the pair. */
+.page-actions input,
+.page-actions button,
+.page-actions a.button{ font-size: var(--fs-sm); line-height: 1.4;
+  padding: 0.3rem var(--s-3); border-width: 1px; border-style: solid;
+  border-radius: var(--r-sm); box-sizing: border-box; }
+/* The lighter border, not --border-strong: this is a field waiting for
+   an optional name, not a control demanding attention. */
+.new-folder input{ flex: 1 1 14rem; max-width: 20rem;
+  border-color: var(--border); background: var(--surface); }
+.new-folder input:focus{ border-color: var(--accent); }
 .new-folder button{ white-space: nowrap; }
 
 .visuals-list .folder-head th{ background: var(--surface-2);
