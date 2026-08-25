@@ -952,35 +952,70 @@ def test_the_title_box_opens_on_the_record_name(client, author, visual):
 # --- where a map is centred, in the flow that builds it ----------------------
 
 
-def test_the_data_step_asks_where_a_map_is_centred(client, author, visual, dataset):
-    """It lived only on the advanced settings page, so the one thing you
-    most want to change about a duplicated map was the one thing the flow
-    could not change."""
+def test_the_newsrooms_frame_the_map(client, author, visual, newsroom):
+    """Choosing whose coverage this is answers where the map is about.
+    Asking again in another step was a second way to say the same thing,
+    and the two could disagree -- which is how a copy of the Boone map
+    retargeted at Jackson ended up framed on Adair, drawing nothing."""
     visual.config = {"kind": "storymap"}
-    visual.save(update_fields=["config"])
-    body = step(client, visual, "data").content.decode()
+    visual.datasets = ["mizzou"]
+    visual.save(update_fields=["config", "datasets"])
 
-    assert 'name="focus"' in body
-    assert 'name="focus_level"' in body
-    assert 'name="extent"' in body
+    step(client, visual, "newsrooms", publishers=[newsroom.id])
+    visual.refresh_from_db()
+
+    # KOMU is in Boone County, so that is what the map paints.
+    assert visual.config["frame"] == ["29019"]
+    assert visual.config["focus"] == "", "no place was typed"
 
 
-def test_a_chart_that_is_not_a_map_is_not_asked(client, author, visual, dataset):
+def test_an_override_survives_a_newsroom_change(client, author, visual, newsroom):
+    """An override the next newsroom change silently undid would be worse
+    than no override."""
+    visual.config = {"kind": "storymap"}
+    visual.datasets = ["mizzou"]
+    visual.save(update_fields=["config", "datasets"])
+
+    step(client, visual, "newsrooms", publishers=[newsroom.id], focus="Jackson")
+    visual.refresh_from_db()
+    assert visual.config["focus_name"] == "Jackson"
+
+    # Change the newsrooms; the typed place stays.
+    step(client, visual, "newsrooms", publishers=[newsroom.id], focus="Jackson")
+    visual.refresh_from_db()
+    assert visual.config["focus_name"] == "Jackson"
+
+
+def test_clearing_the_override_hands_the_map_back_to_the_newsrooms(
+    client, author, visual, newsroom
+):
+    visual.config = {"kind": "storymap", "focus": "29095", "focus_name": "Jackson"}
+    visual.datasets = ["mizzou"]
+    visual.save(update_fields=["config", "datasets"])
+
+    step(client, visual, "newsrooms", publishers=[newsroom.id], focus="")
+    visual.refresh_from_db()
+    assert visual.config["focus"] == ""
+    assert visual.config["frame"] == ["29019"], "back to the newsrooms' own county"
+
+
+def test_a_chart_that_is_not_a_map_is_not_asked(client, author, visual, newsroom):
     """A bar chart has nowhere to be centred, and a control that does
     nothing is worse than no control."""
     visual.config = {"kind": "bar"}
     visual.save(update_fields=["config"])
-    assert 'name="focus"' not in step(client, visual, "data").content.decode()
+    assert 'name="focus"' not in step(client, visual, "newsrooms").content.decode()
 
 
 def test_a_place_name_is_resolved_to_the_code_the_map_needs(
-    client, author, visual, dataset
+    client, author, visual, newsroom
 ):
     """Nobody knows the FIPS code for their own county, and the boundary
     file is keyed by nothing else."""
     visual.config = {"kind": "storymap"}
-    visual.save(update_fields=["config"])
-    step(client, visual, "data", datasets=["mizzou"], subset="complete", focus="Boone")
+    visual.datasets = ["mizzou"]
+    visual.save(update_fields=["config", "datasets"])
+    step(client, visual, "newsrooms", publishers=[newsroom.id], focus="Boone")
     visual.refresh_from_db()
 
     assert visual.config["focus"] == "29019"
@@ -988,16 +1023,6 @@ def test_a_place_name_is_resolved_to_the_code_the_map_needs(
     # The name is kept beside the code: without it the box came back
     # reading "29019" to somebody who typed "Boone".
     assert visual.config["focus_name"] == "Boone"
-
-
-def test_clearing_the_focus_lets_the_map_frame_itself(client, author, visual, dataset):
-    visual.config = {"kind": "storymap", "focus": "29019", "focus_name": "Boone"}
-    visual.save(update_fields=["config"])
-    step(client, visual, "data", datasets=["mizzou"], subset="complete", focus="")
-    visual.refresh_from_db()
-
-    assert visual.config["focus"] == ""
-    assert visual.config["frame"] == []
 
 
 def test_an_empty_map_says_which_kind_of_empty_it_is():

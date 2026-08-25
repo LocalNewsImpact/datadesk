@@ -55,42 +55,6 @@
       <input type="date" name="to" value="{{ date_to }}">
     </div>
   </div>
-  {% if is_map %}
-  {% comment %}
-  Where the map is centred. It lived only on the advanced settings page,
-  so the one thing you most want to change about a duplicated map was the
-  one thing this flow could not change -- and retargeting a copy meant
-  editing the focus in one place and the newsrooms in another, with
-  nothing connecting them and no explanation when they disagreed.
-
-  A name, not a code: the gazetteer resolves "Boone" to 29019 on save,
-  because nobody knows the FIPS code for their own county.
-  {% endcomment %}
-  <div class="group">
-    <h4>Centred on</h4>
-    <div class="range">
-      <input type="text" name="focus" value="{{ focus }}"
-             placeholder="Boone, MO — or Missouri, or 29019">
-      <select name="focus_level" aria-label="What kind of place">
-        <option value="" {% if not focus_level %}selected{% endif %}>work it out</option>
-        <option value="city" {% if focus_level == "city" %}selected{% endif %}>a city</option>
-        <option value="county" {% if focus_level == "county" %}selected{% endif %}>a county</option>
-        <option value="state" {% if focus_level == "state" %}selected{% endif %}>a state</option>
-      </select>
-    </div>
-    <label class="stacked">Show
-      <select name="extent">
-        <option value="auto" {% if extent == "auto" %}selected{% endif %}>wherever the stories are</option>
-        <option value="selected" {% if extent == "selected" %}selected{% endif %}>only what is centred on</option>
-        <option value="county" {% if extent == "county" %}selected{% endif %}>its whole county</option>
-        <option value="state" {% if extent == "state" %}selected{% endif %}>its whole state</option>
-      </select>
-    </label>
-    <p class="notice">Leave it empty and the map frames itself on whatever
-    the newsrooms below published.</p>
-  </div>
-  {% endif %}
-
   <div class="action-bar">
     <button type="submit" class="primary">Next</button>
     <button type="submit" name="stay" value="1"
