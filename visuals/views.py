@@ -360,6 +360,10 @@ def _feed_payload(request, visual):
     payload = {
         "slug": visual.slug,
         "version": snapshot.version,
+        # When these rows were taken. A version on its own says which
+        # answer this is; the date says what it is an answer about, which
+        # is the part a reader needs to judge it.
+        "taken": snapshot.created_at.date().isoformat(),
         # Travels with the rows. Somebody who takes the JSON and republishes
         # it has everything they need to credit it without coming back here.
         "attribution": _attribution(visual),

@@ -56,6 +56,31 @@
     <input type="checkbox" name="taxonomy" value="1" {% if taxonomy %}checked{% endif %}>
     Colour the ten CIN needs the same way in every chart
   </label>
+
+  {% comment %}
+  Whose name sits on the chart, inside its own bounds and wherever it is
+  pasted. The consortium publishes what is built here, so that is the
+  default; a chart built on somebody else's data credits them, because
+  crediting ourselves for it would be taking their work.
+
+  Named, not described. "Credit the dataset owner" without saying who
+  that is asks somebody to choose a name they cannot see -- and where no
+  owner is recorded there is nobody to credit, so the choice is not
+  offered at all.
+  {% endcomment %}
+  {% if owners %}
+  <fieldset class="theme-pick">
+    <legend>Source</legend>
+    <label><input type="radio" name="credit" value=""
+      {% if credit != "dataset" %}checked{% endif %}>
+      Local News Impact Consortium</label>
+    <label><input type="radio" name="credit" value="dataset"
+      {% if credit == "dataset" %}checked{% endif %}>
+      {% for owner in owners %}{% if not forloop.first %}, {% endif %}{{ owner }}{% endfor %}
+      — whoever the data belongs to</label>
+  </fieldset>
+  {% endif %}
+
   <div class="action-bar">
     <button type="submit" class="primary">Next</button>
     <button type="submit" name="stay" value="1"

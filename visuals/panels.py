@@ -110,6 +110,12 @@ def theme_panel(visual, post=None):
         # every chart. It belongs to this step because it is a colour
         # decision, not a data one.
         config["taxonomy"] = "cin" if post.get("taxonomy") else ""
+        # Whose name sits on the chart. The consortium publishes what is
+        # built here, so that is the default; a chart built on somebody
+        # else's data credits them instead, because crediting ourselves
+        # for it would be taking their work. The name then links to the
+        # contact that dataset publishes.
+        config["credit"] = "dataset" if post.get("credit") == "dataset" else ""
         return {"config": config}
     config = visual.config or {}
     return {
@@ -128,7 +134,33 @@ def theme_panel(visual, post=None):
         # sensible title in the box rather than an empty one.
         "title": config.get("title", "") or visual.title,
         "subtitle": config.get("subtitle", ""),
+        "credit": config.get("credit", ""),
+        # Who the alternative actually is, rather than the word "dataset".
+        # Offering "credit the dataset owner" without saying who that is
+        # asks somebody to choose a name they cannot see.
+        "owners": _owner_names(visual),
     }
+
+
+def _owner_names(visual):
+    """The owners of the datasets this visual draws on, as names.
+
+    Empty where nobody is recorded, in which case there is nobody to
+    credit and the choice is not offered -- a chart crediting a blank is
+    worse than one crediting the consortium.
+    """
+    from django.db import DatabaseError
+
+    try:
+        from visuals.views import _attribution
+
+        return [
+            row["owner"] or row["dataset"]
+            for row in _attribution(visual)
+            if row.get("owner") or row.get("dataset")
+        ]
+    except DatabaseError:
+        return []
 
 
 # --- step 3: the slice -------------------------------------------------------
