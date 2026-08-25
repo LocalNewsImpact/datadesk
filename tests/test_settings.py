@@ -31,19 +31,28 @@ def test_provider_config_omits_app_without_credentials():
     # An APP entry with blank credentials produces a broken login flow;
     # the provider must be described without one (NewsSourceDirectory
     # pattern).
-    config = build_socialaccount_providers("", "", ["example.org"])
+    config = build_socialaccount_providers("", "")
     assert "APP" not in config["google"]
-    config = build_socialaccount_providers("id", "secret", ["example.org"])
+    config = build_socialaccount_providers("id", "secret")
     assert config["google"]["APP"]["client_id"] == "id"
 
 
-def test_hd_hint_only_for_single_domain():
-    single = build_socialaccount_providers("", "", ["example.org"])
-    assert single["google"]["AUTH_PARAMS"] == {"hd": "example.org"}
-    multi = build_socialaccount_providers("", "", ["a.org", "b.org"])
-    assert multi["google"]["AUTH_PARAMS"] == {}
-    none = build_socialaccount_providers("", "", [])
-    assert none["google"]["AUTH_PARAMS"] == {}
+def test_no_hosted_domain_is_sent_to_google():
+    """`hd` locks the email field on Google's own sign-in page to one
+    Workspace domain. An invited colleague at another university cannot type
+    their address into it -- the flow ends before any code here runs, so the
+    adapter that would have admitted them by invitation never sees them.
+    Whatever ALLOWED_AUTH_DOMAINS says, the chooser stays open and the
+    adapter stays the only gate."""
+    config = build_socialaccount_providers("id", "secret")
+    assert config["google"]["AUTH_PARAMS"] == {}
+
+    import inspect
+
+    from datadesk import settings
+
+    source = inspect.getsource(settings.build_socialaccount_providers)
+    assert '"hd"' not in source, "the account chooser is restricted again"
 
 
 def test_forwarded_proto_is_trusted():

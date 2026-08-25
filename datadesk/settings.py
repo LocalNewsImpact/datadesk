@@ -387,9 +387,15 @@ SOCIALACCOUNT_ADAPTER = "accounts.adapters.DomainRestrictedAdapter"
 SOCIALACCOUNT_EMAIL_AUTHENTICATION = True
 SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True
 
-# Hosted domains allowed to sign in. `hd` below is a hint to Google's
-# account chooser and is NOT enforcement — the claim is verified in
-# accounts/adapters.py. Empty means unrestricted (development only).
+# Hosted domains allowed to sign in, verified in accounts/adapters.py.
+# Empty means unrestricted (development only).
+#
+# Nothing here is passed to Google. `hd` used to be, on the belief that it
+# only hinted to the account chooser; Google enforces it, locking the email
+# field to the one domain, and an invited colleague at another university
+# could not type their address at all. Since invited people are admitted by
+# name and carry any domain or none, the chooser has to stay open and the
+# adapter has to be the only gate.
 ALLOWED_AUTH_DOMAINS = env_list("ALLOWED_AUTH_DOMAINS")
 
 # .strip() matters: secrets may exist as blank placeholders until real
@@ -398,9 +404,7 @@ GOOGLE_OAUTH_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "").strip()
 GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
 
 
-def build_socialaccount_providers(
-    client_id: str, secret: str, hosted_domains: list[str]
-) -> dict:
+def build_socialaccount_providers(client_id: str, secret: str) -> dict:
     """Describe the Google provider, and only describe an app when there is one.
 
     An APP entry with empty credentials is worse than none: allauth uses it,
@@ -412,11 +416,10 @@ def build_socialaccount_providers(
     config: dict = {
         "google": {
             "SCOPE": ["profile", "email"],
-            # A hint to Google's account chooser, not enforcement; only
-            # sendable when exactly one domain is allowed.
-            "AUTH_PARAMS": (
-                {"hd": hosted_domains[0]} if len(hosted_domains) == 1 else {}
-            ),
+            # Empty deliberately: see ALLOWED_AUTH_DOMAINS above. `hd` here
+            # shuts invited people out at Google's own screen, before any
+            # code of ours runs.
+            "AUTH_PARAMS": {},
         }
     }
     if client_id and secret:
@@ -425,7 +428,7 @@ def build_socialaccount_providers(
 
 
 SOCIALACCOUNT_PROVIDERS = build_socialaccount_providers(
-    GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, ALLOWED_AUTH_DOMAINS
+    GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET
 )
 
 GOOGLE_SIGN_IN_CONFIGURED = bool(GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET)

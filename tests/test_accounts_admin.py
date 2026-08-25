@@ -167,6 +167,15 @@ def test_an_invited_address_may_sign_in_and_a_stranger_may_not(settings):
 
     Invitation.objects.create(email="guest@example.com", scope="mizzou")
     assert _admits("guest@example.com"), "an invited address was refused"
+
+    # The reported case: a colleague at another university, whose account is
+    # itself a Workspace and so arrives carrying somebody else's `hd`. The
+    # domain check must not read that as a domain claim to refuse -- being
+    # named in an invitation is the whole of their standing here.
+    Invitation.objects.create(email="h.artman@missouri.edu", scope="mizzou")
+    assert _admits(
+        "h.artman@missouri.edu", hd="missouri.edu"
+    ), "an invited address from another Workspace was refused"
     # Case is not a different person.
     assert _admits("GUEST@Example.com")
     # ...and an unverified address is a claim, not a person, whichever
