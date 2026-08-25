@@ -17,6 +17,14 @@
     {% endcomment %}
     <span class="dd-source">Source:
       {% if credit_name %}<a href="{% if credit_email %}mailto:{{ credit_email }}{% else %}#{% endif %}">{{ credit_name }}</a>{% else %}{{ visual.config.source|default:"Local News Impact Consortium" }}{% endif %}
+      {% comment %}
+      Under the name: which answer this is and what it is an answer
+      about. Filled from the payload, because the version is a property
+      of the rows rather than of the page framing them -- an embed pinned
+      to v3 must say v3 wherever it is pasted. A draft has none yet and
+      says nothing rather than saying "v".
+      {% endcomment %}
+      <span class="dd-version" hidden></span>
     </span>
     <button type="button" class="dd-toggle" data-target="dd-chart-{{ visual.slug }}">View data</button>
   </figcaption>
@@ -57,7 +65,11 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     showingTable = !showingTable;
     if (showingTable) {
-      DatadeskChart.renderTable(el, data, credits);
+      // Whatever this page wants at the top of the panel. The embed has
+      // none: it is the visual and a way into its numbers, and nothing
+      // else belongs inside somebody else's article.
+      DatadeskChart.renderTable(
+        el, data, credits, document.getElementById("dd-takeaway"));
       toggle.textContent = "View chart";
     } else if (chart) {
       chart.redraw();
@@ -67,6 +79,16 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function draw(payload) {
     data = payload.data;
+    const stamp = el.closest("figure").querySelector(".dd-version");
+    if (stamp && payload.version) {
+      // 08/25/2026 -- the form the request asked for, built from the
+      // date parts rather than through a locale, which would render it
+      // the other way round for half the world's readers.
+      const [y, m, d] = String(payload.taken || "").split("-");
+      stamp.textContent =
+        "v" + payload.version + (y ? " " + m + "/" + d + "/" + y : "");
+      stamp.hidden = false;
+    }
     // Travels with the rows, so the embed on somebody else's page can
     // say whose data it is without a page of ours to say it on.
     credits = payload.attribution;

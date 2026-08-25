@@ -999,6 +999,9 @@ label.stacked input, label.stacked textarea, label.stacked select {
 }
 
 .dd-source { font-size: var(--fs-xs); color: var(--text-3); }
+/* Under the name, not beside it: the two say different things and a
+   reader scanning for one should not have to read past the other. */
+.dd-version { display: block; font-variant-numeric: tabular-nums; }
 
 .dd-toggle {
   border: none;

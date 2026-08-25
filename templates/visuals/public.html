@@ -18,8 +18,13 @@ and neither of those exists on this host.
            font-family: var(--font-sans); }
     .wrap { max-width: 56rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem;
             display: flex; flex-direction: column; gap: 1.5rem; }
-    h1 { font-size: var(--fs-2xl); margin: 0; text-wrap: balance; }
-    .byline { color: var(--text-3); font-size: var(--fs-sm); margin: 0; }
+    /* Inside the data panel, above the tables: its own block rather
+       than loose notes, so what is about the data reads as one thing. */
+    .takeaway { display: flex; flex-direction: column; gap: 0.4rem;
+                padding-bottom: 1rem; margin-bottom: 0.5rem;
+                border-bottom: 1px solid var(--border); }
+    .takeaway label { display: inline-flex; align-items: center;
+                      gap: 0.4rem; cursor: pointer; }
     .figure { background: var(--surface); border: 1px solid var(--border);
               border-radius: var(--r-lg); padding: 1.5rem;
               overflow-x: auto; }
@@ -31,76 +36,61 @@ and neither of those exists on this host.
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <h1>{{ visual.title }}</h1>
-      <p class="byline">Local News Impact Consortium</p>
-    </header>
+  {% comment %}
+  The figure and nothing else. It carries its own title, its own source
+  line and its own way into the numbers, all inside its bounds -- so a
+  page heading repeating the title and a byline repeating the credit said
+  everything twice, and said it in a frame the embedded version does not
+  have.
 
+  Everything about the data -- when it was taken, how to take it, which
+  version the links ask for -- is inside the data panel, which is where
+  somebody has gone looking for exactly that. Under the chart it was a
+  footer on a figure that does not have one.
+  {% endcomment %}
+  <div class="wrap">
     <div class="figure">{% include renderer %}</div>
 
-    {% comment %}
-    The date stays out in the open. A visual serves a pinned snapshot
-    rather than live data, so an undated chart is a claim about today that
-    nobody checked -- that one line is what makes it a reading of a date
-    instead.
-
-    Everything under it is machinery: the snippet, the feed, the version
-    this link is pinned to. A reader came for the chart, so none of it is
-    open by default. The newsroom that wants to embed the thing will open
-    one disclosure to find all of it together.
-    {% endcomment %}
-    {% if shown %}
-    <p class="note">Data as of {{ shown.created_at|date:"j F Y" }}.</p>
-    {% endif %}
-
-
-    {% comment %}
-    The data, at the top, in the open. A reader who wants to check a chart
-    wants the numbers behind it, and folding those into a disclosure below
-    the fold asked them to go looking for the one thing the page exists to
-    back up.
-
-    The embed snippet used to sit here too and no longer does. Somebody
-    pasting an embed is the author, and the author is in the builder, where
-    the publish step hands it over. A reader is not embedding anything.
-    {% endcomment %}
-    {% if downloads %}
-    <p class="note files-lead">Take the data{% if shown %} — snapshot
-      v{{ shown.version }}{% endif %}:
-      {% for file in downloads %}{% if not forloop.first %} · {% endif %}<a
-        href="{{ file.url }}" data-pinned="{{ file.url }}"
-        data-latest="{{ file.latest_url }}">{{ file.label }}</a>
-        <span class="dim">{{ file.note }}</span>{% endfor %}
-    </p>
-    {% comment %}
-    Which version these links ask for. Somebody taking the data to check a
-    claim wants the version the claim was made from, and somebody wiring
-    the feed into something of their own wants whatever is published --
-    two different jobs off one set of links, and the difference is a `?v=`
-    that nothing on the page offered to add or remove.
-    {% endcomment %}
-    {% if shown %}
-    <p class="note"><label><input type="checkbox" id="pin-links"
-      {% if not pinned_by_url %}checked{% endif %}> Fix these links to
-      v{{ shown.version }} — otherwise they follow whatever is published</label></p>
-    <script>
-    (function () {
-      var box = document.getElementById("pin-links");
-      var links = document.querySelectorAll(".files-lead a[data-pinned]");
-      box.addEventListener("change", function () {
-        links.forEach(function (a) {
-          a.href = box.checked ? a.dataset.pinned : a.dataset.latest;
+    <div id="dd-takeaway" class="takeaway" hidden>
+      {% if shown %}
+      <p class="note">Data as of {{ shown.created_at|date:"j F Y" }} —
+        snapshot v{{ shown.version }}.</p>
+      {% endif %}
+      {% if downloads %}
+      <p class="note files-lead">Take the data:
+        {% for file in downloads %}{% if not forloop.first %} · {% endif %}<a
+          href="{{ file.url }}" data-pinned="{{ file.url }}"
+          data-latest="{{ file.latest_url }}">{{ file.label }}</a>
+          <span class="dim">{{ file.note }}</span>{% endfor %}
+      </p>
+      {% if shown %}
+      {% comment %}
+      Which version these links ask for. Somebody checking a claim wants
+      the version the claim was made from; somebody wiring the feed into
+      something of their own wants whatever is published.
+      {% endcomment %}
+      <p class="note"><label><input type="checkbox" id="pin-links"
+        {% if not pinned_by_url %}checked{% endif %}> Fix these links to
+        v{{ shown.version }} — otherwise they follow whatever is
+        published</label></p>
+      <script>
+      (function () {
+        var box = document.getElementById("pin-links");
+        var links = document.querySelectorAll("#dd-takeaway a[data-pinned]");
+        box.addEventListener("change", function () {
+          links.forEach(function (a) {
+            a.href = box.checked ? a.dataset.pinned : a.dataset.latest;
+          });
         });
-      });
-    })();
-    </script>
-    {% endif %}
-    {% endif %}
-    {% if pinned_by_url %}
-    <p class="note">This page is pinned to that version;
-      <a href="?">the current one</a> may differ.</p>
-    {% endif %}
+      })();
+      </script>
+      {% endif %}
+      {% endif %}
+      {% if pinned_by_url %}
+      <p class="note">This page is pinned to that version;
+        <a href="?">the current one</a> may differ.</p>
+      {% endif %}
+    </div>
   </div>
 </body>
 </html>

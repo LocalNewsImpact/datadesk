@@ -561,17 +561,26 @@
     el.appendChild(p);
   }
 
-  function renderTable(el, data, credits) {
+  // `takeaway` is whatever the page wants at the top of this panel --
+  // the download links, and which version they ask for. It belongs here
+  // rather than under the chart: it is about the data, and the panel is
+  // where somebody has gone looking for the data. Under the chart it was
+  // a footer on a figure that already carries its own title and source
+  // inside its bounds.
+  function renderTable(el, data, credits, takeaway) {
     const groups = tablesIn(data);
     const slug = el.id.replace(/^dd-chart-/, "");
+    if (takeaway) takeaway.hidden = false;
     if (!groups.length) {
       const note = document.createElement("p");
       note.className = "dd-note";
       note.textContent = "This visual has no tabular data to show.";
       el.replaceChildren(note);
+      if (takeaway) el.prepend(takeaway);
       return;
     }
     el.replaceChildren();
+    if (takeaway) el.appendChild(takeaway);
     for (const { name, rows } of groups) {
       if (name && groups.length > 1) {
         const heading = document.createElement("h3");

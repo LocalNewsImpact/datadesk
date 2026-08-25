@@ -53,6 +53,7 @@ STEPS = (
             "config:theme",
             "config:theme_mode",
             "config:taxonomy",
+            "config:credit",
         ),
     ),
     Step(
