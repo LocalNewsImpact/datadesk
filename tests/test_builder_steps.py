@@ -1342,3 +1342,95 @@ def test_no_view_leaves_a_panel_empty(
         assert (
             "<p" in panel or "<label" in panel or "<select" in panel
         ), f"{kind} at {where}: the panel offers nothing"
+
+
+def test_changing_an_option_changes_what_the_preview_draws(
+    client, author, visual, corpus, two_newsrooms
+):
+    """The question the steps exist to answer: does pressing Update
+    rebuild the query. Asserted on the rows the preview fetches, not on
+    the page rendering."""
+    import json
+
+    boone, jackson = two_newsrooms
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+
+    # An article from the second newsroom, so the two selections differ.
+    from explorer.models import Article, CandidateLink
+
+    link = CandidateLink.objects.create(
+        id="cl-j", url="https://kc2.example/1", source=jackson
+    )
+    Article.objects.create(
+        id="a-j", status="ok", candidate_link=link, primary_label="Health"
+    )
+
+    visual.config = {"kind": "bar", "theme": "datadesk"}
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {
+        "datasets": ["mizzou"],
+        "subset": "complete",
+        "roles": {"x": "cin_primary"},
+        "measure": "articles",
+        "dimensions": ["cin_primary"],
+    }
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+
+    def drawn():
+        feed = client.get(f"/visuals/{visual.slug}/data.json?live=1")
+        assert feed.status_code == 200, feed.status_code
+        return json.loads(feed.content)["data"]
+
+    everything = drawn()
+    labels = {row.get("CIN (primary)") for row in everything}
+    assert {"Civic Life", "Sports", "Health"} <= labels, labels
+
+    # Narrow to the second newsroom alone.
+    step(client, visual, "newsrooms", publishers=[jackson.id])
+    only_jackson = drawn()
+    assert {row.get("CIN (primary)") for row in only_jackson} == {"Health"}
+
+    # ...and back to the first.
+    step(client, visual, "newsrooms", publishers=[boone.id])
+    only_boone = drawn()
+    assert {row.get("CIN (primary)") for row in only_boone} == {"Civic Life", "Sports"}
+
+    # A date range with nothing in it empties it.
+    step(
+        client,
+        visual,
+        "data",
+        datasets=["mizzou"],
+        subset="complete",
+        **{"from": "1999-01-01", "to": "1999-12-31"},
+    )
+    assert drawn() == []
+
+
+def test_the_builder_never_draws_from_a_cache(client, author, visual, corpus):
+    """It exists to show what the options currently chosen produce, and a
+    cached answer is the answer to a question somebody has since changed.
+    Keyed by slug, the five minutes after any change served the rows from
+    before it."""
+    from unittest import mock
+
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {
+        "datasets": ["mizzou"],
+        "subset": "complete",
+        "roles": {"x": "cin_primary"},
+        "measure": "articles",
+        "dimensions": ["cin_primary"],
+    }
+    visual.save(update_fields=["source_kind", "datasets", "spec"])
+
+    url = f"/visuals/{visual.slug}/data.json?live=1"
+    with mock.patch("visuals.views.fetch_source_data", return_value=[]) as ran:
+        client.get(url)
+        client.get(url)
+    assert ran.call_count == 2, "the second read came from a cache"

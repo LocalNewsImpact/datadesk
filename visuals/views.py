@@ -298,9 +298,22 @@ def _feed_payload(request, visual):
         def fetch():
             return fetch_source_data(visual)
 
-        data = cache.get_or_set(
-            f"visuals.live.{visual.slug}", fetch, _LIVE_CACHE_SECONDS
-        )
+        # Nothing the builder draws is cached. It exists to show what the
+        # options currently chosen produce, and a cached answer is by
+        # definition the answer to a question somebody has since changed:
+        # keyed by slug, the five minutes after any change served the rows
+        # from before it, so pressing Update redrew the same picture and
+        # the step looked as though it had not saved.
+        #
+        # A published embed reading live data is the other case. Nobody is
+        # editing it, the question is fixed, and the cache is what keeps a
+        # popular page off the corpus.
+        if may_act_on(request.user, visual):
+            data = fetch()
+        else:
+            data = cache.get_or_set(
+                f"visuals.live.{visual.slug}", fetch, _LIVE_CACHE_SECONDS
+            )
         return {"slug": visual.slug, "version": None, "data": data}, False
 
     asked = _asked_for_version(request)
