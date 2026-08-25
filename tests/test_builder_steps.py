@@ -15,6 +15,7 @@ from django.contrib.auth.models import User
 from accounts.models import DATADESK, Grant
 from explorer.models import Dataset, DatasetSource, Source
 from visuals.models import Visual
+from visuals.types import BY_ID
 
 pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
 
@@ -256,15 +257,48 @@ def test_every_parent_control_is_named_for_a_screen_reader(
 
 @pytest.fixture
 def corpus(dataset, newsroom):
-    """A handful of articles so a facet has something to count."""
-    from explorer.models import Article, CandidateLink
+    """A handful of articles so a facet has something to count.
+
+    Dated, paired and placed, because a pivot that returns nothing makes
+    every assertion about what it returns vacuous: a walk that publishes
+    an empty snapshot passes a test that only checks the feed answers.
+    These are in March 2026, which is the range the walk asks for.
+    """
+    import datetime as dt
+
+    from django.utils import timezone
+
+    from explorer.models import Article, ArticleEnrichment, CandidateLink
 
     link = CandidateLink.objects.create(
         id="cl1", url="https://komu.example/1", source=newsroom
     )
-    for i, label in enumerate(["Civic Life", "Civic Life", "Sports"]):
-        Article.objects.create(
-            id=f"a{i}", status="ok", candidate_link=link, primary_label=label
+    pairs = [
+        ("Civic Life", "Sports", "29019", "Columbia"),
+        ("Civic Life", "Civic Life", "29019", "Columbia"),
+        ("Sports", "Civic Life", "29095", "Kansas City"),
+    ]
+    for i, (primary, alternate, geoid, place) in enumerate(pairs):
+        article = Article.objects.create(
+            id=f"a{i}",
+            status="ok",
+            candidate_link=link,
+            primary_label=primary,
+            alternate_label=alternate,
+            # Aware, because the column is a datetime and a naive one is
+            # read as UTC with a warning -- which puts an article an hour
+            # either side of the range somebody actually asked for.
+            publish_date=timezone.make_aware(dt.datetime(2026, 3, 10 + i, 12)),
+        )
+        ArticleEnrichment.objects.create(
+            article=article,
+            scope="local",
+            point_place=place,
+            point_geoid=geoid,
+            point_geoid_level="county",
+            point_lat=38.95 + i,
+            point_lon=-92.33 - i,
+            cost_usd="0.01",
         )
     return dataset
 
@@ -1207,8 +1241,14 @@ def test_every_step_writes_every_key_it_owns(client, author, visual, two_newsroo
     for spec_step in (s for s in STEPS if s.slug in posts):
         step(client, visual, spec_step.slug, **posts[spec_step.slug])
         visual.refresh_from_db()
-        held = {**(visual.config or {}), **(visual.spec or {})}
-        missing = [k for k in spec_step.owns if k not in held]
+        held = {
+            "config": visual.config or {},
+            "spec": visual.spec or {},
+            "visual": {"status": visual.status},
+        }
+        missing = [
+            k for k in spec_step.owns if k.split(":")[1] not in held[k.split(":")[0]]
+        ]
         assert not missing, (
             f"the {spec_step.slug} step owns {missing} and left them unwritten, "
             "so whatever was there before survives its save"
@@ -1792,6 +1832,26 @@ def test_a_visual_with_gaps_left_still_cannot_be_published(
 # embed a reader can load.
 
 
+#: The kinds the corpus pivot cannot draw, and why. A pivot emits one
+#: measure column per query, and both of these need two numbers in the
+#: same row: a scatter plots one against the other, and a point map wants
+#: a latitude and a longitude.
+#:
+#: A point map is the nearer of the two. Every county and place FIPS has
+#: a centroid -- INTPTLAT/INTPTLONG, in the gazetteers this repo already
+#: vendors -- so a geo dimension could carry its own coordinates and a
+#: point map could take a place rather than two numbers. That is a change
+#: to what the pivot emits, and it is the same change census data joined
+#: on FIPS will want.
+#:
+#: Named here rather than left out, so that "not walked" is a statement
+#: with a reason attached and the list cannot quietly grow.
+NEEDS_TWO_MEASURES = {
+    "scatter": "plots one measure against another; the pivot emits one",
+    "points": "wants a latitude and a longitude; the pivot emits one number",
+}
+
+
 #: What each kind needs at the fields step, in the words the form posts.
 #: A story map and a table declare no roles: their shape comes out of the
 #: data whole rather than from columns somebody picks.
@@ -1833,7 +1893,7 @@ FIELDS_FOR = {
 }
 
 
-@pytest.mark.parametrize("kind", sorted(FIELDS_FOR))
+@pytest.mark.parametrize("kind", sorted(set(FIELDS_FOR) - set(NEEDS_TWO_MEASURES)))
 def test_a_visual_walked_from_nothing_reaches_a_working_embed(
     client, author, corpus, two_newsrooms, dataset, kind
 ):
@@ -1883,6 +1943,30 @@ def test_a_visual_walked_from_nothing_reaches_a_working_embed(
     # What this kind needs drawn, which for a story map or a table is
     # nothing -- their shape comes out of the data whole.
     press("fields", **FIELDS_FOR[kind])
+
+    # The chart has to name columns the rows actually carry. The fields
+    # step writes `spec["roles"]`, which names variables by id; the
+    # renderer is handed `config` and draws column names, and the pivot
+    # emits its columns under their display labels. Writing only the
+    # roles left every chart built here with its fields chosen and no
+    # idea which columns they were -- a feed that loads and a chart that
+    # draws nothing, which is exactly what a test asserting 200 misses.
+    feed = client.get(f"/visuals/{fresh.slug}/data.json?live=1").json()
+    rows = feed["data"]
+    if isinstance(rows, list) and rows:
+        named = [
+            fresh.config.get(role.id)
+            for role in BY_ID[kind].roles
+            if role.needs and fresh.config.get(role.id)
+        ]
+        assert len(named) == len(
+            [r for r in BY_ID[kind].roles if r.needs]
+        ), f"{kind} chose its fields and named no columns: {fresh.config}"
+        for column in named:
+            assert column in rows[0], (
+                f"{kind} draws {column!r}, which the rows do not have: "
+                f"{sorted(rows[0])}"
+            )
 
     body = client.get(f"/visuals/builder/{fresh.slug}/step/publish/").content.decode()
     assert "Nothing to publish yet" not in body, "walked to publish, called empty"
@@ -1944,6 +2028,50 @@ def test_every_chart_kind_is_walked():
 
     missing = sorted({c.id for c in CHART_TYPES} - set(FIELDS_FOR))
     assert not missing, f"these kinds are never walked: {missing}"
+    # And a kind excused the walk says why, so the excused list is a
+    # statement about the pivot rather than a place to put failures.
+    assert set(NEEDS_TWO_MEASURES) <= set(FIELDS_FOR)
+    assert all(NEEDS_TWO_MEASURES.values()), "an excused kind with no reason"
+
+
+@pytest.mark.parametrize("kind", sorted(NEEDS_TWO_MEASURES))
+def test_the_kinds_the_pivot_cannot_draw_say_so(
+    client, author, visual, corpus, two_newsrooms, kind
+):
+    """Both need two numbers in one row and the pivot emits one, so the
+    columns they name cannot both be there. Asserting the shortfall keeps
+    it visible: the day the pivot emits two, this test fails and the kind
+    rejoins the walk."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": kind, "theme": "datadesk"}
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {
+        "datasets": ["mizzou"],
+        "subset": "complete",
+        "from": "2026-03-01",
+        "to": "2026-03-31",
+    }
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+    client.post(
+        f"/visuals/builder/{visual.slug}/step/fields/",
+        dict(FIELDS_FOR[kind], stay="1"),
+    )
+    visual.refresh_from_db()
+
+    rows = client.get(f"/visuals/{visual.slug}/data.json?live=1").json()["data"]
+    assert rows, "nothing to measure the shortfall against"
+    named = [
+        visual.config.get(role.id)
+        for role in BY_ID[kind].roles
+        if role.needs and visual.config.get(role.id)
+    ]
+    absent = [c for c in named if c not in rows[0]]
+    assert absent, (
+        f"{kind} now has every column it names -- the pivot emits more than "
+        f"one measure, so put it back in the walk: {sorted(rows[0])}"
+    )
 
 
 def test_a_duplicate_walks_on_its_own_and_leaves_the_original_serving(

@@ -22,8 +22,15 @@ class Step:
     #: The question it answers, in the words the page uses.
     heading: str
     note: str
-    #: Config or spec keys this step owns. Listed so that a step can be
+    #: Keys this step owns, each named by the store it lives in --
+    #: "config:kind", "spec:datasets". Listed so that a step can be
     #: re-entered and its own choices cleared without touching another's.
+    #:
+    #: Qualified, because the two stores have keys of the same name that
+    #: mean different things: `spec:from` is the first date and
+    #: `config:from` is the column a chord draws its left-hand side from.
+    #: Read as one namespace they collide, and one of them would have to
+    #: be renamed to a worse name to keep the other.
     owns: tuple
 
 
@@ -33,21 +40,27 @@ STEPS = (
         "Chart",
         "What kind of chart?",
         "",  # the panel says what it is checking against, or that it cannot
-        ("kind",),
+        ("config:kind",),
     ),
     Step(
         "theme",
         "Look",
         "How should it read?",
         "A title, and enough distinct colours for the categories in play.",
-        ("title", "subtitle", "theme", "theme_mode", "taxonomy"),
+        (
+            "config:title",
+            "config:subtitle",
+            "config:theme",
+            "config:theme_mode",
+            "config:taxonomy",
+        ),
     ),
     Step(
         "data",
         "Data",
         "Which articles?",
         "The slice of the corpus. Which fields to draw comes later.",
-        ("dataset", "datasets", "from", "to"),
+        ("spec:dataset", "spec:datasets", "spec:from", "spec:to"),
     ),
     Step(
         "newsrooms",
@@ -59,14 +72,14 @@ STEPS = (
         # step was a second way to say the same thing that could disagree
         # with the first.
         (
-            "publishers",
-            "publisher_county",
-            "publisher_city",
-            "focus",
-            "focus_name",
-            "focus_level",
-            "extent",
-            "frame",
+            "spec:publishers",
+            "spec:publisher_county",
+            "spec:publisher_city",
+            "config:focus",
+            "config:focus_name",
+            "config:focus_level",
+            "config:extent",
+            "config:frame",
         ),
     ),
     Step(
@@ -74,7 +87,28 @@ STEPS = (
         "Fields",
         "Which fields?",
         "",  # the panel says it, and says it about this chart
-        ("dimensions", "measure", "roles", "only"),
+        # The spec's `roles` name variables; the renderer draws columns,
+        # and the pivot's columns are named by their display labels. Both
+        # are written here, from the same choice, or the chart has fields
+        # chosen and no idea which columns they are.
+        (
+            "spec:dimensions",
+            "spec:measure",
+            "spec:roles",
+            "spec:only",
+            "config:x",
+            "config:y",
+            "config:series",
+            "config:size",
+            "config:label",
+            "config:from",
+            "config:to",
+            "config:value",
+            "config:geo_join",
+            "config:geo_value",
+            "config:lat",
+            "config:lon",
+        ),
     ),
     Step(
         "publish",
@@ -82,7 +116,7 @@ STEPS = (
         "Ready to publish?",
         "Publishing pins the current data. The embed serves that until "
         "you publish again.",
-        ("status",),
+        ("visual:status",),
     ),
 )
 
