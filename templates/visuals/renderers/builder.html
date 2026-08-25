@@ -65,31 +65,79 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
-  fetch("{{ feed }}")
-    .then((r) => {
-      if (!r.ok) throw new Error(r.status + " from the feed");
-      return r.json();
-    })
-    .then((payload) => {
-      data = payload.data;
-      // Travels with the rows, so the embed on somebody else's page can
-      // say whose data it is without a page of ours to say it on.
-      credits = payload.attribution;
-      chart = DatadeskChart.mount(el, config, data, {
-        // A base for the per-state files, whose names come from the data.
-        geoBase: "{% static 'geo/' %}",
-        // ...and resolved, hashed URLs for the fixed levels.
-        geoUrls: {
-          nation: "{% static 'geo/nation-10m.json' %}",
-          states: "{% static 'geo/states-10m.json' %}",
-          counties: "{% static 'geo/counties-10m.json' %}",
-        },
-      });
-    })
-    .catch((err) => {
-      // What went wrong, not that something did: a reader who cannot see
-      // the reason cannot tell a missing snapshot from a broken query.
-      el.textContent = "The data could not be loaded — " + err.message + ".";
+  function draw(payload) {
+    data = payload.data;
+    // Travels with the rows, so the embed on somebody else's page can
+    // say whose data it is without a page of ours to say it on.
+    credits = payload.attribution;
+    chart = DatadeskChart.mount(el, config, data, {
+      // A base for the per-state files, whose names come from the data.
+      geoBase: "{% static 'geo/' %}",
+      // ...and resolved, hashed URLs for the fixed levels.
+      geoUrls: {
+        nation: "{% static 'geo/nation-10m.json' %}",
+        states: "{% static 'geo/states-10m.json' %}",
+        counties: "{% static 'geo/counties-10m.json' %}",
+      },
     });
+  }
+
+  // The stamp names the question this preview asks -- the spec, the
+  // datasets the asker may read, and the version of the corpus. Between
+  // panels the question does not change, so neither does its answer:
+  // walking Chart → Look → Data → Newsrooms asked the corpus the same
+  // question four times, and the four ran together inside one container
+  // until each was waiting on the other three. One of them took 128
+  // seconds.
+  //
+  // What the answer is held in is this tab, for this author, until the
+  // tab closes. It cannot go stale: change a step and the stamp changes
+  // with it, and an answer under the old name is never read again. A
+  // visual's output is still cached by publishing it, and this is not
+  // that -- nothing here is served to a reader.
+  const stamp = "{{ stamp|escapejs }}";
+  const held = "datadesk.preview.{{ visual.slug|escapejs }}";
+
+  function answered() {
+    if (!stamp) return null;
+    try {
+      const raw = sessionStorage.getItem(held);
+      if (!raw) return null;
+      const entry = JSON.parse(raw);
+      return entry && entry.stamp === stamp ? entry.payload : null;
+    } catch (e) {
+      return null;  // private window, or something else's key
+    }
+  }
+
+  function keep(payload) {
+    if (!stamp) return;
+    try {
+      sessionStorage.setItem(held, JSON.stringify({stamp: stamp, payload: payload}));
+    } catch (e) {
+      // Full, or storage refused. The next panel asks again, which is
+      // what every panel did before this.
+    }
+  }
+
+  const already = answered();
+  if (already) {
+    draw(already);
+  } else {
+    fetch("{{ feed }}")
+      .then((r) => {
+        if (!r.ok) throw new Error(r.status + " from the feed");
+        return r.json();
+      })
+      .then((payload) => {
+        keep(payload);
+        draw(payload);
+      })
+      .catch((err) => {
+        // What went wrong, not that something did: a reader who cannot see
+        // the reason cannot tell a missing snapshot from a broken query.
+        el.textContent = "The data could not be loaded — " + err.message + ".";
+      });
+  }
 });
 </script>

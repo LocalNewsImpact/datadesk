@@ -188,6 +188,34 @@ def _attribution(visual):
     return out
 
 
+def _question_stamp(visual, live):
+    """A name for the question this preview asks, or "" for no name.
+
+    Only a live preview has one. Everything else draws a snapshot, which
+    is already one immutable answer at a URL that says which.
+
+    Empty where the answer cannot be named -- a source outside the corpus
+    can change without anything here changing -- and an unnameable
+    question is asked every time rather than answered from a copy.
+    """
+    from visuals.models import CORPUS
+
+    if not live or visual.source_kind != CORPUS:
+        return ""
+    from django.db import DatabaseError
+
+    from visuals.corpus import question_stamp
+    from visuals.services import scopes_of
+
+    try:
+        return question_stamp(visual.spec or {}, scopes_of(visual))
+    except DatabaseError:
+        # The stamp is an optimisation. Failing to name the question
+        # means asking it, which is what happened before there was a
+        # name for it.
+        return ""
+
+
 def _credit_line(visual):
     """Whose name sits on the chart, and where a reader writes to.
 
@@ -309,7 +337,16 @@ def _feed_payload(request, visual):
         # Repeat reads are limited by the response's own Cache-Control,
         # set below, which is visible to whoever is reading it.
         data = fetch()
-        return {"slug": visual.slug, "version": None, "data": data}, False
+        # Credited like a published one. The table view reads its owner
+        # and contact off the payload, so without this the preview of a
+        # dataset's own attribution was the one place it could not be
+        # checked before publishing it.
+        return {
+            "slug": visual.slug,
+            "version": None,
+            "attribution": _attribution(visual),
+            "data": data,
+        }, False
 
     asked = _asked_for_version(request)
     if asked is not None:
@@ -489,6 +526,7 @@ def page(request, slug):
             "feed": _feed_url(
                 visual, by_uuid=False, live=may_act_on(request.user, visual)
             ),
+            "stamp": _question_stamp(visual, may_act_on(request.user, visual)),
             "libs": libs_for((visual.config or {}).get("kind")),
             "credit_name": _credit_line(visual)[0],
             "credit_email": _credit_line(visual)[1],
@@ -520,6 +558,9 @@ def public_page(request, slug=None, uuid=None):
             "visual": visual,
             "renderer": f"visuals/renderers/{visual.template}.html",
             "feed": _feed_url(visual, by_uuid=uuid is not None, version=asked),
+            # A snapshot is one answer at a URL that says which, so there
+            # is no live question here to name.
+            "stamp": "",
             "downloads": _downloads(visual, by_uuid=uuid is not None, version=asked),
             "attribution": _attribution(visual),
             "libs": libs_for((visual.config or {}).get("kind")),
@@ -548,6 +589,7 @@ def embed(request, slug=None, uuid=None):
             "visual": visual,
             "renderer": f"visuals/renderers/{visual.template}.html",
             "feed": _feed_url(visual, by_uuid=uuid is not None, version=asked),
+            "stamp": "",
             "theme_stamp": _theme_for(request, visual),
             "geo_preload": _geo_preload(visual),
             "libs": libs_for((visual.config or {}).get("kind")),
@@ -1265,6 +1307,9 @@ def builder_step(request, slug, step):
             # column 1". Without `libs` no library loaded at all, because
             # an undefined name resolves to "" and "d3" in "" is false.
             "feed": _feed_url(visual, by_uuid=False, live=True),
+            # Named, so walking between panels does not ask the corpus
+            # the same question once per panel.
+            "stamp": _question_stamp(visual, True),
             "libs": libs_for((visual.config or {}).get("kind")),
             "credit_name": _credit_line(visual)[0],
             "credit_email": _credit_line(visual)[1],

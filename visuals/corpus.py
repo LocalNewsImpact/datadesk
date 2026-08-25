@@ -687,6 +687,23 @@ def corpus_version():
     return stamp
 
 
+def question_stamp(spec, scopes):
+    """A name for the question a preview is asking.
+
+    Everything the rows depend on goes in: the spec, the datasets the
+    asker may read, and the version of the corpus underneath. Change any
+    of them and the stamp changes; change nothing and it does not.
+
+    This is what lets a preview stop re-asking between panels. Walking
+    Chart -> Look -> Data -> Newsrooms asked the corpus the identical
+    question four times, and the four ran at once inside one container
+    until each was waiting on the other three. It is not a cache of an
+    output: nothing is kept here, and what the browser holds under this
+    name can only ever be the answer to the question being asked.
+    """
+    return _cache_key("question", spec, sorted(scopes or ()))
+
+
 def values_of(dim_key, spec, scopes, limit=200):
     """[(value, articles)] for a dimension, most common first.
 
