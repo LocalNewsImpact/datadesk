@@ -30,6 +30,7 @@
   <table class="grid visuals-list">
     <thead>
       <tr>
+        <th scope="col"><span class="visually-hidden">Move</span></th>
         <th scope="col">Visual</th>
         <th scope="col">Status</th>
         <th scope="col">Pinned</th>
@@ -40,7 +41,7 @@
     {% for group in groups %}
     <tbody class="folder" data-folder="{{ group.folder.id }}">
       <tr class="folder-head">
-        <th colspan="4" scope="colgroup">
+        <th colspan="5" scope="colgroup">
           {{ group.folder.name }}
           <span class="dim">{{ group.visuals|length }}</span>
         </th>
@@ -48,7 +49,7 @@
       {% for visual in group.visuals %}
         {% include "visuals/_row.html" %}
       {% empty %}
-      <tr class="empty-folder"><td colspan="4" class="notice">Nothing filed here yet{% if may_design %} — drag a visual onto this heading{% endif %}.</td></tr>
+      <tr class="empty-folder"><td colspan="5" class="notice">Nothing filed here yet{% if may_design %} — drag a visual onto this heading{% endif %}.</td></tr>
       {% endfor %}
     </tbody>
     {% endfor %}
@@ -56,7 +57,7 @@
     <tbody class="folder" data-folder="">
       {% if groups %}
       <tr class="folder-head">
-        <th colspan="4" scope="colgroup">Unfiled
+        <th colspan="5" scope="colgroup">Unfiled
           <span class="dim">{{ unfiled|length }}</span></th>
       </tr>
       {% endif %}
@@ -64,7 +65,7 @@
         {% include "visuals/_row.html" %}
       {% empty %}
         {% if not groups %}
-      <tr><td colspan="4" class="notice">No visuals registered yet. The
+      <tr><td colspan="5" class="notice">No visuals registered yet. The
       story-geography map is the intended first resident.</td></tr>
         {% endif %}
       {% endfor %}
@@ -84,6 +85,13 @@ is a shortcut to it rather than a second implementation.
   var csrf = document.querySelector("[name=csrfmiddlewaretoken]");
   if (!csrf) return;
 
+  function recount() {
+    document.querySelectorAll("tbody.folder").forEach(function (body) {
+      var slot = body.querySelector(".folder-head .dim");
+      if (slot) slot.textContent = body.querySelectorAll("tr[data-slug]").length;
+    });
+  }
+
   function move(slug, folder, row, into) {
     var body = new FormData();
     body.append("csrfmiddlewaretoken", csrf.value);
@@ -98,17 +106,60 @@ is a shortcut to it rather than a second implementation.
         into.appendChild(row);
         var empty = into.querySelector(".empty-folder");
         if (empty) empty.remove();
+        // ...and the folder it left may now be empty, which is a folder
+        // somebody still has to be able to drag onto.
+        document.querySelectorAll("tbody.folder").forEach(function (b) {
+          if (b.querySelectorAll("tr[data-slug]").length || b.querySelector(".empty-folder")) return;
+          var head = b.querySelector(".folder-head");
+          if (!head) return;
+          var tr = document.createElement("tr");
+          tr.className = "empty-folder";
+          var td = document.createElement("td");
+          td.colSpan = 5;
+          td.className = "notice";
+          td.textContent = "Nothing filed here yet — drag a visual onto this heading.";
+          tr.appendChild(td);
+          b.appendChild(tr);
+        });
         row.querySelectorAll("select[name=folder] option").forEach(function (o) {
           o.selected = o.value === folder;
         });
+        var select = row.querySelector("select[name=folder]");
+        var grip = row.querySelector("button.grip");
+        if (select) select.hidden = true;
+        if (grip) grip.setAttribute("aria-expanded", "false");
+        // The counts are rendered by the server and the row moved without
+        // it. A heading reading "0" above a visual it is holding is worse
+        // than no count -- it says the page is wrong about itself.
+        recount();
       })
       .catch(function () { window.location.reload(); });
   }
 
-  document.querySelectorAll("tr[draggable]").forEach(function (row) {
-    row.addEventListener("dragstart", function (e) {
+  // The grip drags, and the row is what appears under the pointer. A
+  // draggable row would start a drag on the way to any click inside it
+  // and make its text unselectable.
+  document.querySelectorAll("button.grip").forEach(function (grip) {
+    var row = grip.closest("tr");
+    grip.addEventListener("dragstart", function (e) {
       e.dataTransfer.setData("text/plain", row.dataset.slug);
       e.dataTransfer.effectAllowed = "move";
+      if (e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(row, 12, 12);
+      row.classList.add("dragging");
+    });
+    grip.addEventListener("dragend", function () {
+      row.classList.remove("dragging");
+    });
+
+    // Clicking or keying the grip reveals the folder list for that row.
+    // Dragging is a pointer gesture and this is everything else.
+    grip.addEventListener("click", function () {
+      var select = row.querySelector("select[name=folder]");
+      if (!select) return;
+      var open = !select.hidden;
+      select.hidden = open;
+      grip.setAttribute("aria-expanded", String(!open));
+      if (!open) select.focus();
     });
   });
 

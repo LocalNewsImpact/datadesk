@@ -1484,3 +1484,51 @@ def test_copying_uploaded_data_carries_the_rows(client, author):
     assert copy.snapshots.count() == 1
     assert copy.pinned_snapshot.data == ROWS_V1
     assert copy.status == Visual.DRAFT, "still a draft, data or not"
+
+
+def test_the_row_is_moved_by_a_handle_not_the_whole_row(client, designer):
+    """A draggable row starts a drag on the way to any click inside it and
+    makes its text unselectable. A grip on the left is also what people
+    already look for on something reorderable, so it needs no caption."""
+    from visuals.models import Folder
+
+    Folder.objects.create(name="Somewhere", created_by=designer)
+    Visual.objects.create(
+        slug="gripped",
+        title="Gripped",
+        source_kind="bigquery",
+        query="SELECT 1",
+        template="table",
+        created_by=designer,
+    )
+    body = client.get("/visuals/").content.decode()
+
+    assert 'class="grip"' in body
+    assert 'draggable="true"' in body
+    assert "<tr draggable" not in body, "the row itself must not be draggable"
+    # Announced, and it names which visual -- a page of "Move" buttons
+    # tells a screen reader nothing.
+    assert 'aria-label="Move Gripped to a folder"' in body
+
+
+def test_the_folder_list_is_not_repeated_down_the_page(client, designer):
+    """One dropdown per row is a wall of identical controls, and the list
+    is meant to be read rather than operated."""
+    from visuals.models import Folder
+
+    Folder.objects.create(name="Somewhere", created_by=designer)
+    for i in range(3):
+        Visual.objects.create(
+            slug=f"v{i}",
+            title=f"V{i}",
+            source_kind="bigquery",
+            query="SELECT 1",
+            template="table",
+            created_by=designer,
+        )
+    body = client.get("/visuals/").content.decode()
+
+    # Present for every row, so the keyboard and the screen reader have it...
+    assert body.count('name="folder"') == 3
+    # ...and hidden until the grip beside it is used.
+    assert body.count("<select") == body.count("hidden>")

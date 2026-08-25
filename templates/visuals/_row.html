@@ -8,7 +8,31 @@ Draggable only where it is actionable: a viewer sees published visuals and
 may change none of them, so offering to move one would be offering
 something the server will refuse.
 {% endcomment %}
-<tr {% if visual.actionable %}draggable="true" {% endif %}data-slug="{{ visual.slug }}">
+<tr data-slug="{{ visual.slug }}">
+  <td class="grip-cell">
+    {% if visual.actionable and folders %}
+    {% comment %}
+    The handle, not the row. A draggable row means every click on a title
+    or a link starts a drag on the way to the click, and text inside it
+    cannot be selected. A grip is also the thing people already look for
+    on the left of a reorderable row, so it says "this moves" without a
+    caption.
+
+    A button, because it is focusable and announced. Pressing it with a
+    keyboard reveals the folder list below, which is the same move by the
+    same endpoint -- dragging is not the only way to file something.
+    {% endcomment %}
+    <button type="button" class="grip" draggable="true"
+      aria-label="Move {{ visual.title }} to a folder"
+      aria-expanded="false">
+      <svg viewBox="0 0 10 16" aria-hidden="true" width="10" height="16">
+        <circle cx="3" cy="3" r="1.2"/><circle cx="7" cy="3" r="1.2"/>
+        <circle cx="3" cy="8" r="1.2"/><circle cx="7" cy="8" r="1.2"/>
+        <circle cx="3" cy="13" r="1.2"/><circle cx="7" cy="13" r="1.2"/>
+      </svg>
+    </button>
+    {% endif %}
+  </td>
   <td>
     <a href="{% url 'visuals:page' visual.slug %}">{{ visual.title }}</a>
     {% if visual.template == "builder" and visual.actionable %}<a class="edit-link" href="{% url 'visuals:builder_step' visual.slug 'type' %}">edit</a><a class="edit-link" href="{% url 'visuals:builder_edit' visual.slug %}">settings</a>{% comment %}
@@ -20,12 +44,13 @@ something the server will refuse.
       title="A draft copy to change, leaving this one serving">duplicate</button></form>{% endif %}
     {% if visual.actionable and folders %}
     {% comment %}
-    The same move, for anyone not dragging — a touch screen, a keyboard, a
-    screen reader. It posts to the same endpoint, so the drag is a
-    shortcut to this rather than a second way of doing it.
+    The same move for anyone not dragging — a touch screen, a keyboard, a
+    screen reader. Hidden until the grip beside it is used, because one of
+    these on every row is a wall of identical dropdowns and the list is
+    meant to be read, not operated.
     {% endcomment %}
-    <label class="visually-hidden" for="move-{{ visual.slug }}">Folder</label>
-    <select id="move-{{ visual.slug }}" name="folder" class="move-select">
+    <label class="visually-hidden" for="move-{{ visual.slug }}">Folder for {{ visual.title }}</label>
+    <select id="move-{{ visual.slug }}" name="folder" class="move-select" hidden>
       <option value="" {% if not visual.folder_id %}selected{% endif %}>Unfiled</option>
       {% for f in folders %}
       <option value="{{ f.id }}" {% if visual.folder_id == f.id %}selected{% endif %}>{{ f.name }}</option>
