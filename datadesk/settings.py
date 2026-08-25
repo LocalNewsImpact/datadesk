@@ -343,6 +343,23 @@ AUTHENTICATION_BACKENDS = [
     "allauth.account.auth_backends.AuthenticationBackend",
 ]
 
+# --- mail --------------------------------------------------------------------
+#
+# Through the Gmail API rather than SMTP, with the credential the
+# crawler's health check already uses: a service account with
+# domain-wide delegation, sending as a person in the domain.
+#
+# Unset locally, where the console backend prints to the terminal and a
+# developer can read the link they were sent.
+GMAIL_CREDENTIALS_JSON = os.environ.get("GMAIL_CREDENTIALS_JSON", "").strip()
+GMAIL_DELEGATED_USER = os.environ.get("GMAIL_DELEGATED_USER", "").strip()
+EMAIL_BACKEND = (
+    "accounts.mail.GmailAPIBackend"
+    if GMAIL_CREDENTIALS_JSON and GMAIL_DELEGATED_USER
+    else "django.core.mail.backends.console.EmailBackend"
+)
+DEFAULT_FROM_EMAIL = GMAIL_DELEGATED_USER or "datadesk@localnewsimpact.org"
+
 LOGIN_URL = "/accounts/login/"
 LOGIN_REDIRECT_URL = "/admin/" if SERVICE_ROLE == "sources" else "/"
 ACCOUNT_LOGOUT_REDIRECT_URL = "/"

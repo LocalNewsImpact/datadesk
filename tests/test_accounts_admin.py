@@ -293,3 +293,112 @@ def test_the_privacy_policy_says_what_is_done_with_a_google_account(client):
         "myaccount.google.com/permissions",  # how to revoke
     ):
         assert said in body, f"the policy does not mention {said!r}"
+
+
+# --- an account without Google -----------------------------------------------
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_an_admin_creates_an_account_that_signs_in_with_a_password(
+    client, admin, dataset, settings
+):
+    """The same person, the same account and the same grants; only the
+    door differs. An institution that does not use Google could
+    otherwise not have an account here at all."""
+    from accounts.models import Grant
+    from accounts.privileges import DESIGNER
+
+    settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    client.post(
+        reverse("accounts:add_account"),
+        {"email": "colleague@example.edu", "scope": dataset.slug, "role": "designer"},
+    )
+    person = User.objects.get(email="colleague@example.edu")
+    # Unusable rather than blank: a blank password is a password.
+    assert not person.has_usable_password()
+    grant = Grant.objects.get(user=person)
+    assert (grant.scope, grant.role) == (dataset.slug, DESIGNER)
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_set_password_link_works_once(client, admin, dataset, settings):
+    from django.contrib.auth.tokens import default_token_generator
+    from django.utils.encoding import force_bytes
+    from django.utils.http import urlsafe_base64_encode
+
+    settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    client.post(
+        reverse("accounts:add_account"),
+        {"email": "colleague@example.edu", "scope": dataset.slug},
+    )
+    person = User.objects.get(email="colleague@example.edu")
+    url = reverse(
+        "set_password",
+        args=[
+            urlsafe_base64_encode(force_bytes(person.pk)),
+            default_token_generator.make_token(person),
+        ],
+    )
+
+    from django.test import Client
+
+    anon = Client()
+    # Reachable without signing in, which is the state it exists to end.
+    assert anon.get(url).status_code == 200
+    answer = anon.post(
+        url,
+        {
+            "new_password1": "a-long-enough-passphrase",
+            "new_password2": "a-long-enough-passphrase",
+        },
+    )
+    assert answer.status_code in (302, 200)
+    person.refresh_from_db()
+    assert person.has_usable_password()
+
+    # Spent: the token no longer matches the changed password hash.
+    again = anon.get(url).content.decode()
+    assert "has been used" in again
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_nobody_registers_themselves(client):
+    """Password sign-in is open; the sign-up form is not."""
+    from allauth.account.adapter import get_adapter
+
+    assert get_adapter().is_open_for_signup(None) is False
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_screen_says_when_it_cannot_send_the_link(client, admin, dataset, settings):
+    """Promising a link where nothing sends mail makes an account nobody
+    can reach."""
+    settings.GMAIL_CREDENTIALS_JSON = ""
+    settings.GMAIL_DELEGATED_USER = ""
+    body = client.get("/manage/users/").content.decode()
+    assert "Mail is not configured here" in body
+
+    made = client.post(
+        reverse("accounts:add_account"),
+        {"email": "colleague@example.edu", "scope": dataset.slug},
+        follow=True,
+    )
+    # The link is handed to the admin instead of swallowed.
+    assert "set-password" in made.content.decode()
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_users_page_offers_both_doors(client, admin, dataset):
+    """The endpoints existed and nothing on the page posted to them, so
+    an admin had no way to invite anybody. The tests posted to the
+    endpoints directly, which is exactly the gap this closes."""
+    from accounts.models import Invitation
+
+    # Withdrawing is offered per invitation, so there has to be one.
+    Invitation.objects.create(email="guest@example.com", scope=dataset.slug)
+
+    body = client.get("/manage/users/").content.decode()
+    for action in ("accounts:invite", "accounts:uninvite", "accounts:add_account"):
+        assert reverse(action) in body, f"nothing on the page posts to {action}"
+    # ...and each form can name a dataset, which both doors require.
+    assert body.count(f'value="{dataset.slug}"') >= 2

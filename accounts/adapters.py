@@ -13,7 +13,6 @@ from allauth.account.adapter import DefaultAccountAdapter
 from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.conf import settings
-from django.core.exceptions import PermissionDenied
 from django.http import HttpResponseForbidden
 
 
@@ -118,10 +117,18 @@ class DomainRestrictedAdapter(DefaultSocialAccountAdapter):
 
 
 class NoPublicSignupAdapter(DefaultAccountAdapter):
-    """Password signup is closed; accounts arrive via Google or a superuser."""
+    """Nobody registers themselves; an admin creates every account.
+
+    Password sign-in is allowed. Somebody without a Google account -- a
+    colleague at an institution that does not use it, a contractor -- is
+    still one person in the same `User` table holding the same grants;
+    only the door differs. Refusing passwords outright meant they could
+    not have an account at all.
+
+    `is_open_for_signup` stays False, which is the part that matters: the
+    sign-up form is closed, so an address nobody invited cannot make
+    itself an account.
+    """
 
     def is_open_for_signup(self, request):
         return False
-
-    def clean_password(self, password, user=None):
-        raise PermissionDenied("Password accounts are not created here.")
