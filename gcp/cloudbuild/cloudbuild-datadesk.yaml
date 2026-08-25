@@ -157,7 +157,7 @@ steps:
           --image "$$IMAGE" --region "${_REGION}" --project "$PROJECT_ID" \
           --service-account "${_RUN_SA}" \
           --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_DB_PASSWORD=crawler-ro-password:latest,CRAWLER_RW_DB_PASSWORD=crawler-rw-password:latest,GOOGLE_OAUTH_CLIENT_ID=google-oauth-client-id:latest,GOOGLE_OAUTH_CLIENT_SECRET=google-oauth-client-secret:latest,GMAIL_CREDENTIALS_JSON=gmail-credentials:latest" \
-          --set-env-vars "^@^CLOUD_SQL_CONNECTION_NAME=${_SQL_INSTANCE}@DB_NAME=datadesk@DB_USER=datadesk@CRAWLER_DB_NAME=mizzou@CRAWLER_DB_USER=datadesk_ro@CRAWLER_RW_DB_USER=datadesk_rw@ALLOWED_AUTH_DOMAINS=localnewsimpact.org@DJANGO_ALLOWED_HOSTS=${_ADMIN_HOST},.run.app@DJANGO_CSRF_TRUSTED_ORIGINS=https://${_ADMIN_HOST}@SESSION_COOKIE_DOMAIN=.localnewsimpact.org@GMAIL_DELEGATED_USER=chair@localnewsimpact.org" \
+          --set-env-vars "^|^CLOUD_SQL_CONNECTION_NAME=${_SQL_INSTANCE}|DB_NAME=datadesk|DB_USER=datadesk|CRAWLER_DB_NAME=mizzou|CRAWLER_DB_USER=datadesk_ro|CRAWLER_RW_DB_USER=datadesk_rw|ALLOWED_AUTH_DOMAINS=localnewsimpact.org|DJANGO_ALLOWED_HOSTS=${_ADMIN_HOST},.run.app|DJANGO_CSRF_TRUSTED_ORIGINS=https://${_ADMIN_HOST}|SESSION_COOKIE_DOMAIN=.localnewsimpact.org|GMAIL_DELEGATED_USER=chair@localnewsimpact.org" \
           --set-cloudsql-instances "${_SQL_INSTANCE}" \
           --ingress all --allow-unauthenticated \
           --min-instances 0
