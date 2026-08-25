@@ -646,6 +646,7 @@ def publish_panel(visual, post=None, actor=None):
     """
     from visuals.embed import snippet
     from visuals.models import Visual
+    from visuals.sentence import is_complete
 
     if post is not None:
         from visuals.services import publish, unpublish
@@ -682,5 +683,15 @@ def publish_panel(visual, post=None, actor=None):
         "latest": snapshot,
         # Publishing an empty visual produces an embed that renders
         # nothing, which is worse on somebody's page than not existing.
-        "ready": snapshot is not None,
+        # But having no snapshot is not that: it is what everything is
+        # until the first publish, and `publish` takes one when there is
+        # none. Reading it as empty meant this step could only publish
+        # what had been published already, and the visuals that got past
+        # it did so through the refresh on the settings page, from before
+        # publishing lived here.
+        #
+        # What is being asked is whether the visual can draw, which is
+        # the same question the sentence at the top of the page answers
+        # and the preview beside it has already acted on.
+        "ready": snapshot is not None or is_complete(visual),
     }

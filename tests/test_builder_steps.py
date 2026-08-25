@@ -1728,3 +1728,52 @@ def test_a_typed_place_can_be_kept_across_a_newsroom_change(
     assert (
         visual.config.get("focus_name") != "Jackson"
     ), "moving the newsrooms again must re-frame it again"
+
+
+# --- publishing something that has never been published ----------------------
+#
+# The step offered publishing only where a snapshot already existed --
+# which is what publishing makes. Nothing built in the builder could get
+# past it; the visuals in production that did were snapshotted through
+# the refresh on the settings page, from before publishing lived here.
+
+
+def test_a_visual_that_has_never_been_published_can_be(
+    client, author, visual, corpus, two_newsrooms
+):
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _a_corpus_map(visual)
+    # A date range, which is the one gap the sentence has left: the
+    # question is whether a drawable visual can be published, not whether
+    # an unfinished one can.
+    visual.spec = dict(visual.spec, **{"from": "2026-03-01", "to": "2026-03-31"})
+    visual.save(update_fields=["spec"])
+    assert visual.snapshots.count() == 0, "the case that could not publish"
+
+    where = f"/visuals/builder/{visual.slug}/step/publish/"
+    body = client.get(where).content.decode()
+    assert "Nothing to publish yet" not in body, "a drawable visual was called empty"
+
+    client.post(where, {"do": "publish", "stay": "1"})
+    visual.refresh_from_db()
+    assert visual.status == Visual.PUBLISHED
+    assert visual.pinned_snapshot is not None
+    assert visual.pinned_snapshot.version == 1
+
+
+def test_a_visual_with_gaps_left_still_cannot_be_published(
+    client, author, visual, corpus, two_newsrooms
+):
+    """A chart whose fields are unmapped draws nothing, and an embed of
+    nothing is worse on somebody's page than one that does not exist."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": "bar", "theme": "datadesk"}
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {"datasets": ["mizzou"], "roles": {}, "dimensions": []}
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+
+    body = client.get(f"/visuals/builder/{visual.slug}/step/publish/").content.decode()
+    assert "Nothing to publish yet" in body
