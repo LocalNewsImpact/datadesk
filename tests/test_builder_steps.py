@@ -3044,3 +3044,49 @@ def test_a_sankey_folds_each_side_and_says_so():
     assert got["total"] == sum(100 - i for i in range(20))
     # ...and the cap is a cap, not the shape of the data.
     assert got["uncapped"] == 20
+
+
+# --- the fields the corpus was hiding ----------------------------------------
+
+
+def test_every_dimension_can_actually_be_grouped_by(client, author, corpus):
+    """Offered in the picker and unusable in the pivot is worse than not
+    offered: somebody chooses it, presses Update and gets an error from
+    the database.
+
+    `publisher_state` was exactly that in waiting -- `meta` is a `json`
+    column and Postgres has no equality operator for `json`, so grouping
+    by it fails outright.
+    """
+    from visuals.corpus import DIMENSIONS, run_spec
+
+    base = {"datasets": ["mizzou"], "subset": "complete", "measure": "articles"}
+    for key in DIMENSIONS:
+        try:
+            run_spec(dict(base, dimensions=[key]), frozenset(["mizzou"]))
+        except Exception as exc:  # noqa: BLE001 - the point is which ones raise
+            raise AssertionError(f"{key} cannot be grouped by: {exc}") from exc
+
+
+def test_the_new_dimensions_are_offered_where_they_fit(
+    client, author, visual, corpus, two_newsrooms
+):
+    """A byline and a publisher type are categories; a location precision
+    is one too. All of them belong in the slots that take a category."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": "bar", "theme": "datadesk"}
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {"datasets": ["mizzou"], "roles": {"x": "cin_primary"}}
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+
+    body = client.get(f"/visuals/builder/{visual.slug}/step/fields/").content.decode()
+    for offered in (
+        "Publisher type",
+        "Publisher state",
+        "Byline",
+        "Location precision",
+        "How the location was decided",
+    ):
+        assert offered in body, f"{offered} is not offered"
