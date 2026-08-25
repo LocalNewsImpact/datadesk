@@ -82,11 +82,22 @@ def test_a_privilege_the_role_lacks_narrows_to_nothing(reader, two_datasets):
 
 
 def test_scopes_are_per_privilege(reader, two_datasets):
+    """A privilege is asked for per dataset, and a role carries every
+    privilege of every role below it.
+
+    So a reviewer designs where they review: somebody trusted to correct
+    the records is trusted to draw a chart of them, which is the rung
+    below theirs.
+    """
     grant(reader, "reviewer", MINE)
     grant(reader, "designer", THEIRS)
     assert scopes_for(reader, READ) == {MINE, THEIRS, UNIVERSAL}
+    # Correcting records is reviewer and above, so only where they review.
     assert scopes_for(reader, WRITE) == {MINE}
-    assert scopes_for(reader, DESIGN) == {THEIRS, UNIVERSAL}
+    # Designing is theirs on both: given outright on one, carried up the
+    # ladder on the other.
+    assert scopes_for(reader, DESIGN) == {MINE, THEIRS, UNIVERSAL}
+    # Bringing new records in is editor and above, which is neither.
     assert scopes_for(reader, CREATE) == frozenset()
 
 
@@ -154,3 +165,45 @@ def test_an_export_carries_only_held_rows(client, reader, two_datasets):
     body = client.post("/review/export/", {"columns": ["title"]}).content.decode()
     assert "mine story" in body
     assert "theirs story" not in body
+
+
+# --- the ladder --------------------------------------------------------------
+
+
+def test_a_role_carries_everything_below_it():
+    """The invariant, asserted rather than promised in a comment.
+
+    Written as five separate sets it was a promise nobody was keeping: a
+    reviewer held `write` and not `design`, so somebody trusted to
+    correct the records could not draw a chart of them.
+    """
+    from accounts.privileges import ROLE_PRIVILEGES, ROLES
+
+    for lower, higher in zip(ROLES, ROLES[1:], strict=False):
+        assert ROLE_PRIVILEGES[lower] <= ROLE_PRIVILEGES[higher], (
+            f"{higher} does not carry everything {lower} does: "
+            f"missing {sorted(ROLE_PRIVILEGES[lower] - ROLE_PRIVILEGES[higher])}"
+        )
+
+
+def test_the_ladder_says_what_each_rung_adds():
+    """Each role adds exactly one thing to the one below, except admin,
+    which adds no privilege at all -- what makes it admin is the absence
+    of a scope, which the Grant model enforces."""
+    from accounts.privileges import ADMIN, ROLE_ADDS, ROLE_PRIVILEGES, ROLES
+
+    for lower, higher in zip(ROLES, ROLES[1:], strict=False):
+        gained = ROLE_PRIVILEGES[higher] - ROLE_PRIVILEGES[lower]
+        assert (
+            gained == ROLE_ADDS[higher]
+        ), f"{higher} gains {sorted(gained)}, which is not what the ladder says"
+    assert ROLE_ADDS[ADMIN] == frozenset()
+
+
+def test_every_role_is_on_the_ladder():
+    """A role added to one and not the other is a role with no
+    privileges, or privileges nobody can be given."""
+    from accounts.privileges import ROLE_ADDS, ROLE_CHOICES, ROLE_PRIVILEGES, ROLES
+
+    assert set(ROLES) == set(ROLE_ADDS) == set(ROLE_PRIVILEGES)
+    assert [value for value, _label in ROLE_CHOICES] == list(ROLES)

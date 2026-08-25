@@ -53,36 +53,64 @@ EDITOR = "editor"
 DESIGNER = "designer"
 ADMIN = "admin"
 
-ROLES = (VIEWER, REVIEWER, EDITOR, DESIGNER, ADMIN)
+#: The roles in order, least to most. Order is the meaning: each one
+#: carries everything below it and adds one thing of its own, so the
+#: ladder is what the privilege table is built from rather than a
+#: comment beside it.
+ROLES = (VIEWER, DESIGNER, REVIEWER, EDITOR, ADMIN)
 
 ROLE_CHOICES = [
     (VIEWER, "Viewer — reads and exports"),
-    (REVIEWER, "Reviewer — corrects the data that is there"),
-    (EDITOR, "Editor — corrects it, and brings new data in"),
-    (DESIGNER, "Designer — reads, and authors visuals"),
+    (DESIGNER, "Designer — and authors visuals"),
+    (REVIEWER, "Reviewer — and corrects the data that is there"),
+    (EDITOR, "Editor — and brings new data in"),
     (ADMIN, "Admin — everything, every scope, plus user admin"),
 ]
 
-#: A role is defined as the set of privileges it carries.
+#: What each role adds to the one below it.
 #:
-#: A designer is a viewer plus `design`: it reads and exports everything a
-#: viewer does, and adds authoring and publishing visuals. It does not hold
-#: `write`, so a designer never sees a disposition to make — authoring a
-#: visual is not the right to change the records it draws on.
+#: A role carries every privilege of every role beneath it. Written as
+#: five separate sets, that was a promise nobody was keeping: a reviewer
+#: held `write` and not `design`, so somebody trusted to correct the
+#: records could not draw a chart of them -- which reads as an oversight
+#: because it was one.
 #:
-#: An editor holds all three. They are the person who starts a dataset and
-#: then has full rights on it, and who is commonly a viewer on everyone
-#: else's. Admin is the same set with no scope limit.
+#: Written as a ladder it cannot drift. Each row says the one thing that
+#: role adds, the sets are accumulated below, and a test asserts each
+#: role is a superset of its predecessor.
 #:
-#: Reading the WRITE column down this table is reading who the review queue
-#: is for.
-ROLE_PRIVILEGES = {
+#: The order of the rungs is the claim being made:
+#:
+#:   viewer     reads and exports
+#:   designer   ...and authors visuals from what it can read
+#:   reviewer   ...and corrects the records it is drawing
+#:   editor     ...and brings new records in
+#:   admin      ...and is not limited to one dataset
+#:
+#: Admin adds no privilege. What makes it admin is the absence of a
+#: scope, which the Grant model enforces rather than this table.
+ROLE_ADDS = {
     VIEWER: frozenset({READ}),
-    DESIGNER: frozenset({READ, DESIGN}),
-    REVIEWER: frozenset({READ, WRITE}),
-    EDITOR: frozenset({READ, WRITE, CREATE, DESIGN}),
-    ADMIN: frozenset({READ, WRITE, CREATE, DESIGN}),
+    DESIGNER: frozenset({DESIGN}),
+    REVIEWER: frozenset({WRITE}),
+    EDITOR: frozenset({CREATE}),
+    ADMIN: frozenset(),
 }
+
+
+def _accumulate():
+    """Each role's privileges: its own, plus everything below it."""
+    carried, out = set(), {}
+    for role in ROLES:
+        carried |= ROLE_ADDS[role]
+        out[role] = frozenset(carried)
+    return out
+
+
+#: A role is the set of privileges it carries, accumulated up the ladder.
+#: Reading the WRITE column down this table is reading who the review
+#: queue is for.
+ROLE_PRIVILEGES = _accumulate()
 
 #: Bringing new data in — an import, or starting a dataset. Both are
 #: `create`: neither corrects a record that exists, both add records that
