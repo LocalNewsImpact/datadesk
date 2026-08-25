@@ -1,5 +1,52 @@
 {% extends "visuals/steps/_shell.html" %}
 {% block panel %}
+{% if uploaded %}
+{% comment %}
+An upload's data step is the file. Whoever made the file decided its
+slice, so there is nothing here to narrow -- what this step answers is
+"which data", and for a file that is the file.
+
+The columns are listed with the type each was read as, because the type
+is what decides which charts this file can draw. Somebody who meant a
+column of FIPS codes to be geography should be able to see that it was
+read that way, rather than find out at the fields step that it is not on
+offer.
+{% endcomment %}
+<div class="group">
+  <h4>The file</h4>
+  <p class="notice">{{ rows }} row{{ rows|pluralize }}, {{ columns|length }}
+    column{{ columns|length|pluralize }}{% if version %} — version {{ version }},
+    uploaded {{ taken|date:"j F Y" }}{% endif %}.</p>
+  <table class="grid">
+    <thead><tr><th scope="col">Column</th><th scope="col">Read as</th></tr></thead>
+    <tbody>
+      {% for c in columns %}
+      <tr><td>{{ c.label }}</td><td class="dim">{{ c.kind }}</td></tr>
+      {% empty %}
+      <tr><td colspan="2" class="notice">No columns — the file had no rows.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% comment %}
+Replacing is a new version rather than an edit: the rows are the
+snapshot, so a corrected file is the next answer to the same question and
+`?v=` keeps serving the one somebody has already cited.
+{% endcomment %}
+<form method="post" id="step-form" enctype="multipart/form-data">
+  {% csrf_token %}
+  <div class="group">
+    <h4>Replace it</h4>
+    <label>New CSV <input type="file" name="file" accept=".csv"></label>
+  </div>
+  <div class="action-bar">
+    <button type="submit" class="primary">Next</button>
+    <button type="submit" name="stay" value="1"
+      title="Save this step and redraw the preview with it">Update</button>
+  </div>
+</form>
+{% else %}
 <form method="post" id="step-form">
   {% csrf_token %}
   {% comment %}
@@ -110,4 +157,5 @@
   draw();
 })();
 </script>
+{% endif %}
 {% endblock %}

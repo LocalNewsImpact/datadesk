@@ -312,6 +312,21 @@ def _feed_payload(request, visual):
     live = request.GET.get("live") == "1" and (
         visual.allow_live or may_act_on(request.user, visual)
     )
+    if live and visual.source_kind == INLINE:
+        # There is nothing more current than the file. An upload's rows
+        # *are* its snapshot, so "live" and "the latest version" are the
+        # same answer -- and running the source instead raises, which is
+        # what left an uploaded visual with no preview at all.
+        latest = visual.snapshots.order_by("-version").first()
+        if latest is None:
+            raise Http404("Nothing uploaded yet")
+        return {
+            "slug": visual.slug,
+            "version": latest.version,
+            "taken": latest.created_at.date().isoformat(),
+            "attribution": _attribution(visual),
+            "data": latest.data,
+        }, False
     if live:
 
         def fetch():
@@ -1225,7 +1240,7 @@ def builder_step(request, slug, step):
     """
     from visuals import panels
     from visuals.sentence import is_complete, parts_for
-    from visuals.steps import BY_SLUG, STEPS, next_after, reached
+    from visuals.steps import BY_SLUG, next_after, reached, steps_for
 
     if step not in BY_SLUG:
         raise Http404("No such step")
@@ -1233,10 +1248,26 @@ def builder_step(request, slug, step):
     if not may_act_on(request.user, visual):
         raise PermissionDenied("This visual is not yours to change.")
 
+    walk = steps_for(visual)
+    if step not in {s.slug for s in walk}:
+        # Not a step this visual has. Refused rather than rendered,
+        # because a newsroom filter saved against an upload would be a
+        # filter nothing shows and nothing can undo.
+        raise Http404("This visual has no such step")
+
     here = BY_SLUG[step]
     extra = {}
     if step == "data":
-        extra["choices"] = _readable_datasets(request.user)
+        # Only where there are datasets to choose between. An upload's
+        # data step is its file, and listing the corpus for it asks the
+        # crawler a question about a visual that does not read from it.
+        if visual.source_kind == CORPUS:
+            extra["choices"] = _readable_datasets(request.user)
+        # An upload's data step *is* a file, and a file arrives in
+        # FILES rather than POST. Replacing one records a version, so it
+        # is signed like every other version.
+        extra["files"] = request.FILES
+        extra["actor"] = request.user
     elif step == "newsrooms":
         extra["tree"] = _newsroom_tree(visual)
     elif step == "publish":
@@ -1270,8 +1301,16 @@ def builder_step(request, slug, step):
             if "title" in written.get("config", {}):
                 visual.title = written["config"]["title"] or visual.title
                 fields.append("title")
-            if "spec" in written:
-                visual.source_kind = CORPUS
+            # A spec is not proof of a corpus. Every kind of visual has
+            # one -- an upload's fields step writes roles and dimensions
+            # like any other -- so stamping CORPUS here pointed an
+            # uploaded visual at the corpus on its first save, at which
+            # point its own columns were gone and its rows unreachable.
+            #
+            # Which datasets it is wired to is a corpus question too: an
+            # upload reads none, and asking costs a query to the crawler
+            # about a visual that does not read from it.
+            if "spec" in written and visual.source_kind == CORPUS:
                 visual.datasets = _wired_datasets(request.user, visual.spec)
                 fields.append("datasets")
             visual.save(update_fields=[*fields, "updated_at"])
@@ -1290,7 +1329,7 @@ def builder_step(request, slug, step):
             )
             if request.POST.get("stay"):
                 return redirect("visuals:builder_step", visual.slug, step)
-            onward = next_after(step)
+            onward = next_after(step, visual)
             return redirect("visuals:builder_step", visual.slug, onward or step)
 
     context = panel(visual, **extra)
@@ -1309,7 +1348,7 @@ def builder_step(request, slug, step):
                     # one, so those are shown and refused rather than hidden.
                     "ready": s.slug == "type" or "type" in done,
                 }
-                for s in STEPS
+                for s in walk
             ],
             "sentence": parts_for(visual, step),
             "complete": is_complete(visual),

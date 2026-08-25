@@ -124,6 +124,26 @@ STEPS = (
 
 BY_SLUG = {s.slug: s for s in STEPS}
 
+#: Steps that ask a question only the corpus has. An uploaded file has no
+#: newsrooms to choose between: whoever made the file decided that, and
+#: offering the choice would be offering to filter by a column the file
+#: may not even have.
+_CORPUS_ONLY = ("newsrooms",)
+
+
+def steps_for(visual):
+    """The walk this visual actually has.
+
+    The rail is what somebody navigates by, so a step that cannot apply
+    does not belong in it. Showing it disabled would be a numbered stop
+    on the way whose only content is that it is not for you.
+    """
+    from visuals.models import CORPUS
+
+    if visual.source_kind == CORPUS:
+        return STEPS
+    return tuple(s for s in STEPS if s.slug not in _CORPUS_ONLY)
+
 
 def reached(visual):
     """How far this visual has got, as a set of step slugs.
@@ -132,6 +152,8 @@ def reached(visual):
     has looked at it: opening the colour panel and choosing nothing leaves
     the default, which is a decision nobody made.
     """
+    from visuals.models import CORPUS
+
     config, spec = visual.config or {}, visual.spec or {}
     done = set()
     if config.get("kind"):
@@ -142,13 +164,26 @@ def reached(visual):
         done.add("data")
     if spec.get("publishers"):
         done.add("newsrooms")
+    # An upload's data step is the file, and the file is there: a visual
+    # that has rows has answered the only question that step asks.
+    #
+    # Guarded on the key, because an unsaved visual has no rows to ask
+    # about and asking raises rather than answering "none".
+    if visual.pk and visual.source_kind != CORPUS and visual.snapshots.exists():
+        done.add("data")
     if spec.get("dimensions"):
         done.add("fields")
     return done
 
 
-def next_after(slug):
-    """The step to land on after finishing this one."""
-    order = [s.slug for s in STEPS]
+def next_after(slug, visual=None):
+    """The step to land on after finishing this one.
+
+    Follows the walk this visual has, so "Next" from the data step of an
+    upload does not land on a newsroom question it was never shown.
+    """
+    order = [s.slug for s in (steps_for(visual) if visual else STEPS)]
+    if slug not in order:
+        return None
     i = order.index(slug)
     return order[i + 1] if i + 1 < len(order) else None

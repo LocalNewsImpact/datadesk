@@ -12,7 +12,7 @@ what you have.
 from visuals.types import BY_ID
 
 
-def _named(spec, chart):
+def _named(visual, spec, chart):
     """The variables filling this chart's slots, as labels.
 
     Measures are left out. Somebody says "primary against alternate" and
@@ -20,7 +20,7 @@ def _named(spec, chart):
     """
     from visuals.panels import variables
 
-    by_id = {v["id"]: v for v in variables()}
+    by_id = {v["id"]: v for v in variables(visual)}
     picked = spec.get("roles") or {}
     out = []
     for role in chart.roles:
@@ -33,7 +33,7 @@ def _named(spec, chart):
     return out
 
 
-def _measured(spec, chart):
+def _measured(visual, spec, chart):
     """The measures filling this chart's required slots, as labels, but
     only once every one of them is filled.
 
@@ -43,7 +43,7 @@ def _measured(spec, chart):
     """
     from visuals.panels import variables
 
-    by_id = {v["id"]: v for v in variables()}
+    by_id = {v["id"]: v for v in variables(visual)}
     picked = spec.get("roles") or {}
     out = []
     for role in chart.roles:
@@ -89,7 +89,7 @@ def parts_for(visual, step=""):
     out.append(("", chart.label.lower(), "said") if chart else gap("", "chart", "type"))
 
     if chart and chart.roles:
-        named = _named(spec, chart)
+        named = _named(visual, spec, chart)
         if not named:
             # Every required slot filled, and every one of them a number:
             # a scatter plots two measures against each other, so the
@@ -97,7 +97,7 @@ def parts_for(visual, step=""):
             # Reading "filled" off the pretty text meant a scatter could
             # never finish its sentence and so could never be published,
             # whatever anybody chose.
-            named = _measured(spec, chart)
+            named = _measured(visual, spec, chart)
             out.append(
                 ("of", " against ".join(named), "said")
                 if named
