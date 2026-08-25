@@ -1186,6 +1186,14 @@ def builder_step(request, slug, step):
                 current.update(values)
                 setattr(visual, holder, current)
                 fields.append(holder)
+            # One title. The Look step writes the chart's, and the record
+            # carried its own -- set once when the visual was created and
+            # never again -- so renaming a chart left the listing, the
+            # browser tab and the preview's own heading showing whatever
+            # it had been called on the day it was made.
+            if "title" in written.get("config", {}):
+                visual.title = written["config"]["title"] or visual.title
+                fields.append("title")
             if "spec" in written:
                 visual.source_kind = CORPUS
                 visual.datasets = _wired_datasets(request.user, visual.spec)
