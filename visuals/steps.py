@@ -60,6 +60,8 @@ STEPS = (
         # with the first.
         (
             "publishers",
+            "publisher_county",
+            "publisher_city",
             "focus",
             "focus_name",
             "focus_level",
