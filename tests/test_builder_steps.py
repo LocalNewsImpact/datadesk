@@ -3046,6 +3046,78 @@ def test_a_sankey_folds_each_side_and_says_so():
     assert got["uncapped"] == 20
 
 
+# --- how many of a dimension to draw -----------------------------------------
+
+
+def test_a_dimension_can_be_narrowed_to_its_largest_few(client, author, corpus):
+    """A different question from the values ticked beside it. "The ten
+    biggest" stays true as the corpus grows; a list of ten names is a
+    decision about the ten that were biggest the day it was made."""
+    from visuals.corpus import run_spec
+
+    base = {
+        "datasets": ["mizzou"],
+        "subset": "complete",
+        "dimensions": ["cin_primary"],
+        "measure": "articles",
+    }
+    rows, meta = run_spec(base, frozenset(["mizzou"]))
+    assert len(rows) >= 2, "nothing to narrow"
+    assert meta["narrowed_away"] == {}
+
+    top1, meta1 = run_spec(dict(base, top={"cin_primary": 1}), frozenset(["mizzou"]))
+    assert len(top1) == 1
+    # The biggest, not the first one back.
+    assert top1[0]["Articles"] == max(r["Articles"] for r in rows)
+    # ...and it says what it left out, because a chart that narrowed
+    # silently is one a reader takes for the whole picture.
+    assert meta1["narrowed_away"] == {"cin_primary": len(rows) - 1}
+
+    # Asking for more than there are narrows nothing.
+    plenty, meta2 = run_spec(dict(base, top={"cin_primary": 99}), frozenset(["mizzou"]))
+    assert len(plenty) == len(rows)
+    assert meta2["narrowed_away"] == {}
+
+
+def test_the_fields_step_offers_how_many_and_saves_it(
+    client, author, visual, corpus, two_newsrooms
+):
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": "sankey", "theme": "datadesk"}
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {
+        "datasets": ["mizzou"],
+        "roles": {
+            "from": "publisher_city",
+            "to": "publisher_name",
+            "value": "articles",
+        },
+        "dimensions": ["publisher_city", "publisher_name"],
+    }
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+
+    body = client.get(f"/visuals/builder/{visual.slug}/step/fields/").content.decode()
+    assert 'name="top-publisher_city"' in body, "no way to say how many"
+    assert "Top 10" in body
+
+    client.post(
+        f"/visuals/builder/{visual.slug}/step/fields/",
+        {
+            "role-from": "publisher_city",
+            "role-to": "publisher_name",
+            "role-value": "articles",
+            "top-publisher_city": "10",
+            "top-publisher_name": "0",
+            "stay": "1",
+        },
+    )
+    visual.refresh_from_db()
+    # Only the ones actually limited: "all of them" is not a limit.
+    assert visual.spec["top"] == {"publisher_city": 10}
+
+
 # --- the fields the corpus was hiding ----------------------------------------
 
 

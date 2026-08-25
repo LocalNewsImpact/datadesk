@@ -543,6 +543,32 @@ def run_spec(spec, scopes):
         truncated = truncated or len(rows) > MAX_GROUPS
         rows = rows[:MAX_GROUPS]
 
+    # Keep only the largest few of a dimension, where the spec asks.
+    #
+    # After the fold rather than as a filter on the query: a rolled-up
+    # dimension does not exist in SQL -- geo_county is folded from place
+    # codings in Python -- so a SQL filter could not narrow the one that
+    # most needs narrowing.
+    #
+    # This is a different question from the group thresholds above. A
+    # threshold asks "is this group big enough to mean anything"; this
+    # asks "how many of them can be read at once", which is a question
+    # about the chart rather than about the data.
+    narrowed = {}
+    for key in dim_keys:
+        wanted = int((spec.get("top") or {}).get(key) or 0)
+        if wanted <= 0:
+            continue
+        weight = {}
+        for row in rows:
+            weight[row[key]] = (weight.get(row[key]) or 0) + (row[measure_key] or 0)
+        if len(weight) <= wanted:
+            continue
+        ranked = sorted(weight.items(), key=lambda kv: -(kv[1] or 0))
+        keep = {value for value, _ in ranked[:wanted]}
+        narrowed[key] = len(weight) - len(keep)
+        rows = [row for row in rows if row[key] in keep]
+
     # Rename to display headers and normalise types for JSON.
     out = []
     for row in rows:
@@ -574,6 +600,9 @@ def run_spec(spec, scopes):
 
     meta = {
         "qualifying_groups": None if qualifying is None else len(qualifying),
+        # What a "top ten" left out, per dimension. A chart that narrowed
+        # silently is one a reader takes for the whole picture.
+        "narrowed_away": narrowed,
         "thresholds": {
             "min_articles": int(spec.get("min_articles") or 0),
             "min_publishers": int(spec.get("min_publishers") or 0),

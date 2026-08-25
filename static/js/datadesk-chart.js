@@ -1047,6 +1047,13 @@
       .attr("width", width).attr("height", height)
       .attr("font-family", 'system-ui, -apple-system, "Segoe UI", sans-serif')
       .attr("font-size", 12);
+    // In the document before anything is measured. `getComputedTextLength`
+    // returns 0 on a detached element, and a detached svg is what
+    // `d3.create` makes -- so every measurement here was zero, the room
+    // for labels came out as the 10px of padding, and 26 of them ran off
+    // the edges of the ownership map while the trimming decided they all
+    // fitted.
+    el.replaceChildren(svg.node());
     const measure = svg.append("g").attr("visibility", "hidden");
     function widest(side) {
       let most = 0;
@@ -1095,6 +1102,13 @@
         .text((d) => `${d.name}: ${fmt(d.value)}`);
 
     // Outside the diagram on both sides, so a label never sits on a band.
+    //
+    // Trimmed to the room measured for it. The room is capped at a share
+    // of the width -- a name may be longer than any sane column -- and
+    // capping the room without shortening the text is what ran
+    // "www.fourstateshomepage.com" 171 pixels off the right edge and cut
+    // 26 labels on the ownership map. The whole name stays in the
+    // tooltip, so nothing is lost by trimming it.
     svg.append("g")
       .attr("fill", t.ink)
       .selectAll("text")
@@ -1104,9 +1118,12 @@
         .attr("y", (d) => (d.y0 + d.y1) / 2)
         .attr("dy", "0.35em")
         .attr("text-anchor", (d) => d.side === 0 ? "end" : "start")
-        .text((d) => d.name);
+        .each(function (d) {
+          trimTo(this, d.name, (d.side === 0 ? leftRoom : rightRoom) - 8);
+        })
+      .append("title")
+        .text((d) => `${d.name}: ${fmt(d.value)}`);
 
-    el.replaceChildren(svg.node());
     // What was folded, and into what. A chart of the top twelve that
     // looks like a chart of everything is the one thing a cap must not
     // do quietly.
@@ -1146,6 +1163,24 @@
     head.appendChild(left);
     if (back) head.appendChild(back);
     return head;
+  }
+
+  // Put `text` in `node`, shortened with an ellipsis until it fits
+  // `room`. Measured rather than counted: "www.stltoday.com" and
+  // "Webster Groves" are the same number of characters and not the same
+  // width, and a character budget cuts one of them early and the other
+  // late.
+  function trimTo(node, text, room) {
+    node.textContent = text;
+    if (!node.getComputedTextLength || room <= 0) return;
+    if (node.getComputedTextLength() <= room) return;
+    let lo = 0, hi = text.length;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      node.textContent = text.slice(0, mid) + "\u2026";
+      if (node.getComputedTextLength() <= room) lo = mid; else hi = mid - 1;
+    }
+    node.textContent = lo > 0 ? text.slice(0, lo) + "\u2026" : "\u2026";
   }
 
   //: What a blank name is called. A newsroom with no owner recorded is
