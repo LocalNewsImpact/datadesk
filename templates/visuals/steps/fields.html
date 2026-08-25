@@ -92,28 +92,34 @@ the steps before this one.</p>
   </div>
   {% endfor %}
   {% comment %}
-  How much of the chart to draw, once, in the chart's own unit. Asking it
-  per field was the mistake: "the top ten publisher names" and "the top
-  ten cities" are two narrowings whose intersection nobody can predict,
-  and neither is the question a flow chart asks -- which is which
-  pairings are the biggest.
+  How many of the left-hand thing to draw.
 
-  Ranked by the amount that makes the pairing, which is the value field
-  above. A different question from the ticked values beside each field:
-  "the ten biggest" stays true as the corpus grows, where ten ticked
-  names is a decision about the day they were ticked.
+  The number names one column and nothing else. A chart of a relationship
+  shows two things, and "the top ten" is a statement about one of them --
+  the publishers, not the pairings and not the counties they cover. Asked
+  as "top ten pairings" it was a number about neither, and asked per
+  field it was two limits whose intersection nobody can predict.
+
+  The other end is not limited here. Where it has more than can be drawn,
+  the chart gathers the tail into "Everything else" and says so, which is
+  a fact about the drawing rather than a decision about the data.
   {% endcomment %}
+  {% if top_of %}
   <div class="role how-much">
-    <h4>How much to draw</h4>
+    <h4>How many to draw</h4>
     <label class="how-many">Show
       <select name="top">
         {% for value, label in tops %}
         <option value="{{ value }}" {% if top == value %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
-      {{ top_unit }}{% if measure_label %}, the biggest by {{ measure_label|lower }}{% endif %}
+      by <b>{{ top_of|lower }}</b>{% if measure_label %}, the biggest by
+      {{ measure_label|lower }}{% endif %}.
     </label>
+    <p class="notice">Every flow belonging to one of them is drawn, so a
+    {{ top_of|lower }} that is shown is shown whole.</p>
   </div>
+  {% endif %}
 
   <div class="action-bar">
     <button type="submit" class="primary" name="stay" value="1"
