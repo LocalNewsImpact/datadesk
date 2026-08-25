@@ -95,6 +95,12 @@ def theme_panel(visual, post=None):
         if name not in THEME_IDS:
             raise ValueError("No such theme")
         config = {"theme": name}
+        # The chart's own words. Separate from `visual.title`, which names
+        # the record in the console: one is how a reader is introduced to
+        # the picture, the other is how an author finds it again. Blank
+        # stores blank, so a chart can carry no title at all.
+        config["title"] = post.get("title", "").strip()
+        config["subtitle"] = post.get("subtitle", "").strip()
         # Light or dark, or neither. A palette has both variants and the
         # name picks neither of them, so until now "I made it light" was
         # not recorded anywhere and the embed asked the reader's laptop.
@@ -118,6 +124,10 @@ def theme_panel(visual, post=None):
         ],
         "taxonomy": config.get("taxonomy") == "cin",
         "theme_mode": config.get("theme_mode", ""),
+        # Falls back to the record's name, so a new visual arrives with a
+        # sensible title in the box rather than an empty one.
+        "title": config.get("title", "") or visual.title,
+        "subtitle": config.get("subtitle", ""),
     }
 
 

@@ -314,6 +314,17 @@ def _base_queryset(spec, scopes):
     # County and city, never host. A host is an identity and identity is a
     # source UUID; matching outlets on their address is what the proposal
     # queue exists to keep humans in charge of.
+    # The newsrooms step writes this and, until now, nothing read it. A
+    # chart built after narrowing to one county was a chart of every
+    # newsroom in the dataset, and it looked right -- the step said "934
+    # of 1143 kept" and the picture did not change, because the picture
+    # never depended on it.
+    #
+    # Empty means all, which is what the step stores rather than listing
+    # every publisher: a stored list of "everything" goes stale the moment
+    # a newsroom is added.
+    if publishers := spec.get("publishers"):
+        qs = qs.filter(candidate_link__source_id__in=publishers)
     if county := spec.get("publisher_county"):
         qs = qs.filter(candidate_link__source__county__iexact=county)
     if city := spec.get("publisher_city"):

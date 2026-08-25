@@ -1,6 +1,6 @@
 {% extends "visuals/steps/_shell.html" %}
 {% block panel %}
-<form method="post">
+<form method="post" id="step-form">
   {% csrf_token %}
   {% comment %}
   A searchable list with the choices shown as chips above it. A column of
@@ -57,7 +57,8 @@
   </div>
   <div class="action-bar">
     <button type="submit" class="primary">Next</button>
-    <button type="submit" name="stay" value="1">Save</button>
+    <button type="submit" name="stay" value="1"
+      title="Save this step and redraw the preview with it">Update</button>
   </div>
 </form>
 

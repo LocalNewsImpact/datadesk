@@ -7,7 +7,7 @@ checking a state is how you take all of it without ticking eighty boxes.
 Sending nothing means every one of them -- storing exclusions would make
 "all" a list that goes stale the moment a publisher is added.
 {% endcomment %}
-<form method="post">
+<form method="post" id="step-form">
   {% csrf_token %}
   <p class="tree-head">{% if kept == total %}All {{ total }} newsrooms{% else %}{{ kept }} of {{ total }} kept{% endif %}
     <span class="hint">counties · newsrooms, then newsrooms · articles</span></p>
@@ -40,7 +40,8 @@ Sending nothing means every one of them -- storing exclusions would make
   </div>
   <div class="action-bar">
     <button type="submit" class="primary">Next</button>
-    <button type="submit" name="stay" value="1">Save</button>
+    <button type="submit" name="stay" value="1"
+      title="Save this step and redraw the preview with it">Update</button>
   </div>
 </form>
 
