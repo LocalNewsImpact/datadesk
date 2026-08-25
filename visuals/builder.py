@@ -129,11 +129,19 @@ def parse_upload(uploaded_file):
     for row in rows:
         for column in list(numeric):
             value = (row.get(column) or "").strip()
-            if value:
-                try:
-                    float(value)
-                except ValueError:
-                    numeric.discard(column)
+            if not value:
+                continue
+            # A leading zero is not arithmetic. "01001" is Autauga County,
+            # Alabama, and as a number it is 1001 -- a county in Illinois
+            # that does not exist. Any column carrying one stays text,
+            # which is what an identifier is.
+            if len(value) > 1 and value[0] == "0" and value[1] != ".":
+                numeric.discard(column)
+                continue
+            try:
+                float(value)
+            except ValueError:
+                numeric.discard(column)
     typed = []
     for row in rows:
         out = {}

@@ -226,8 +226,18 @@ def _focus_from(post, datasets):
     }
 
 
-def data_panel(visual, post=None, choices=()):
-    """Datasets and a date range. Which fields to draw comes later."""
+def data_panel(visual, post=None, choices=(), files=None, actor=None):
+    """Datasets and a date range. Which fields to draw comes later.
+
+    Or, for an upload, the file: what is in it, and how to replace it.
+    An upload's slice was decided by whoever made the file, so there is
+    nothing here to narrow -- what this step answers is "which data",
+    and for a file that is the file.
+    """
+    from visuals.models import CORPUS
+
+    if visual.source_kind != CORPUS:
+        return _uploaded_data_panel(visual, post, files, actor)
     if post is not None:
         picked = [s for s in post.getlist("datasets") if s]
         allowed = {d["slug"] for d in choices}
@@ -526,6 +536,44 @@ def unmapped_fields(visual):
     return ", ".join(wanted[:-1]) + f" and {wanted[-1]} fields"
 
 
+def _uploaded_data_panel(visual, post=None, files=None, actor=None):
+    """The file behind an uploaded visual, and the shape of it.
+
+    Replacing it is a new version rather than an edit: the rows are the
+    snapshot, so a corrected file is the next answer to the same question
+    and `?v=` keeps serving the one somebody has already cited.
+    """
+    from visuals.builder import BuilderError, parse_upload
+    from visuals.services import record_snapshot
+
+    if post is not None:
+        upload = (files or {}).get("file")
+        if upload is None:
+            # Saving without choosing a file is not an error: somebody
+            # pressed Update to redraw, and the file they have is fine.
+            return {}
+        try:
+            rows = parse_upload(upload)
+        except BuilderError as exc:
+            raise ValueError(str(exc)) from exc
+        record_snapshot(visual, actor, rows, note=f"uploaded {upload.name}")
+        return {}
+
+    latest = visual.snapshots.order_by("-version").first()
+    rows = latest.data if latest else []
+    columns = variables(visual)
+    return {
+        "uploaded": True,
+        "rows": len(rows) if isinstance(rows, list) else 0,
+        "taken": latest.created_at if latest else None,
+        "version": latest.version if latest else None,
+        # Named and typed, because the type is what decides which charts
+        # this file can draw and somebody should be able to see that it
+        # read the column the way they meant.
+        "columns": columns,
+    }
+
+
 def _picks_columns(chart):
     """Whether this kind groups by whatever is ticked.
 
@@ -565,7 +613,105 @@ def _variables():
 VARIABLES = None
 
 
-def variables():
+def _uploaded_columns(visual):
+    """The columns of an uploaded file, typed from what is in them.
+
+    An upload has no dimensions and measures because it has no pivot:
+    what a chart draws from it are the file's own columns, so those are
+    the variables. Id and label are both the header, because the rows are
+    keyed by it and a reader of the file already calls it that.
+
+    Types are read from the values rather than declared, which is what
+    lets the picker say which charts a file supports. `parse_upload` has
+    already turned numeric columns into numbers, so a column holding
+    numbers is a measure.
+    """
+    latest = visual.snapshots.order_by("-version").first()
+    rows = latest.data if latest else None
+    if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+        return []
+    out = []
+    for name in rows[0]:
+        values = [r.get(name) for r in rows if r.get(name) not in (None, "")]
+        number = bool(values) and all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) for v in values
+        )
+        kind = _geo_kind(name, values) or ("number" if number else _text_kind(values))
+        out.append(
+            {
+                "id": name,
+                "label": name,
+                "kind": kind,
+                # A code is not a quantity. Averaging FIPS codes is
+                # arithmetic on names, and offering that as a measure
+                # invites it.
+                "measure": number and kind == "number",
+            }
+        )
+    return out
+
+
+#: What a column of geography is called. A FIPS column reads as a number
+#: -- 29019 is a perfectly good integer -- so its shape alone cannot
+#: separate it from a column of household counts. The name can, and a
+#: census table names it.
+_GEO_NAMES = ("fips", "geoid", "geo_id", "county_fips", "state_fips", "place_fips")
+
+
+def _geo_kind(name, values):
+    """ "geo" where a column is an identifier for a place, else None.
+
+    Both halves have to agree: a column called FIPS whose values are not
+    codings is not geography, and a column of five-digit numbers called
+    "population" is not either.
+    """
+    import re
+
+    if name.strip().lower().replace(" ", "_") not in _GEO_NAMES:
+        return None
+    text = [str(v).strip() for v in values]
+    if text and all(re.fullmatch(r"\d{2}|\d{5}|\d{7}", v) for v in text):
+        return "geo"
+    return None
+
+
+def _text_kind(values):
+    """ "date", "geo" or "text", from what the values look like.
+
+    A geo column is what lets an uploaded table draw a choropleth: census
+    tables are keyed by FIPS, and a column of them is a join to the
+    boundaries rather than a category to colour by. Two digits is a
+    state, five a county, seven a place -- the same codings the corpus
+    groups by.
+
+    Guessed from the values because an upload declares nothing. Where the
+    guess is wrong the column is still offered as text, which is what
+    every column is offered as anyway.
+    """
+    import re
+
+    if not values:
+        return "text"
+    text = [str(v).strip() for v in values]
+    if all(re.fullmatch(r"\d{2}|\d{5}|\d{7}", v) for v in text):
+        return "geo"
+    if all(re.fullmatch(r"\d{4}-\d{2}(-\d{2})?", v) for v in text):
+        return "date"
+    return "text"
+
+
+def variables(visual=None):
+    """What this visual's chart can be built from.
+
+    A corpus visual draws through a pivot, so its variables are the
+    pivot's dimensions and measures -- the same list for every such
+    visual, which is why it is worked out once. An upload has no pivot:
+    what it draws are the columns of the file, which are its own.
+    """
+    from visuals.models import INLINE
+
+    if visual is not None and visual.source_kind == INLINE:
+        return _uploaded_columns(visual)
     global VARIABLES
     if VARIABLES is None:
         VARIABLES = _variables()
@@ -595,7 +741,9 @@ def _values_for(visual, dim_key, kept, user=None):
     through building sees the values they may read rather than none at all;
     what the visual is finally wired to still decides what it draws.
     """
-    if not dim_key or any(v["id"] == dim_key and v["measure"] for v in variables()):
+    if not dim_key or any(
+        v["id"] == dim_key and v["measure"] for v in variables(visual)
+    ):
         return []
     from django.db import DatabaseError
 
@@ -625,19 +773,19 @@ def field_panel(visual, post=None, user=None):
     if post is not None:
         if chart is None:
             raise ValueError("Pick a chart type first")
-        known = {v["id"] for v in variables()}
+        known = {v["id"] for v in variables(visual)}
         roles, dimensions, measure = {}, [], ""
         if _picks_columns(chart):
             # A table is the rows themselves, so it groups by whatever
             # somebody ticks rather than by filling slots with meanings a
             # table does not have. The pivot takes a list of dimensions,
             # which is what this is.
-            columns = {v["id"] for v in variables() if not v["measure"]}
+            columns = {v["id"] for v in variables(visual) if not v["measure"]}
             dimensions = [c for c in post.getlist("columns") if c in columns]
             if not dimensions:
                 raise ValueError("Pick at least one column to group by")
             measure = post.get("measure", "").strip()
-            numbers = {v["id"] for v in variables() if v["measure"]}
+            numbers = {v["id"] for v in variables(visual) if v["measure"]}
             if measure and measure not in numbers:
                 raise ValueError(f"No such count: {measure}")
         for role in chart.roles:
@@ -647,7 +795,7 @@ def field_panel(visual, post=None, user=None):
             if picked not in known:
                 raise ValueError(f"No such variable: {picked}")
             roles[role.id] = picked
-            if any(v["id"] == picked and v["measure"] for v in variables()):
+            if any(v["id"] == picked and v["measure"] for v in variables(visual)):
                 measure = picked
             elif picked not in dimensions:
                 dimensions.append(picked)
@@ -684,7 +832,7 @@ def field_panel(visual, post=None, user=None):
         #
         # A role left empty clears its column, or removing a series would
         # leave the renderer drawing one that is no longer in the rows.
-        by_id = {v["id"]: v for v in variables()}
+        by_id = {v["id"]: v for v in variables(visual)}
         # Every column any kind can name, not just this one's: changing
         # from a chord to a bar has to leave no `from` behind, or the
         # renderer draws a column the rows no longer carry.
@@ -727,11 +875,13 @@ def field_panel(visual, post=None, user=None):
             # per row, for a list somebody is reading rather than
             # narrowing, and it is what took this step to 65 seconds.
             "columns": [
-                dict(v, on=v["id"] in chosen) for v in variables() if not v["measure"]
+                dict(v, on=v["id"] in chosen)
+                for v in variables(visual)
+                if not v["measure"]
             ],
             "measures": [
                 dict(v, on=v["id"] == (spec.get("measure") or "articles"))
-                for v in variables()
+                for v in variables(visual)
                 if v["measure"]
             ],
         }
@@ -739,7 +889,7 @@ def field_panel(visual, post=None, user=None):
     only = spec.get("only") or {}
     slots = []
     for role in chart.roles:
-        fits = [v for v in variables() if v["kind"] in role.accepts]
+        fits = [v for v in variables(visual) if v["kind"] in role.accepts]
         chosen = picked.get(role.id, "")
         kept = only.get(chosen, [])
         slots.append(

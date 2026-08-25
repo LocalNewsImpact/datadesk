@@ -2353,3 +2353,153 @@ def test_a_published_feed_says_which_answer_it_is_and_when(
     feed = Client().get(f"/visuals/{visual.slug}/data.json").json()
     assert feed["version"] == 1
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", feed["taken"]), feed.get("taken")
+
+
+# --- a chart built from a file somebody uploaded -----------------------------
+#
+# Not article data. A survey, a census table, anything related to the
+# work and not produced by the pipeline. The walk was corpus-shaped --
+# its Data step asks which articles and its Newsrooms step asks whose --
+# so a file could be uploaded and never built into anything.
+
+
+SURVEY_CSV = (
+    "Source,None,Very little,Some,Quite a bit,A lot\n"
+    "Local TV news station,8,14,27,28,23\n"
+    "Local daily newspaper,31,24,23,14,9\n"
+    "Local radio station,13,23,32,19,13\n"
+)
+
+
+def _upload(client, title, csv_text=SURVEY_CSV):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    return client.post(
+        "/visuals/builder/new/",
+        {
+            "title": title,
+            "source_kind": "inline",
+            "file": SimpleUploadedFile(
+                "survey.csv", csv_text.encode(), content_type="text/csv"
+            ),
+        },
+    )
+
+
+def test_a_chart_is_built_from_an_uploaded_file(client, author):
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    assert _upload(client, "Where People Get News").status_code in (302, 303)
+    v = Visual.objects.get(slug="where-people-get-news")
+    assert v.snapshots.count() == 1, "the file is the first version"
+
+    def press(name, **fields):
+        got = client.post(
+            f"/visuals/builder/{v.slug}/step/{name}/", dict(fields, stay="1")
+        )
+        assert got.status_code in (200, 302), f"{name}: {got.status_code}"
+        v.refresh_from_db()
+
+    # The walk it has: no newsroom step, because a file has no newsrooms
+    # and whoever made it decided that already.
+    rail = client.get(f"/visuals/builder/{v.slug}/step/type/").content.decode()
+    assert "Newsrooms" not in rail
+    assert client.get(f"/visuals/builder/{v.slug}/step/newsrooms/").status_code == 404
+
+    # The data step is the file, and says how it read it.
+    import re as _re
+
+    data = client.get(f"/visuals/builder/{v.slug}/step/data/").content.decode()
+    flat = _re.sub(r"\s+", " ", data)
+    assert "3 rows, 6 columns" in flat, "the file step does not say what is in it"
+    assert "Quite a bit" in flat, "the columns are not listed"
+
+    press("type", kind="bar")
+    press("theme", theme="datadesk", title="Where people get news", theme_mode="light")
+    # The file's own columns, not the corpus's dimensions.
+    press("fields", **{"role-x": "Source", "role-y": "A lot"})
+    assert v.spec["roles"] == {"x": "Source", "y": "A lot"}
+    assert v.config["x"] == "Source" and v.config["y"] == "A lot"
+
+    # ...and it draws them.
+    feed = client.get(f"/visuals/{v.slug}/data.json?live=1").json()
+    assert feed["data"][0]["Source"] == "Local TV news station"
+    assert feed["data"][0]["A lot"] == 23
+
+    body = client.get(f"/visuals/builder/{v.slug}/step/publish/").content.decode()
+    assert "Nothing to publish yet" not in body
+    press("publish", do="publish")
+    assert v.status == Visual.PUBLISHED
+
+    from django.test import Client
+
+    reader = Client()
+    page = reader.get(f"/embed/{v.slug}/")
+    assert page.status_code == 200
+    import re
+
+    for url in re.findall(r'fetch\("([^"]*)"\)', page.content.decode()):
+        assert reader.get(url).status_code == 200
+
+
+def test_an_uploaded_file_types_its_own_columns(client, author):
+    """The type is what decides which charts a file can draw, so it is
+    read from the values and shown at the data step -- somebody who meant
+    a column of FIPS codes as geography should see that it was read that
+    way, rather than find out at the fields step that it is not offered."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _upload(
+        client,
+        "Census Table",
+        "County,FIPS,Month,Households\n"
+        "Boone,29019,2026-03,48210\n"
+        "Jackson,29095,2026-03,283900\n",
+    )
+    v = Visual.objects.get(slug="census-table")
+    from visuals.panels import variables
+
+    kinds = {c["id"]: c["kind"] for c in variables(v)}
+    assert kinds == {
+        "County": "text",
+        "FIPS": "geo",
+        "Month": "date",
+        "Households": "number",
+    }
+
+    # ...and a choropleth can therefore be built from it, which is the
+    # point: a census table joins on FIPS.
+    fields = client.get(f"/visuals/builder/{v.slug}/step/fields/")
+    client.post(
+        f"/visuals/builder/{v.slug}/step/type/", {"kind": "choropleth", "stay": "1"}
+    )
+    body = client.get(f"/visuals/builder/{v.slug}/step/fields/").content.decode()
+    assert fields.status_code == 200
+    assert "FIPS" in body and "Households" in body
+
+
+def test_replacing_the_file_is_a_new_version(client, author):
+    """The rows are the snapshot, so a corrected file is the next answer
+    to the same question -- and `?v=1` keeps serving the one somebody has
+    already cited."""
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _upload(client, "Twice Uploaded")
+    v = Visual.objects.get(slug="twice-uploaded")
+
+    corrected = SURVEY_CSV.replace("8,14,27,28,23", "9,14,27,28,22")
+    client.post(
+        f"/visuals/builder/{v.slug}/step/data/",
+        {
+            "file": SimpleUploadedFile(
+                "survey.csv", corrected.encode(), content_type="text/csv"
+            ),
+            "stay": "1",
+        },
+    )
+    v.refresh_from_db()
+    assert v.snapshots.count() == 2
+    assert v.snapshots.order_by("-version").first().data[0]["None"] == 9
+    assert v.snapshots.order_by("version").first().data[0]["None"] == 8
