@@ -20,7 +20,7 @@ from django.core.management.base import BaseCommand, CommandError
 from datasets.geo import state_code
 from explorer.models import Dataset, DatasetSource, Source
 from review.flags import FLAGS
-from review.proposals import ChangeProposal
+from review.proposals import ChangeProposal, DatasetScan, sources_stamp
 
 EVIDENCE_FIELDS = ("canonical_name", "city", "county", "owner", "type")
 
@@ -49,6 +49,11 @@ class Command(BaseCommand):
         parser.add_argument(
             "--dry-run", action="store_true", help="report without queueing"
         )
+        parser.add_argument(
+            "--if-changed",
+            action="store_true",
+            help="skip a dataset whose records have not moved since it last scanned",
+        )
 
     def handle(self, *args, **options):
         if options["dataset"]:
@@ -66,7 +71,21 @@ class Command(BaseCommand):
         if options["evidence"] and not options["dataset"]:
             raise CommandError("--evidence needs --dataset: a file is about one")
         for dataset in wanted:
+            stamp = ""
+            if options["if_changed"]:
+                stamp = sources_stamp(dataset.slug)
+                last = DatasetScan.objects.filter(dataset=dataset.slug).first()
+                if last and last.stamp == stamp:
+                    self.stdout.write(f"{dataset.slug}: unchanged, not scanned")
+                    continue
             self._scan(dataset, options)
+            # Recorded after the scan, and only when it did the work: a
+            # stamp written for a dry run would make the next real run
+            # skip the records it never looked at.
+            if options["if_changed"] and not options["dry_run"]:
+                DatasetScan.objects.update_or_create(
+                    dataset=dataset.slug, defaults={"stamp": stamp}
+                )
 
     def _scan(self, dataset, options):
         default_state = (
