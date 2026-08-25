@@ -16,7 +16,19 @@
     links to whoever that dataset says to ask.
     {% endcomment %}
     <span class="dd-source">Source:
-      {% if credit_name %}<a href="{% if credit_email %}mailto:{{ credit_email }}{% else %}#{% endif %}">{{ credit_name }}</a>{% else %}{{ visual.config.source|default:"Local News Impact Consortium" }}{% endif %}
+      {% comment %}
+      Two answers, and `config.source` is not one of them. It is free
+      text from the settings page, and the visuals carrying "LNIC
+      research corpus" -- a database name, read by nobody as a publisher
+      -- kept showing it because the template preferred whatever was
+      stored over the consortium it falls back to.
+
+      The consortium publishes what is built here, so its name links to
+      it. A visual built on somebody else's data credits them instead,
+      chosen in the Look step, and links to the contact that dataset
+      publishes.
+      {% endcomment %}
+      {% if credit_name %}<a href="{% if credit_email %}mailto:{{ credit_email }}{% else %}#{% endif %}">{{ credit_name }}</a>{% else %}<a href="https://localnewsimpact.org">Local News Impact Consortium</a>{% endif %}
       {% comment %}
       Under the name: which answer this is and what it is an answer
       about. Filled from the payload, because the version is a property

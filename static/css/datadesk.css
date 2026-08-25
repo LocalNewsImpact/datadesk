@@ -1679,10 +1679,10 @@ tr.prop td { border-bottom: 0; }
 .dd-export{ display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
   margin-top: var(--s-2); padding-top: var(--s-2);
   border-top: 1px solid var(--border); }
-.dd-export button{ font: inherit; font-size: var(--fs-sm); cursor: pointer;
+.dd-export button, .dd-export .dd-download{ font: inherit; font-size: var(--fs-sm); cursor: pointer;
   padding: .26rem .6rem; border-radius: var(--r-sm);
   border: 1px solid var(--border); background: var(--surface); color: var(--text); }
-.dd-export button:hover{ border-color: var(--accent); color: var(--accent); }
+.dd-export button:hover, .dd-export .dd-download:hover{ border-color: var(--accent); color: var(--accent); }
 .dd-export-note{ margin-left: auto; color: var(--text-3); font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums; }
 /* The fallback when the clipboard is refused: something to copy from by
@@ -1896,3 +1896,7 @@ tr.dragging{ opacity: .5; }
 .dd-panel-lead{ min-width: 0; }
 /* Nothing on the left is not a reason for the button to move left. */
 .dd-panel-head > .dd-toggle{ flex: none; margin-left: auto; }
+
+/* A download offered on the page: an anchor so right-click "Save as" and
+   middle-click keep working, wearing the export bar's button. */
+.dd-export .dd-download{ display: inline-block; text-decoration: none; }

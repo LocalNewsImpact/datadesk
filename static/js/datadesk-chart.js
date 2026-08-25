@@ -483,16 +483,19 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function exportBar(el, rows, slug) {
+  function exportBar(el, rows, slug, withCsv) {
     const bar = document.createElement("div");
     bar.className = "dd-export";
 
-    const csv = document.createElement("button");
-    csv.type = "button";
-    csv.textContent = "Download CSV";
-    csv.title = "Flourish takes a CSV upload";
-    csv.addEventListener("click", () =>
-      download(asDelimited(rows, ","), (slug || "data") + ".csv", "text/csv"));
+    let csv = null;
+    if (withCsv) {
+      csv = document.createElement("button");
+      csv.type = "button";
+      csv.textContent = "Download CSV";
+      csv.title = "Flourish takes a CSV upload";
+      csv.addEventListener("click", () =>
+        download(asDelimited(rows, ","), (slug || "data") + ".csv", "text/csv"));
+    }
 
     const copy = document.createElement("button");
     copy.type = "button";
@@ -523,7 +526,8 @@
     note.className = "dd-export-note";
     note.textContent = rows.length.toLocaleString() + " rows";
 
-    bar.append(csv, copy, note);
+    if (csv) bar.append(csv);
+    bar.append(copy, note);
     el.appendChild(bar);
   }
 
@@ -625,13 +629,20 @@
         heading.textContent = name;
         el.appendChild(heading);
       }
-      el.appendChild(oneTable(rows));
+      // Above the table, not below it. A control for taking the data is
+      // not something to find after scrolling past five hundred rows.
+      //
       // One export per list rather than one for the page: a reader who
       // wants the county totals should not have to take the point layer
-      // with them to get it.
-      // Every row, not the five hundred shown: somebody exporting wants
-      // the data, and the cap above is about what a page can render.
-      exportBar(el, rows, name ? `${slug}-${name}` : slug);
+      // with them to get it. Every row, not the five hundred shown --
+      // the cap is about what a page can render.
+      //
+      // Where the page offers its own downloads it offers the same CSV,
+      // from the snapshot file rather than from the rows on screen, and
+      // two buttons doing one thing is worse than either. The copy is
+      // still ours: no server file is a clipboard.
+      exportBar(el, rows, name ? `${slug}-${name}` : slug, !takeaway);
+      el.appendChild(oneTable(rows));
     }
     creditLine(el, credits);
   }

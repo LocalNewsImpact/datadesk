@@ -25,8 +25,17 @@ and neither of those exists on this host.
        `display: flex` above made the attribute do nothing and the block
        sat under the figure -- the footer it was moved out of being. */
     .takeaway[hidden] { display: none; }
-    .takeaway label { display: inline-flex; align-items: center;
-                      gap: 0.4rem; cursor: pointer; }
+    /* The snippet is folded away: a reader wants the numbers, and a
+       newsroom that wants to embed this will open one thing to find it. */
+    .embed-offer > summary { cursor: pointer; color: var(--text-2);
+                             font-size: var(--fs-sm); }
+    .embed-offer > summary:hover { color: var(--text); }
+    .embed-pair { display: grid; gap: 1rem; margin-top: .75rem;
+                  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
+    .embed-snippet { background: var(--bg); border: 1px solid var(--border);
+                     border-radius: var(--r-sm); padding: .6rem;
+                     font-size: var(--fs-xs); overflow-x: auto;
+                     white-space: pre-wrap; word-break: break-all; margin: .3rem 0 0; }
     .figure { background: var(--surface); border: 1px solid var(--border);
               border-radius: var(--r-lg); padding: 1.5rem;
               overflow-x: auto; }
@@ -54,40 +63,62 @@ and neither of those exists on this host.
     <div class="figure">{% include renderer %}</div>
 
     <div id="dd-takeaway" class="takeaway" hidden>
-      {% if shown %}
-      <p class="note">Data as of {{ shown.created_at|date:"j F Y" }} —
-        snapshot v{{ shown.version }}.</p>
-      {% endif %}
-      {% if downloads %}
-      <p class="note files-lead">Take the data:
-        {% for file in downloads %}{% if not forloop.first %} · {% endif %}<a
-          href="{{ file.url }}" data-pinned="{{ file.url }}"
-          data-latest="{{ file.latest_url }}">{{ file.label }}</a>
-          <span class="dim">{{ file.note }}</span>{% endfor %}
-      </p>
-      {% if shown %}
       {% comment %}
-      Which version these links ask for. Somebody checking a claim wants
-      the version the claim was made from; somebody wiring the feed into
-      something of their own wants whatever is published.
+      The numbers behind the chart on this page, which is the only thing
+      a reader taking them could mean. They carry the version being
+      shown, so a spreadsheet checked against this chart holds the same
+      figures -- the links used to follow whatever got published next,
+      under a line saying "snapshot v4".
       {% endcomment %}
-      <p class="note"><label><input type="checkbox" id="pin-links"
-        {% if not pinned_by_url %}checked{% endif %}> Fix these links to
-        v{{ shown.version }} — otherwise they follow whatever is
-        published</label></p>
-      <script>
-      (function () {
-        var box = document.getElementById("pin-links");
-        var links = document.querySelectorAll("#dd-takeaway a[data-pinned]");
-        box.addEventListener("change", function () {
-          links.forEach(function (a) {
-            a.href = box.checked ? a.dataset.pinned : a.dataset.latest;
-          });
-        });
-      })();
-      </script>
+      {% if downloads %}
+      {% comment %}
+      Buttons, because each one starts a download rather than going
+      somewhere: a reader who middle-clicks a link expects a page.
+      `download` names the file rather than letting the browser guess it
+      from a URL ending in `data.csv?table=areas`.
+      {% endcomment %}
+      <p class="note files-lead">Take the data — snapshot v{{ shown.version }}:</p>
+      <div class="dd-export">
+        {% for file in downloads %}
+        <a class="dd-download" href="{{ file.url }}"
+           download="{{ visual.slug }}-v{{ shown.version }}{{ file.suffix }}"
+           role="button">{{ file.label }}</a>
+        {% endfor %}
+        <span class="dd-export-note">{{ shown.created_at|date:"j F Y" }}</span>
+      </div>
       {% endif %}
+
+      {% comment %}
+      The snippet, for a newsroom that found this visual rather than
+      built it -- exactly who needs it, and the one thing on the page a
+      version changes. A link takes the numbers behind this chart and
+      always should; an embed is a chart on somebody else's page, and
+      whether that moves when this is republished has two right answers.
+
+      Both are shown rather than one control rewriting the other: the
+      difference is a `v=` in a URL, and seeing them side by side is what
+      makes the choice mean anything to somebody who has not read the
+      docs.
+      {% endcomment %}
+      {% if snippets %}
+      <details class="embed-offer">
+        <summary>Embed this visual</summary>
+        <div class="embed-pair">
+          <div>
+            <p class="note"><strong>Follows what is published.</strong>
+              Republish this visual and the chart in the article changes
+              with it.</p>
+            <pre class="embed-snippet"><code>{{ snippets.current }}</code></pre>
+          </div>
+          <div>
+            <p class="note"><strong>Fixed to v{{ snippets.version }}.</strong>
+              Stays these exact numbers, whatever is published later.</p>
+            <pre class="embed-snippet"><code>{{ snippets.pinned }}</code></pre>
+          </div>
+        </div>
+      </details>
       {% endif %}
+
       {% if pinned_by_url %}
       <p class="note">This page is pinned to that version;
         <a href="?">the current one</a> may differ.</p>
