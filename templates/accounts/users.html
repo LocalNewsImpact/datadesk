@@ -5,9 +5,11 @@
 <section class="card card-wide">
   <h1>Users</h1>
   <p class="lede">
-    Every account that can sign in. Sign-in itself is Google with a
-    hosted-domain restriction; a new account has no role until an admin
-    assigns one on <a href="{% url 'accounts:roles' %}">Roles</a>.
+    Every account that can sign in. Sign-in is Google, restricted to
+    {% for d in domains %}{% if not forloop.first %} and {% endif %}<b>{{ d }}</b>{% empty %}no domain{% endfor %}
+    accounts and to the addresses invited below; a new account from the
+    domain has no role until an admin assigns one on
+    <a href="{% url 'accounts:roles' %}">Roles</a>.
   </p>
 
   <div class="table-viewport">

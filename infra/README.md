@@ -57,6 +57,7 @@ executing code that is not deployed.
 | Registry | `us-central1-docker.pkg.dev/lnic-datadesk/app` |
 | Runtime SA | `datadesk-run@` — Cloud SQL client, secret accessor, BigQuery jobs; reader on `mizzou_analytics`, writer on `gs://mizzou-news-maps-data` |
 | Deploy SA | `github-deploy@` — Run developer, registry writer, SA user |
+| External sign-in | invitation by address, plus the consent screen — `infra/oauth-external.md` |
 | Secrets | `django-secret-key`, `db-password`, `crawler-ro-password`, `crawler-rw-password`, `google-oauth-client-id`, `google-oauth-client-secret` |
 | App database | `datadesk` on `mizzou-news-crawler:us-central1:mizzou-db-prod` |
 | Crawler read | role `datadesk_ro`, SELECT-only on `mizzou` |

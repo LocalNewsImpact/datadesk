@@ -8,6 +8,8 @@ app_name = "accounts"
 
 urlpatterns = [
     path("users/", views.users, name="users"),
+    path("invite/", views.invite, name="invite"),
+    path("uninvite/", views.uninvite, name="uninvite"),
     path("roles/", views.roles, name="roles"),
     path("roles/set/", views.set_role, name="set_role"),
 ]

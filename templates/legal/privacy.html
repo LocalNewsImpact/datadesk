@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Privacy — Local News Impact Consortium{% endblock %}
+
+{% comment %}
+Reachable without signing in, which is Google's requirement for the page
+the consent screen links and is what every other page of this console is
+not. It describes what the code does; it deploys with the code so it
+cannot quietly stop being true.
+{% endcomment %}
+
+{% block content %}
+<section class="card">
+  <h1>Privacy</h1>
+  <p class="lede">This page describes what this application does with the
+  Google account you sign in with. It is written for the people invited to
+  use it, and for Google's OAuth consent screen, which requires it.</p>
+
+  <h2>Who runs this</h2>
+  <p>The Local News Impact Consortium, at
+  <a href="https://localnewsimpact.org">localnewsimpact.org</a>. Questions
+  about anything here go to
+  <a href="mailto:data@localnewsimpact.org">data@localnewsimpact.org</a>.</p>
+
+  <h2>What we ask Google for</h2>
+  <p>Two things, and nothing else: your <b>email address</b> and your
+  <b>basic profile</b> — the name and picture on your Google account.
+  Google calls these non-sensitive scopes. We do not ask for your
+  contacts, your calendar, your files, or anything in any other Google
+  service, and we cannot read them.</p>
+
+  <h2>What we store, and why</h2>
+  <ul>
+    <li><b>Your email address</b> — it is how the application knows which
+    account is yours across visits, and how an administrator recognises
+    you when granting access.</li>
+    <li><b>Your name</b>, as Google gives it, shown beside actions you
+    take so colleagues can see who did what.</li>
+    <li><b>When you last signed in</b>, so an administrator can see which
+    accounts are still in use.</li>
+    <li><b>What you do here</b> — an audit record of changes you make to
+    research data, naming you, so a change can be traced and undone.</li>
+  </ul>
+  <p>We do not store your Google password; we never see it. We do not
+  store your profile picture.</p>
+
+  <h2>Who else sees it</h2>
+  <p>Nobody outside the consortium. Your address and name are visible to
+  other people signed in to this application, on the pages that list
+  accounts and in the audit record. We do not sell it, we do not share it
+  with advertisers, and we do not use it to build a profile of you. It is
+  not used for advertising of any kind.</p>
+  <p>The application runs on Google Cloud, which stores this data on our
+  behalf under our account. Nothing is passed to any other third party.</p>
+
+  <h2>How long we keep it</h2>
+  <p>While your account exists here. Ask us to delete it and we will
+  remove the account and its access; the audit record of changes you made
+  to research data is kept, because a record of who changed what stops
+  being useful the moment it can be edited.</p>
+
+  <h2>Who can sign in</h2>
+  <p>Accounts on
+  {% for d in domains %}{% if not forloop.first %} and {% endif %}<b>{{ d }}</b>{% empty %}the consortium's domain{% endfor %},
+  and addresses an administrator has invited by name. Signing in does not
+  by itself give you access to anything: an administrator grants a role on
+  a dataset, and without one you can see nothing.</p>
+
+  <h2>Your choices</h2>
+  <p>You can revoke this application's access to your Google account at
+  any time at
+  <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.
+  That stops you signing in; it does not delete the account here, which you
+  can ask us to do.</p>
+
+  <p class="notice">Last updated 25 August 2026.
+  See also the <a href="{% url 'terms' %}">terms of use</a>.</p>
+</section>
+{% endblock %}

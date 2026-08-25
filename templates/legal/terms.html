@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Terms of use — Local News Impact Consortium{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h1>Terms of use</h1>
+  <p class="lede">This is a research tool operated by the Local News
+  Impact Consortium for invited colleagues. It is not a public service and
+  it is not sold.</p>
+
+  <h2>Access</h2>
+  <p>Access is by invitation and can be withdrawn at any time. Sign in
+  with the account you were invited as, and do not share it: everything
+  done here is recorded against the account that did it.</p>
+
+  <h2>The data</h2>
+  <p>What you see here is research data about local news coverage, some
+  of it unpublished and some of it provided by partner institutions on
+  terms of their own. Treat it as the consortium's or the contributing
+  institution's, and do not redistribute it outside the work you were
+  invited to do. Where a dataset names an owner, that owner's terms come
+  with it.</p>
+  <p>Figures shown here are working research output. They may be revised,
+  and a chart published from here carries the version it was published at
+  so a reader can tell which.</p>
+
+  <h2>What we ask of you</h2>
+  <ul>
+    <li>Do not attempt to reach data you have not been granted.</li>
+    <li>Do not use the tool to identify or profile individuals.</li>
+    <li>Tell us at
+    <a href="mailto:data@localnewsimpact.org">data@localnewsimpact.org</a>
+    if you find a way to do either.</li>
+  </ul>
+
+  <h2>No warranty</h2>
+  <p>The tool is provided as it is, for research. The consortium does not
+  warrant that it is available, correct or fit for any particular purpose,
+  and is not liable for decisions taken on the basis of what it shows.</p>
+
+  <p class="notice">Last updated 25 August 2026.
+  See also the <a href="{% url 'privacy' %}">privacy policy</a>.</p>
+</section>
+{% endblock %}

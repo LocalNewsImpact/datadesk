@@ -13,6 +13,7 @@ screen that said "no role" about somebody who edits one dataset would be
 lying.
 """
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.shortcuts import redirect, render
@@ -60,8 +61,130 @@ def _people():
 
 @requires_admin
 def users(request):
-    """Who can sign in, their role, and when they last did."""
-    return render(request, "accounts/users.html", {"people": _people()})
+    """Who can sign in, their role, and when they last did.
+
+    And who may sign in but has not yet: an invitation is a decision
+    already taken, so it belongs on the list of who can get in rather
+    than somewhere else.
+    """
+    from accounts.models import Invitation
+    from accounts.privileges import DESIGNER, ROLE_CHOICES
+
+    return render(
+        request,
+        "accounts/users.html",
+        {
+            "people": _people(),
+            "invitations": Invitation.objects.all(),
+            "datasets": _invitable_datasets(),
+            "roles": ROLE_CHOICES,
+            "default_role": DESIGNER,
+            "domains": settings.ALLOWED_AUTH_DOMAINS,
+        },
+    )
+
+
+def _invitable_datasets():
+    """Datasets an invitation can name, or [] where the corpus is
+    unreachable -- an invite screen that cannot list them should say so
+    rather than offer a free-text box that admits a typo."""
+    from django.db import DatabaseError
+
+    try:
+        from explorer.models import Dataset
+
+        return list(Dataset.objects.order_by("slug").values("slug", "label"))
+    except DatabaseError:
+        return []
+
+
+@requires_admin
+@require_POST
+def invite(request):
+    """Admit one address from outside the organisation.
+
+    A dataset is required, because an invitation admits somebody to work
+    on something: one naming no dataset would admit them to a console
+    with nothing in it, which reads as a broken sign-in rather than as a
+    grant nobody made.
+    """
+    from accounts.models import Invitation
+    from accounts.privileges import DESIGNER, ROLES
+
+    email = (request.POST.get("email") or "").strip().lower()
+    scope = (request.POST.get("scope") or "").strip()
+    role = (request.POST.get("role") or DESIGNER).strip()
+
+    if "@" not in email:
+        messages.error(request, "That is not an address.")
+        return redirect("accounts:users")
+    if not scope:
+        messages.error(request, "Choose the dataset they are being invited to.")
+        return redirect("accounts:users")
+    if role not in ROLES:
+        messages.error(request, f"{role} is not a role.")
+        return redirect("accounts:users")
+    if any(email.endswith(f"@{d.lower()}") for d in settings.ALLOWED_AUTH_DOMAINS):
+        # They can already sign in. An invitation would be a second answer
+        # to a question the domain has already answered.
+        messages.error(
+            request, f"{email} can already sign in; give them a role on Roles."
+        )
+        return redirect("accounts:users")
+
+    invitation, made = Invitation.objects.get_or_create(
+        email=email,
+        defaults={"scope": scope, "role": role, "invited_by": request.user},
+    )
+    if not made:
+        messages.error(request, f"{email} is already invited.")
+        return redirect("accounts:users")
+
+    AuditLogEntry.objects.create(
+        actor=request.user,
+        action="accounts:invited",
+        target_table="accounts_invitation",
+        target_ids=[email],
+        after={"scope": scope, "role": role},
+        reason=f"invited {email} as {role} on {scope}",
+    )
+    messages.success(
+        request,
+        f"{email} may now sign in with Google. They will hold {role} on {scope}.",
+    )
+    return redirect("accounts:users")
+
+
+@requires_admin
+@require_POST
+def uninvite(request):
+    """Withdraw an invitation.
+
+    The grant it made is not withdrawn with it -- a role somebody holds
+    is its own decision, changed on Roles -- but without the invitation
+    they cannot sign in again, which is the door this screen controls.
+    """
+    from accounts.models import Invitation
+
+    email = (request.POST.get("email") or "").strip().lower()
+    invitation = Invitation.for_email(email)
+    if invitation is None:
+        messages.error(request, f"No invitation for {email}.")
+        return redirect("accounts:users")
+    invitation.delete()
+    AuditLogEntry.objects.create(
+        actor=request.user,
+        action="accounts:uninvited",
+        target_table="accounts_invitation",
+        target_ids=[email],
+        reason=f"withdrew the invitation for {email}",
+    )
+    messages.success(
+        request,
+        f"{email} can no longer sign in. Any role they hold is unchanged; "
+        "change that on Roles.",
+    )
+    return redirect("accounts:users")
 
 
 @requires_admin
