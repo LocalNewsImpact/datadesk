@@ -35,12 +35,47 @@ SCHEDULE="${SCHEDULE:-10 9 * * *}"
 RUNTIME_SA="datadesk-run@${PROJECT}.iam.gserviceaccount.com"
 SQL_INSTANCE="mizzou-news-crawler:us-central1:mizzou-db-prod"
 
-# The image the console is running, so the job scans with the same code
-# that serves the queue. Reading it back rather than naming a tag: a job
-# pinned to `latest` drifts from the service without either changing.
-IMAGE="$(gcloud run services describe datadesk \
-  --project="$PROJECT" --region="$REGION" \
-  --format='value(spec.template.spec.containers[0].image)')"
+# The image *and the environment* the console is running, so the job
+# scans with the same code and the same databases that serve the queue.
+#
+# Read back rather than written out here. A hand-listed environment is a
+# copy that drifts: the first version of this named five variables of the
+# service's sixteen, and two of the secrets by the wrong name, so the job
+# started with no crawler database configured, fell back to SQLite and
+# died on "no such table: datasets".
+DESCRIBE="gcloud run services describe datadesk --project=$PROJECT --region=$REGION"
+IMAGE="$($DESCRIBE --format='value(spec.template.spec.containers[0].image)')"
+CONFIG="$($DESCRIBE --format=json)"
+
+# Passed through the environment rather than on stdin, so the script
+# below can be quoted and read as Python instead of as shell.
+read -r ENV_FLAG SECRET_FLAG <<VARS
+$(CONFIG="$CONFIG" python3 - <<'READ_ENV'
+import json
+import os
+
+# Plain values and secret references are two different gcloud flags, and
+# a secret read as a plain value would put the literal "projects/..."
+# where a password belongs.
+container = json.loads(os.environ["CONFIG"])["spec"]["template"]["spec"]["containers"][0]
+plain, secret = [], []
+for entry in container.get("env", []):
+    name = entry["name"]
+    if "value" in entry:
+        plain.append(f"{name}={entry['value']}")
+    else:
+        ref = entry["valueFrom"]["secretKeyRef"]
+        secret.append(f"{name}={ref['name']}:{ref['key']}")
+
+# Joined with "@", which is the delimiter the flag below declares. A
+# comma-joined list under a "^@^" delimiter is one variable whose value
+# is every other variable -- which is what happened: fifteen of them
+# ended up inside CLOUD_SQL_CONNECTION_NAME. The delimiter exists
+# because these values contain commas of their own.
+print("@".join(plain), "@".join(secret))
+READ_ENV
+)
+VARS
 
 if [ "${1:-}" = "--run" ]; then
   exec gcloud run jobs execute "$JOB" --project="$PROJECT" --region="$REGION" --wait
@@ -52,8 +87,8 @@ gcloud run jobs deploy "$JOB" \
   --image="$IMAGE" \
   --service-account="$RUNTIME_SA" \
   --set-cloudsql-instances="$SQL_INSTANCE" \
-  --set-env-vars="SERVICE_ROLE=datadesk" \
-  --set-secrets="DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_RO_PASSWORD=crawler-ro-password:latest,CRAWLER_RW_PASSWORD=crawler-rw-password:latest" \
+  --set-env-vars="^@^SERVICE_ROLE=datadesk@${ENV_FLAG}" \
+  --set-secrets="^@^$SECRET_FLAG" \
   --task-timeout=30m \
   --max-retries=1 \
   --command="python" \
