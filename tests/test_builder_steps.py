@@ -1460,3 +1460,143 @@ def test_a_published_visual_is_served_from_its_snapshot(client, visual, author):
     assert not never.called, "a published feed must not re-run the query"
     assert feed["version"] == 1
     assert feed["data"] == [{"county": "Boone", "stories": 41}]
+
+
+# --- one question, asked once ------------------------------------------------
+#
+# The preview asks the corpus a question and draws its answer. Between
+# panels the question does not change, so the answer cannot either --
+# but every panel asked it again, and four abandoned asks plus the one
+# from Update ran together inside a single container until each was
+# waiting on the other four. The first took 128 seconds. The same feed,
+# with nothing piled on it, takes between one and three.
+
+
+def _stamp_on(client, visual, step):
+    """The name the page gives the question its preview is asking."""
+    import re
+
+    body = client.get(f"/visuals/builder/{visual.slug}/step/{step}/").content.decode()
+    found = re.search(r'const stamp = "([^"]*)"', body)
+    assert found, f"the {step} panel names no question"
+    return found.group(1)
+
+
+def _a_corpus_map(visual):
+    visual.config = {"kind": "storymap", "theme": "datadesk"}
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {
+        "datasets": ["mizzou"],
+        "subset": "complete",
+        "shape": "story_map",
+        "roles": {},
+        "measure": "articles",
+        "dimensions": [],
+        "publishers": [],
+    }
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+    return visual
+
+
+def test_walking_the_panels_asks_the_corpus_one_question(
+    client, author, visual, corpus, two_newsrooms
+):
+    """Chart, Look, Data, Newsrooms, Fields: the same question throughout.
+
+    This is the whole defect. Four panels, four identical asks, none of
+    them stopped by moving to the next panel.
+    """
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _a_corpus_map(visual)
+
+    panels = ("type", "theme", "data", "fields")
+    named = {s: _stamp_on(client, visual, s) for s in panels}
+    assert all(named.values()), "a live preview must name its question"
+    assert len(set(named.values())) == 1, f"the panels disagree: {named}"
+
+
+def test_changing_the_newsrooms_changes_the_question(
+    client, author, visual, corpus, two_newsrooms
+):
+    """...and changing one is what makes it ask again.
+
+    A name that never changed would be a cache with no version on it --
+    the thing that answered the previous question for five minutes.
+    """
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _a_corpus_map(visual)
+    before = _stamp_on(client, visual, "newsrooms")
+
+    one = two_newsrooms[0]
+    client.post(
+        f"/visuals/builder/{visual.slug}/step/newsrooms/",
+        {"publishers": [str(one.id)], "stay": "1"},
+    )
+    visual.refresh_from_db()
+    assert (visual.spec or {}).get("publishers") == [str(one.id)]
+    assert _stamp_on(client, visual, "newsrooms") != before
+
+
+def test_a_reader_is_never_handed_a_held_answer(
+    client, author, visual, corpus, two_newsrooms
+):
+    """The embed draws a snapshot -- one answer, at a URL that says which
+    version it is. Nothing is held for it, so nothing can be held
+    wrongly, and a republish reaches whoever loads it next."""
+    _a_corpus_map(visual)
+    visual.status = Visual.PUBLISHED
+    visual.save(update_fields=["status"])
+    from visuals.services import record_snapshot
+
+    snapshot = record_snapshot(visual, author, [{"county": "Boone", "stories": 41}])
+    visual.pinned_snapshot = snapshot
+    visual.save(update_fields=["pinned_snapshot"])
+
+    from django.test import Client
+
+    body = Client().get(f"/embed/{visual.slug}/").content.decode()
+    assert "DatadeskChart.mount" in body, "the reader's embed draws nothing"
+    assert 'const stamp = ""' in body, "a reader's embed must name no question"
+
+
+def test_the_preview_script_is_javascript(
+    client, author, visual, corpus, two_newsrooms
+):
+    """Rendered, then parsed. Everything the preview does lives in one
+    inline script, so a syntax error in it is a blank chart on every
+    panel -- and a template renders happily either way."""
+    import re
+    import shutil
+    import subprocess
+    import tempfile
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("no node to parse with")
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _a_corpus_map(visual)
+    page = client.get(f"/visuals/builder/{visual.slug}/step/newsrooms/")
+    body = page.content.decode()
+    scripts = re.findall(r"<script>(.*?)</script>", body, re.S)
+    ours = [s for s in scripts if "DatadeskChart.mount" in s]
+    assert ours, "the preview renders no script"
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(ours[0])
+        where = fh.name
+    done = subprocess.run([node, "--check", where], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+
+
+def test_a_live_preview_is_credited(client, author, visual, corpus, two_newsrooms):
+    """The table view reads the owner and contact off the payload. Without
+    them the preview was the one place a dataset's own attribution could
+    not be checked before it was published."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _a_corpus_map(visual)
+    feed = client.get(f"/visuals/{visual.slug}/data.json?live=1").json()
+    assert "attribution" in feed, "a live preview carries no credit"
