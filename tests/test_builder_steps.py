@@ -1777,3 +1777,84 @@ def test_a_visual_with_gaps_left_still_cannot_be_published(
 
     body = client.get(f"/visuals/builder/{visual.slug}/step/publish/").content.decode()
     assert "Nothing to publish yet" in body
+
+
+# --- the walk, end to end ----------------------------------------------------
+#
+# Every defect found tonight was a step that worked on a visual carrying
+# state from before it: publishing needed a snapshot only publishing
+# makes, the focus box only yielded to newsrooms while it was empty, and
+# the preview re-asked its question once per panel. None of them showed
+# up in a test that set the spec directly and rendered one step, because
+# that is a visual arriving already half-built.
+#
+# This starts at "New visual" with nothing and presses through to an
+# embed a reader can load.
+
+
+def test_a_visual_walked_from_nothing_reaches_a_working_embed(
+    client, author, corpus, two_newsrooms, dataset
+):
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    one, two = two_newsrooms
+
+    made = client.post(
+        "/visuals/builder/new/",
+        {"title": "Walked From Nothing", "source_kind": "corpus"},
+    )
+    assert made.status_code in (302, 303), made.status_code
+    fresh = Visual.objects.get(slug="walked-from-nothing")
+    assert fresh.snapshots.count() == 0
+    assert not fresh.config.get("kind"), "step one has not been asked yet"
+
+    def press(name, **fields):
+        got = client.post(
+            f"/visuals/builder/{fresh.slug}/step/{name}/", dict(fields, stay="1")
+        )
+        assert got.status_code in (200, 302), f"{name}: {got.status_code}"
+        fresh.refresh_from_db()
+        return got
+
+    press("type", kind="storymap")
+    assert fresh.config["kind"] == "storymap"
+
+    press("theme", theme="datadesk", theme_mode="light")
+    assert fresh.config["theme"] == "datadesk"
+
+    press(
+        "data",
+        datasets=[dataset.slug],
+        subset="complete",
+        **{"from": "2026-03-01", "to": "2026-03-31"},
+    )
+    assert fresh.spec["datasets"] == [dataset.slug]
+
+    # One of the two, so this is a choice rather than everything.
+    press("newsrooms", publishers=[str(one.id)], focus="", focus_level="")
+    assert fresh.spec["publishers"] == [str(one.id)]
+    # ...and choosing it framed the map, with nobody typing a place.
+    assert fresh.config.get("frame"), "the newsroom choice did not frame the map"
+
+    # A story map has no fields to map, and the step still has to save.
+    press("fields")
+
+    body = client.get(f"/visuals/builder/{fresh.slug}/step/publish/").content.decode()
+    assert "Nothing to publish yet" not in body, "walked to publish, called empty"
+    press("publish", do="publish")
+    assert fresh.status == Visual.PUBLISHED
+    assert fresh.pinned_snapshot is not None
+
+    # What a reader loads, from a different client with no session at all.
+    from django.test import Client
+
+    reader = Client()
+    page = reader.get(f"/embed/{fresh.slug}/")
+    assert page.status_code == 200
+    import re
+
+    for url in re.findall(r'fetch\("([^"]*)"\)', page.content.decode()):
+        assert url, "the embed fetches nothing"
+        feed = reader.get(url)
+        assert feed.status_code == 200, f"{url}: {feed.status_code}"
+        assert feed.json()["version"] == 1
