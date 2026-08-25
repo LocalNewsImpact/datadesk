@@ -109,6 +109,12 @@ def scopes_of(visual):
     return frozenset(visual.datasets or ())
 
 
+#: The one chart kind whose data is a story map rather than a pivot: its
+#: two layers come out of the enrichment whole, so it declares no fields
+#: and there is nothing for the pivot to group.
+STORY_MAP_KIND = "storymap"
+
+
 def fetch_source_data(visual):
     """Run the visual's data source and return JSON-compatible rows."""
     if visual.source_kind == INLINE:
@@ -121,7 +127,16 @@ def fetch_source_data(visual):
         spec = visual.spec or {}
         try:
             scopes = scopes_of(visual)
-            if spec.get("shape") == "story_map":
+            # What kind of chart this is, which step one of the walk asks
+            # and nothing else decides. `spec["shape"]` says the same
+            # thing and is written only by the pivot form on the settings
+            # page, so a story map built in the walk had a kind and no
+            # shape -- it routed to the pivot, which then refused it for
+            # having no dimensions to group by. Choosing a story map is
+            # the one way to choose one; the older key is still read so
+            # that visuals carrying it keep drawing.
+            kind = (visual.config or {}).get("kind")
+            if kind == STORY_MAP_KIND or spec.get("shape") == "story_map":
                 return run_story_map(spec, scopes)
             rows, _meta = run_spec(spec, scopes)
         except CorpusSpecError as exc:
