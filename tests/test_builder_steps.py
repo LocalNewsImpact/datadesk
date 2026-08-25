@@ -3206,13 +3206,17 @@ def test_the_new_dimensions_are_offered_where_they_fit(
 # --- a facet arranged the way the newsroom step arranges it ------------------
 
 
-def test_a_publisher_facet_cascades_by_county(
+def test_a_publisher_facet_is_the_same_tree_as_the_newsroom_step(
     client, author, visual, corpus, two_newsrooms
 ):
-    """A flat list of 179 publishers is the same information with the
-    arrangement thrown away -- and it costs an aggregate over the
-    articles, where the tree is the source table and one counts map the
-    warmer has already filled."""
+    """A state opening into counties and a county into publishers, each
+    level with a box that takes all of it.
+
+    A flat list of 179 publishers is the same information with the
+    arrangement thrown away -- and a flat list of *groups* is the same
+    information with two of the three levels thrown away, which is what
+    this replaced.
+    """
     Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
     client.force_login(author)
     visual.config = {"kind": "sankey", "theme": "datadesk"}
@@ -3226,15 +3230,64 @@ def test_a_publisher_facet_cascades_by_county(
 
     got = client.get(f"/visuals/builder/{visual.slug}/values/from/").json()
     assert got["cascade"] is True
-    assert got["groups"], "no counties"
+    assert got["levels"] == 3
+    assert got["tree"], "no states"
+
+    state = got["tree"][0]
+    assert state["groups"], "a state with no counties"
+    county = state["groups"][0]
+    assert county["values"], "a county with no publishers"
+
     # Each row carries the name a reader uses and the value the pivot
     # groups by, which are not the same thing for a publisher.
-    row = got["groups"][0]["values"][0]
-    assert set(row) >= {"value", "name", "n", "kept"}
-    # The group's total is its rows', so a heading cannot disagree with
-    # what is under it.
-    for group in got["groups"]:
-        assert group["n"] == sum(r["n"] for r in group["values"])
+    assert set(county["values"][0]) >= {"value", "name", "n", "kept"}
+    # A total never disagrees with what is under it, at either level.
+    assert county["n"] == sum(r["n"] for r in county["values"])
+    assert state["n"] == sum(g["n"] for g in state["groups"])
+
+
+def test_a_county_facet_opens_straight_onto_its_counties(
+    client, author, visual, corpus, two_newsrooms
+):
+    """The county is the leaf there, so a state opening onto a level of
+    one county each would be a disclosure that discloses itself."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": "bar", "theme": "datadesk"}
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {"datasets": ["mizzou"], "roles": {"x": "publisher_county"}}
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+
+    got = client.get(f"/visuals/builder/{visual.slug}/values/x/").json()
+    assert got["levels"] == 2
+    assert got["tree"][0]["values"], "no counties under the state"
+    assert "groups" not in got["tree"][0]
+
+
+def test_the_facet_tree_takes_a_whole_level_at_once(
+    client, author, visual, corpus, two_newsrooms
+):
+    """The branch box is a shortcut, not a value: it never submits, it
+    sets the leaves under it. Asserted on the rendered script, because
+    that is where the behaviour lives."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": "bar", "theme": "datadesk"}
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {"datasets": ["mizzou"], "roles": {"x": "publisher_name"}}
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+
+    body = client.get(f"/visuals/builder/{visual.slug}/step/fields/").content.decode()
+    # Built by the script rather than rendered as markup, so this is
+    # where the behaviour is.
+    assert 'className = "branch"' in body, "no box that takes a whole level"
+    assert "indeterminate" in body, "a half-chosen level cannot say so"
+    # A click on the parent box ticks it rather than opening the level.
+    assert "stopPropagation" in body
+    # ...and it sets the leaves rather than submitting itself.
+    assert "l.checked = e.target.checked" in body
 
 
 def test_a_facet_with_no_arrangement_stays_a_list(

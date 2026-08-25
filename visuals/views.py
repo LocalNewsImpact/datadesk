@@ -1210,7 +1210,13 @@ _CASCADES = {
 
 
 def _cascade(visual, chosen, kept, scopes):
-    """The facet as the newsroom step draws it: grouped, and counted.
+    """The facet as the newsroom step draws it: a tree, and counted.
+
+    Nested rather than flattened, because the newsroom step's tree is
+    what somebody already knows how to work: a state opens into counties
+    and a county into newsrooms, each level with a box that takes all of
+    it. A flat list of groups is the same information with two of the
+    three levels thrown away.
 
     Built from the same tree and the same counts, so the two screens
     cannot disagree about which newsrooms exist or how much each
@@ -1218,81 +1224,80 @@ def _cascade(visual, chosen, kept, scopes):
     a fresh aggregate.
     """
     from datasets.geo import state_name
+    from visuals.panels import NA_COUNTY, NA_STATE
 
     tree = _newsroom_tree(visual)
     counts = newsroom_counts_for(scopes)
-    levels = _CASCADES[chosen]
 
-    # What one row of the facet is called, per dimension. The value is
-    # what gets stored in `only`, so it has to be the value the pivot
-    # groups by, not the name beside it.
-    def named(source):
-        if chosen == "publisher":
-            return source["host"], source["name"]
-        if chosen == "publisher_name":
-            return source["name"], source["name"]
-        return None, None
+    def label_of(state):
+        return NA_STATE if state == UNRECORDED else (state_name(state) or state)
 
-    groups = []
+    def county_label(county):
+        return NA_COUNTY if county == UNRECORDED else county
+
+    def rows_for(sources):
+        """The leaves under one county, for the dimension being narrowed."""
+        if chosen == "publisher_city":
+            cities = {}
+            for source in sources:
+                city = (source.get("city") or "").strip() or UNRECORDED
+                cities[city] = (cities.get(city) or 0) + (
+                    counts.get(str(source["id"]), 0) or 0
+                )
+            return [
+                _row(city, county_label(city), n, kept)
+                for city, n in sorted(cities.items())
+            ]
+        out = []
+        for source in sources:
+            value = source["host"] if chosen == "publisher" else source["name"]
+            if not value:
+                continue
+            out.append(
+                _row(value, source["name"], counts.get(str(source["id"]), 0) or 0, kept)
+            )
+        return out
+
+    states = []
     for state in sorted(tree, key=lambda s: (s == UNRECORDED, s)):
         counties = tree[state]
-        if chosen == "publisher_county":
-            rows = [
-                _row(
-                    county,
-                    county,
-                    sum(counts.get(str(s["id"]), 0) or 0 for s in counties[county]),
-                    kept,
-                )
-                for county in sorted(counties, key=lambda c: (c == UNRECORDED, c))
-            ]
-            groups.append(_group(state_name(state) or state, rows))
-            continue
+        groups = []
         for county in sorted(counties, key=lambda c: (c == UNRECORDED, c)):
             sources = counties[county]
-            if chosen == "publisher_city":
-                cities = {}
-                for source in sources:
-                    city = (source.get("city") or "").strip() or UNRECORDED
-                    cities[city] = (cities.get(city) or 0) + (
-                        counts.get(str(source["id"]), 0) or 0
-                    )
-                rows = [_row(c, c, n, kept) for c, n in sorted(cities.items())]
-                # The state only where there is more than one. "Missouri
-                # — Adair" ninety-nine times says the same word ninety-nine
-                # times, and says nothing.
-                label = (
-                    f"{state_name(state) or state} — {county}"
-                    if len(tree) > 1
-                    else county
+            total = sum(counts.get(str(s["id"]), 0) or 0 for s in sources)
+            if chosen == "publisher_county":
+                # The county *is* the leaf here, so a state opens straight
+                # onto its counties rather than onto a level of one.
+                groups.append(_row(county, county_label(county), total, kept))
+                continue
+            leaves = rows_for(sources)
+            if leaves:
+                groups.append(
+                    {"label": county_label(county), "n": total, "values": leaves}
                 )
-            else:
-                rows = []
-                for source in sources:
-                    value, name = named(source)
-                    if not value:
-                        continue
-                    rows.append(
-                        _row(value, name, counts.get(str(source["id"]), 0) or 0, kept)
-                    )
-                label = county
-            if rows:
-                groups.append(_group(label, rows))
+        if not groups:
+            continue
+        states.append(
+            {
+                "label": label_of(state),
+                "n": sum(g["n"] or 0 for g in groups),
+                # A county facet has its values here; the others have
+                # another level of groups first.
+                "values" if chosen == "publisher_county" else "groups": groups,
+            }
+        )
+
+    flat = []
+    for state in states:
+        for item in state.get("values") or state.get("groups") or ():
+            flat.extend(item.get("values") or [item])
 
     return {
         "cascade": True,
-        "levels": len(levels) + 1,
-        "groups": groups,
-        # Flat too, so anything reading the old shape keeps working.
-        "values": [row for group in groups for row in group["values"]],
-    }
-
-
-def _group(label, rows):
-    return {
-        "label": label,
-        "n": sum(r["n"] or 0 for r in rows),
-        "values": rows,
+        "levels": 2 if chosen == "publisher_county" else 3,
+        "tree": states,
+        # Flat too, so anything reading the older shape keeps working.
+        "values": flat,
     }
 
 
