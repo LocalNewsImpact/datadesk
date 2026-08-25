@@ -1,0 +1,39 @@
+{% comment %}
+One visual in the list. Its own file because it is rendered inside every
+folder's tbody and once more for the unfiled — three copies of this markup
+would drift, and the drag handling depends on `data-slug` being on every
+row without exception.
+
+Draggable only where it is actionable: a viewer sees published visuals and
+may change none of them, so offering to move one would be offering
+something the server will refuse.
+{% endcomment %}
+<tr {% if visual.actionable %}draggable="true" {% endif %}data-slug="{{ visual.slug }}">
+  <td>
+    <a href="{% url 'visuals:page' visual.slug %}">{{ visual.title }}</a>
+    {% if visual.template == "builder" and visual.actionable %}<a class="edit-link" href="{% url 'visuals:builder_step' visual.slug 'type' %}">edit</a><a class="edit-link" href="{% url 'visuals:builder_edit' visual.slug %}">settings</a>{% comment %}
+    A form rather than a link: it creates a record, and a link that creates
+    records is one a crawler or a browser prefetch can trip.
+    {% endcomment %}<form method="post" class="inline-form"
+      action="{% url 'visuals:builder_duplicate' visual.slug %}">{% csrf_token %}<button
+      type="submit" class="edit-link"
+      title="A draft copy to change, leaving this one serving">duplicate</button></form>{% endif %}
+    {% if visual.actionable and folders %}
+    {% comment %}
+    The same move, for anyone not dragging — a touch screen, a keyboard, a
+    screen reader. It posts to the same endpoint, so the drag is a
+    shortcut to this rather than a second way of doing it.
+    {% endcomment %}
+    <label class="visually-hidden" for="move-{{ visual.slug }}">Folder</label>
+    <select id="move-{{ visual.slug }}" name="folder" class="move-select">
+      <option value="" {% if not visual.folder_id %}selected{% endif %}>Unfiled</option>
+      {% for f in folders %}
+      <option value="{{ f.id }}" {% if visual.folder_id == f.id %}selected{% endif %}>{{ f.name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+  </td>
+  <td>{{ visual.status }}</td>
+  <td>{% if visual.pinned_snapshot %}v{{ visual.pinned_snapshot.version }}{% else %}—{% endif %}</td>
+  <td>{{ visual.published_at|date:"Y-m-d"|default:"—" }}</td>
+</tr>

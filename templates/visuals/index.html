@@ -10,7 +10,24 @@
   <p class="notice">Built in the form-driven builder, or authored as code
   (a renderer template plus a data source) and registered in the
   <a href="/admin/visuals/visual/">admin</a>.</p>
-  <table class="grid">
+
+  {% if may_design %}
+  {% comment %}
+  Folders are projects, named by whoever is working on one, and shared:
+  the point of naming a project is that a colleague can find the work in
+  it. A folder holds whatever each viewer may see and says nothing about
+  the rest — a count of things hidden from you would describe them.
+  {% endcomment %}
+  <form method="post" action="{% url 'visuals:folder_create' %}" class="new-folder">
+    {% csrf_token %}
+    <label class="visually-hidden" for="folder-name">New folder</label>
+    <input id="folder-name" type="text" name="name" maxlength="120"
+           placeholder="New folder — a project, not a dataset">
+    <button type="submit">Add folder</button>
+  </form>
+  {% endif %}
+
+  <table class="grid visuals-list">
     <thead>
       <tr>
         <th scope="col">Visual</th>
@@ -19,26 +36,111 @@
         <th scope="col">Published</th>
       </tr>
     </thead>
-    <tbody>
-      {% for visual in visuals %}
-      <tr>
-        <td><a href="{% url 'visuals:page' visual.slug %}">{{ visual.title }}</a>
-            {% if visual.template == "builder" and visual.actionable %}<a class="edit-link" href="{% url 'visuals:builder_step' visual.slug 'type' %}">edit</a><a class="edit-link" href="{% url 'visuals:builder_edit' visual.slug %}">settings</a>{% comment %}
-            A form rather than a link: it creates a record, and a link that
-            creates records is one a crawler or a browser prefetch can trip.
-            {% endcomment %}<form method="post" class="inline-form"
-              action="{% url 'visuals:builder_duplicate' visual.slug %}">{% csrf_token %}<button
-              type="submit" class="edit-link"
-              title="A draft copy to change, leaving this one serving">duplicate</button></form>{% endif %}</td>
-        <td>{{ visual.status }}</td>
-        <td>{% if visual.pinned_snapshot %}v{{ visual.pinned_snapshot.version }}{% else %}—{% endif %}</td>
-        <td>{{ visual.published_at|date:"Y-m-d"|default:"—" }}</td>
+
+    {% for group in groups %}
+    <tbody class="folder" data-folder="{{ group.folder.id }}">
+      <tr class="folder-head">
+        <th colspan="4" scope="colgroup">
+          {{ group.folder.name }}
+          <span class="dim">{{ group.visuals|length }}</span>
+        </th>
       </tr>
+      {% for visual in group.visuals %}
+        {% include "visuals/_row.html" %}
       {% empty %}
+      <tr class="empty-folder"><td colspan="4" class="notice">Nothing filed here yet{% if may_design %} — drag a visual onto this heading{% endif %}.</td></tr>
+      {% endfor %}
+    </tbody>
+    {% endfor %}
+
+    <tbody class="folder" data-folder="">
+      {% if groups %}
+      <tr class="folder-head">
+        <th colspan="4" scope="colgroup">Unfiled
+          <span class="dim">{{ unfiled|length }}</span></th>
+      </tr>
+      {% endif %}
+      {% for visual in unfiled %}
+        {% include "visuals/_row.html" %}
+      {% empty %}
+        {% if not groups %}
       <tr><td colspan="4" class="notice">No visuals registered yet. The
       story-geography map is the intended first resident.</td></tr>
+        {% endif %}
       {% endfor %}
     </tbody>
   </table>
 </section>
+
+{% if may_design %}
+{% comment %}
+Dragging is the quick way and the select is the one that always works —
+on a touch screen, with a keyboard, with a screen reader. Both post to the
+same endpoint, so there is one code path for moving a visual and the drag
+is a shortcut to it rather than a second implementation.
+{% endcomment %}
+<script>
+(function () {
+  var csrf = document.querySelector("[name=csrfmiddlewaretoken]");
+  if (!csrf) return;
+
+  function move(slug, folder, row, into) {
+    var body = new FormData();
+    body.append("csrfmiddlewaretoken", csrf.value);
+    body.append("folder", folder);
+    fetch("/visuals/" + encodeURIComponent(slug) + "/move/",
+          {method: "POST", body: body, credentials: "same-origin",
+           headers: {"X-Requested-With": "fetch"}})
+      .then(function (r) {
+        if (!r.ok) throw new Error(r.status);
+        // Move the row rather than reloading, so the page does not jump
+        // back to the top away from what somebody is doing.
+        into.appendChild(row);
+        var empty = into.querySelector(".empty-folder");
+        if (empty) empty.remove();
+        row.querySelectorAll("select[name=folder] option").forEach(function (o) {
+          o.selected = o.value === folder;
+        });
+      })
+      .catch(function () { window.location.reload(); });
+  }
+
+  document.querySelectorAll("tr[draggable]").forEach(function (row) {
+    row.addEventListener("dragstart", function (e) {
+      e.dataTransfer.setData("text/plain", row.dataset.slug);
+      e.dataTransfer.effectAllowed = "move";
+    });
+  });
+
+  document.querySelectorAll("tbody.folder").forEach(function (body) {
+    var head = body.querySelector(".folder-head") || body;
+    ["dragenter", "dragover"].forEach(function (name) {
+      head.addEventListener(name, function (e) {
+        e.preventDefault();
+        head.classList.add("drop-target");
+      });
+    });
+    head.addEventListener("dragleave", function () {
+      head.classList.remove("drop-target");
+    });
+    head.addEventListener("drop", function (e) {
+      e.preventDefault();
+      head.classList.remove("drop-target");
+      var slug = e.dataTransfer.getData("text/plain");
+      var row = document.querySelector('tr[data-slug="' + slug + '"]');
+      if (row && row.parentNode !== body) move(slug, body.dataset.folder, row, body);
+    });
+  });
+
+  document.querySelectorAll("select[name=folder]").forEach(function (select) {
+    select.addEventListener("change", function () {
+      var row = select.closest("tr");
+      var into = document.querySelector(
+        'tbody.folder[data-folder="' + select.value + '"]');
+      if (into) move(row.dataset.slug, select.value, row, into);
+    });
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}
