@@ -1792,8 +1792,25 @@ def test_a_visual_with_gaps_left_still_cannot_be_published(
 # embed a reader can load.
 
 
+#: What each kind needs at the fields step, in the words the form posts.
+#: A story map and a table declare no roles: their shape comes out of the
+#: data whole rather than from columns somebody picks.
+FIELDS_FOR = {
+    "storymap": {},
+    "table": {"columns": ["cin_primary", "month"], "measure": "articles"},
+    "bar": {"role-x": "cin_primary", "role-y": "articles"},
+    "donut": {"role-x": "cin_primary", "role-y": "articles"},
+    "chord": {
+        "role-from": "cin_primary",
+        "role-to": "cin_alternate",
+        "role-value": "articles",
+    },
+}
+
+
+@pytest.mark.parametrize("kind", sorted(FIELDS_FOR))
 def test_a_visual_walked_from_nothing_reaches_a_working_embed(
-    client, author, corpus, two_newsrooms, dataset
+    client, author, corpus, two_newsrooms, dataset, kind
 ):
     Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
     client.force_login(author)
@@ -1801,10 +1818,10 @@ def test_a_visual_walked_from_nothing_reaches_a_working_embed(
 
     made = client.post(
         "/visuals/builder/new/",
-        {"title": "Walked From Nothing", "source_kind": "corpus"},
+        {"title": f"Walked {kind}", "source_kind": "corpus"},
     )
     assert made.status_code in (302, 303), made.status_code
-    fresh = Visual.objects.get(slug="walked-from-nothing")
+    fresh = Visual.objects.get(slug=f"walked-{kind}")
     assert fresh.snapshots.count() == 0
     assert not fresh.config.get("kind"), "step one has not been asked yet"
 
@@ -1816,8 +1833,8 @@ def test_a_visual_walked_from_nothing_reaches_a_working_embed(
         fresh.refresh_from_db()
         return got
 
-    press("type", kind="storymap")
-    assert fresh.config["kind"] == "storymap"
+    press("type", kind=kind)
+    assert fresh.config["kind"] == kind
 
     press("theme", theme="datadesk", theme_mode="light")
     assert fresh.config["theme"] == "datadesk"
@@ -1833,11 +1850,14 @@ def test_a_visual_walked_from_nothing_reaches_a_working_embed(
     # One of the two, so this is a choice rather than everything.
     press("newsrooms", publishers=[str(one.id)], focus="", focus_level="")
     assert fresh.spec["publishers"] == [str(one.id)]
-    # ...and choosing it framed the map, with nobody typing a place.
-    assert fresh.config.get("frame"), "the newsroom choice did not frame the map"
+    # ...and where it is a map, choosing it framed the map, with nobody
+    # typing a place.
+    if kind == "storymap":
+        assert fresh.config.get("frame"), "the newsroom choice did not frame the map"
 
-    # A story map has no fields to map, and the step still has to save.
-    press("fields")
+    # What this kind needs drawn, which for a story map or a table is
+    # nothing -- their shape comes out of the data whole.
+    press("fields", **FIELDS_FOR[kind])
 
     body = client.get(f"/visuals/builder/{fresh.slug}/step/publish/").content.decode()
     assert "Nothing to publish yet" not in body, "walked to publish, called empty"
@@ -1858,3 +1878,30 @@ def test_a_visual_walked_from_nothing_reaches_a_working_embed(
         feed = reader.get(url)
         assert feed.status_code == 200, f"{url}: {feed.status_code}"
         assert feed.json()["version"] == 1
+
+
+def test_a_table_with_no_columns_is_not_publishable(
+    client, author, visual, corpus, two_newsrooms
+):
+    """A table groups by whatever is ticked, so a table with nothing
+    ticked draws nothing -- and the sentence at the top of the page has
+    no gap for it, because columns are not one of the things it says."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": "table", "theme": "datadesk"}
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {
+        "datasets": ["mizzou"],
+        "subset": "complete",
+        "from": "2026-03-01",
+        "to": "2026-03-31",
+        "dimensions": [],
+        "roles": {},
+    }
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+
+    body = client.get(f"/visuals/builder/{visual.slug}/step/publish/").content.decode()
+    assert (
+        "Nothing to publish yet" in body
+    ), "an empty table offered itself for publishing"
