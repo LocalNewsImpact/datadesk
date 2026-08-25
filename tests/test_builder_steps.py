@@ -3049,10 +3049,42 @@ def test_a_sankey_folds_each_side_and_says_so():
 # --- how many of a dimension to draw -----------------------------------------
 
 
-def test_a_dimension_can_be_narrowed_to_its_largest_few(client, author, corpus):
-    """A different question from the values ticked beside it. "The ten
-    biggest" stays true as the corpus grows; a list of ten names is a
-    decision about the ten that were biggest the day it was made."""
+def test_the_chart_is_narrowed_to_its_largest_relationships(client, author, corpus):
+    """The unit is the row, not either end of it.
+
+    "The top ten publisher names" and "the top ten cities" are two
+    different narrowings that intersect unpredictably, and neither is the
+    question a flow chart asks -- which is which pairings are the
+    biggest.
+    """
+    from visuals.corpus import run_spec
+
+    base = {
+        "datasets": ["mizzou"],
+        "subset": "complete",
+        "dimensions": ["cin_primary", "publisher_name"],
+        "measure": "articles",
+    }
+    rows, meta = run_spec(base, frozenset(["mizzou"]))
+    assert len(rows) >= 2, "nothing to narrow"
+    assert meta["narrowed_away"] == 0
+
+    one, meta1 = run_spec(dict(base, top=1), frozenset(["mizzou"]))
+    assert len(one) == 1
+    # The biggest pairing, not the first one back.
+    assert one[0]["Articles"] == max(r["Articles"] for r in rows)
+    assert meta1["narrowed_away"] == len(rows) - 1
+
+    # Asking for more than there are narrows nothing.
+    plenty, meta2 = run_spec(dict(base, top=99), frozenset(["mizzou"]))
+    assert len(plenty) == len(rows)
+    assert meta2["narrowed_away"] == 0
+
+
+def test_a_visual_saved_under_the_old_question_keeps_its_number(client, author, corpus):
+    """`top` used to be per dimension. Its largest value is read as the
+    number somebody meant, so a saved visual keeps showing about as much
+    as it did rather than springing back to everything."""
     from visuals.corpus import run_spec
 
     base = {
@@ -3061,27 +3093,17 @@ def test_a_dimension_can_be_narrowed_to_its_largest_few(client, author, corpus):
         "dimensions": ["cin_primary"],
         "measure": "articles",
     }
-    rows, meta = run_spec(base, frozenset(["mizzou"]))
-    assert len(rows) >= 2, "nothing to narrow"
-    assert meta["narrowed_away"] == {}
-
-    top1, meta1 = run_spec(dict(base, top={"cin_primary": 1}), frozenset(["mizzou"]))
-    assert len(top1) == 1
-    # The biggest, not the first one back.
-    assert top1[0]["Articles"] == max(r["Articles"] for r in rows)
-    # ...and it says what it left out, because a chart that narrowed
-    # silently is one a reader takes for the whole picture.
-    assert meta1["narrowed_away"] == {"cin_primary": len(rows) - 1}
-
-    # Asking for more than there are narrows nothing.
-    plenty, meta2 = run_spec(dict(base, top={"cin_primary": 99}), frozenset(["mizzou"]))
-    assert len(plenty) == len(rows)
-    assert meta2["narrowed_away"] == {}
+    rows, _ = run_spec(base, frozenset(["mizzou"]))
+    old, _ = run_spec(dict(base, top={"cin_primary": 1}), frozenset(["mizzou"]))
+    assert len(old) == 1, f"the old shape was ignored: {len(rows)} rows"
 
 
-def test_the_fields_step_offers_how_many_and_saves_it(
+def test_the_fields_step_asks_how_much_once(
     client, author, visual, corpus, two_newsrooms
 ):
+    """One number for the chart, named in its own unit. Asked per field
+    it meant nothing: ten publisher names and ten cities are two
+    narrowings whose intersection nobody can predict."""
     Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
     client.force_login(author)
     visual.config = {"kind": "sankey", "theme": "datadesk"}
@@ -3095,12 +3117,17 @@ def test_the_fields_step_offers_how_many_and_saves_it(
             "value": "articles",
         },
         "dimensions": ["publisher_city", "publisher_name"],
+        "measure": "articles",
     }
     visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
 
     body = client.get(f"/visuals/builder/{visual.slug}/step/fields/").content.decode()
-    assert 'name="top-publisher_city"' in body, "no way to say how many"
-    assert "Top 10" in body
+    assert 'name="top"' in body, "no way to say how much"
+    assert 'name="top-publisher_city"' not in body, "still asking per field"
+    # Named in the chart's unit and ranked by the amount, so "top ten" of
+    # what is answered on the page.
+    assert "pairings" in body
+    assert "the biggest by" in body
 
     client.post(
         f"/visuals/builder/{visual.slug}/step/fields/",
@@ -3108,14 +3135,26 @@ def test_the_fields_step_offers_how_many_and_saves_it(
             "role-from": "publisher_city",
             "role-to": "publisher_name",
             "role-value": "articles",
-            "top-publisher_city": "10",
-            "top-publisher_name": "0",
+            "top": "10",
             "stay": "1",
         },
     )
     visual.refresh_from_db()
-    # Only the ones actually limited: "all of them" is not a limit.
-    assert visual.spec["top"] == {"publisher_city": 10}
+    assert visual.spec["top"] == 10
+
+    # "All of them" is not a limit.
+    client.post(
+        f"/visuals/builder/{visual.slug}/step/fields/",
+        {
+            "role-from": "publisher_city",
+            "role-to": "publisher_name",
+            "role-value": "articles",
+            "top": "0",
+            "stay": "1",
+        },
+    )
+    visual.refresh_from_db()
+    assert visual.spec["top"] == 0
 
 
 # --- the fields the corpus was hiding ----------------------------------------

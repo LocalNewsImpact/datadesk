@@ -588,11 +588,27 @@ def _uploaded_data_panel(visual, post=None, files=None, actor=None):
     }
 
 
-#: How many of a dimension a chart can show. Ten and twenty-five are
-#: what a reader can tell apart; fifty is for a table rather than a
-#: picture. Zero means all of them, which is what the pivot did before
-#: this and what a small dimension still wants.
+#: How much a chart can show. Ten and twenty-five are what a reader can
+#: tell apart; fifty is for a table rather than a picture. Zero means all
+#: of them, which is what a small chart still wants.
 TOP_CHOICES = ((0, "All of them"), (10, "Top 10"), (25, "Top 25"), (50, "Top 50"))
+
+
+def _top_unit(chart):
+    """What one row of this chart is, in the words its author would use.
+
+    "The top ten" is meaningless without it, which is the whole problem
+    with asking per field: ten publisher names and ten cities are two
+    narrowings whose intersection nobody can predict, and a flow chart is
+    about neither of them.
+    """
+    if len(chart.roles) >= 2 and all(
+        r.id in ("from", "to", "value") for r in chart.roles
+    ):
+        return "pairings"
+    if any(r.id == "series" for r in chart.roles):
+        return "bars"
+    return "groups"
 
 
 def _picks_columns(chart):
@@ -821,17 +837,18 @@ def field_panel(visual, post=None, user=None):
         )
         columns["lat"] = LAT_LABEL if placed else ""
         columns["lon"] = LON_LABEL if placed else ""
-        # How many of each dimension to draw. A different question from
-        # the ticked values beside it: "the ten biggest" stays true as
-        # the corpus grows, where a list of ten names is a decision about
-        # the ten that were biggest the day somebody ticked them.
-        top = {}
-        for key, value in post.items():
-            if not key.startswith("top-"):
-                continue
-            wanted = str(value).strip()
-            if wanted.isdigit() and int(wanted) > 0:
-                top[key[4:]] = int(wanted)
+        # How many relationships to draw, ranked by the amount that
+        # makes them. One number for the chart rather than one per
+        # field: narrowing each end separately intersects in a way
+        # nobody can predict, and neither end is what a flow chart is
+        # about.
+        #
+        # A different question from the ticked values beside it: "the ten
+        # biggest" stays true as the corpus grows, where a list of ten
+        # names is a decision about the ten that were biggest the day
+        # somebody ticked them.
+        asked = str(post.get("top") or "").strip()
+        top = int(asked) if asked.isdigit() and int(asked) > 0 else 0
         return {
             "spec": {
                 "roles": roles,
@@ -883,11 +900,6 @@ def field_panel(visual, post=None, user=None):
                 "options": [dict(v, on=v["id"] == chosen) for v in fits],
                 "chosen": chosen,
                 "kept": kept,
-                # What "how many" is set to, and what it can be set to.
-                # Offered on every facet, because a wall of values is a
-                # wall whichever dimension it is.
-                "top": (spec.get("top") or {}).get(chosen, 0),
-                "tops": TOP_CHOICES,
                 # Not fetched here. Listing every value of a dimension with
                 # its count is an aggregate over the whole corpus, one per
                 # role, and it took this step to 65 seconds -- to fill a
@@ -912,12 +924,20 @@ def field_panel(visual, post=None, user=None):
             f"{first} and {second} must come from the same set of values \u2014 "
             f"a {chart.label.lower()} compares a vocabulary with itself."
         )
+    from visuals.corpus import _top_rows, measure_label_for
+
     return {
         "chart": chart,
         "roles": slots,
         "columns": [],
         "pairs": chart.pairs,
         "pair_note": pair_note,
+        # One number for the chart. Named in its own terms below, because
+        # "top ten" of what is the whole question.
+        "top": _top_rows(spec),
+        "tops": TOP_CHOICES,
+        "top_unit": _top_unit(chart),
+        "measure_label": measure_label_for(spec.get("measure") or "articles"),
     }
 
 

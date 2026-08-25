@@ -453,6 +453,24 @@ class CorpusSpecError(ValueError):
     """A pivot spec that cannot run; the message is user-facing."""
 
 
+def _top_rows(spec):
+    """How many relationships to keep, or 0 for all of them.
+
+    A dict is the older shape, which asked per dimension. Its largest
+    value is read as the number somebody meant, so a visual saved under
+    the old question keeps showing about as much as it did rather than
+    springing back to everything.
+    """
+    top = spec.get("top")
+    if isinstance(top, dict):
+        numbers = [int(v or 0) for v in top.values()]
+        return max(numbers) if numbers else 0
+    try:
+        return max(0, int(top or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 def run_spec(spec, scopes):
     """Run a pivot spec and return (rows, meta).
 
@@ -543,31 +561,24 @@ def run_spec(spec, scopes):
         truncated = truncated or len(rows) > MAX_GROUPS
         rows = rows[:MAX_GROUPS]
 
-    # Keep only the largest few of a dimension, where the spec asks.
+    # Keep the largest few *relationships*, where the spec asks.
     #
-    # After the fold rather than as a filter on the query: a rolled-up
-    # dimension does not exist in SQL -- geo_county is folded from place
-    # codings in Python -- so a SQL filter could not narrow the one that
-    # most needs narrowing.
+    # The unit is the row, not either end of it. "The top ten publisher
+    # names" and "the top ten cities" are two different narrowings that
+    # intersect in a way nobody can predict, and neither of them is the
+    # question a flow chart asks -- which is "which pairings are the
+    # biggest". A row is one pairing, ranked by the amount that pairs
+    # them.
     #
-    # This is a different question from the group thresholds above. A
-    # threshold asks "is this group big enough to mean anything"; this
-    # asks "how many of them can be read at once", which is a question
-    # about the chart rather than about the data.
-    narrowed = {}
-    for key in dim_keys:
-        wanted = int((spec.get("top") or {}).get(key) or 0)
-        if wanted <= 0:
-            continue
-        weight = {}
-        for row in rows:
-            weight[row[key]] = (weight.get(row[key]) or 0) + (row[measure_key] or 0)
-        if len(weight) <= wanted:
-            continue
-        ranked = sorted(weight.items(), key=lambda kv: -(kv[1] or 0))
-        keep = {value for value, _ in ranked[:wanted]}
-        narrowed[key] = len(weight) - len(keep)
-        rows = [row for row in rows if row[key] in keep]
+    # After the fold, because a rolled-up dimension does not exist in SQL:
+    # geo_county is folded from place codings in Python, so a SQL LIMIT
+    # could not rank the one that most needs ranking.
+    wanted = _top_rows(spec)
+    narrowed = 0
+    if wanted and len(rows) > wanted:
+        rows = sorted(rows, key=lambda r: -(r[measure_key] or 0))
+        narrowed = len(rows) - wanted
+        rows = rows[:wanted]
 
     # Rename to display headers and normalise types for JSON.
     out = []
@@ -600,7 +611,7 @@ def run_spec(spec, scopes):
 
     meta = {
         "qualifying_groups": None if qualifying is None else len(qualifying),
-        # What a "top ten" left out, per dimension. A chart that narrowed
+        # How many pairings a "top ten" left out. A chart that narrowed
         # silently is one a reader takes for the whole picture.
         "narrowed_away": narrowed,
         "thresholds": {
