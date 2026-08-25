@@ -558,6 +558,28 @@ def run_story_map(spec, scopes):
     return {"points": points, "areas": areas, "meta": meta}
 
 
+def _cache_key(prefix, *parts):
+    """A short, total key for a corpus answer.
+
+    Everything that changes the answer goes in, and `scopes` above all:
+    it is what a person is allowed to read, so a key without it would
+    serve one author's counts to somebody with no grant on that dataset.
+    Hashed because a spec with a publisher list is longer than a cache
+    key may be.
+    """
+    import hashlib
+    import json
+
+    blob = json.dumps(parts, sort_keys=True, default=str)
+    return f"{prefix}.{hashlib.sha1(blob.encode()).hexdigest()[:24]}"
+
+
+#: The corpus moves when the pipeline syncs, which is nightly. Ten minutes
+#: is long enough that walking back and forth through the builder is free
+#: and short enough that nobody is looking at yesterday.
+CORPUS_CACHE_SECONDS = 600
+
+
 def values_of(dim_key, spec, scopes, limit=200):
     """[(value, articles)] for a dimension, most common first.
 
@@ -572,6 +594,25 @@ def values_of(dim_key, spec, scopes, limit=200):
     """
     if dim_key not in DIMENSIONS:
         raise CorpusSpecError(f"Unknown dimension: {dim_key}")
+
+    # Counting these took the fields step to 65 seconds: one aggregate over
+    # the whole article corpus per role a chart declares, three for a chord,
+    # each joined through candidate_links to sources. The columns are
+    # indexed; the cost is 164,000 rows grouped and counted, three times,
+    # every time somebody arrives at the step.
+    from django.core.cache import cache
+
+    key = _cache_key(
+        "corpus.values",
+        dim_key,
+        spec,
+        sorted(scopes) if scopes is not ALL_SCOPES else "*",
+        limit,
+    )
+    hit = cache.get(key)
+    if hit is not None:
+        return hit
+
     alias = f"{DIM_PREFIX}{dim_key}"
     qs = _base_queryset(spec, scopes).annotate(**{alias: DIMENSIONS[dim_key]["expr"]})
     rows = (
@@ -580,4 +621,6 @@ def values_of(dim_key, spec, scopes, limit=200):
         .annotate(n=Count("id"))
         .order_by("-n")[:limit]
     )
-    return [(str(r[alias]), r["n"]) for r in rows]
+    out = [(str(r[alias]), r["n"]) for r in rows]
+    cache.set(key, out, CORPUS_CACHE_SECONDS)
+    return out

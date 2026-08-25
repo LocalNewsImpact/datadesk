@@ -7,6 +7,8 @@ silent -- a form that quietly empties when somebody looks at another chart
 type teaches them not to explore.
 """
 
+from unittest import mock
+
 import pytest
 from django.contrib.auth.models import User
 
@@ -784,3 +786,47 @@ def test_the_preview_follows_the_data_rather_than_the_pin(client, author, visual
     _complete_chord(visual)
     body = step(client, visual, "fields").content.decode()
     assert "live=1" in body
+
+
+# --- what the builder costs to walk through ----------------------------------
+
+
+def test_the_newsroom_tree_is_not_rebuilt_on_every_visit(
+    client, author, visual, newsroom
+):
+    """Building it counts every article in every dataset the visual is
+    wired to. In production that step took 13 to 24 seconds, and the
+    fields step after it 32 to 65, because both did their counting again
+    on every arrival."""
+    from django.core.cache import cache
+
+    from visuals.views import _newsroom_tree
+
+    cache.clear()
+    visual.datasets = ["mizzou"]
+    visual.save(update_fields=["datasets"])
+
+    first = _newsroom_tree(visual)
+    with mock.patch("explorer.models.Article.objects") as never:
+        again = _newsroom_tree(visual)
+        assert not never.called, "the tree was rebuilt from the corpus"
+    assert again == first
+
+
+def test_a_cached_count_cannot_cross_between_what_two_people_may_read():
+    """The key decides who sees what. Scopes are the grant -- a key
+    without them would hand one author counts over a dataset they hold no
+    grant on, from a cache entry somebody else warmed."""
+    from visuals.corpus import _cache_key
+
+    spec = {"dataset": "mizzou", "from": "2026-03-01"}
+    mine = _cache_key("corpus.values", "cin_primary", spec, ["mizzou"], 200)
+    theirs = _cache_key("corpus.values", "cin_primary", spec, ["lehigh"], 200)
+    everything = _cache_key("corpus.values", "cin_primary", spec, "*", 200)
+    assert len({mine, theirs, everything}) == 3
+
+    # And the spec itself: a different slice is a different answer.
+    other = _cache_key(
+        "corpus.values", "cin_primary", {**spec, "from": "2026-04-01"}, ["mizzou"], 200
+    )
+    assert other != mine
