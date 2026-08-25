@@ -584,6 +584,56 @@ def index(request):
     )
 
 
+def _untitled_folder_name():
+    """A name for a folder somebody made without naming.
+
+    Numbered rather than a uuid: it is a heading a person reads on a page
+    of their own work, and "Untitled folder 3" says which one it is where
+    a uuid says only that nobody has named it. Renaming is what it is for.
+    """
+    from visuals.models import Folder
+
+    taken = set(Folder.objects.values_list("name", flat=True))
+    if "Untitled folder" not in taken:
+        return "Untitled folder"
+    n = 2
+    while f"Untitled folder {n}" in taken:
+        n += 1
+    return f"Untitled folder {n}"
+
+
+@requires(DESIGN)
+def folder_rename(request, pk):
+    """Rename a folder.
+
+    Separate from creating one because that is the point of letting an
+    unnamed folder exist: the naming happens later, when there is
+    something in it to name.
+    """
+    from django.contrib import messages
+
+    from visuals.models import Folder
+
+    if request.method != "POST":
+        raise Http404("Use the form")
+    folder = Folder.objects.filter(pk=pk).first()
+    if folder is None:
+        raise Http404("No such folder")
+
+    name = (request.POST.get("name") or "").strip()
+    if not name:
+        messages.error(request, "A folder needs a name to be renamed to.")
+    elif Folder.objects.filter(name__iexact=name).exclude(pk=folder.pk).exists():
+        messages.error(request, f"There is already a folder called \u201c{name}\u201d.")
+    else:
+        was, folder.name = folder.name, name[:120]
+        folder.save(update_fields=["name"])
+        messages.success(
+            request, f"\u201c{was}\u201d is now \u201c{folder.name}\u201d."
+        )
+    return redirect("visuals:index")
+
+
 @requires(DESIGN)
 def folder_create(request):
     """Make a project folder, and say so either way.
@@ -604,8 +654,13 @@ def folder_create(request):
 
     name = (request.POST.get("name") or "").strip()
     if not name:
-        messages.error(request, "Give the folder a name before adding it.")
-    elif (existing := Folder.objects.filter(name__iexact=name).first()) is not None:
+        # Make it anyway. Refusing without a name asks somebody to know,
+        # before they have a folder, what the folder is going to be for --
+        # and the button that refused said nothing, so the answer looked
+        # like "this does not work". A folder that exists can be renamed;
+        # one that was never made cannot.
+        name = _untitled_folder_name()
+    if (existing := Folder.objects.filter(name__iexact=name).first()) is not None:
         # Not an error: the folder they asked for is there. Saying so
         # beats refusing silently, and beats a second folder with the
         # same name in a different case.
@@ -1141,7 +1196,12 @@ def builder_step(request, slug, step):
                 action=f"visual:{step}",
                 target_table="visuals",
                 target_ids=[visual.slug],
-                after=dict(*written.values()),
+                # Flattened across holders. Every step wrote one of spec
+                # or config until the data step began writing both -- the
+                # slice on the spec and, for a map, where it is centred on
+                # the config -- and `dict(*values)` is a TypeError the
+                # moment there are two.
+                after={k: v for part in written.values() for k, v in part.items()},
                 reason=f"{here.label.lower()} for {visual.slug}",
             )
             if request.POST.get("stay"):

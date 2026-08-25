@@ -146,6 +146,53 @@ def _subset_of(spec):
     return spec.get("subset") or COMPLETE
 
 
+#: The kinds that are drawn on a map and so have somewhere to be centred.
+_MAP_KINDS = ("storymap", "choropleth", "points")
+
+
+def _focus_from(post, datasets):
+    """The place a map is centred on, resolved from what somebody typed.
+
+    "Boone" is a name; the renderer needs 29019, because that is what the
+    boundary file is keyed by. The gazetteer does that here rather than
+    asking an author to look up a FIPS code.
+
+    The name is kept beside the code. Without it the box came back showing
+    "29019" to somebody who typed "Boone", which reads as the field having
+    been misunderstood.
+    """
+    from visuals.geofocus import AUTO, FocusError, frame, resolve, state_of
+
+    typed = (post.get("focus") or "").strip()
+    if not typed:
+        # Cleared on purpose: an uncentred map frames itself on its data.
+        return {
+            "focus": "",
+            "focus_name": "",
+            "focus_level": "",
+            "extent": AUTO,
+            "frame": [],
+        }
+
+    default_state = state_of(datasets)
+    try:
+        geoid, level = resolve(typed, post.get("focus_level", ""), default_state)
+        extent = post.get("extent", AUTO) or AUTO
+        counties = frame(
+            geoid, level, extent, post.get("extent_custom", ""), default_state
+        )
+    except FocusError as exc:
+        raise ValueError(str(exc)) from exc
+
+    return {
+        "focus": geoid,
+        "focus_name": typed,
+        "focus_level": level,
+        "extent": extent,
+        "frame": counties,
+    }
+
+
 def data_panel(visual, post=None, choices=()):
     """Datasets and a date range. Which fields to draw comes later."""
     if post is not None:
@@ -161,7 +208,7 @@ def data_panel(visual, post=None, choices=()):
         subset = post.get("subset", COMPLETE)
         if subset not in SUBSETS:
             raise ValueError("No such subset")
-        return {
+        written = {
             "spec": {
                 "datasets": picked,
                 "subset": subset,
@@ -169,6 +216,18 @@ def data_panel(visual, post=None, choices=()):
                 "to": post.get("to", "").strip(),
             }
         }
+        # Where a map is centred is a data question -- which part of the
+        # world this is about -- and it lived only on the advanced
+        # settings page. So the one thing you most want to change about a
+        # duplicated map was the one thing the flow could not change, and
+        # retargeting a copy meant editing the focus in one place and the
+        # newsrooms in another with nothing connecting them. When they
+        # disagreed the map drew nothing and said only "No mapped
+        # stories".
+        config = visual.config or {}
+        if config.get("kind") in _MAP_KINDS:
+            written["config"] = _focus_from(post, picked)
+        return written
     spec = visual.spec or {}
     picked = spec.get("datasets") or ([spec["dataset"]] if spec.get("dataset") else [])
     return {
@@ -185,6 +244,12 @@ def data_panel(visual, post=None, choices=()):
         ],
         "date_from": spec.get("from", ""),
         "date_to": spec.get("to", ""),
+        # Only for the kinds that have somewhere to be centred.
+        "is_map": (visual.config or {}).get("kind") in _MAP_KINDS,
+        "focus": (visual.config or {}).get("focus_name")
+        or (visual.config or {}).get("focus", ""),
+        "focus_level": (visual.config or {}).get("focus_level", ""),
+        "extent": (visual.config or {}).get("extent", "auto"),
     }
 
 

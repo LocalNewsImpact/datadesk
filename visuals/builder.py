@@ -47,6 +47,7 @@ _STRING_KEYS = (
     "geo_value",
     "geo_palette",
     "focus",
+    "focus_name",
     "bands",
     "lat",
     "lon",

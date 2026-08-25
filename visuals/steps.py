@@ -47,7 +47,20 @@ STEPS = (
         "Data",
         "Which articles?",
         "The slice of the corpus. Which fields to draw comes later.",
-        ("dataset", "datasets", "from", "to"),
+        # `focus` and what it implies belong to this step now: where a
+        # map is centred is a question about which part of the world the
+        # visual is about, which is the question this step asks.
+        (
+            "dataset",
+            "datasets",
+            "from",
+            "to",
+            "focus",
+            "focus_name",
+            "focus_level",
+            "extent",
+            "frame",
+        ),
     ),
     Step(
         "newsrooms",

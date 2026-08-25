@@ -1152,7 +1152,14 @@
     const points = payload.points || [];
     const areas = payload.areas || [];
     if (!points.length && !areas.length) {
-      el.textContent = "No mapped stories.";
+      // "No mapped stories" is true and useless: it does not say whether
+      // the slice is empty, whether the newsrooms chosen published
+      // nothing, or whether the map is centred on a place none of them
+      // write about -- which is what happens to a duplicated map
+      // retargeted at one county and still filtered to another's
+      // newsrooms. The feed says which of those it is.
+      const why = (payload.meta || {}).empty_because;
+      el.textContent = why || "No mapped stories.";
       return;
     }
 

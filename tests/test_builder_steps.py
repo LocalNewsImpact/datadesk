@@ -947,3 +947,74 @@ def test_the_title_box_opens_on_the_record_name(client, author, visual):
     body = step(client, visual, "theme").content.decode()
     assert 'name="title"' in body
     assert f'value="{visual.title}"' in body
+
+
+# --- where a map is centred, in the flow that builds it ----------------------
+
+
+def test_the_data_step_asks_where_a_map_is_centred(client, author, visual, dataset):
+    """It lived only on the advanced settings page, so the one thing you
+    most want to change about a duplicated map was the one thing the flow
+    could not change."""
+    visual.config = {"kind": "storymap"}
+    visual.save(update_fields=["config"])
+    body = step(client, visual, "data").content.decode()
+
+    assert 'name="focus"' in body
+    assert 'name="focus_level"' in body
+    assert 'name="extent"' in body
+
+
+def test_a_chart_that_is_not_a_map_is_not_asked(client, author, visual, dataset):
+    """A bar chart has nowhere to be centred, and a control that does
+    nothing is worse than no control."""
+    visual.config = {"kind": "bar"}
+    visual.save(update_fields=["config"])
+    assert 'name="focus"' not in step(client, visual, "data").content.decode()
+
+
+def test_a_place_name_is_resolved_to_the_code_the_map_needs(
+    client, author, visual, dataset
+):
+    """Nobody knows the FIPS code for their own county, and the boundary
+    file is keyed by nothing else."""
+    visual.config = {"kind": "storymap"}
+    visual.save(update_fields=["config"])
+    step(client, visual, "data", datasets=["mizzou"], subset="complete", focus="Boone")
+    visual.refresh_from_db()
+
+    assert visual.config["focus"] == "29019"
+    assert visual.config["focus_level"] == "county"
+    # The name is kept beside the code: without it the box came back
+    # reading "29019" to somebody who typed "Boone".
+    assert visual.config["focus_name"] == "Boone"
+
+
+def test_clearing_the_focus_lets_the_map_frame_itself(client, author, visual, dataset):
+    visual.config = {"kind": "storymap", "focus": "29019", "focus_name": "Boone"}
+    visual.save(update_fields=["config"])
+    step(client, visual, "data", datasets=["mizzou"], subset="complete", focus="")
+    visual.refresh_from_db()
+
+    assert visual.config["focus"] == ""
+    assert visual.config["frame"] == []
+
+
+def test_an_empty_map_says_which_kind_of_empty_it_is():
+    """ "No mapped stories" is true and useless. It does not distinguish a
+    slice with no articles, newsrooms that published none in the window,
+    and a map centred where none of the chosen newsrooms write -- which is
+    what a duplicated map becomes when it is retargeted at one county and
+    left filtered to another's newsrooms."""
+    from pathlib import Path
+
+    corpus = (Path(__file__).resolve().parent.parent / "visuals/corpus.py").read_text()
+    js = (
+        Path(__file__).resolve().parent.parent / "static/js/datadesk-chart.js"
+    ).read_text()
+
+    assert "def _why_nothing_mapped(" in corpus
+    assert "The newsrooms chosen published nothing" in corpus
+    assert "no locations the map could place" in corpus
+    # And the runtime prefers it to its own generic line.
+    assert "empty_because" in js
