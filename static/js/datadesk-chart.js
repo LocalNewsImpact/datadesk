@@ -597,7 +597,16 @@
   // where somebody has gone looking for the data. Under the chart it was
   // a footer on a figure that already carries its own title and source
   // inside its bounds.
-  function renderTable(el, data, credits, takeaway) {
+  // `takeaway` is whatever the page wants at the top of this panel --
+  // the download links, and which version they ask for. `back` is the
+  // control that returns to the chart, which belongs here rather than on
+  // the figure it has replaced: a caption under a table is not where
+  // somebody looks for the way out of it.
+  //
+  // Both are moved rather than built, because the page made them and
+  // knows what they say. Moving is also what keeps them out of
+  // `replaceChildren`'s way when the chart draws again.
+  function renderTable(el, data, credits, takeaway, back) {
     const groups = tablesIn(data);
     const slug = el.id.replace(/^dd-chart-/, "");
     if (takeaway) takeaway.hidden = false;
@@ -605,12 +614,10 @@
       const note = document.createElement("p");
       note.className = "dd-note";
       note.textContent = "This visual has no tabular data to show.";
-      el.replaceChildren(note);
-      if (takeaway) el.prepend(takeaway);
+      el.replaceChildren(panelHead(takeaway, back), note);
       return;
     }
-    el.replaceChildren();
-    if (takeaway) el.appendChild(takeaway);
+    el.replaceChildren(panelHead(takeaway, back));
     for (const { name, rows } of groups) {
       if (name && groups.length > 1) {
         const heading = document.createElement("h3");
@@ -1094,6 +1101,21 @@
         " and told apart by their labels.";
       el.appendChild(note);
     }
+  }
+
+  // The panel's own top: what the page put there on the left, the way
+  // back on the right. One row rather than two stacked, because the way
+  // back is a control and the takeaway is prose, and a control below
+  // three lines of prose is one somebody has to hunt for.
+  function panelHead(takeaway, back) {
+    const head = document.createElement("div");
+    head.className = "dd-panel-head";
+    const left = document.createElement("div");
+    left.className = "dd-panel-lead";
+    if (takeaway) left.appendChild(takeaway);
+    head.appendChild(left);
+    if (back) head.appendChild(back);
+    return head;
   }
 
   //: What a blank name is called. A newsroom with no owner recorded is

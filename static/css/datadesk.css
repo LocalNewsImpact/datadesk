@@ -1884,3 +1884,15 @@ tr.dragging{ opacity: .5; }
 /* The fields inside sit in the fieldset's own rhythm rather than tight
    under the summary. */
 .advanced[open] > label{ margin-top: .5rem; }
+
+/* The data panel's own top: what the page put there on the left, the way
+   back on the right. `align-items: flex-start` so the button sits level
+   with the first line of the prose rather than centred against three
+   lines of it. */
+.dd-panel-head{ display: flex; align-items: flex-start;
+  justify-content: space-between; gap: 1rem;
+  padding-bottom: .75rem; margin-bottom: .75rem;
+  border-bottom: 1px solid var(--border); }
+.dd-panel-lead{ min-width: 0; }
+/* Nothing on the left is not a reason for the button to move left. */
+.dd-panel-head > .dd-toggle{ flex: none; margin-left: auto; }

@@ -51,6 +51,14 @@ document.addEventListener("DOMContentLoaded", function () {
   const config = JSON.parse(document.getElementById("dd-config").textContent);
   const el = document.getElementById("dd-chart-{{ visual.slug }}");
   const toggle = document.querySelector('.dd-toggle[data-target="' + el.id + '"]');
+  // Where each of these lives when the chart is showing, so both can be
+  // put back after a spell at the top of the data panel. Redrawing the
+  // chart replaces everything inside it, so anything left in there is
+  // destroyed -- which took the download links with it the first time
+  // somebody went back to the chart, and there was no second time.
+  const caption = toggle.parentNode;
+  const takeaway = document.getElementById("dd-takeaway");
+  const takeawayHome = takeaway && takeaway.parentNode;
   // Wired before the fetch, not inside it. Attached in the `.then` the
   // button did nothing at all when the feed failed -- no error, no
   // explanation, a control that looked live and was not.
@@ -66,15 +74,25 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     showingTable = !showingTable;
     if (showingTable) {
-      // Whatever this page wants at the top of the panel. The embed has
-      // none: it is the visual and a way into its numbers, and nothing
-      // else belongs inside somebody else's article.
-      DatadeskChart.renderTable(
-        el, data, credits, document.getElementById("dd-takeaway"));
+      // The way back goes with the panel, at the top of it: a control
+      // that leaves the table is not a caption on the figure the table
+      // has replaced.
+      //
+      // The takeaway is whatever this page wants above the tables. The
+      // embed has none -- it is the visual and a way into its numbers,
+      // and nothing else belongs inside somebody else's article.
       toggle.textContent = "View chart";
+      DatadeskChart.renderTable(el, data, credits, takeaway, toggle);
     } else if (chart) {
-      chart.redraw();
+      // Back to the caption before the redraw, or `replaceChildren`
+      // takes the button with the table and there is no way in again.
       toggle.textContent = "View data";
+      caption.appendChild(toggle);
+      if (takeaway) {
+        takeaway.hidden = true;
+        takeawayHome.appendChild(takeaway);
+      }
+      chart.redraw();
     }
   });
 

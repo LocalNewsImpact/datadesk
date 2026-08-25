@@ -2814,3 +2814,56 @@ def test_the_sankey_graph_is_two_columns_summed_and_never_recoloured():
     # The same name on both sides is two nodes with one link between them.
     assert got["bothSides"] == [["Nexstar", 0], ["Nexstar", 1]]
     assert got["bothLinks"] == 1
+
+
+# --- the data panel holds its own controls -----------------------------------
+
+
+def test_the_takeaway_is_hidden_until_the_panel_opens(client, author, visual, corpus):
+    """A class beats the browser's own `[hidden] { display: none }`, so
+    `display: flex` on the block made the attribute do nothing and it sat
+    under the figure -- the footer it had just been moved out of being."""
+    from django.test import Client, override_settings
+
+    _a_corpus_map(visual)
+    visual.status = Visual.PUBLISHED
+    visual.save(update_fields=["status"])
+    from visuals.services import record_snapshot
+
+    snap = record_snapshot(visual, author, [{"county": "Boone", "stories": 41}])
+    visual.pinned_snapshot = snap
+    visual.save(update_fields=["pinned_snapshot"])
+
+    # The reader's page is the data host's, addressed by uuid.
+    with override_settings(ROOT_URLCONF="datadesk.urls_data"):
+        body = Client().get(f"/visuals/{visual.uuid}/").content.decode()
+
+    assert 'id="dd-takeaway"' in body, "the reader's page has no takeaway"
+    block = body[body.index('id="dd-takeaway"') :][:80]
+    assert "hidden" in block, "the takeaway is not hidden to begin with"
+    # The rule that makes the attribute mean something has to be there
+    # too: without it the attribute is decoration.
+    assert ".takeaway[hidden]" in body, "hidden is overridden by the class"
+
+
+def test_the_panel_takes_the_way_back_with_it(client, author, visual, corpus):
+    """A control that leaves the table is not a caption on the figure the
+    table has replaced -- and anything left inside the panel is destroyed
+    when the chart redraws, which took the download links with it the
+    first time somebody went back."""
+    import re
+
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _a_corpus_map(visual)
+    body = client.get(f"/visuals/builder/{visual.slug}/step/theme/").content.decode()
+
+    script = "".join(re.findall(r"<script>(.*?)</script>", body, re.S))
+    # Both are put back before the redraw, in that order.
+    back = script.index("caption.appendChild(toggle)")
+    home = script.index("takeawayHome.appendChild(takeaway)")
+    redraw = script.index("chart.redraw()")
+    assert back < redraw, "the way back is destroyed by the redraw"
+    assert home < redraw, "the download links are destroyed by the redraw"
+    # ...and handed to the panel when it opens.
+    assert "renderTable(el, data, credits, takeaway, toggle)" in script
