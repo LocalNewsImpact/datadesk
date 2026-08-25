@@ -2287,3 +2287,69 @@ def test_a_pivot_with_no_geography_carries_no_coordinates(client, author, corpus
     )
     assert rows
     assert all(LAT_LABEL not in row for row in rows)
+
+
+# --- whose name is on it, and which answer it is -----------------------------
+
+
+def test_the_look_step_offers_the_owner_by_name(
+    client, author, visual, corpus, two_newsrooms, dataset
+):
+    """Not "credit the dataset owner", which asks somebody to choose a
+    name they cannot see."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    dataset.owner_name = "Missouri School of Journalism"
+    dataset.owner_email = "data@example.org"
+    dataset.save(update_fields=["owner_name", "owner_email"])
+    _a_corpus_map(visual)
+
+    body = client.get(f"/visuals/builder/{visual.slug}/step/theme/").content.decode()
+    assert "Local News Impact Consortium" in body
+    assert "Missouri School of Journalism" in body
+
+    client.post(
+        f"/visuals/builder/{visual.slug}/step/theme/",
+        {"theme": "datadesk", "title": "T", "credit": "dataset", "stay": "1"},
+    )
+    visual.refresh_from_db()
+    assert visual.config["credit"] == "dataset"
+
+    page = client.get(f"/visuals/{visual.slug}/").content.decode()
+    assert "Missouri School of Journalism" in page
+    assert "mailto:data@example.org" in page
+
+
+def test_a_chart_with_no_recorded_owner_is_not_asked_who_to_credit(
+    client, author, visual, corpus, two_newsrooms
+):
+    """There is nobody to credit, and a chart crediting a blank is worse
+    than one crediting the consortium."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _a_corpus_map(visual)
+    body = client.get(f"/visuals/builder/{visual.slug}/step/theme/").content.decode()
+    assert 'name="credit"' not in body
+
+
+def test_a_published_feed_says_which_answer_it_is_and_when(
+    client, author, visual, corpus, two_newsrooms
+):
+    """The version is a property of the rows, not of the page framing
+    them: an embed pinned to v3 says v3 wherever it is pasted."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _a_corpus_map(visual)
+    visual.spec = dict(visual.spec, **{"from": "2026-03-01", "to": "2026-03-31"})
+    visual.save(update_fields=["spec"])
+    client.post(
+        f"/visuals/builder/{visual.slug}/step/publish/", {"do": "publish", "stay": "1"}
+    )
+
+    import re
+
+    from django.test import Client
+
+    feed = Client().get(f"/visuals/{visual.slug}/data.json").json()
+    assert feed["version"] == 1
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", feed["taken"]), feed.get("taken")
