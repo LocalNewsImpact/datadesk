@@ -80,3 +80,54 @@ def test_the_settings_read_what_the_deploy_sets():
     settings_text = (ROOT / "datadesk/settings.py").read_text()
     for name in ("GMAIL_CREDENTIALS_JSON", "GMAIL_DELEGATED_USER"):
         assert name in settings_text, f"nothing reads {name}"
+
+
+# --- the delimiter ------------------------------------------------------------
+#
+# `--set-env-vars` takes a `^X^` prefix naming its separator, because the
+# values contain commas of their own. Twice now that has gone wrong in
+# opposite directions: a comma-joined list under an `@` delimiter, which
+# made fifteen variables the value of the first; and a value containing
+# the `@` that was the delimiter, which split an address in half and
+# failed the deploy outright.
+#
+#     ERROR: argument --set-env-vars: Bad syntax for dict arg:
+#            [localnewsimpact.org]
+
+
+def _env_lists():
+    """Every `--set-env-vars` in the deploy file, with its delimiter."""
+    import re
+
+    found = []
+    for line in CONSOLE.read_text().splitlines():
+        match = re.search(r'--set-env-vars "\^(.)\^(.*)"', line)
+        if match:
+            found.append((match.group(1), match.group(2)))
+    return found
+
+
+def test_every_deploy_uses_a_delimiter_its_values_do_not_contain():
+    lists = _env_lists()
+    assert lists, "no environment lists found — has the flag changed shape?"
+    for delimiter, body in lists:
+        for entry in body.split(delimiter):
+            assert "=" in entry, (
+                f"{entry!r} is not NAME=value: the delimiter {delimiter!r} "
+                f"appears inside a value and split it"
+            )
+            _name, _, value = entry.partition("=")
+            assert (
+                delimiter not in value
+            ), f"{_name} contains the delimiter {delimiter!r}: {value!r}"
+
+
+def test_every_variable_the_deploy_sets_has_a_name_and_a_value():
+    """A bare item is what gcloud rejects, and the message names the
+    fragment rather than the variable it came from -- so the failure
+    reads as being about a domain rather than about a separator."""
+    for delimiter, body in _env_lists():
+        for entry in body.split(delimiter):
+            name, _, value = entry.partition("=")
+            assert name.strip(), f"an entry with no name: {entry!r}"
+            assert value.strip(), f"{name} is set to nothing"
