@@ -20,7 +20,7 @@ from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Substr, TruncMonth, TruncYear
 
 from accounts.access import ALL_SCOPES
-from datasets.geo import centroid
+from datasets.geo import centroid, county_label
 from explorer.models import Article, DatasetSource
 
 # --- dimensions -------------------------------------------------------------
@@ -152,6 +152,26 @@ DIMENSIONS = {
     "point_place": {
         "label": "Place name (from point)",
         "expr": F("enrichment__point_place"),
+    },
+    "geo_covered": {
+        "label": "County covered",
+        # The place set: every county a story is about, not the one point
+        # it was pinned to. A regional story has no point by design -- the
+        # pipeline records `regional_uses_place_set` -- so the point
+        # dimensions above cannot see its geography at all.
+        #
+        # Several counties per article, which is what "covered" means and
+        # what makes this the one dimension the pivot cannot group in
+        # SQL. It is exploded in Python, the way the story map's shaded
+        # layer already is.
+        "explode": "enrichment__geoids",
+        "geo_level": "counties",
+        "note": (
+            "Every county a story is about. A story covering three "
+            "counties counts in all three, so these add up to more than "
+            "the number of stories -- which is the point of asking what "
+            "a publication covers."
+        ),
     },
     "point_precision": {
         "label": "Location precision",
@@ -471,6 +491,83 @@ def _top_rows(spec):
         return 0
 
 
+#: What an exploded dimension can be counted by. A sum or a mean over a
+#: multi-valued dimension counts the same article once per county it
+#: mentions, which is a different number wearing the same name.
+EXPLODED_MEASURES = ("articles", "publishers")
+
+
+def _run_exploded(spec, scopes, dim_keys, measure_key, exploded):
+    """The pivot, where one dimension holds several values per article.
+
+    Grouped in Python because it has to be: the place set is a text
+    column holding JSON, and no GROUP BY can reach inside it. This is the
+    same explosion the story map does for its shaded layer, generalised
+    to sit beside other dimensions.
+
+    Counted as distinct things rather than summed, so an article
+    mentioning a county twice is one story about it.
+    """
+    import json as _json
+
+    from datasets.geo import county_of
+
+    if measure_key not in EXPLODED_MEASURES:
+        raise CorpusSpecError(
+            f"{DIMENSIONS[exploded]['label']} holds several values per story, "
+            f"so it can be counted by "
+            f"{' or '.join(MEASURES[m]['label'].lower() for m in EXPLODED_MEASURES)}"
+            f" but not by {MEASURES[measure_key]['label'].lower()}."
+        )
+
+    others = [key for key in dim_keys if key != exploded]
+    alias = {key: f"{DIM_PREFIX}{key}" for key in others}
+    qs = _base_queryset(spec, scopes).exclude(
+        **{f"{DIMENSIONS[exploded]['explode']}__isnull": True}
+    )
+    if others:
+        qs = qs.annotate(**{alias[key]: DIMENSIONS[key]["expr"] for key in others})
+
+    columns = ["id", "candidate_link__source_id", DIMENSIONS[exploded]["explode"]]
+    columns += [alias[key] for key in others]
+
+    # One bucket per group, holding the ids it has seen: the measure is a
+    # count of distinct things and a story reaching a county twice is one
+    # story about that county.
+    seen, unresolved = {}, set()
+    counted = "id" if measure_key == "articles" else "candidate_link__source_id"
+    # Fetched in one go rather than streamed. A server-side cursor over
+    # this join took fifty seconds against production where one fetch of
+    # the same fifteen thousand rows takes five: the rows are small, and
+    # the round trips are the cost.
+    for row in qs.values_list(*columns):
+        article, source, raw = row[0], row[1], row[2]
+        rest = row[3:]
+        try:
+            places = _json.loads(raw) if raw else []
+        except (TypeError, ValueError):
+            continue
+        counties = set()
+        for place in places or ():
+            county = county_of(place)
+            if county is None:
+                unresolved.add(str(place))
+                continue
+            counties.add(county)
+        for county in counties:
+            key = (*rest, county)
+            seen.setdefault(key, set()).add(article if counted == "id" else source)
+
+    rows = []
+    for key, ids in seen.items():
+        row = dict(zip(others, key[:-1], strict=True))
+        row[exploded] = key[-1]
+        row[measure_key] = len(ids)
+        rows.append(row)
+    rows.sort(key=lambda r: -r[measure_key])
+    return rows, len(unresolved)
+
+
 def run_spec(spec, scopes):
     """Run a pivot spec and return (rows, meta).
 
@@ -488,6 +585,62 @@ def run_spec(spec, scopes):
     measure_key = spec.get("measure", "articles")
     if measure_key not in MEASURES:
         raise CorpusSpecError(f"Unknown measure: {measure_key}")
+
+    # A dimension holding several values per story cannot be grouped in
+    # SQL -- the place set is a text column holding JSON -- so it takes
+    # its own path, and only one of them can be in a pivot: two would
+    # multiply each other and count a story once per pair of counties it
+    # touches.
+    exploding = [k for k in dim_keys if DIMENSIONS[k].get("explode")]
+    if len(exploding) > 1:
+        raise CorpusSpecError(
+            "Only one dimension holding several values per story at a time."
+        )
+    if exploding:
+        rows, unresolved = _run_exploded(
+            spec, scopes, dim_keys, measure_key, exploding[0]
+        )
+        wanted = _top_rows(spec)
+        narrowed = 0
+        if wanted and len(rows) > wanted:
+            narrowed = len(rows) - wanted
+            rows = rows[:wanted]
+        out = []
+        for row in rows:
+            item = {}
+            for k in dim_keys:
+                value = row[k]
+                # A county reads as its name. "29095" is a chart nobody
+                # can read, and the code is still what the centroid is
+                # looked up by.
+                if DIMENSIONS[k].get("geo_level") == "counties" and k == exploding[0]:
+                    value = county_label(value)
+                item[DIMENSIONS[k]["label"]] = value
+            item[measure_label_for(measure_key)] = row[measure_key]
+            lat, lon = centroid(str(row[exploding[0]] or ""))
+            if lat is not None:
+                item[LAT_LABEL], item[LON_LABEL] = lat, lon
+            out.append(item)
+        return out, {
+            "qualifying_groups": None,
+            "thresholds": {"min_articles": 0, "min_publishers": 0},
+            "dimensions": [
+                {
+                    "key": k,
+                    "label": DIMENSIONS[k]["label"],
+                    "geo_level": DIMENSIONS[k].get("geo_level"),
+                    "note": DIMENSIONS[k].get("note"),
+                }
+                for k in dim_keys
+            ],
+            "measure": {"key": measure_key, "label": measure_label_for(measure_key)},
+            "groups": len(out),
+            "truncated": False,
+            "narrowed_away": narrowed,
+            "rows_considered": None,
+            "rows_used": None,
+            "unresolved_places": unresolved,
+        }
 
     qs = _base_queryset(spec, scopes)
     total_before = None

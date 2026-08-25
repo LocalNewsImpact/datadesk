@@ -3266,3 +3266,111 @@ def test_the_warmer_fills_the_tree_the_facet_reads(client, author, corpus):
     labels = [label for label, _key, _fill in _newsroom_count_targets()]
     assert any("newsroom tree" in label for label in labels), labels
     assert any("newsroom counts" in label for label in labels), labels
+
+
+# --- the places a publication covers -----------------------------------------
+#
+# The place set: every county a story is about, not the one point it was
+# pinned to. A regional story has no point by design, so the point
+# dimensions cannot see its geography at all.
+
+
+def _covering(corpus, newsroom, places):
+    """An article whose enrichment names several counties."""
+    import json
+
+    from explorer.models import ArticleEnrichment
+
+    enrichment = ArticleEnrichment.objects.filter(
+        article__candidate_link__source=newsroom
+    ).first()
+    assert enrichment is not None, "the fixture has no enrichment to place"
+    enrichment.geoids = json.dumps(places)
+    enrichment.save(update_fields=["geoids"])
+    return enrichment
+
+
+def test_a_story_counts_in_every_county_it_covers(client, author, corpus, newsroom):
+    """Which is what "covered" means, and why these add up to more than
+    the number of stories."""
+    from visuals.corpus import run_spec
+
+    _covering(corpus, newsroom, ["29019", "29095", "29510"])
+    rows, meta = run_spec(
+        {
+            "datasets": ["mizzou"],
+            "subset": "complete",
+            "dimensions": ["geo_covered"],
+            "measure": "articles",
+        },
+        frozenset(["mizzou"]),
+    )
+    covered = {r["County covered"]: r["Articles"] for r in rows}
+    assert len(covered) == 3, covered
+    assert all(n == 1 for n in covered.values()), covered
+    # Named, not coded: a chart labelled 29095 is one nobody can read.
+    assert "Boone, MO" in covered
+    assert "St. Louis city, MO" in covered
+
+
+def test_a_county_covered_carries_its_centroid(client, author, corpus, newsroom):
+    """So a map of coverage can be drawn without choosing coordinates."""
+    from visuals.corpus import LAT_LABEL, LON_LABEL, run_spec
+
+    _covering(corpus, newsroom, ["29019"])
+    rows, _ = run_spec(
+        {
+            "datasets": ["mizzou"],
+            "subset": "complete",
+            "dimensions": ["geo_covered"],
+            "measure": "articles",
+        },
+        frozenset(["mizzou"]),
+    )
+    assert rows and LAT_LABEL in rows[0]
+    assert 35 < rows[0][LAT_LABEL] < 41
+    assert -96 < rows[0][LON_LABEL] < -89
+
+
+def test_the_place_set_refuses_a_measure_that_would_double_count(
+    client, author, corpus, newsroom
+):
+    """A sum over a multi-valued dimension counts the same story once per
+    county it mentions, which is a different number wearing the same
+    name. It says so rather than answering wrongly."""
+    from visuals.corpus import CorpusSpecError, run_spec
+
+    _covering(corpus, newsroom, ["29019", "29095"])
+    with pytest.raises(CorpusSpecError) as refused:
+        run_spec(
+            {
+                "datasets": ["mizzou"],
+                "subset": "complete",
+                "dimensions": ["geo_covered"],
+                "measure": "cost_sum",
+            },
+            frozenset(["mizzou"]),
+        )
+    assert "several values per story" in str(refused.value)
+
+
+def test_only_one_multi_valued_dimension_at_a_time(client, author, corpus, newsroom):
+    """Two would multiply each other and count a story once per pair of
+    counties it touches."""
+    from visuals.corpus import DIMENSIONS, CorpusSpecError, run_spec
+
+    exploding = [k for k, d in DIMENSIONS.items() if d.get("explode")]
+    if len(exploding) < 2:
+        # One today. The guard is what keeps a second one from being
+        # added without anybody thinking about the multiplication.
+        assert len(exploding) == 1
+        return
+    with pytest.raises(CorpusSpecError):
+        run_spec(
+            {
+                "datasets": ["mizzou"],
+                "dimensions": exploding[:2],
+                "measure": "articles",
+            },
+            frozenset(["mizzou"]),
+        )
