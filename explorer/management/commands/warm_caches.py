@@ -24,6 +24,41 @@ import time
 from django.core.management.base import BaseCommand
 
 
+def _newsroom_count_targets():
+    """Article counts per newsroom, one entry per dataset and one for all.
+
+    The builder's newsroom step draws its tree from `sources`, which is
+    cheap, and hangs these counts beside the names. Counting them is an
+    aggregate over the whole corpus, and it took that step to 24 seconds
+    when it ran inline.
+
+    Warmed here because the cost is now paid by whoever opens the step
+    first after a sync rather than by everybody -- and being first should
+    not be a punishment. Bounded by the number of datasets, so this stays
+    a handful of queries however many visuals exist.
+
+    Facet values are deliberately not warmed. There is one per dimension
+    per slice, which is unbounded, and they now sit behind a disclosure
+    somebody has to open -- so nobody waits on them to see a page.
+    """
+
+    from explorer.models import Dataset
+    from visuals.corpus import _cache_key
+    from visuals.views import newsroom_counts_for
+
+    try:
+        slugs = sorted(Dataset.objects.values_list("slug", flat=True))
+    except Exception:  # noqa: BLE001 — a cold cache is slow, not broken
+        return ()
+
+    targets = []
+    for scopes in [[]] + [[slug] for slug in slugs]:
+        label = f"newsroom counts ({scopes[0] if scopes else 'all datasets'})"
+        key = _cache_key("visuals.newsroom_counts", scopes)
+        targets.append((label, key, lambda s=scopes: newsroom_counts_for(s)))
+    return tuple(targets)
+
+
 class Command(BaseCommand):
     help = "Recompute the dashboard's cached reads."
 
@@ -52,6 +87,7 @@ class Command(BaseCommand):
             # warm, so /explorer/costs/ paid for it on whoever arrived first
             # after an entry expired.
             ("billed costs", "explorer.billed_costs", billed_costs),
+            *_newsroom_count_targets(),
         )
 
         failures = 0
