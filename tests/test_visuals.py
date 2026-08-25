@@ -1263,3 +1263,65 @@ def test_naming_the_dataset_credits_it_and_links_its_contact(
         "Missouri School of Journalism",
         "lnic@example.org",
     )
+
+
+# --- a copy to work on, leaving the original serving -------------------------
+
+
+def test_a_copy_is_a_draft_with_its_own_address(client, visual, author, viewer):
+    """Iterating on a published visual meant editing the thing readers
+    were looking at."""
+    from visuals.services import duplicate
+
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+    visual.refresh_from_db()
+
+    copy = duplicate(visual, author)
+
+    # The recipe travels.
+    assert copy.config == visual.config
+    assert copy.spec == visual.spec
+    assert copy.datasets == visual.datasets
+    assert copy.template == visual.template
+
+    # What makes the original the original does not.
+    assert copy.uuid != visual.uuid, "two visuals cannot share a published address"
+    assert copy.slug != visual.slug
+    assert copy.status == Visual.DRAFT
+    assert copy.pinned_snapshot is None
+    assert copy.snapshots.count() == 0
+
+    # And the original is untouched.
+    visual.refresh_from_db()
+    assert visual.status == Visual.PUBLISHED
+    assert visual.pinned_snapshot is not None
+
+
+def test_copying_twice_does_not_collide(visual, author):
+    from visuals.services import duplicate
+
+    first = duplicate(visual, author)
+    second = duplicate(visual, author)
+    assert first.slug != second.slug
+
+
+def test_the_copy_belongs_to_whoever_made_it(client, visual, author, django_user_model):
+    """They are the one who has to answer for it now."""
+    from visuals.services import duplicate
+
+    other = django_user_model.objects.create_user("other", email="o@example.org")
+    copy = duplicate(visual, other)
+    assert copy.created_by == other
+    assert visual.created_by == author
+
+
+def test_duplicating_is_a_post(client, visual, author):
+    """It creates a record, and a link that creates records is one a
+    crawler or a browser prefetch can trip."""
+    Grant.objects.create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    url = f"/visuals/builder/{visual.slug}/duplicate/"
+    assert client.get(url).status_code == 404
+    assert client.post(url).status_code == 302
+    assert Visual.objects.count() == 2

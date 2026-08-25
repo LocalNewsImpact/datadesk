@@ -976,6 +976,24 @@ def _newsroom_tree(visual):
 
 
 @requires(DESIGN)
+def builder_duplicate(request, slug):
+    """Copy a visual and open the copy.
+
+    POST only: it creates a record, and a link that creates records is one
+    a crawler or a prefetch can trip.
+    """
+    if request.method != "POST":
+        raise Http404("Use the button")
+    visual = _get_visual(request, slug)
+    if not may_act_on(request.user, visual):
+        raise PermissionDenied("This visual is not yours to copy.")
+    from visuals.services import duplicate
+
+    copy = duplicate(visual, request.user)
+    return redirect("visuals:builder_step", copy.slug, "type")
+
+
+@requires(DESIGN)
 def builder_step(request, slug, step):
     """One step of the builder.
 

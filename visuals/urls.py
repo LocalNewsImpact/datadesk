@@ -21,6 +21,11 @@ urlpatterns = [
         name="builder_step",
     ),
     path("visuals/builder/<slug:slug>/", views.builder_edit, name="builder_edit"),
+    path(
+        "visuals/builder/<slug:slug>/duplicate/",
+        views.builder_duplicate,
+        name="builder_duplicate",
+    ),
     # The two counts that used to run while a step rendered. Fetched once
     # the step has drawn, so the page appears at once and fills in.
     path(
