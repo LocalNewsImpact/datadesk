@@ -540,3 +540,108 @@ def test_a_password_account_can_actually_sign_in(client, admin, dataset, setting
     assert answer.status_code in (302, 200), answer.status_code
     assert answer.wsgi_request.user.is_authenticated, "signed in and was not"
     assert answer.wsgi_request.user.pk == person.pk
+
+
+# --- one page for one person -------------------------------------------------
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_page_shows_everything_an_admin_can_do(client, admin, dataset):
+    from accounts.models import Grant
+
+    person = _with_role("colleague", None)
+    person.email = "colleague@example.edu"
+    person.save(update_fields=["email"])
+    Grant.objects.create(
+        user=person, app="datadesk", scope=dataset.slug, role="designer"
+    )
+
+    body = client.get(reverse("accounts:person", args=[person.id])).content.decode()
+    for action in (
+        reverse("accounts:set_role"),
+        reverse("accounts:set_dataset_grant"),
+        reverse("accounts:set_email", args=[person.id]),
+        reverse("accounts:send_password_link", args=[person.id]),
+        reverse("accounts:set_active", args=[person.id]),
+    ):
+        assert action in body, f"nothing on the page posts to {action}"
+    assert dataset.slug in body
+    # And the list gets there.
+    assert reverse("accounts:person", args=[person.id]) in (
+        client.get("/manage/users/").content.decode()
+    )
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_changing_the_address_changes_how_they_sign_in(client, admin, dataset):
+    person = _with_role("colleague", None)
+    person.email = "old@example.edu"
+    person.save(update_fields=["email"])
+
+    client.post(
+        reverse("accounts:set_email", args=[person.id]), {"email": "new@example.edu"}
+    )
+    person.refresh_from_db()
+    assert person.email == "new@example.edu"
+
+    # Not onto somebody else's address, which would be two accounts
+    # answering to one sign-in.
+    other = _with_role("other", None)
+    other.email = "taken@example.edu"
+    other.save(update_fields=["email"])
+    client.post(
+        reverse("accounts:set_email", args=[person.id]), {"email": "taken@example.edu"}
+    )
+    person.refresh_from_db()
+    assert person.email == "new@example.edu"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_an_account_is_disabled_rather_than_deleted(client, admin):
+    """Deleting takes the audit trail's subject with it."""
+    person = _with_role("colleague", None)
+    client.post(reverse("accounts:set_active", args=[person.id]), {"active": "0"})
+    person.refresh_from_db()
+    assert not person.is_active
+    assert User.objects.filter(pk=person.pk).exists()
+
+    client.post(reverse("accounts:set_active", args=[person.id]), {"active": "1"})
+    person.refresh_from_db()
+    assert person.is_active
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_an_admin_cannot_disable_themselves(client, admin):
+    """The same failure the role screen refuses: locking yourself out,
+    and with you possibly the last admin."""
+    client.post(reverse("accounts:set_active", args=[admin.id]), {"active": "0"})
+    admin.refresh_from_db()
+    assert admin.is_active
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_change_returns_to_the_page_it_was_made_from(client, admin, dataset):
+    """The role and dataset endpoints are shared with the list. Without
+    this, changing a role from somebody's page made the right change and
+    then landed somewhere else."""
+    person = _with_role("colleague", None)
+    here = reverse("accounts:person", args=[person.id])
+
+    answer = client.post(
+        reverse("accounts:set_dataset_grant"),
+        {"user_id": person.id, "scope": dataset.slug, "role": "designer", "next": here},
+    )
+    assert answer["Location"] == here
+
+    # ...and a target off this host is refused, because a redirect taken
+    # from a form is one an attacker can write.
+    away = client.post(
+        reverse("accounts:set_dataset_grant"),
+        {
+            "user_id": person.id,
+            "scope": dataset.slug,
+            "role": "editor",
+            "next": "https://example.com/",
+        },
+    )
+    assert "example.com" not in away["Location"]
