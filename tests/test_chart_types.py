@@ -419,6 +419,9 @@ def test_no_two_steps_own_the_same_key():
     seen = {}
     for step in STEPS:
         for key in step.owns:
+            assert (
+                ":" in key
+            ), f"{step.slug} owns {key!r} without saying which store it is in"
             assert key not in seen, f"{key} owned by {seen.get(key)} and {step.slug}"
             seen[key] = step.slug
 

@@ -452,6 +452,14 @@ def newsrooms_panel(visual, post=None, tree=None):
 # one is chosen its values can be narrowed.
 
 
+#: Every slot any chart kind names a column with. The fields step writes
+#: all of them on every save, because a slot left alone is one the last
+#: chart type filled in and this one does not draw.
+_EVERY_SLOT = tuple(
+    sorted({role.id for chart in BY_ID.values() for role in chart.roles})
+)
+
+
 def unmapped_fields(visual):
     """What a chart still needs before it can draw, as a phrase, or None.
 
@@ -628,13 +636,31 @@ def field_panel(visual, post=None, user=None):
                 or len(kept) < len(_values_for(visual, dim, [], user))
             ):
                 only[dim] = kept
+        # What the renderer draws. `roles` name variables by id; the
+        # pivot emits its columns under their display labels, and the
+        # renderer is given column names. Writing only the roles left
+        # every chart built here with its fields chosen and no idea which
+        # columns they were, so nothing drew -- and the charts that do
+        # draw in production got these keys from the settings page,
+        # before the walk existed.
+        #
+        # A role left empty clears its column, or removing a series would
+        # leave the renderer drawing one that is no longer in the rows.
+        by_id = {v["id"]: v for v in variables()}
+        # Every column any kind can name, not just this one's: changing
+        # from a chord to a bar has to leave no `from` behind, or the
+        # renderer draws a column the rows no longer carry.
+        columns = dict.fromkeys(_EVERY_SLOT, "")
+        for role in chart.roles:
+            columns[role.id] = by_id.get(roles.get(role.id), {}).get("label", "")
         return {
             "spec": {
                 "roles": roles,
                 "dimensions": dimensions,
                 "measure": measure or "articles",
                 "only": only,
-            }
+            },
+            "config": columns,
         }
 
     if chart is None:
