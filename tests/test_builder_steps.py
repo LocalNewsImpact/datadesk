@@ -1213,3 +1213,224 @@ def test_every_step_writes_every_key_it_owns(client, author, visual, two_newsroo
             f"the {spec_step.slug} step owns {missing} and left them unwritten, "
             "so whatever was there before survives its save"
         )
+
+
+def test_a_draft_page_can_draw_for_whoever_may_change_it(client, author, visual):
+    """A draft has no pinned snapshot, so its own page -- the only page
+    that shows a draft at all -- asked for one and got a 404 from the
+    feed. Whoever may change the visual may see what it currently draws,
+    which is the rule the builder's preview already uses."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    assert visual.status == Visual.DRAFT
+    assert visual.snapshots.count() == 0
+
+    body = client.get(f"/visuals/{visual.slug}/").content.decode()
+    assert "data.json?live=1" in body, "the draft's page must ask for live data"
+
+
+def test_a_chart_with_no_fields_says_so(client, author, visual):
+    """A story map declares no roles: its geography comes from the
+    enrichment rather than from columns somebody picks. The page rendered
+    as a heading and a lone Update button, which reads as a step that
+    failed to load."""
+    step(client, visual, "type", kind="storymap")
+    body = step(client, visual, "fields").content.decode()
+
+    # Normalised: the sentence wraps in the template, so a literal match
+    # looks for text no single line contains.
+    flat = " ".join(body.split())
+    assert "no fields to choose here" in flat
+    assert "Pick a chart type first" not in flat
+
+
+def test_the_newsroom_tree_follows_the_datasets_chosen(client, author, visual, dataset):
+    """Reading only the singular `dataset` key left a visual wired to
+    every dataset its author could read, so the tree offered newsrooms
+    from four states to somebody who had chosen one."""
+    from visuals.views import _wired_datasets
+
+    assert _wired_datasets(author, {"datasets": ["mizzou"]}) == ["mizzou"]
+    # A slug the author cannot read is not smuggled in by the plural.
+    assert _wired_datasets(author, {"datasets": ["mizzou", "nope"]}) == ["mizzou"]
+    # The older singular still works where it is all a visual has.
+    assert _wired_datasets(author, {"dataset": "mizzou"}) == ["mizzou"]
+
+
+# --- every surface a visual can be seen through ------------------------------
+#
+# The failures this exists to catch all had one shape: a view renders a
+# chart, the chart fetches a feed, and the URL it was handed was wrong or
+# absent. Each was found by a person opening a page.
+#
+#   fetch("")                   the builder preview, when no feed reached it
+#   404 from the feed           a draft's own page, which never asks for live
+#   no fields, just a button    a kind that declares no roles
+#
+# One matrix, not a test per instance: every kind against every view.
+
+RENDERING_VIEWS = ("page", "type", "theme", "data", "newsrooms", "fields", "publish")
+
+
+@pytest.mark.parametrize("kind", ["storymap", "chord", "bar", "table"])
+def test_every_view_that_draws_a_chart_can_load_its_feed(
+    client, author, visual, corpus, two_newsrooms, kind
+):
+    """A draft with no snapshot, which is what every visual is until it is
+    published, and what a fresh copy is for as long as it takes to change
+    something."""
+    import re
+
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+
+    # A corpus visual, which is what the builder makes: live data runs the
+    # pivot rather than reaching for BigQuery.
+    visual.config = {"kind": kind, "theme": "datadesk"}
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {
+        "datasets": ["mizzou"],
+        "subset": "complete",
+        "roles": {"x": "cin_primary"},
+        "measure": "articles",
+        "dimensions": ["cin_primary"],
+    }
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+    assert visual.snapshots.count() == 0, "the case that kept breaking"
+
+    for where in RENDERING_VIEWS:
+        url = (
+            f"/visuals/{visual.slug}/"
+            if where == "page"
+            else f"/visuals/builder/{visual.slug}/step/{where}/"
+        )
+        page = client.get(url)
+        assert page.status_code == 200, f"{kind} at {where}: {page.status_code}"
+        body = page.content.decode()
+
+        # Whatever it fetches must be a real URL, not the empty string --
+        # `fetch("")` re-requests the page and the runtime parses HTML.
+        for fetched in re.findall(r'fetch\("([^"]*)"\)', body):
+            assert fetched, f"{kind} at {where} fetches nothing"
+            feed = client.get(fetched)
+            assert (
+                feed.status_code == 200
+            ), f"{kind} at {where} fetches {fetched} -> {feed.status_code}"
+
+
+@pytest.mark.parametrize("kind", ["storymap", "chord", "bar", "table"])
+def test_no_view_leaves_a_panel_empty(
+    client, author, visual, corpus, two_newsrooms, kind
+):
+    """A step that renders a heading and a lone button reads as one that
+    failed to load. Every step says something, whether it has controls to
+    offer or not."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": kind, "theme": "datadesk"}
+    visual.datasets = ["mizzou"]
+    visual.save(update_fields=["config", "datasets"])
+
+    for where in ("type", "theme", "data", "newsrooms", "fields", "publish"):
+        body = client.get(
+            f"/visuals/builder/{visual.slug}/step/{where}/"
+        ).content.decode()
+        panel = body[body.index('class="build-rail"') :]
+        panel = panel[: panel.index('class="build-stage"')]
+        # Something to read or something to operate, in the panel itself.
+        assert (
+            "<p" in panel or "<label" in panel or "<select" in panel
+        ), f"{kind} at {where}: the panel offers nothing"
+
+
+def test_changing_an_option_changes_what_the_preview_draws(
+    client, author, visual, corpus, two_newsrooms
+):
+    """The question the steps exist to answer: does pressing Update
+    rebuild the query. Asserted on the rows the preview fetches, not on
+    the page rendering."""
+    import json
+
+    boone, jackson = two_newsrooms
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+
+    # An article from the second newsroom, so the two selections differ.
+    from explorer.models import Article, CandidateLink
+
+    link = CandidateLink.objects.create(
+        id="cl-j", url="https://kc2.example/1", source=jackson
+    )
+    Article.objects.create(
+        id="a-j", status="ok", candidate_link=link, primary_label="Health"
+    )
+
+    visual.config = {"kind": "bar", "theme": "datadesk"}
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {
+        "datasets": ["mizzou"],
+        "subset": "complete",
+        "roles": {"x": "cin_primary"},
+        "measure": "articles",
+        "dimensions": ["cin_primary"],
+    }
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+
+    def drawn():
+        feed = client.get(f"/visuals/{visual.slug}/data.json?live=1")
+        assert feed.status_code == 200, feed.status_code
+        return json.loads(feed.content)["data"]
+
+    everything = drawn()
+    labels = {row.get("CIN (primary)") for row in everything}
+    assert {"Civic Life", "Sports", "Health"} <= labels, labels
+
+    # Narrow to the second newsroom alone.
+    step(client, visual, "newsrooms", publishers=[jackson.id])
+    only_jackson = drawn()
+    assert {row.get("CIN (primary)") for row in only_jackson} == {"Health"}
+
+    # ...and back to the first.
+    step(client, visual, "newsrooms", publishers=[boone.id])
+    only_boone = drawn()
+    assert {row.get("CIN (primary)") for row in only_boone} == {"Civic Life", "Sports"}
+
+    # A date range with nothing in it empties it.
+    step(
+        client,
+        visual,
+        "data",
+        datasets=["mizzou"],
+        subset="complete",
+        **{"from": "1999-01-01", "to": "1999-12-31"},
+    )
+    assert drawn() == []
+
+
+def test_the_builder_never_draws_from_a_cache(client, author, visual, corpus):
+    """It exists to show what the options currently chosen produce, and a
+    cached answer is the answer to a question somebody has since changed.
+    Keyed by slug, the five minutes after any change served the rows from
+    before it."""
+    from unittest import mock
+
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {
+        "datasets": ["mizzou"],
+        "subset": "complete",
+        "roles": {"x": "cin_primary"},
+        "measure": "articles",
+        "dimensions": ["cin_primary"],
+    }
+    visual.save(update_fields=["source_kind", "datasets", "spec"])
+
+    url = f"/visuals/{visual.slug}/data.json?live=1"
+    with mock.patch("visuals.views.fetch_source_data", return_value=[]) as ran:
+        client.get(url)
+        client.get(url)
+    assert ran.call_count == 2, "the second read came from a cache"

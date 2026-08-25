@@ -34,8 +34,18 @@ something the server will refuse.
     {% endif %}
   </td>
   <td>
+    {% comment %}
+    The name opens the builder for somebody who may change it. It opened
+    a read-only page, which is where "trying to edit the visual again"
+    lands — and for a draft that page has no pinned snapshot to draw.
+    A viewer, who may change nothing, still gets the page.
+    {% endcomment %}
+    {% if visual.template == "builder" and visual.actionable %}
+    <a href="{% url 'visuals:builder_step' visual.slug 'type' %}">{{ visual.title }}</a>
+    {% else %}
     <a href="{% url 'visuals:page' visual.slug %}">{{ visual.title }}</a>
-    {% if visual.template == "builder" and visual.actionable %}<a class="edit-link" href="{% url 'visuals:builder_step' visual.slug 'type' %}">edit</a><a class="edit-link" href="{% url 'visuals:builder_edit' visual.slug %}">settings</a>{% comment %}
+    {% endif %}
+    {% if visual.template == "builder" and visual.actionable %}<a class="edit-link" href="{% url 'visuals:page' visual.slug %}">view</a><a class="edit-link" href="{% url 'visuals:builder_edit' visual.slug %}">settings</a>{% comment %}
     A form rather than a link: it creates a record, and a link that creates
     records is one a crawler or a browser prefetch can trip.
     {% endcomment %}<form method="post" class="inline-form"

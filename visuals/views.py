@@ -89,9 +89,17 @@ def _wired_datasets(user, spec):
     if readable is ALL_SCOPES:
         readable = set(Dataset.objects.values_list("slug", flat=True))
 
-    named = (spec or {}).get("dataset")
+    # The plural is what the data step writes and what the newsroom tree
+    # is built from. Reading only the singular left a visual wired to
+    # every dataset its author could read, so the tree offered newsrooms
+    # from four states to somebody who had chosen one.
+    named = (spec or {}).get("datasets") or []
+    if isinstance(named, str):
+        named = [named]
+    if not named and (one := (spec or {}).get("dataset")):
+        named = [one]
     if named:
-        return [named] if named in readable else []
+        return sorted(set(named) & set(readable))
     return sorted(readable)
 
 
@@ -290,9 +298,22 @@ def _feed_payload(request, visual):
         def fetch():
             return fetch_source_data(visual)
 
-        data = cache.get_or_set(
-            f"visuals.live.{visual.slug}", fetch, _LIVE_CACHE_SECONDS
-        )
+        # Nothing the builder draws is cached. It exists to show what the
+        # options currently chosen produce, and a cached answer is by
+        # definition the answer to a question somebody has since changed:
+        # keyed by slug, the five minutes after any change served the rows
+        # from before it, so pressing Update redrew the same picture and
+        # the step looked as though it had not saved.
+        #
+        # A published embed reading live data is the other case. Nobody is
+        # editing it, the question is fixed, and the cache is what keeps a
+        # popular page off the corpus.
+        if may_act_on(request.user, visual):
+            data = fetch()
+        else:
+            data = cache.get_or_set(
+                f"visuals.live.{visual.slug}", fetch, _LIVE_CACHE_SECONDS
+            )
         return {"slug": visual.slug, "version": None, "data": data}, False
 
     asked = _asked_for_version(request)
@@ -466,7 +487,13 @@ def page(request, slug):
         {
             "visual": visual,
             "renderer": f"visuals/renderers/{visual.template}.html",
-            "feed": _feed_url(visual, by_uuid=False),
+            # A draft has no pinned snapshot, so this page asked for one
+            # and got a 404 -- on the only page that shows a draft at all.
+            # Whoever may change the visual may see what it currently
+            # draws, which is the rule the builder's preview already uses.
+            "feed": _feed_url(
+                visual, by_uuid=False, live=may_act_on(request.user, visual)
+            ),
             "libs": libs_for((visual.config or {}).get("kind")),
             "credit_name": _credit_line(visual)[0],
             "credit_email": _credit_line(visual)[1],
