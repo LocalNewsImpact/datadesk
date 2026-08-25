@@ -566,7 +566,35 @@ def run_story_map(spec, scopes):
         "area_stories": considered,
         "unresolved_places": len(unresolved),
     }
+    if not points and not areas:
+        meta["empty_because"] = _why_nothing_mapped(spec, scopes)
     return {"points": points, "areas": areas, "meta": meta}
+
+
+def _why_nothing_mapped(spec, scopes):
+    """Which of the three reasons an empty map is empty.
+
+    "No mapped stories" is true and useless. It does not distinguish a
+    slice with no articles in it, a set of newsrooms that published none
+    in that window, and a map centred on a place none of the chosen
+    newsrooms write about -- and that last one is what a duplicated map
+    becomes when it is retargeted at one county and left filtered to
+    another's newsrooms. Each needs a different thing done about it.
+    """
+    narrowed = _base_queryset(spec, scopes)
+    if not narrowed.exists():
+        if spec.get("publishers"):
+            return (
+                "The newsrooms chosen published nothing in this date range. "
+                "Widen the dates, or choose more newsrooms."
+            )
+        return "No articles in this slice. Widen the dates or the datasets."
+    # There are articles; they simply have no place attached, or none the
+    # gazetteer could place.
+    return (
+        "These articles have no locations the map could place. "
+        "They may not be enriched yet."
+    )
 
 
 def _cache_key(prefix, *parts):

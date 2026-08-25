@@ -1196,7 +1196,12 @@ def builder_step(request, slug, step):
                 action=f"visual:{step}",
                 target_table="visuals",
                 target_ids=[visual.slug],
-                after=dict(*written.values()),
+                # Flattened across holders. Every step wrote one of spec
+                # or config until the data step began writing both -- the
+                # slice on the spec and, for a map, where it is centred on
+                # the config -- and `dict(*values)` is a TypeError the
+                # moment there are two.
+                after={k: v for part in written.values() for k, v in part.items()},
                 reason=f"{here.label.lower()} for {visual.slug}",
             )
             if request.POST.get("stay"):
