@@ -588,3 +588,56 @@ def test_a_name_that_cannot_be_shortened_is_dropped_not_stubbed():
     body = body[: body.index("\n  function ")]
     assert "text.remove()" in body
     assert "n > 3" in body
+
+
+# --- the preview gets the width of its pane ----------------------------------
+
+
+def _console_css():
+    from pathlib import Path
+
+    return (
+        Path(__file__).resolve().parent.parent / "static/css/datadesk.css"
+    ).read_text()
+
+
+def test_the_preview_pane_does_not_size_itself_to_its_contents():
+    """`place-items: center` centres by shrinking the item to its content.
+    `render` empties the element before it measures, so the box collapsed to
+    nothing and every chart -- not only the sankey -- drew at the fallback
+    width in a pane twice that wide."""
+    css = _console_css()
+    rule = css[css.index(".build-stage .canvas{") :]
+    rule = rule[: rule.index("}")]
+    assert "place-items: center" not in rule, "the preview shrinks to fit again"
+    assert "justify-items: stretch" in rule
+
+
+def test_the_waiting_state_is_still_centred():
+    """It was centred by the grid that has just stopped centring."""
+    css = _console_css()
+    rule = css[css.index(".canvas .empty{") :]
+    assert "margin-inline: auto" in rule[: rule.index("}")]
+
+
+def test_a_chart_that_measures_nothing_asks_its_container():
+    """`el.clientWidth || 640` turned an unmeasurable element into a chart
+    drawn at 640px, which looks like a chart rather than like a bug, and so
+    went unreported until somebody said the preview was narrow."""
+    js = _chart_js()
+    assert "el.clientWidth || 640" not in js, "back to a silent fallback width"
+    body = js[js.index("function roomFor(") :]
+    body = body[: body.index("\n  function ")]
+    # The climb has to discount padding, or a chart is drawn the width of the
+    # box around it and overflows by exactly that padding.
+    assert "parentElement" in body
+    assert "paddingLeft" in body and "paddingRight" in body
+
+
+def test_the_observer_measures_what_the_renderer_measures():
+    """A pane that widens would redraw at a width the chart does not use."""
+    js = _chart_js()
+    body = js[js.index("function mount(") :]
+    body = body[: body.index("return { redraw: draw };")]
+    assert "roomFor(el)" in body
+    assert "el.clientWidth" not in body, "the two measurements disagree again"

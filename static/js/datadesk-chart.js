@@ -278,11 +278,29 @@
     return [Plot.gridY({ stroke: t.grid, strokeOpacity: 1 })];
   }
 
+  // How wide the chart may draw. `render` empties the element before it
+  // measures, so an element whose width comes from its own content reports
+  // nothing -- and the old `|| 640` turned that into a chart drawn at 640px
+  // in a pane twice that wide, silently, in every preview. Climb until
+  // something has a width of its own; that ancestor is the column the chart
+  // is meant to fill. Subtract padding at each level so the answer is room to
+  // draw in, not the box around it.
+  function roomFor(el) {
+    for (let node = el; node; node = node.parentElement) {
+      const box = getComputedStyle(node);
+      const room = node.clientWidth
+        - (parseFloat(box.paddingLeft) || 0)
+        - (parseFloat(box.paddingRight) || 0);
+      if (room > 0) return room;
+    }
+    return 640;
+  }
+
   function render(el, config, rows, opts) {
     const t = theme(config.theme);
     el.textContent = "";
     const Plot = global.Plot;
-    const width = Math.max(320, el.clientWidth || 640);
+    const width = Math.max(320, roomFor(el));
     const kind = config.kind || "table";
     // The story map's payload is an object of layers, not a row array;
     // every other form takes rows and needs at least one.
@@ -1711,9 +1729,12 @@
     const draw = () => render(el, config, rows, opts);
     draw();
     matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
-    let width = el.clientWidth;
+    // The observer must measure what the renderer measures, or a pane that
+    // widens redraws at a width the chart does not use.
+    let width = roomFor(el);
     new ResizeObserver(() => {
-      if (Math.abs(el.clientWidth - width) > 24) { width = el.clientWidth; draw(); }
+      const room = roomFor(el);
+      if (Math.abs(room - width) > 24) { width = room; draw(); }
     }).observe(el);
     return { redraw: draw };
   }

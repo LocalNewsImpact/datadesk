@@ -1496,10 +1496,17 @@ tr.prop td { border-bottom: 0; }
 @media (max-width: 60rem){ .build{ grid-template-columns: 1fr; } }
 .build-rail{ min-width: 0; }
 .build-stage{ min-width: 0; display: flex; flex-direction: column; gap: var(--s-2); }
+/* `place-items: center` centred the preview by shrinking it to its content,
+   so the chart measured its own box and got nothing: `render` empties the
+   element before measuring, the box collapsed to zero, and every chart fell
+   back to a fixed 640px however wide the pane was. Centre the rows within
+   the height and let them take the full width -- what the preview is for is
+   showing the chart at the size it will be read at. */
 .build-stage .canvas{
   flex: 1; min-height: 22rem; border: 1px solid var(--border);
   border-radius: var(--r-md); background: var(--surface);
-  display: grid; place-items: center; padding: var(--s-3);
+  display: grid; align-content: center; justify-items: stretch;
+  padding: var(--s-3);
 }
 
 .steps{ display: flex; flex-wrap: wrap; gap: .3rem; margin-bottom: var(--s-3); }
@@ -1605,7 +1612,8 @@ tr.prop td { border-bottom: 0; }
 
 /* The preview's waiting state: a heading and a line under it, not one run-on
    sentence with a bold opening. */
-.canvas .empty{ text-align: center; color: var(--text-3); max-width: 26rem; }
+.canvas .empty{ text-align: center; color: var(--text-3);
+  max-width: 26rem; margin-inline: auto; }
 .canvas .empty strong{ display: block; font-size: 1.05rem; color: var(--text-2);
   font-weight: 600; margin-bottom: .3rem; }
 
