@@ -2,6 +2,7 @@
 as one audited batch."""
 
 import io
+from unittest import mock
 
 import pytest
 from django.contrib.auth.models import User
@@ -1598,3 +1599,120 @@ def test_the_flag_counts_follow_the_directory_being_worked(client, mo, vt, edito
     assert chip and chip.group(1) == "1", body[body.find("No owner recorded") - 200 :][
         :400
     ]
+
+
+# --- running by itself -------------------------------------------------------
+#
+# A scan somebody has to remember to run is a queue that is as complete
+# as the last person's memory -- the same failure as the required
+# --dataset, one level up. Daily is the floor; skipping what has not
+# moved is what makes daily cheap enough to leave switched on.
+
+
+def test_a_second_scan_of_unchanged_records_does_no_work(mo, editor):
+    from django.core.management import call_command
+
+    from review.proposals import DatasetScan
+
+    _in(
+        mo,
+        Source.objects.create(
+            id="s-mo5",
+            host="mo5.example",
+            host_norm="mo5.example",
+            canonical_name="Missouri Paper",
+            owner="",
+            meta={"state": "MO"},
+        ),
+    )
+
+    first = io.StringIO()
+    call_command("scan_sources", if_changed=True, stdout=first)
+    assert "publishers scanned" in first.getvalue()
+    assert DatasetScan.objects.get(dataset="mo").stamp
+
+    second = io.StringIO()
+    call_command("scan_sources", if_changed=True, stdout=second)
+    assert "unchanged, not scanned" in second.getvalue()
+    assert "publishers scanned" not in second.getvalue()
+
+
+def test_a_record_that_changes_is_scanned_again(mo, editor):
+    from django.core.management import call_command
+
+    source = _in(
+        mo,
+        Source.objects.create(
+            id="s-mo6",
+            host="mo6.example",
+            host_norm="mo6.example",
+            canonical_name="Missouri Paper",
+            owner="",
+            meta={"state": "MO"},
+        ),
+    )
+    call_command("scan_sources", if_changed=True, stdout=io.StringIO())
+
+    source.owner = "CherryRoad Media"
+    source.save(update_fields=["owner"])
+
+    out = io.StringIO()
+    call_command("scan_sources", if_changed=True, stdout=out)
+    assert "publishers scanned" in out.getvalue(), "an edited record was not re-read"
+
+
+def test_a_new_check_re_reads_records_that_have_not_moved(mo, editor):
+    """A scan is the checks applied to the records, so a new check is a
+    reason to look again at records that have not changed."""
+    from django.core.management import call_command
+
+    from review.proposals import sources_stamp
+
+    _in(
+        mo,
+        Source.objects.create(
+            id="s-mo7",
+            host="mo7.example",
+            host_norm="mo7.example",
+            canonical_name="Missouri Paper",
+            owner="",
+            meta={"state": "MO"},
+        ),
+    )
+    before = sources_stamp("mo")
+    call_command("scan_sources", if_changed=True, stdout=io.StringIO())
+
+    import review.flags as flags_module
+
+    one_more = flags_module.FLAGS + (flags_module.FLAGS[0],)
+    with mock.patch.object(flags_module, "FLAGS", one_more):
+        assert sources_stamp("mo") != before, "the vocabulary is not in the stamp"
+        out = io.StringIO()
+        call_command("scan_sources", if_changed=True, stdout=out)
+        assert "publishers scanned" in out.getvalue()
+
+
+def test_a_dry_run_does_not_claim_the_records_were_scanned(mo, editor):
+    """A stamp written for a run that queued nothing would make the next
+    real run skip records it never looked at."""
+    from django.core.management import call_command
+
+    from review.proposals import DatasetScan
+
+    _in(
+        mo,
+        Source.objects.create(
+            id="s-mo8",
+            host="mo8.example",
+            host_norm="mo8.example",
+            canonical_name="Missouri Paper",
+            owner="",
+            meta={"state": "MO"},
+        ),
+    )
+    call_command("scan_sources", if_changed=True, dry_run=True, stdout=io.StringIO())
+    assert not DatasetScan.objects.filter(dataset="mo").exists()
+
+    out = io.StringIO()
+    call_command("scan_sources", if_changed=True, stdout=out)
+    assert "publishers scanned" in out.getvalue()

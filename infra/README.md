@@ -62,7 +62,7 @@ executing code that is not deployed.
 | Crawler read | role `datadesk_ro`, SELECT-only on `mizzou` |
 | Crawler write | role `datadesk_rw`, column-level UPDATE per SCOPE.md §6.5 |
 | Console hostname | `datadesk.localnewsimpact.org` via Cloud Run domain mapping |
-| Scheduler | `datadesk-warm-caches` (cache table), `datadesk-keepwarm` and `sources-admin-keepwarm` (cold starts) |
+| Scheduler | `datadesk-warm-caches` (cache table), `datadesk-keepwarm` and `sources-admin-keepwarm` (cold starts), `datadesk-scan-sources-daily` (review queue — `infra/scan_sources.sh`) |
 
 ## Cold starts
 

@@ -174,6 +174,64 @@ class ChangeProposal(models.Model):
         return True
 
 
+class DatasetScan(models.Model):
+    """What one directory's records looked like the last time it scanned.
+
+    A daily scan that redoes the work every day is a daily scan nobody
+    leaves switched on. This is what lets it skip: the stamp is a hash of
+    everything a scan reads, so a directory whose records have not moved
+    since the last run has nothing new to say about them.
+
+    There is no timestamp on a publisher record to compare instead --
+    `Source` carries no `updated_at` -- so the stamp is over the content
+    itself, which is the honest version of the question anyway. A record
+    edited and edited back has not changed.
+
+    The flag vocabulary is in the stamp too. A scan is the checks applied
+    to the records, so a new check is a reason to look again at records
+    that have not moved.
+    """
+
+    dataset = models.CharField(max_length=100, unique=True)
+    stamp = models.CharField(max_length=64)
+    scanned_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "review_dataset_scan"
+
+    def __str__(self):
+        return f"{self.dataset} {self.stamp[:8]} {self.scanned_at:%Y-%m-%d %H:%M}"
+
+
+def sources_stamp(dataset_slug):
+    """A hash of every record a scan of this dataset would read.
+
+    Ordered by id and serialised the same way every time, or the hash
+    would change with the order rows came back in and a scan would run
+    every day whatever happened.
+    """
+    import hashlib
+    import json
+
+    from explorer.models import DatasetSource, Source
+    from review.flags import FLAGS
+
+    ids = DatasetSource.objects.filter(dataset__slug=dataset_slug).values_list(
+        "source_id", flat=True
+    )
+    rows = (
+        Source.objects.filter(id__in=ids)
+        .order_by("id")
+        .values_list("id", "canonical_name", "city", "county", "owner", "type", "meta")
+    )
+    digest = hashlib.sha256()
+    # The checks first, so adding one changes every dataset's stamp.
+    digest.update(json.dumps([f.key for f in FLAGS]).encode())
+    for row in rows.iterator(chunk_size=1000):
+        digest.update(json.dumps(row, sort_keys=True, default=str).encode())
+    return digest.hexdigest()
+
+
 class ScanRun(models.Model):
     """One run of the publisher scan, so the queue can say when it last ran.
 
