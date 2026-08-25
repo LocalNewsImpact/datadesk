@@ -1021,7 +1021,7 @@
       return;
     }
     rows = coerce(rows.slice(), value);
-    const { nodes, links, lefts, sides } = sankeyGraph(rows, from, to, value);
+    const { nodes, links, lefts, sides, folded } = sankeyGraph(rows, from, to, value);
     if (!links.length) { el.textContent = "No flows to draw."; return; }
 
     // Never cycled. Past the palette a hue would be reused for a second
@@ -1037,7 +1037,11 @@
     // Room for the longest label on each side, measured rather than
     // guessed: the names here are newsroom names and owner names, and
     // guessing clipped "Southeast Missourian" in half.
-    const height = Math.max(320, Math.min(24 * links.length + 60, 900));
+    // Room per node rather than per link: a node is what carries a
+    // label, and a label is what has to be readable. Both sides are
+    // capped, so this cannot run away.
+    const rows_deep = Math.max(sides[0].size, sides[1].size);
+    const height = Math.max(320, Math.min(26 * rows_deep + 40, 760));
     const svg = d3.create("svg")
       .attr("viewBox", [0, 0, width, height])
       .attr("width", width).attr("height", height)
@@ -1103,6 +1107,21 @@
         .text((d) => d.name);
 
     el.replaceChildren(svg.node());
+    // What was folded, and into what. A chart of the top twelve that
+    // looks like a chart of everything is the one thing a cap must not
+    // do quietly.
+    if (folded && (folded.left || folded.right)) {
+      const said = [];
+      if (folded.left) said.push(folded.left + " on the left");
+      if (folded.right) said.push(folded.right + " on the right");
+      const note = document.createElement("p");
+      note.className = "dd-note";
+      note.textContent =
+        said.join(" and ") + " are gathered into \u201c" + REST +
+        "\u201d, which is drawn at its full size. Narrow the values on the " +
+        "fields step to choose which are shown.";
+      el.appendChild(note);
+    }
     if (greyed) {
       const note = document.createElement("p");
       note.className = "dd-note";
@@ -1133,10 +1152,59 @@
   //: not owned by nobody, and a node labelled "" says it is.
   const NOT_RECORDED = "Not recorded";
 
+  // How many nodes a side can carry and still be read. A sankey of
+  // cities against publishers is 111 against 179 -- a wall of labels in
+  // 4pt type, which is not a chart of anything. Twelve a side is about
+  // what fits at a readable size, and on that corpus the top twelve
+  // cities are 69% of the articles.
+  //
+  // The rest are not dropped. Each side folds its tail into one node, so
+  // the total still adds up and a reader can see how much is in it --
+  // dropping them would silently redraw the question as "the top twelve"
+  // while still looking like a chart of everything.
+  const CAP_SIDE = 12;
+  const REST = "Everything else";
+
   // The graph a sankey draws, without drawing it. Separated because this
   // is the part with decisions in it -- two vocabularies, summing, the
-  // colour order -- and the drawing is d3 doing what d3 does.
-  function sankeyGraph(rows, from, to, value) {
+  // colour order, what is too much to draw -- and the drawing is d3
+  // doing what d3 does.
+  function sankeyGraph(rows, from, to, value, cap) {
+    const room = cap === undefined ? CAP_SIDE : cap;
+    // What each name is worth on its own side, before anything folds.
+    const weigh = (key) => {
+      const total = new Map();
+      for (const r of rows) {
+        const name = String(r[key] ?? "").trim() || NOT_RECORDED;
+        total.set(name, (total.get(name) || 0) + (+r[value] || 0));
+      }
+      return total;
+    };
+    const keep = (key) => {
+      const ranked = [...weigh(key)].sort((a, b) => b[1] - a[1]);
+      return {
+        names: new Set(ranked.slice(0, room).map(([name]) => name)),
+        folded: Math.max(0, ranked.length - room),
+      };
+    };
+    const left = keep(from), right = keep(to);
+    const fold = (side, name) => {
+      const clean = String(name ?? "").trim() || NOT_RECORDED;
+      return side.names.has(clean) ? clean : REST;
+    };
+    if (left.folded || right.folded) {
+      rows = rows.map((r) => ({
+        ...r,
+        [from]: fold(left, r[from]),
+        [to]: fold(right, r[to]),
+      }));
+    }
+    const graph = _sankeyGraph(rows, from, to, value);
+    graph.folded = { left: left.folded, right: right.folded };
+    return graph;
+  }
+
+  function _sankeyGraph(rows, from, to, value) {
     // One node per name per side. A name can appear on both, and an
     // owner that is also a newsroom is two nodes with a link between
     // them rather than one node with a loop.

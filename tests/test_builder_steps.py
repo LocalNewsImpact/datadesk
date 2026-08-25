@@ -2933,3 +2933,114 @@ def test_the_embed_is_where_the_version_choice_lives(client, author, visual, cor
     # nobody could work out: the page said "snapshot v4" above links that
     # followed whatever got published next.
     assert "pin-links" not in body
+
+
+def test_no_step_template_puts_anything_after_its_block():
+    """Django discards content outside a block in a child template.
+
+    The fields step's facet loader sat after `{% endblock %}`, so it was
+    never rendered and every "Narrow the values" list was empty --
+    owners, counties, cities, all of them, for as long as it had been
+    there. A template renders happily either way, which is why this is a
+    test and not a review.
+    """
+    import re
+
+    steps = ROOT / "templates/visuals/steps"
+    for template in sorted(steps.glob("*.html")):
+        text = template.read_text()
+        if "{% extends" not in text:
+            continue
+        last = text.rindex("{% endblock %}")
+        trailing = re.sub(
+            r"\{%\s*comment\s*%\}.*?\{%\s*endcomment\s*%\}",
+            "",
+            text[last + len("{% endblock %}") :],
+            flags=re.S,
+        )
+        assert not trailing.strip(), (
+            f"{template.name} has content after its last block, which "
+            f"Django drops: {trailing.strip()[:80]}"
+        )
+
+
+def test_the_fields_step_renders_its_facet_loader(client, author, visual, corpus):
+    """The other half: not merely inside a block, but reaching the page
+    with the endpoint it fetches."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": "sankey", "theme": "datadesk"}
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {
+        "datasets": ["mizzou"],
+        "roles": {
+            "from": "publisher_city",
+            "to": "publisher_name",
+            "value": "articles",
+        },
+        "dimensions": ["publisher_city", "publisher_name"],
+    }
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+
+    body = client.get(f"/visuals/builder/{visual.slug}/step/fields/").content.decode()
+    assert 'data-role="from"' in body, "no facet to open"
+    assert "role_values" in body or "/values/" in body, "the facet loads nothing"
+
+    # ...and the endpoint answers for a dimension somebody would narrow by.
+    values = client.get(f"/visuals/builder/{visual.slug}/values/from/")
+    assert values.status_code == 200
+    assert "values" in values.json()
+
+
+def test_a_sankey_folds_each_side_and_says_so():
+    """A sankey of cities against publishers is 111 against 179 -- a wall
+    of labels in 4pt type, which is not a chart of anything.
+
+    The tail is folded rather than dropped, because a chart of the top
+    twelve that looks like a chart of everything is the one thing a cap
+    must not do quietly."""
+    import json
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("no node to run the runtime in")
+
+    harness = """
+    global.window = global;
+    global.document = {
+      addEventListener() {}, querySelectorAll: () => [],
+      documentElement: { dataset: { theme: "light" } },
+    };
+    global.matchMedia = () => ({ matches: false });
+    RUNTIME
+    const rows = [];
+    // Twenty cities, one publisher each, the first worth the most.
+    for (let i = 0; i < 20; i++)
+      rows.push({ City: "City " + i, Pub: "Paper " + i, N: 100 - i });
+    const g = DatadeskChart.__test.sankeyGraph(rows, "City", "Pub", "N");
+    const names = (side) => g.nodes.filter((n) => n.side === side).map((n) => n.name);
+    console.log(JSON.stringify({
+      left: names(0), right: names(1), folded: g.folded,
+      total: g.links.reduce((a, l) => a + l.value, 0),
+      uncapped: DatadeskChart.__test.sankeyGraph(rows, "City", "Pub", "N", 999)
+        .nodes.filter((n) => n.side === 0).length,
+    }));
+    """.replace("RUNTIME", (ROOT / "static/js/datadesk-chart.js").read_text())
+
+    done = subprocess.run([node, "-e", harness], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr[-2000:]
+    got = json.loads(done.stdout)
+
+    # Twelve, plus the one the rest are gathered into.
+    assert len(got["left"]) == 13, got["left"]
+    assert "Everything else" in got["left"] and "Everything else" in got["right"]
+    assert got["folded"] == {"left": 8, "right": 8}
+    # The biggest are kept and the smallest are the ones folded.
+    assert "City 0" in got["left"] and "City 19" not in got["left"]
+    # Nothing is lost: the total still adds up to every row.
+    assert got["total"] == sum(100 - i for i in range(20))
+    # ...and the cap is a cap, not the shape of the data.
+    assert got["uncapped"] == 20
