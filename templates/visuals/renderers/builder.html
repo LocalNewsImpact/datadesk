@@ -44,6 +44,7 @@ which is what the init below now waits for.
 {% if "d3" in libs %}<script defer src="{% static 'js/d3.min.js' %}"></script>{% endif %}
 {% if "plot" in libs %}<script defer src="{% static 'js/plot.min.js' %}"></script>{% endif %}
 {% if "topojson" in libs %}<script defer src="{% static 'js/topojson-client.min.js' %}"></script>{% endif %}
+{% if "sankey" in libs %}<script defer src="{% static 'js/d3-sankey.min.js' %}"></script>{% endif %}
 <script defer src="{% static 'js/datadesk-chart.js' %}"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function () {

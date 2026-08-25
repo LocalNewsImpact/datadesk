@@ -268,6 +268,27 @@ CHART_TYPES = (
         rows_to=400,
     ),
     ChartType(
+        "sankey",
+        "Sankey diagram",
+        FLOW,
+        "How much flows from each of one thing to each of another.",
+        # No `pairs`. A chord folds a vocabulary against itself -- primary
+        # need against alternate need, the same ten either side -- and a
+        # sankey is the other case: two vocabularies, owners on the left
+        # and the newsrooms they own on the right. Constraining them to
+        # match is what made "who owns what" unaskable with the flow
+        # types already here.
+        roles=(
+            Role("from", "From", accepts=(TEXT, GEO)),
+            Role("to", "To", accepts=(TEXT, GEO)),
+            Role("value", "Amount", accepts=(NUMBER,)),
+        ),
+        also=("flow diagram", "alluvial"),
+        encoding=LENGTH,
+        functions=("Relationships", "Movement or flow", "Part-to-whole"),
+        rows_to=400,
+    ),
+    ChartType(
         "arc",
         "Arc diagram",
         FLOW,
