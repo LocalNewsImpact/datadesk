@@ -57,6 +57,26 @@
     Colour the ten CIN needs the same way in every chart
   </label>
 
+  {% if has_series %}
+  {% comment %}
+  An ordered series is not a set of unrelated things. "None, Very little,
+  Some, Quite a bit, A lot" in five unrelated hues says those are five
+  categories; one hue light to dark says it is a scale, which is what it
+  is -- and the legend then reads as the scale rather than as a key.
+
+  Offered only where there is a series to colour, and only ticked
+  deliberately: nothing in a column of text says which end is which, so
+  the order is the order the values appear in the data. Saying so here is
+  the whole contract.
+  {% endcomment %}
+  <label class="inline">
+    <input type="checkbox" name="series_scale" value="sequential"
+      {% if series_scale == "sequential" %}checked{% endif %}>
+    These categories are a scale — colour them light to dark in the order
+    they appear, rather than as unrelated categories
+  </label>
+  {% endif %}
+
   {% comment %}
   Whose name sits on the chart, inside its own bounds and wherever it is
   pasted. The consortium publishes what is built here, so that is the
