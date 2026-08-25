@@ -484,7 +484,21 @@ def _downloads(visual, by_uuid, version=None):
         path = reverse(route, args=[ident])
         return f"{path}?{urlencode(params)}" if params else path
 
-    files = [{"label": "JSON", "note": "the whole payload", "url": url("visuals:data")}]
+    def latest_url(route, **extra):
+        """The same file without a version on it, which follows whatever
+        is published. Both are rendered so the choice between them costs
+        no round trip."""
+        path = reverse(route, args=[ident])
+        return f"{path}?{urlencode(extra)}" if extra else path
+
+    files = [
+        {
+            "label": "JSON",
+            "note": "the whole payload",
+            "url": url("visuals:data"),
+            "latest_url": latest_url("visuals:data"),
+        }
+    ]
     snapshot = (
         visual.snapshots.filter(version=version).first()
         if version is not None
@@ -496,6 +510,9 @@ def _downloads(visual, by_uuid, version=None):
                 "label": f"CSV — {name}" if name else "CSV",
                 "note": f"{len(rows):,} rows",
                 "url": url("visuals:data_csv", **({"table": name} if name else {})),
+                "latest_url": latest_url(
+                    "visuals:data_csv", **({"table": name} if name else {})
+                ),
             }
         )
     return files

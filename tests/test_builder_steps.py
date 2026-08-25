@@ -1805,6 +1805,31 @@ FIELDS_FOR = {
         "role-to": "cin_alternate",
         "role-value": "articles",
     },
+    "arc": {
+        "role-from": "cin_primary",
+        "role-to": "cin_alternate",
+        "role-value": "articles",
+    },
+    "line": {"role-x": "month", "role-y": "articles"},
+    "area": {"role-x": "month", "role-y": "articles"},
+    # Both axes are numbers, so both are measures: cost against articles
+    # is the pair a corpus can actually plot against itself.
+    "scatter": {
+        "role-x": "cost_sum",
+        "role-y": "articles",
+        "role-series": "publisher",
+    },
+    "choropleth": {"role-geo_join": "geo_county", "role-geo_value": "articles"},
+    # A point map wants a latitude and a longitude. The corpus offers no
+    # such variable -- the only numbers it has are counts -- so what
+    # fills those slots here is what the fields step actually offers,
+    # which is a real gap in what a point map can be built out of and a
+    # separate question from whether the walk works.
+    "points": {
+        "role-lat": "articles",
+        "role-lon": "cost_sum",
+        "role-label": "point_place",
+    },
 }
 
 
@@ -1905,3 +1930,189 @@ def test_a_table_with_no_columns_is_not_publishable(
     assert (
         "Nothing to publish yet" in body
     ), "an empty table offered itself for publishing"
+
+
+def test_every_chart_kind_is_walked():
+    """The matrix has to stay complete on its own.
+
+    Three of the kinds walked here could not be built at all, and each
+    was found only because something walked it. A kind added later and
+    left out of the table above would be exactly as broken and exactly as
+    quiet, so being left out is itself a failure.
+    """
+    from visuals.types import CHART_TYPES
+
+    missing = sorted({c.id for c in CHART_TYPES} - set(FIELDS_FOR))
+    assert not missing, f"these kinds are never walked: {missing}"
+
+
+def test_a_duplicate_walks_on_its_own_and_leaves_the_original_serving(
+    client, author, corpus, two_newsrooms, dataset
+):
+    """Duplicating is for iterating on something that is live. The copy
+    is a draft that has never been published, which is the state that
+    could not publish at all -- and the original has to keep serving the
+    version it was pinned at while somebody works on the copy."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    one, two = two_newsrooms
+
+    client.post(
+        "/visuals/builder/new/", {"title": "The Original", "source_kind": "corpus"}
+    )
+    first = Visual.objects.get(slug="the-original")
+
+    def press(visual, name, **fields):
+        got = client.post(
+            f"/visuals/builder/{visual.slug}/step/{name}/", dict(fields, stay="1")
+        )
+        assert got.status_code in (200, 302), f"{name}: {got.status_code}"
+        visual.refresh_from_db()
+
+    def walk(visual, publishers):
+        press(visual, "type", kind="bar")
+        press(visual, "theme", theme="datadesk", theme_mode="light")
+        press(
+            visual,
+            "data",
+            datasets=[dataset.slug],
+            subset="complete",
+            **{"from": "2026-03-01", "to": "2026-03-31"},
+        )
+        press(visual, "newsrooms", publishers=publishers, focus="", focus_level="")
+        press(visual, "fields", **FIELDS_FOR["bar"])
+
+    walk(first, [str(one.id)])
+    press(first, "publish", do="publish")
+    assert first.status == Visual.PUBLISHED
+    pinned = first.pinned_snapshot.version
+
+    copy_of = client.post(f"/visuals/builder/{first.slug}/duplicate/")
+    assert copy_of.status_code in (302, 303)
+    copy = Visual.objects.exclude(pk=first.pk).get(slug__startswith=first.slug)
+    assert copy.status == Visual.DRAFT
+    assert copy.snapshots.count() == 0, "a copy starts with nothing published"
+
+    # Point the copy somewhere else and publish it on its own.
+    press(copy, "newsrooms", publishers=[str(two.id)], focus="", focus_level="")
+    assert copy.spec["publishers"] == [str(two.id)]
+    body = client.get(f"/visuals/builder/{copy.slug}/step/publish/").content.decode()
+    assert "Nothing to publish yet" not in body
+    press(copy, "publish", do="publish")
+    assert copy.pinned_snapshot.version == 1
+
+    # ...and none of that touched what the original is serving.
+    first.refresh_from_db()
+    assert first.pinned_snapshot.version == pinned
+    assert first.spec["publishers"] == [str(one.id)]
+
+
+def test_republishing_makes_a_new_version_and_serves_it(
+    client, author, corpus, two_newsrooms, dataset
+):
+    """The version is what an embed pins to, so a change that never
+    reaches a new one is a change nobody reading it can see."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    one, two = two_newsrooms
+
+    client.post(
+        "/visuals/builder/new/", {"title": "Twice Over", "source_kind": "corpus"}
+    )
+    v = Visual.objects.get(slug="twice-over")
+
+    def press(name, **fields):
+        got = client.post(
+            f"/visuals/builder/{v.slug}/step/{name}/", dict(fields, stay="1")
+        )
+        assert got.status_code in (200, 302), f"{name}: {got.status_code}"
+        v.refresh_from_db()
+
+    press("type", kind="bar")
+    press("theme", theme="datadesk", theme_mode="light")
+    press(
+        "data",
+        datasets=[dataset.slug],
+        subset="complete",
+        **{"from": "2026-03-01", "to": "2026-03-31"},
+    )
+    press("newsrooms", publishers=[str(one.id)], focus="", focus_level="")
+    press("fields", **FIELDS_FOR["bar"])
+    press("publish", do="publish")
+    assert v.pinned_snapshot.version == 1
+
+    press("newsrooms", publishers=[str(one.id), str(two.id)], focus="", focus_level="")
+    press("publish", do="publish")
+    assert v.pinned_snapshot.version == 2, "republishing served the old rows again"
+
+    from django.test import Client
+
+    reader = Client()
+    feed = reader.get(f"/visuals/{v.slug}/data.json")
+    assert feed.status_code == 200
+    assert feed.json()["version"] == 2
+
+
+# --- which version an address asks for ---------------------------------------
+
+
+def test_an_embed_without_a_version_follows_what_is_published(
+    client, author, visual, corpus, two_newsrooms
+):
+    """Two promises off one visual: a chart that stays current, and one
+    cited in a piece that has to keep saying what it said."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _a_corpus_map(visual)
+    visual.spec = dict(visual.spec, **{"from": "2026-03-01", "to": "2026-03-31"})
+    visual.save(update_fields=["spec"])
+    client.post(
+        f"/visuals/builder/{visual.slug}/step/publish/", {"do": "publish", "stay": "1"}
+    )
+    visual.refresh_from_db()
+
+    body = client.get(f"/visuals/builder/{visual.slug}/step/publish/").content.decode()
+    import json
+    import re
+
+    found = re.search(r'id="embed-snippets"[^>]*>(.*?)</script>', body, re.S)
+    assert found, "the publish step hands over no snippet"
+    snippets = json.loads(found.group(1))
+
+    for theme in ("auto", "light", "dark"):
+        assert "v=" not in snippets[f"{theme}|latest"], f"{theme}: latest is pinned"
+        assert "v=1" in snippets[f"{theme}|pinned"], f"{theme}: pinned has no version"
+
+    # ...and the choice is on the page, not just in the payload.
+    assert 'name="embed-version"' in body
+
+
+def test_asking_for_a_version_that_exists_serves_that_one_forever(
+    client, author, visual, corpus, two_newsrooms
+):
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _a_corpus_map(visual)
+    visual.spec = dict(visual.spec, **{"from": "2026-03-01", "to": "2026-03-31"})
+    visual.save(update_fields=["spec"])
+    where = f"/visuals/builder/{visual.slug}/step/publish/"
+    client.post(where, {"do": "publish", "stay": "1"})
+    client.post(
+        f"/visuals/builder/{visual.slug}/step/newsrooms/",
+        {"publishers": [str(two_newsrooms[0].id)], "stay": "1"},
+    )
+    client.post(where, {"do": "publish", "stay": "1"})
+    visual.refresh_from_db()
+    assert visual.pinned_snapshot.version == 2
+
+    from django.test import Client
+
+    reader = Client()
+    # No version: whatever is published.
+    assert reader.get(f"/visuals/{visual.slug}/data.json").json()["version"] == 2
+    # A version: that one, and cacheable for a year because it cannot change.
+    one = reader.get(f"/visuals/{visual.slug}/data.json?v=1")
+    assert one.json()["version"] == 1
+    assert "immutable" in one["Cache-Control"]
+    # One that does not exist is refused rather than quietly redirected.
+    assert reader.get(f"/visuals/{visual.slug}/data.json?v=9").status_code == 404

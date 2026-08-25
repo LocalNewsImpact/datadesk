@@ -727,6 +727,20 @@ def publish_panel(visual, post=None, actor=None):
 
         wanted = post.get("do", "")
         if wanted == "publish":
+            # Snapshot what the visual says now, then pin that. A version
+            # is a snapshot of the decisions taken up to the moment of
+            # publishing, and `publish` on its own pins whatever snapshot
+            # already existed -- so the second publish re-pinned the
+            # first one and every change made after a visual went live
+            # stayed invisible to everybody reading it.
+            #
+            # Not for an upload, where the rows are the snapshot and
+            # there is no source to run.
+            from visuals.models import INLINE
+            from visuals.services import refresh_snapshot
+
+            if visual.source_kind != INLINE:
+                refresh_snapshot(visual, actor)
             publish(visual, actor)
         elif wanted == "unpublish":
             unpublish(visual, actor)
@@ -737,6 +751,9 @@ def publish_panel(visual, post=None, actor=None):
         return {}
 
     snapshot = visual.snapshots.order_by("-version").first()
+    pinned_version = (
+        visual.pinned_snapshot.version if visual.pinned_snapshot_id else None
+    )
     return {
         "published": visual.status == Visual.PUBLISHED,
         "snippet": snippet(visual),
@@ -744,13 +761,24 @@ def publish_panel(visual, post=None, actor=None):
         # embed follows the reader unless it is told not to, and inside
         # somebody else's article it usually should be told: a light page
         # on a reader's dark laptop got a dark chart in the middle of it.
+        # Which version an embed asks for, and therefore whether it
+        # moves. Without `?v=` it serves whatever is published, so
+        # publishing again changes the chart in somebody else's article.
+        # With one it serves that snapshot for good. Both are wanted --
+        # a live dashboard and a chart cited in a piece are different
+        # promises -- and only the first was reachable, because nothing
+        # offered to write the version into the snippet.
+        "pinned_version": pinned_version,
         "snippets": {
             # "auto" means follow the reader, so it is the one variant
             # that has to override the visual's own setting rather than
             # inherit it.
-            "auto": snippet(visual, theme=""),
-            "light": snippet(visual, theme="light"),
-            "dark": snippet(visual, theme="dark"),
+            "auto|latest": snippet(visual, theme=""),
+            "light|latest": snippet(visual, theme="light"),
+            "dark|latest": snippet(visual, theme="dark"),
+            "auto|pinned": snippet(visual, theme="", version=pinned_version),
+            "light|pinned": snippet(visual, theme="light", version=pinned_version),
+            "dark|pinned": snippet(visual, theme="dark", version=pinned_version),
         },
         "theme_mode": (visual.config or {}).get("theme_mode", "") or "auto",
         "pinned": visual.pinned_snapshot,

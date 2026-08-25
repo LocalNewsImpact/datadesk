@@ -69,12 +69,36 @@ and neither of those exists on this host.
     <p class="note files-lead">Take the data{% if shown %} — snapshot
       v{{ shown.version }}{% endif %}:
       {% for file in downloads %}{% if not forloop.first %} · {% endif %}<a
-        href="{{ file.url }}">{{ file.label }}</a>
+        href="{{ file.url }}" data-pinned="{{ file.url }}"
+        data-latest="{{ file.latest_url }}">{{ file.label }}</a>
         <span class="dim">{{ file.note }}</span>{% endfor %}
     </p>
+    {% comment %}
+    Which version these links ask for. Somebody taking the data to check a
+    claim wants the version the claim was made from, and somebody wiring
+    the feed into something of their own wants whatever is published --
+    two different jobs off one set of links, and the difference is a `?v=`
+    that nothing on the page offered to add or remove.
+    {% endcomment %}
+    {% if shown %}
+    <p class="note"><label><input type="checkbox" id="pin-links"
+      {% if not pinned_by_url %}checked{% endif %}> Fix these links to
+      v{{ shown.version }} — otherwise they follow whatever is published</label></p>
+    <script>
+    (function () {
+      var box = document.getElementById("pin-links");
+      var links = document.querySelectorAll(".files-lead a[data-pinned]");
+      box.addEventListener("change", function () {
+        links.forEach(function (a) {
+          a.href = box.checked ? a.dataset.pinned : a.dataset.latest;
+        });
+      });
+    })();
+    </script>
+    {% endif %}
     {% endif %}
     {% if pinned_by_url %}
-    <p class="note">This link is pinned to that version;
+    <p class="note">This page is pinned to that version;
       <a href="?">the current one</a> may differ.</p>
     {% endif %}
   </div>

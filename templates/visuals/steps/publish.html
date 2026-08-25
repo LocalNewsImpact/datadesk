@@ -35,15 +35,46 @@ does not exist.</p>
       {% if theme_mode == "dark" %}checked{% endif %}> Always dark</label>
   </fieldset>
 
+  {% comment %}
+  Which version the embed asks for, which decides whether it moves.
+  Without `?v=` it serves whatever is published, so publishing again
+  changes the chart in somebody else's article. With one it serves that
+  snapshot for good.
+
+  Both are wanted and they are different promises: a chart that should
+  stay current in a colleague's dashboard, against one cited in a piece
+  that has to keep saying what it said when it was read. Only the first
+  was reachable, because nothing offered to write a version in.
+  {% endcomment %}
+  {% if pinned_version %}
+  <fieldset class="theme-pick">
+    <legend>Version</legend>
+    <label><input type="radio" name="embed-version" value="latest" checked>
+      Whatever is published — this embed changes when you publish again</label>
+    <label><input type="radio" name="embed-version" value="pinned">
+      Version {{ pinned_version }} for good — it will not change under a reader</label>
+  </fieldset>
+  {% endif %}
+
   <pre class="embed-snippet"><code id="embed-code">{{ snippet }}</code></pre>
   {{ snippets|json_script:"embed-snippets" }}
   <script>
   (function () {
     var all = JSON.parse(document.getElementById("embed-snippets").textContent);
     var out = document.getElementById("embed-code");
-    document.querySelectorAll('input[name="embed-theme"]').forEach(function (r) {
-      r.addEventListener("change", function () { out.textContent = all[r.value]; });
-    });
+    // Two choices, one snippet. Read both on every change rather than
+    // keyed off the control that moved, or picking a colour would undo
+    // the version and picking a version would undo the colour.
+    function chosen(name, fallback) {
+      var on = document.querySelector('input[name="' + name + '"]:checked');
+      return on ? on.value : fallback;
+    }
+    function show() {
+      var key = chosen("embed-theme", "auto") + "|" + chosen("embed-version", "latest");
+      if (all[key]) out.textContent = all[key];
+    }
+    document.querySelectorAll('input[name="embed-theme"], input[name="embed-version"]')
+      .forEach(function (r) { r.addEventListener("change", show); });
   })();
   </script>
 </div>
