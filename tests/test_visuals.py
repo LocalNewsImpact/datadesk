@@ -1547,12 +1547,74 @@ def test_the_folder_form_says_what_it_did(client, designer):
         response = client.post("/visuals/folders/new/", {"name": name}, follow=True)
         return [str(m) for m in response.context["messages"]]
 
-    assert outcome("   ") == ["Give the folder a name before adding it."]
-    assert not Folder.objects.exists()
+    # An empty name makes a folder anyway. Refusing asks somebody to know,
+    # before they have a folder, what the folder is going to be for -- and
+    # the button that refused said nothing, so it read as broken.
+    assert outcome("   ") == ["Added “Untitled folder”."]
+    assert Folder.objects.count() == 1
 
     assert outcome("Board deck") == ["Added “Board deck”."]
-    assert Folder.objects.count() == 1
+    assert Folder.objects.count() == 2
 
     # Same folder, different case: not an error, and not a second folder.
     assert outcome("board DECK") == ["“Board deck” already exists."]
-    assert Folder.objects.count() == 1
+    assert Folder.objects.count() == 2
+
+
+def test_unnamed_folders_are_numbered_not_collided(client, designer):
+    """Numbered rather than a uuid: it is a heading somebody reads on a
+    page of their own work, and "Untitled folder 3" says which one it is
+    where a uuid says only that nobody has named it."""
+    from visuals.models import Folder
+
+    for _ in range(3):
+        client.post("/visuals/folders/new/", {"name": ""})
+    assert sorted(Folder.objects.values_list("name", flat=True)) == [
+        "Untitled folder",
+        "Untitled folder 2",
+        "Untitled folder 3",
+    ]
+
+
+def test_a_folder_can_be_renamed(client, designer):
+    """The point of letting an unnamed folder exist: the naming happens
+    later, when there is something in it to name."""
+    from visuals.models import Folder
+
+    # follow, so the "Added" message is consumed and does not survive into
+    # the assertion below.
+    client.post("/visuals/folders/new/", {"name": ""}, follow=True)
+    folder = Folder.objects.get()
+
+    response = client.post(
+        f"/visuals/folders/{folder.id}/rename/", {"name": "March CIN work"}, follow=True
+    )
+    assert [str(m) for m in response.context["messages"]] == [
+        "“Untitled folder” is now “March CIN work”."
+    ]
+    folder.refresh_from_db()
+    assert folder.name == "March CIN work"
+
+
+def test_renaming_onto_another_folders_name_is_refused(client, designer):
+    from visuals.models import Folder
+
+    keep = Folder.objects.create(name="Board deck", created_by=designer)
+    other = Folder.objects.create(name="March CIN work", created_by=designer)
+
+    response = client.post(
+        f"/visuals/folders/{other.id}/rename/", {"name": "board deck"}, follow=True
+    )
+    assert "already a folder" in str(list(response.context["messages"])[0])
+    other.refresh_from_db()
+    assert other.name == "March CIN work"
+    assert keep.name == "Board deck"
+
+
+def test_the_name_is_edited_where_it_is_read(client, designer):
+    from visuals.models import Folder
+
+    folder = Folder.objects.create(name="Board deck", created_by=designer)
+    body = client.get("/visuals/").content.decode()
+    assert f'action="/visuals/folders/{folder.id}/rename/"' in body
+    assert 'value="Board deck"' in body
