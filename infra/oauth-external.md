@@ -43,27 +43,60 @@ Three constraints worth knowing, because they decided the pages above:
   is a domain-ownership step outside this repo. `localnewsimpact.org`
   covers every subdomain used here.
 
+### Internal to External
+
+The app is **Internal** today, which restricts it to members of the
+Cloud Organization — the same wall as `ALLOWED_AUTH_DOMAINS`, one level
+down, and the reason an invited outsider cannot reach the consent screen
+at all.
+
+**Switching to External is a console setting, not an approval.** It
+widens who may authorize and makes the publishing status matter.
+
 ### Testing or In production
 
-**Testing** admits up to 100 named test users without review, and each
-one has to be added to the test-user list as well as invited here — two
-lists saying the same thing.
+**No Google review is required either way for this app**, and the reason
+is the scopes. Google's usual Testing penalties — 100 named test users,
+an "unverified app" warning, and consent expiring after seven days
+including refresh tokens — are waived for apps requesting only name,
+email address and user profile. That is exactly what this asks for.
 
-**In production** admits anybody the application's own door lets in,
-which is the list above. This app requests `profile` and `email` only,
-which Google classes as non-sensitive, so publishing needs no security
-assessment.
+So:
 
-Brand verification is triggered by External + Published **and wanting a
-logo or display name on the consent screen**. Publishing without a logo
-avoids the review; uploading one starts it.
+| | Testing | In production |
+|---|---|---|
+| Who may sign in | 100 addresses, each added to the test-user list | anybody the app's own door admits |
+| Warning screen | none, at these scopes | none |
+| Consent expiry | none, at these scopes | none |
+| Review | none | none, at these scopes |
+
+Testing works, and costs a second list: every invited address has to be
+added there as well as here, saying the same thing twice. Publishing
+retires that list and leaves the invitation list as the only gate.
+
+Verification is enforced for **sensitive or restricted scopes**, which
+this app does not request. Brand verification is separate and is
+triggered by External + Published **and wanting a logo or display name
+on the consent screen** — publishing without a logo avoids it, uploading
+one starts it.
+
+## Once, to open the door at all
+
+1. Google Auth Platform → **Audience** → change user type from Internal
+   to **External**. No approval; the app drops to Testing.
+2. Fill in the branding fields in the table above. **Do not upload a
+   logo** unless a brand review is wanted.
+3. **Publish app**, to retire the test-user list. At these scopes this
+   needs no review.
+4. Verify `localnewsimpact.org` in Google Search Console if it is not
+   already, or the authorized domain will not accept those URLs.
 
 ## Adding somebody
 
 1. Invite the address here: Users → Invited from outside, choosing the
    dataset and role.
-2. If the OAuth app is still in Testing, add the same address as a test
-   user in the Google console.
+2. If the app is still in Testing, add the same address as a test user
+   in the Google console as well.
 3. Send them `https://datadesk.localnewsimpact.org/` and have them sign
    in with the Google account for that address.
 
