@@ -1900,3 +1900,11 @@ tr.dragging{ opacity: .5; }
 /* A download offered on the page: an anchor so right-click "Save as" and
    middle-click keep working, wearing the export bar's button. */
 .dd-export .dd-download{ display: inline-block; text-decoration: none; }
+/* The policy links Google requires on the page it treats as this app's
+   home. Quiet: they are a requirement and a courtesy, not navigation. */
+.site-footer{ display: flex; gap: 1rem; flex-wrap: wrap;
+  padding: 2rem 0 1rem; margin-top: 2rem;
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-sm); }
+.site-footer a{ color: var(--text-3); text-decoration: none; }
+.site-footer a:hover{ color: var(--text); text-decoration: underline; }

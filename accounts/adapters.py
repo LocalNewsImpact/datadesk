@@ -28,24 +28,93 @@ class DomainRestrictedAdapter(DefaultSocialAccountAdapter):
 
         extra = sociallogin.account.extra_data or {}
         email = (extra.get("email") or "").lower()
-
-        # All three halves matter. `hd` establishes the Workspace domain;
-        # email_verified stops an unverified address from claiming one; the
-        # address check ties the two together.
-        domain_ok = (extra.get("hd") or "").lower() in allowed
         verified = bool(extra.get("email_verified"))
-        email_ok = any(email.endswith(f"@{domain}") for domain in allowed)
 
-        if not (domain_ok and verified and email_ok):
+        # Nothing gets in on an address Google has not verified, whichever
+        # door it comes through. An unverified address is a claim, and both
+        # doors below are decisions about a particular person.
+        if not verified:
             raise ImmediateHttpResponse(
-                HttpResponseForbidden(
-                    "This application is restricted to "
-                    f"{', '.join(allowed)} accounts."
-                )
+                HttpResponseForbidden("Google has not verified that address.")
             )
+
+        # The organisation's own door. `hd` establishes the Workspace
+        # domain and the address check ties the claim to the account, so a
+        # personal address cannot borrow a domain it does not belong to.
+        domain_ok = (extra.get("hd") or "").lower() in allowed
+        email_ok = any(email.endswith(f"@{domain}") for domain in allowed)
+        if domain_ok and email_ok:
+            return
+
+        # ...and the invited one. A personal Google account carries no
+        # `hd` at all, so there is nothing for the domain check to accept
+        # and no consent screen could change that: somebody outside the
+        # organisation gets in because an admin named their address, or
+        # not at all.
+        from accounts.models import Invitation
+
+        if Invitation.for_email(email) is not None:
+            return
+
+        raise ImmediateHttpResponse(
+            HttpResponseForbidden(
+                f"This application is restricted to {', '.join(allowed)} "
+                "accounts and people who have been invited."
+            )
+        )
 
     def is_open_for_signup(self, request, sociallogin):
         return True
+
+    def save_user(self, request, sociallogin, form=None):
+        """Make the grant the invitation promised, on first sign-in.
+
+        Here rather than when the invitation was written, because a grant
+        needs a user and a user does not exist until Google has said who
+        they are. Somebody invited and never granted would sign in
+        successfully to a console holding nothing, which reads as a
+        broken login rather than as a role nobody gave them.
+        """
+        user = super().save_user(request, sociallogin, form=form)
+        from django.utils import timezone
+
+        from accounts.models import Grant, Invitation
+
+        invitation = Invitation.for_email(user.email)
+        if invitation is None:
+            return user
+
+        Grant.objects.get_or_create(
+            user=user,
+            app=invitation.app,
+            scope=invitation.scope,
+            defaults={"role": invitation.role, "granted_by": invitation.invited_by},
+        )
+        if invitation.accepted_at is None:
+            invitation.accepted_at = timezone.now()
+            invitation.save(update_fields=["accepted_at"])
+
+        from audit.models import AuditLogEntry
+
+        AuditLogEntry.objects.create(
+            # The person signing in. They are who acted -- the invitation
+            # was the earlier decision, and its own entry names whoever
+            # made it.
+            actor=user,
+            action="accounts:invitation_accepted",
+            target_table="accounts_invitation",
+            target_ids=[invitation.email],
+            after={
+                "app": invitation.app,
+                "scope": invitation.scope,
+                "role": invitation.role,
+            },
+            reason=(
+                f"{user.email} signed in for the first time and was granted "
+                f"{invitation.role} on {invitation.scope}"
+            ),
+        )
+        return user
 
 
 class NoPublicSignupAdapter(DefaultAccountAdapter):

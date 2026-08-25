@@ -12,6 +12,34 @@ from explorer.crawler import dataset_row_counts
 from explorer.dashboard import corpus_summary, datasets_table
 
 
+def privacy(request):
+    """What this application does with a Google account, in public.
+
+    Google requires the consent screen to link a privacy policy that
+    discloses how the app accesses, uses, stores and shares Google user
+    data, and requires the page to be reachable without signing in --
+    which every other page of this console is not.
+
+    Served by the application rather than written on a marketing site so
+    that it deploys with the code and cannot quietly stop describing what
+    the code does.
+    """
+    return render(
+        request,
+        "legal/privacy.html",
+        {"domains": settings.ALLOWED_AUTH_DOMAINS, "role": settings.SERVICE_ROLE},
+    )
+
+
+def terms(request):
+    """The terms the consent screen links beside the privacy policy."""
+    return render(
+        request,
+        "legal/terms.html",
+        {"domains": settings.ALLOWED_AUTH_DOMAINS, "role": settings.SERVICE_ROLE},
+    )
+
+
 def landing(request):
     """The dashboard.
 

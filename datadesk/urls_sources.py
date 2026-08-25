@@ -16,6 +16,8 @@ from django.contrib import admin
 from django.urls import include, path
 from django.views.generic import RedirectView
 
+from datadesk import views
+
 admin.site.site_header = "News Source Directory"
 admin.site.site_title = "News Source Directory"
 admin.site.index_title = "Registry"
@@ -40,5 +42,10 @@ urlpatterns += [
     path("admin/", admin.site.urls),
     # The admin is the whole of this front end, so the root goes there
     # rather than mounting admin.site twice, which breaks URL reversing.
+    # Public, and deliberately so: Google requires the page its consent
+    # screen links to be reachable without signing in, which every other
+    # page of this console is not.
+    path("privacy/", views.privacy, name="privacy"),
+    path("terms/", views.terms, name="terms"),
     path("", RedirectView.as_view(url="/admin/", permanent=False)),
 ]

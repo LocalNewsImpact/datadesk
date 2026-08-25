@@ -1,12 +1,17 @@
 """Users and Roles: the admin's view of who can do what."""
 
+from unittest import mock
+
 import pytest
 from django.contrib.auth.models import User
+from django.urls import reverse
 
 from accounts.models import DATADESK, Grant
 from audit.models import AuditLogEntry
 
-pytestmark = pytest.mark.django_db
+# The users screen offers a dataset to invite somebody to, and the
+# datasets live in the crawler's database.
+pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
 
 
 def _with_role(username, role, **kwargs):
@@ -112,3 +117,179 @@ def test_setting_the_role_a_user_already_has_records_nothing(client, admin):
 
 def test_role_assignment_is_post_only(client, admin):
     assert client.get("/manage/roles/set/").status_code == 405
+
+
+# --- somebody from outside the organisation ----------------------------------
+#
+# A personal Google account carries no hosted-domain claim at all, so
+# there is nothing for the domain check to accept and no consent screen
+# could change that. They get in because an admin named their address.
+
+
+@pytest.fixture
+def dataset(crawler_schema):
+    from explorer.models import Dataset
+
+    return Dataset.objects.create(id="d-mo", slug="mizzou", label="Missouri")
+
+
+def _google_login(email, verified=True, hd=None):
+    from allauth.socialaccount.models import SocialAccount, SocialLogin
+
+    account = SocialAccount(provider="google", uid=email)
+    account.extra_data = {"email": email, "email_verified": verified}
+    if hd:
+        account.extra_data["hd"] = hd
+    return SocialLogin(account=account)
+
+
+def _admits(email, **kw):
+    """Whether the adapter lets this sign-in through."""
+    from allauth.core.exceptions import ImmediateHttpResponse
+
+    from accounts.adapters import DomainRestrictedAdapter
+
+    try:
+        DomainRestrictedAdapter().pre_social_login(None, _google_login(email, **kw))
+        return True
+    except ImmediateHttpResponse:
+        return False
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_an_invited_address_may_sign_in_and_a_stranger_may_not(settings):
+    from accounts.models import Invitation
+
+    settings.ALLOWED_AUTH_DOMAINS = ["localnewsimpact.org"]
+
+    assert _admits("staff@localnewsimpact.org", hd="localnewsimpact.org")
+    assert not _admits("stranger@example.com")
+
+    Invitation.objects.create(email="guest@example.com", scope="mizzou")
+    assert _admits("guest@example.com"), "an invited address was refused"
+    # Case is not a different person.
+    assert _admits("GUEST@Example.com")
+    # ...and an unverified address is a claim, not a person, whichever
+    # door it comes through.
+    assert not _admits("guest@example.com", verified=False)
+    assert not _admits(
+        "staff@localnewsimpact.org", hd="localnewsimpact.org", verified=False
+    )
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_signing_in_makes_the_grant_the_invitation_promised(settings):
+    """A grant needs a user and a user does not exist until Google has
+    said who they are. Invited and never granted is a successful sign-in
+    to a console holding nothing, which reads as a broken login."""
+    from accounts.adapters import DomainRestrictedAdapter
+    from accounts.models import DATADESK, Grant, Invitation
+    from accounts.privileges import DESIGNER
+
+    settings.ALLOWED_AUTH_DOMAINS = ["localnewsimpact.org"]
+    Invitation.objects.create(email="guest@example.com", scope="mizzou")
+
+    login = _google_login("guest@example.com")
+    login.user = User(username="guest", email="guest@example.com")
+    adapter = DomainRestrictedAdapter()
+    adapter.pre_social_login(None, login)
+
+    with mock.patch.object(
+        DomainRestrictedAdapter.__bases__[0],
+        "save_user",
+        lambda self, request, sociallogin, form=None: (
+            sociallogin.user.save() or sociallogin.user
+        ),
+    ):
+        user = adapter.save_user(None, login)
+
+    grant = Grant.objects.get(user=user)
+    assert (grant.app, grant.scope, grant.role) == (DATADESK, "mizzou", DESIGNER)
+    assert Invitation.for_email("guest@example.com").accepted_at is not None
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_an_invitation_must_name_a_dataset(client, admin, dataset):
+    """One naming no dataset admits somebody to a console with nothing in
+    it, which reads as a broken sign-in rather than a grant nobody made."""
+    from accounts.models import Invitation
+
+    client.post(
+        reverse("accounts:invite"), {"email": "guest@example.com", "role": "designer"}
+    )
+    assert not Invitation.objects.exists(), "invited with no dataset"
+
+    client.post(
+        reverse("accounts:invite"),
+        {"email": "guest@example.com", "scope": dataset.slug, "role": "designer"},
+    )
+    assert Invitation.objects.get().scope == dataset.slug
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_somebody_who_can_already_sign_in_is_not_invited(
+    client, admin, dataset, settings
+):
+    """An invitation would be a second answer to a question the domain
+    has already answered."""
+    from accounts.models import Invitation
+
+    settings.ALLOWED_AUTH_DOMAINS = ["localnewsimpact.org"]
+    client.post(
+        reverse("accounts:invite"),
+        {"email": "staff@localnewsimpact.org", "scope": dataset.slug},
+    )
+    assert not Invitation.objects.exists()
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_withdrawing_an_invitation_closes_the_door(client, admin, dataset, settings):
+    from accounts.models import Invitation
+
+    settings.ALLOWED_AUTH_DOMAINS = ["localnewsimpact.org"]
+    Invitation.objects.create(email="guest@example.com", scope=dataset.slug)
+    client.post(reverse("accounts:uninvite"), {"email": "guest@example.com"})
+    assert not Invitation.objects.exists()
+    assert not _admits("guest@example.com")
+
+
+# --- what Google's consent screen requires -----------------------------------
+
+
+@pytest.mark.django_db
+def test_the_policy_pages_are_reachable_without_signing_in(client):
+    """Google requires the page its consent screen links to be publicly
+    accessible -- not behind a login, not a redirect. Every other page of
+    this console is behind the login, so these are the exception and a
+    test is what keeps them one."""
+    for name in ("privacy", "terms"):
+        page = client.get(reverse(name))
+        assert page.status_code == 200, f"{name}: {page.status_code}"
+        assert "localnewsimpact.org" in page.content.decode()
+
+
+@pytest.mark.django_db
+def test_the_home_page_links_the_privacy_policy(client):
+    """Google's requirement for the home page URI: publicly accessible,
+    and linking the privacy policy. The sign-in page is this app's home,
+    being the only page reachable without signing in."""
+    body = client.get("/").content.decode()
+    assert body.count(reverse("privacy")) >= 1
+    assert reverse("terms") in body
+
+
+@pytest.mark.django_db
+def test_the_privacy_policy_says_what_is_done_with_a_google_account(client):
+    """It has to disclose how the app accesses, uses, stores and shares
+    Google user data. A policy that says nothing specific is a policy
+    that has not been read."""
+    body = client.get(reverse("privacy")).content.decode().lower()
+    for said in (
+        "email address",  # what is asked for
+        "basic profile",
+        "audit",  # what is stored, and why
+        "we do not sell",  # who else sees it
+        "advertis",
+        "myaccount.google.com/permissions",  # how to revoke
+    ):
+        assert said in body, f"the policy does not mention {said!r}"

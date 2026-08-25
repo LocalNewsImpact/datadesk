@@ -22,7 +22,7 @@ application at every scope, and needs no rows here.
 from django.conf import settings
 from django.db import models
 
-from accounts.privileges import ADMIN, ROLE_CHOICES
+from accounts.privileges import ADMIN, DESIGNER, ROLE_CHOICES
 
 #: Applications a grant can name. These match SERVICE_ROLE, which selects
 #: the front end a process serves, so a grant and a deployment agree on
@@ -53,6 +53,60 @@ WHOLE_APPLICATION = ""
 #: everywhere, instead of meaning "unconstrained" in one place and its
 #: opposite in another.
 UNIVERSAL = "universal"
+
+
+class Invitation(models.Model):
+    """One address admitted from outside the organisation.
+
+    Sign-in is otherwise closed to a hosted domain, which is the whole
+    wall: a personal Google account carries no `hd` claim at all, so
+    there is nothing for the domain check to accept and no consent screen
+    can change that. This is the list of exceptions, by address, and
+    somebody not on it is refused at the door exactly as before.
+
+    A dataset is required. An invitation admits somebody *to work on
+    something*, and one that named no dataset would admit them to a
+    console with nothing in it -- which reads as a broken sign-in rather
+    than as a grant nobody made. Designer is the default because it is
+    the role this is for: reads and authors visuals, and decides no
+    dispositions.
+
+    The grant is made when they first sign in, not now, because a grant
+    needs a user and a user does not exist until Google has said who they
+    are. Until then this row is the whole record of the decision.
+    """
+
+    email = models.EmailField(unique=True)
+    app = models.CharField(max_length=32, choices=APP_CHOICES, default=DATADESK)
+    #: A dataset slug. Not blank: see the class docstring.
+    scope = models.SlugField(max_length=100)
+    role = models.CharField(max_length=32, choices=ROLE_CHOICES, default=DESIGNER)
+
+    invited_at = models.DateTimeField(auto_now_add=True)
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    #: When they first signed in and the grant was made. An invitation
+    #: keeps admitting them afterwards -- revoking is deleting the row,
+    #: and a used invitation is still how they get back in tomorrow.
+    accepted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "accounts_invitation"
+        ordering = ("email",)
+
+    def __str__(self):
+        return f"{self.email} → {self.role} on {self.scope}"
+
+    @classmethod
+    def for_email(cls, email):
+        """The invitation for an address, matched the way people write
+        one: case does not make a different person."""
+        return cls.objects.filter(email__iexact=(email or "").strip()).first()
 
 
 class Grant(models.Model):

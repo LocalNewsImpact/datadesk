@@ -90,6 +90,18 @@
         {% endif %}
         {% block content %}{% endblock %}
       </main>
+      {% comment %}
+      Google requires the page it treats as this app's home to link the
+      privacy policy, and the sign-in page is that home -- it is the only
+      page here reachable without signing in. On every page rather than
+      only that one, because somebody who wants to know what is done with
+      their account should not have to sign out to find it.
+      {% endcomment %}
+      <footer class="site-footer">
+        <a href="{% url 'privacy' %}">Privacy</a>
+        <a href="{% url 'terms' %}">Terms</a>
+        <a href="https://localnewsimpact.org">Local News Impact Consortium</a>
+      </footer>
     </div>
   </div>
 </body>
