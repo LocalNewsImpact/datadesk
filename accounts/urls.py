@@ -8,6 +8,17 @@ app_name = "accounts"
 
 urlpatterns = [
     path("users/", views.users, name="users"),
+    # One account, and everything an admin can do to it. Spread across
+    # three screens, an admin correcting a mistake had to know which
+    # screen each half lived on.
+    path("users/<int:user_id>/", views.person, name="person"),
+    path("users/<int:user_id>/email/", views.set_email, name="set_email"),
+    path(
+        "users/<int:user_id>/password-link/",
+        views.send_password_link,
+        name="send_password_link",
+    ),
+    path("users/<int:user_id>/active/", views.set_active, name="set_active"),
     path("accounts/new/", views.add_account, name="add_account"),
     path("invite/", views.invite, name="invite"),
     path("uninvite/", views.uninvite, name="uninvite"),

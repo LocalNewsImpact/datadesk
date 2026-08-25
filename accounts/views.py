@@ -16,6 +16,7 @@ lying.
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
+from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
@@ -40,6 +41,27 @@ def _dataset_grant_count(user):
     return sum(
         1 for g in user.grants.all() if g.app == APP and g.scope != WHOLE_APPLICATION
     )
+
+
+def _back_to(request, fallback):
+    """Where a form said to return to, or the screen that usually owns it.
+
+    The role and dataset endpoints are shared between the list and one
+    person's page. Without this, changing a role from somebody's page
+    landed on the list -- the right change, and then somewhere else.
+
+    Only a path on this host: a redirect target taken from a form is one
+    an attacker can write, and `url_has_allowed_host_and_scheme` is what
+    stops it pointing somewhere off it.
+    """
+    from django.utils.http import url_has_allowed_host_and_scheme
+
+    wanted = request.POST.get("next") or ""
+    if wanted and url_has_allowed_host_and_scheme(
+        wanted, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return redirect(wanted)
+    return redirect(fallback)
 
 
 def _dataset_grants(user):
@@ -188,6 +210,194 @@ def invite(request):
 
 
 @requires_admin
+def person(request, user_id):
+    """One account, and everything an admin can do to it.
+
+    The list answers "who can sign in"; this answers "what about this
+    one". Spreading a person's role, their datasets, their address and
+    their password across three screens meant an admin correcting a
+    mistake had to know which screen each half lived on.
+    """
+    from accounts.mail import configured as mail_configured
+    from accounts.models import Invitation
+    from accounts.privileges import DESIGNER, ROLE_CHOICES
+
+    User = get_user_model()
+    target = User.objects.filter(pk=user_id).prefetch_related("grants").first()
+    if target is None:
+        raise Http404("No such account")
+
+    return render(
+        request,
+        "accounts/person.html",
+        {
+            "person": {
+                "user": target,
+                "role": ADMIN if target.is_superuser else _application_role(target),
+                "datasets": _dataset_grants(target),
+                "locked": target.is_superuser,
+                # How they get in, which decides what can be done about a
+                # lost password: a Google account has none to reset.
+                "password": target.has_usable_password(),
+                "google": (
+                    target.socialaccount_set.exists()
+                    if hasattr(target, "socialaccount_set")
+                    else False
+                ),
+                "invitation": Invitation.for_email(target.email or ""),
+            },
+            "roles": ROLE_CHOICES,
+            "dataset_roles": [
+                (value, label) for value, label in ROLE_CHOICES if value != ADMIN
+            ],
+            "default_role": DESIGNER,
+            "datasets": _invitable_datasets(),
+            "mail_configured": mail_configured(),
+            "is_self": target.pk == request.user.pk,
+        },
+    )
+
+
+@requires_admin
+@require_POST
+def set_email(request, user_id):
+    """Change the address an account signs in with.
+
+    Not cosmetic: Google sign-in matches an account by its verified
+    address, and an invitation is held by address too. Changing it moves
+    both, so it is audited with what it was.
+    """
+    User = get_user_model()
+    target = User.objects.filter(pk=user_id).first()
+    email = (request.POST.get("email") or "").strip().lower()
+
+    if target is None:
+        raise Http404("No such account")
+    if "@" not in email:
+        messages.error(request, "That is not an address.")
+        return redirect("accounts:person", user_id=user_id)
+    if User.objects.filter(email__iexact=email).exclude(pk=target.pk).exists():
+        messages.error(request, f"{email} is already another account's address.")
+        return redirect("accounts:person", user_id=user_id)
+
+    was = target.email
+    if was and was.lower() == email:
+        messages.error(request, "That is already the address.")
+        return redirect("accounts:person", user_id=user_id)
+
+    target.email = email
+    target.save(update_fields=["email"])
+    AuditLogEntry.objects.create(
+        actor=request.user,
+        action="accounts:email_changed",
+        target_table="auth_user",
+        target_ids=[str(target.pk)],
+        before={"email": was},
+        after={"email": email},
+        reason=f"changed {was or 'a blank address'} to {email}",
+    )
+    messages.success(
+        request,
+        f"Address changed to {email}. They sign in with that from now on.",
+    )
+    return redirect("accounts:person", user_id=user_id)
+
+
+@requires_admin
+@require_POST
+def send_password_link(request, user_id):
+    """A fresh set-password link, for somebody who has lost theirs.
+
+    The password is never seen here, the same as when the account was
+    made: the link sets it and the only person who knows it is the person
+    using it. Where mail is unconfigured the link is shown once instead,
+    because an admin who cannot see it cannot help.
+    """
+    from django.contrib.auth.tokens import default_token_generator
+    from django.utils.encoding import force_bytes
+    from django.utils.http import urlsafe_base64_encode
+
+    from accounts.mail import configured
+
+    User = get_user_model()
+    target = User.objects.filter(pk=user_id).first()
+    if target is None:
+        raise Http404("No such account")
+    if not target.email:
+        messages.error(request, "That account has no address to send to.")
+        return redirect("accounts:person", user_id=user_id)
+
+    link = request.build_absolute_uri(
+        reverse(
+            "set_password",
+            args=[
+                urlsafe_base64_encode(force_bytes(target.pk)),
+                default_token_generator.make_token(target),
+            ],
+        )
+    )
+    AuditLogEntry.objects.create(
+        actor=request.user,
+        action="accounts:password_link_sent",
+        target_table="auth_user",
+        target_ids=[str(target.pk)],
+        reason=f"sent {target.email} a link to set a new password",
+    )
+    if configured():
+        _send_set_password(target, link)
+        messages.success(request, f"A link was sent to {target.email}.")
+    else:
+        messages.success(
+            request,
+            f"Mail is not configured here, so send them this yourself: {link}",
+        )
+    return redirect("accounts:person", user_id=user_id)
+
+
+@requires_admin
+@require_POST
+def set_active(request, user_id):
+    """Turn an account off without deleting it.
+
+    Deleting takes the audit trail's subject with it. Disabling keeps the
+    record of what they did and stops them signing in, which is what
+    "they have left" actually means.
+    """
+    User = get_user_model()
+    target = User.objects.filter(pk=user_id).first()
+    if target is None:
+        raise Http404("No such account")
+    wanted = request.POST.get("active") == "1"
+
+    if target.pk == request.user.pk and not wanted:
+        # The same failure the role screen refuses: an admin locking
+        # themselves out, and with them possibly the last admin.
+        messages.error(request, "You cannot disable your own account.")
+        return redirect("accounts:person", user_id=user_id)
+    if target.is_active == wanted:
+        messages.error(request, "It is already like that.")
+        return redirect("accounts:person", user_id=user_id)
+
+    target.is_active = wanted
+    target.save(update_fields=["is_active"])
+    AuditLogEntry.objects.create(
+        actor=request.user,
+        action="accounts:enabled" if wanted else "accounts:disabled",
+        target_table="auth_user",
+        target_ids=[str(target.pk)],
+        after={"is_active": wanted},
+        reason=("enabled " if wanted else "disabled ")
+        + (target.email or target.username),
+    )
+    messages.success(
+        request,
+        f"{target.email or target.username} "
+        + ("can sign in again." if wanted else "can no longer sign in."),
+    )
+    return redirect("accounts:person", user_id=user_id)
+
+
+@requires_admin
 @require_POST
 def set_dataset_grant(request):
     """Give, change or take away one person's role on one dataset.
@@ -210,19 +420,19 @@ def set_dataset_grant(request):
 
     if target is None:
         messages.error(request, "No such account.")
-        return redirect("accounts:users")
+        return _back_to(request, "accounts:users")
     if target.is_superuser:
         # A superuser holds everything from the account flag rather than
         # from a grant, so a dataset row would be a decoration that
         # changes nothing.
         messages.error(request, f"{target.email} is a superuser; grants do not apply.")
-        return redirect("accounts:users")
+        return _back_to(request, "accounts:users")
     if not scope:
         messages.error(request, "Choose a dataset.")
-        return redirect("accounts:users")
+        return _back_to(request, "accounts:users")
     if role and role not in ROLES:
         messages.error(request, f"{role} is not a role.")
-        return redirect("accounts:users")
+        return _back_to(request, "accounts:users")
     if role == ADMIN_ROLE:
         # The model refuses it, and saying why is better than an
         # IntegrityError: admin means the whole application by
@@ -232,7 +442,7 @@ def set_dataset_grant(request):
             request,
             "Admin is application-wide by definition; give it on Roles instead.",
         )
-        return redirect("accounts:users")
+        return _back_to(request, "accounts:users")
 
     held = Grant.objects.filter(user=target, app=APP, scope=scope).first()
     before = held.role if held else None
@@ -240,7 +450,7 @@ def set_dataset_grant(request):
     if not role:
         if held is None:
             messages.error(request, f"{target.email} holds nothing on {scope}.")
-            return redirect("accounts:users")
+            return _back_to(request, "accounts:users")
         held.delete()
         said = f"took {scope} away from {target.email}"
     elif held is None:
@@ -250,7 +460,7 @@ def set_dataset_grant(request):
         said = f"gave {target.email} {role} on {scope}"
     elif held.role == role:
         messages.error(request, f"{target.email} already holds {role} on {scope}.")
-        return redirect("accounts:users")
+        return _back_to(request, "accounts:users")
     else:
         held.role = role
         held.granted_by = request.user
@@ -267,7 +477,7 @@ def set_dataset_grant(request):
         reason=said,
     )
     messages.success(request, said.capitalize() + ".")
-    return redirect("accounts:users")
+    return _back_to(request, "accounts:users")
 
 
 @requires_admin
@@ -471,12 +681,12 @@ def set_role(request):
 
     if new_role and new_role not in ROLES:
         messages.error(request, f"{new_role} is not a role.")
-        return redirect("accounts:roles")
+        return _back_to(request, "accounts:roles")
 
     target = User.objects.filter(pk=user_id).first()
     if target is None:
         messages.error(request, "No such account.")
-        return redirect("accounts:roles")
+        return _back_to(request, "accounts:roles")
 
     previous = ADMIN if target.is_superuser else _application_role(target)
 
@@ -490,7 +700,7 @@ def set_role(request):
             "An admin cannot remove their own admin role. "
             "Ask another admin to make the change.",
         )
-        return redirect("accounts:roles")
+        return _back_to(request, "accounts:roles")
 
     if target.is_superuser:
         messages.error(
@@ -498,10 +708,10 @@ def set_role(request):
             "A superuser holds every role from the account flag, "
             "not a grant, and is changed in the Django admin.",
         )
-        return redirect("accounts:roles")
+        return _back_to(request, "accounts:roles")
 
     if previous == new_role:
-        return redirect("accounts:roles")
+        return _back_to(request, "accounts:roles")
 
     # One row per person per scope, so this replaces rather than adds --
     # the model refuses a second application-wide grant anyway.
@@ -529,4 +739,4 @@ def set_role(request):
         f"{target.email or target.username}: "
         f"{previous or 'no role'} → {new_role or 'no role'}.",
     )
-    return redirect("accounts:roles")
+    return _back_to(request, "accounts:roles")

@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}{{ person.user.email|default:person.user.username }} — Datadesk{% endblock %}
+
+{% block content %}
+<p class="breadcrumb"><a href="{% url 'accounts:users' %}">← Users</a></p>
+
+<section class="card card-wide">
+  <h1>{{ person.user.email|default:person.user.username }}</h1>
+  <p class="lede">
+    {% if person.locked %}A superuser: every privilege comes from the
+    account flag rather than from a grant, and is changed in the Django
+    admin.{% else %}
+    Signs in
+    {% if person.google %}with Google{% if person.password %} and with a
+    password{% endif %}{% elif person.password %}with an address and a
+    password{% else %}not yet — the account has no usable password and no
+    Google sign-in on record{% endif %}.
+    {% endif %}
+    Last signed in {{ person.user.last_login|date:"j F Y, H:i"|default:"never" }};
+    account made {{ person.user.date_joined|date:"j F Y" }}.
+  </p>
+  {% if not person.user.is_active %}
+  <p class="error">This account is disabled and cannot sign in.</p>
+  {% endif %}
+</section>
+
+{% comment %}
+The application-wide role. Separate from the datasets below because they
+are separate things: this is standing over the whole console, that is
+standing on one body of data.
+{% endcomment %}
+<section class="card card-wide">
+  <h2>Role</h2>
+  <p class="lede">Across the whole application. An admin grant cannot name
+  a dataset — for that, give a role on one below.</p>
+  {% if person.locked %}
+  <p class="notice">Superuser. Not changed here.</p>
+  {% else %}
+  <form method="post" action="{% url 'accounts:set_role' %}" class="page-actions">
+    {% csrf_token %}
+    <input type="hidden" name="user_id" value="{{ person.user.id }}">
+    <input type="hidden" name="next" value="{{ request.path }}">
+    <label class="visually-hidden" for="app-role">Application role</label>
+    <select id="app-role" name="role">
+      <option value="">None</option>
+      {% for value, label in roles %}
+      <option value="{{ value }}" {% if value == person.role %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="primary">Set</button>
+  </form>
+  {% if is_self and person.role == "admin" %}
+  <p class="notice">You cannot remove your own admin role — that is what
+  keeps at least one admin in place.</p>
+  {% endif %}
+  {% endif %}
+</section>
+
+<section class="card card-wide">
+  <h2>Datasets</h2>
+  <p class="lede">A role on one body of data. An empty role removes the
+  dataset without touching the account.</p>
+  {% if person.locked %}
+  <p class="notice">A superuser holds every dataset already.</p>
+  {% else %}
+  {% for g in person.datasets %}
+  <form method="post" action="{% url 'accounts:set_dataset_grant' %}" class="grant-row">
+    {% csrf_token %}
+    <input type="hidden" name="user_id" value="{{ person.user.id }}">
+    <input type="hidden" name="next" value="{{ request.path }}">
+    <input type="hidden" name="scope" value="{{ g.scope }}">
+    <span class="grant-scope">{{ g.scope }}</span>
+    <label class="visually-hidden" for="role-{{ g.scope }}">Role on {{ g.scope }}</label>
+    <select id="role-{{ g.scope }}" name="role">
+      {% for value, label in dataset_roles %}
+      <option value="{{ value }}" {% if value == g.role %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+      <option value="">Remove</option>
+    </select>
+    <button type="submit" class="linklike">Apply</button>
+  </form>
+  {% empty %}
+  <p class="notice">None yet.</p>
+  {% endfor %}
+
+  {% if datasets %}
+  <form method="post" action="{% url 'accounts:set_dataset_grant' %}" class="grant-row grant-add">
+    {% csrf_token %}
+    <input type="hidden" name="user_id" value="{{ person.user.id }}">
+    <input type="hidden" name="next" value="{{ request.path }}">
+    <label class="visually-hidden" for="add-scope">Add a dataset</label>
+    <select id="add-scope" name="scope" required>
+      <option value="">Add a dataset…</option>
+      {% for d in datasets %}
+      <option value="{{ d.slug }}">{{ d.label|default:d.slug }}</option>
+      {% endfor %}
+    </select>
+    <label class="visually-hidden" for="add-role">Role</label>
+    <select id="add-role" name="role">
+      {% for value, label in dataset_roles %}
+      <option value="{{ value }}" {% if value == default_role %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="linklike">Give</button>
+  </form>
+  {% endif %}
+  {% endif %}
+</section>
+
+{% comment %}
+The address is not cosmetic: Google sign-in matches an account by its
+verified address, and an invitation is held by address too. Changing it
+moves how they get in.
+{% endcomment %}
+<section class="card card-wide">
+  <h2>Address</h2>
+  <p class="lede">What they sign in with. Changing it changes that, for
+  Google and for a password alike.</p>
+  <form method="post" action="{% url 'accounts:set_email' person.user.id %}" class="page-actions">
+    {% csrf_token %}
+    <label class="visually-hidden" for="email">Email address</label>
+    <input id="email" type="email" name="email" required
+           value="{{ person.user.email }}" autocomplete="off">
+    <button type="submit" class="primary">Change</button>
+  </form>
+  {% if person.invitation %}
+  <p class="notice">Invited as {{ person.invitation.email }} — an
+  invitation is held by address, so changing this leaves the old one
+  behind. Withdraw it on <a href="{% url 'accounts:users' %}">Users</a> if
+  it is no longer wanted.</p>
+  {% endif %}
+</section>
+
+<section class="card card-wide">
+  <h2>Password</h2>
+  {% if person.google and not person.password %}
+  <p class="lede">There is nothing to reset: this account signs in with
+  Google, which holds the password and never shares it with us. If they
+  cannot get in, the problem is at Google's end.</p>
+  {% else %}
+  <p class="lede">
+    A link that sets a new one. The password is never seen here — the only
+    person who knows it is the person using it.
+    {% if not mail_configured %}<b>Mail is not configured here</b>, so the
+    link is shown to you once and you send it yourself.{% endif %}
+  </p>
+  <form method="post" action="{% url 'accounts:send_password_link' person.user.id %}"
+        class="page-actions">
+    {% csrf_token %}
+    <button type="submit" class="primary">Send a set-password link</button>
+  </form>
+  {% endif %}
+</section>
+
+<section class="card card-wide">
+  <h2>{% if person.user.is_active %}Disable{% else %}Enable{% endif %}</h2>
+  <p class="lede">
+    {% if person.user.is_active %}
+    Stops them signing in and keeps everything they did. Deleting an
+    account would take the audit trail's subject with it, which is why
+    there is no delete here.
+    {% else %}
+    Lets them sign in again with the role and datasets they already hold.
+    {% endif %}
+  </p>
+  {% if is_self and person.user.is_active %}
+  <p class="notice">You cannot disable your own account.</p>
+  {% else %}
+  <form method="post" action="{% url 'accounts:set_active' person.user.id %}"
+        class="page-actions">
+    {% csrf_token %}
+    <input type="hidden" name="active" value="{% if person.user.is_active %}0{% else %}1{% endif %}">
+    <button type="submit" class="{% if person.user.is_active %}linklike{% else %}primary{% endif %}">
+      {% if person.user.is_active %}Disable this account{% else %}Enable this account{% endif %}
+    </button>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}
