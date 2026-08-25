@@ -21,15 +21,33 @@
         The research corpus — articles, publishers, enrichment</label>
       <p class="notice">What it draws is decided in the builder; nothing is
       queried yet.</p>
-      <label class="inline"><input type="radio" name="source_kind" value="inline">
-        Upload a CSV</label>
-      <label>File <input type="file" name="file" accept=".csv"></label>
-      <label class="inline"><input type="radio" name="source_kind" value="bigquery">
-        BigQuery query</label>
-      <label>SQL <textarea name="query" rows="4" class="mono" style="width:100%"></textarea></label>
-      <label class="inline"><input type="radio" name="source_kind" value="gcs">
-        Bucket object</label>
-      <label>Path <input type="text" name="bucket_path" placeholder="gs://mizzou-news-maps-data/…"></label>
+      {% comment %}
+      The other three are data from somewhere else, and one of them wants
+      a query written. Four sources with their fields all open is a form
+      that asks four questions to take one answer, when the answer is the
+      corpus almost every time.
+
+      Open where a save failed, because the field that caused the error
+      is inside and a message about a file nobody can see is a dead end.
+      {% endcomment %}
+      <details class="advanced"{% if error %} open{% endif %}>
+        <summary>
+          <svg viewBox="0 0 10 10" aria-hidden="true" width="10" height="10">
+            <path d="M3.5 1.5 L7 5 L3.5 8.5" fill="none" stroke="currentColor"
+              stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Advanced
+        </summary>
+        <label class="inline"><input type="radio" name="source_kind" value="inline">
+          Upload a CSV</label>
+        <label>File <input type="file" name="file" accept=".csv"></label>
+        <label class="inline"><input type="radio" name="source_kind" value="bigquery">
+          BigQuery query</label>
+        <label>SQL <textarea name="query" rows="4" class="mono" style="width:100%"></textarea></label>
+        <label class="inline"><input type="radio" name="source_kind" value="gcs">
+          Bucket object</label>
+        <label>Path <input type="text" name="bucket_path" placeholder="gs://mizzou-news-maps-data/…"></label>
+      </details>
     </fieldset>
     <button type="submit">Create draft</button>
   </form>

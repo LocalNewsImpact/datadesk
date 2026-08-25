@@ -1863,3 +1863,24 @@ tr.dragging{ opacity: .5; }
   background: var(--surface-2); border: 1px solid var(--border);
   border-radius: var(--r-sm); padding: .5rem .6rem; font-size: .78rem;
   margin: 0 0 var(--s-2); }
+
+/* The advanced sources on the new-visual form: three ways to bring data
+   from somewhere else, folded away because the answer is the corpus
+   almost every time. The chevron is the one the folder headings use, so
+   "this opens" reads the same in both places. */
+.advanced{ margin-top: .75rem; }
+.advanced > summary{ display: flex; align-items: center; gap: .4rem;
+  cursor: pointer; color: var(--text-2); font-size: var(--fs-sm);
+  list-style: none; padding: .3rem 0; }
+/* Safari draws its own triangle from the shadow DOM; ours is the one to
+   keep, or the row shows two things that both mean "open". */
+.advanced > summary::-webkit-details-marker{ display: none; }
+.advanced > summary:hover{ color: var(--text); }
+.advanced > summary svg{ flex: none; transition: transform .12s ease; }
+.advanced[open] > summary svg{ transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce){
+  .advanced > summary svg{ transition: none; }
+}
+/* The fields inside sit in the fieldset's own rhythm rather than tight
+   under the summary. */
+.advanced[open] > label{ margin-top: .5rem; }

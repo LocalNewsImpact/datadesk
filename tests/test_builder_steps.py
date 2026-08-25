@@ -2667,3 +2667,33 @@ def test_an_ordered_series_is_drawn_as_one_hue_light_to_dark():
     # either: both fall back to the categorical hues.
     assert got["tooMany"] is None
     assert got["tooFew"] is None
+
+
+def test_the_new_visual_form_folds_the_other_sources_away(client, author):
+    """The corpus is the answer almost every time. Four sources with
+    their fields all open is a form that asks four questions to take one
+    answer -- and one of them wants a query written."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    body = client.get("/visuals/builder/new/").content.decode()
+
+    # The corpus stays in the open, chosen.
+    assert 'value="corpus" checked' in body
+    # ...and the other three are inside the fold.
+    fold = body[body.index('<details class="advanced"') : body.index("</details>")]
+    for kind in ("inline", "bigquery", "gcs"):
+        assert f'value="{kind}"' in fold, f"{kind} is not folded away"
+    assert ">Advanced" in body.replace("\n", "").replace(" ", "") or "Advanced" in fold
+
+
+def test_a_failed_upload_opens_the_fold_that_holds_its_field(client, author):
+    """The field that caused the error is inside. A message about a file
+    nobody can see is a dead end."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    # Chose "upload" and attached nothing.
+    body = client.post(
+        "/visuals/builder/new/", {"title": "No File", "source_kind": "inline"}
+    ).content.decode()
+    assert "Upload a CSV." in body
+    assert '<details class="advanced" open>' in body, "the fold hides the error's field"
