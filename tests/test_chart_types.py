@@ -528,3 +528,60 @@ def test_greying_returns_as_soon_as_there_is_data():
     from visuals.types import NUMBER, TEXT, unavailable
 
     assert unavailable("scatter", {"County": TEXT, "Articles": NUMBER})
+
+
+# --- chord labels have to fit the ring they sit on ---------------------------
+
+
+def _chart_js():
+    from pathlib import Path
+
+    return (
+        Path(__file__).resolve().parent.parent / "static/js/datadesk-chart.js"
+    ).read_text()
+
+
+def test_a_label_is_given_the_space_between_its_neighbours():
+    """Its own arc was the first answer and it is wrong twice over. A name
+    longer than its arc overflowed a path that stopped at the arc's ends,
+    and SVG clips a textPath at both -- which is how "Environment and
+    Planning" lost its E as well as its tail.
+
+    And a real distribution is lopsided: Civic Life takes a quarter of the
+    ring while Economic Development takes a few degrees, so sizing to the
+    arc means the small categories can never be named at all.
+    """
+    js = _chart_js()
+    body = js[js.index("const LABEL_R = R + BAND") :]
+    body = body[: body.index("const ribbons")]
+    assert "mids" in body and "spans" in body
+    # Halfway to the neighbouring arc on each side, not the arc's own width.
+    assert "Math.min(left, right)" in body
+    assert "d.endAngle - d.startAngle" not in body, "sized to its own arc again"
+
+
+def test_the_trim_measures_rather_than_estimating():
+    """A character-width guess is what let text run past the end of its
+    path, where SVG cuts it without a mark -- a reader cannot tell a
+    truncated name from a short one."""
+    js = _chart_js()
+    assert "getComputedTextLength()" in js
+    assert "const CHAR =" not in js, "back to guessing at character widths"
+
+
+def test_the_trim_runs_with_the_chart_in_the_document():
+    """getComputedTextLength on a detached node returns zero, and every
+    label would 'fit'."""
+    js = _chart_js()
+    insert = js.index("el.replaceChildren(svg.node());\n    fitLabels(")
+    assert insert > 0, "the fitting pass must follow the insertion"
+
+
+def test_a_name_that_cannot_be_shortened_is_dropped_not_stubbed():
+    """Better nothing than "E…". The tooltip and the table still carry
+    it."""
+    js = _chart_js()
+    body = js[js.index("function fitLabels(") :]
+    body = body[: body.index("\n  function ")]
+    assert "text.remove()" in body
+    assert "n > 3" in body

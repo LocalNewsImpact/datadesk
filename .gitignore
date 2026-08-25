@@ -10,6 +10,11 @@ staticfiles/
 crawler.sqlite3
 .mypy_cache/
 .playwright-mcp/
+# Screenshots taken while checking a rendering. `.playwright-mcp/` covers
+# the ones written there; a capture with no path lands at the root, where
+# `git add -A` sweeps it into the next commit. Seven had accumulated that
+# way, none referenced by anything, 856KB in a repository that goes public.
+/*.png
 
 # Source documents are read, kept and consulted locally. They are other
 # people's data — the Missouri Press directory is republished by nobody
