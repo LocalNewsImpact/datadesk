@@ -16,6 +16,7 @@ itself to county/tract/block codings and says how many rows that drops.
 """
 
 from django.db.models import Avg, Count, F, Q, Sum
+from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Substr, TruncMonth, TruncYear
 
 from accounts.access import ALL_SCOPES
@@ -59,6 +60,38 @@ DIMENSIONS = {
     "publisher_county": {
         "label": "Publisher county",
         "expr": F("candidate_link__source__county"),
+    },
+    "publisher_state": {
+        "label": "Publisher state",
+        # In `meta`, where the directory keeps it, rather than a column
+        # of its own. Every view organised by geography needed it and
+        # nothing offered it.
+        #
+        # Extracted as text rather than as JSON. `meta` is a `json`
+        # column, not `jsonb`, and Postgres has no equality operator for
+        # `json` -- so grouping by it fails outright with "could not
+        # identify an equality operator for type json". `->>` gives the
+        # string the group needs.
+        "expr": KeyTextTransform("state", "candidate_link__source__meta"),
+    },
+    "publisher_type": {
+        "label": "Publisher type",
+        "expr": F("candidate_link__source__type"),
+        "note": (
+            "Digital native, print native, newspaper, audio and video "
+            "broadcast. The directory's own vocabulary, which is not "
+            "spelt consistently -- 'digital native' beside "
+            "'audio_broadcast' -- so two spellings of one kind count as "
+            "two."
+        ),
+    },
+    "author": {
+        "label": "Byline",
+        "expr": F("author"),
+        "note": (
+            "As published, so 'By Jane Doe' and 'Jane Doe' are two "
+            "bylines. Thousands of values: narrow it to the largest few."
+        ),
     },
     "status": {"label": "Article status", "expr": F("status")},
     "wire": {"label": "Wire state", "expr": F("wire_check_status")},
@@ -119,6 +152,41 @@ DIMENSIONS = {
     "point_place": {
         "label": "Place name (from point)",
         "expr": F("enrichment__point_place"),
+    },
+    "point_precision": {
+        "label": "Location precision",
+        # The coding level the model claimed: a block is a street, a
+        # state is the whole state. A map drawn without knowing which is
+        # a map that reads a state-level guess as an address.
+        "expr": F("enrichment__point_geoid_level"),
+        "note": "Block, place, county or state — how precise the location is.",
+    },
+    "point_method": {
+        "label": "How the location was decided",
+        "expr": F("enrichment__point_method"),
+        "note": (
+            "The model, the publication's own city, or an assumption "
+            "from where it publishes. An assumed location is not a "
+            "reported one."
+        ),
+    },
+    "point_zcta": {
+        "label": "ZIP code area (from point)",
+        "expr": F("enrichment__point_zcta"),
+        "geo_level": "zcta",
+        "note": "Census ZCTA, where the coding was precise enough to have one.",
+    },
+    "is_news_content": {
+        "label": "Is news content",
+        "expr": F("enrichment__is_news_content"),
+        "note": (
+            "What the content gate decided. Blank where it never ran, "
+            "which is not the same as 'no'."
+        ),
+    },
+    "content_gate_reason": {
+        "label": "Why the gate excluded it",
+        "expr": F("enrichment__content_gate_reason"),
     },
 }
 
