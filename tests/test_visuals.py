@@ -1618,3 +1618,38 @@ def test_the_name_is_edited_where_it_is_read(client, designer):
     body = client.get("/visuals/").content.decode()
     assert f'action="/visuals/folders/{folder.id}/rename/"' in body
     assert 'value="Board deck"' in body
+
+
+def test_a_folder_can_be_collapsed(client, designer):
+    """With several projects open at once the list runs past the screen
+    and the one being worked on is somewhere in the middle of it."""
+    from visuals.models import Folder
+
+    folder = Folder.objects.create(name="March CIN work", created_by=designer)
+    body = client.get("/visuals/").content.decode()
+
+    assert 'class="twist"' in body
+    # Named, and expanded to begin with: a folder that opens shut hides
+    # what somebody just filed.
+    assert 'aria-expanded="true"' in body
+    assert f"Hide the visuals in {folder.name}" in body
+
+
+def test_a_shut_folder_is_still_somewhere_to_drop(client, designer):
+    """Dragging into a folder you have put away is the ordinary case, so
+    only the rows are hidden and the heading -- which is the drop target
+    -- stays."""
+    from pathlib import Path
+
+    template = (
+        Path(__file__).resolve().parent.parent / "templates/visuals/index.html"
+    ).read_text()
+    css = (
+        Path(__file__).resolve().parent.parent / "static/css/datadesk.css"
+    ).read_text()
+
+    assert "tbody.folder.shut tr:not(.folder-head){ display: none; }" in css
+    # And a drop opens it, and forgets that it was shut -- or the next
+    # reload puts it away again and hides what was just filed.
+    assert 'body.classList.remove("shut")' in template
+    assert "remember(open)" in template

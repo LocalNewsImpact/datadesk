@@ -1753,6 +1753,23 @@ a.button:hover{ background: var(--surface-2); }
 .visuals-list tr[draggable]{ cursor: grab; }
 .visuals-list .empty-folder td{ font-size: .82rem; }
 
+/* The chevron that opens and shuts a folder. Rotated rather than swapped
+   for a different character, so it reads as one control in two states. */
+.folder-head .twist{ background: none; border: 0; padding: .1rem .3rem;
+  margin-right: .2rem; color: var(--text-3); cursor: pointer;
+  border-radius: var(--r-sm); vertical-align: middle; }
+.folder-head .twist:hover{ color: var(--text); background: var(--surface); }
+.folder-head .twist svg{ display: block; transform: rotate(90deg);
+  transition: transform .12s ease; }
+@media (prefers-reduced-motion: reduce){
+  .folder-head .twist svg{ transition: none; }
+}
+.folder-head .twist[aria-expanded="false"] svg{ transform: rotate(0deg); }
+
+/* Shut: the rows go, the heading stays -- and so does the drop target,
+   because dragging into a folder you have put away is the ordinary case. */
+tbody.folder.shut tr:not(.folder-head){ display: none; }
+
 /* The folder name, edited where it is read. The input carries no chrome
    until it is focused, so the heading reads as a heading and turns into a
    field under the cursor rather than looking like a form all the time. */

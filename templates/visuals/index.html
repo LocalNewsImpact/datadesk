@@ -49,9 +49,27 @@
     </thead>
 
     {% for group in groups %}
-    <tbody class="folder" data-folder="{{ group.folder.id }}">
+    <tbody class="folder" data-folder="{{ group.folder.id }}" data-name="{{ group.folder.name }}">
       <tr class="folder-head">
         <th colspan="5" scope="colgroup">
+          {% comment %}
+          A folder collapses. With several projects open at once the list
+          is longer than the screen and the one being worked on is
+          somewhere in the middle of it.
+
+          A drawn chevron rather than a text glyph: it rotates instead of
+          swapping character, so the control reads as the same thing in
+          two states rather than as two things. It stays a drop target
+          while closed, which is the point -- dragging into a folder you
+          have put away is the ordinary case.
+          {% endcomment %}
+          <button type="button" class="twist" aria-expanded="true"
+            aria-label="Hide the visuals in {{ group.folder.name }}">
+            <svg viewBox="0 0 10 10" aria-hidden="true" width="10" height="10">
+              <path d="M3.5 1.5 L7 5 L3.5 8.5" fill="none" stroke="currentColor"
+                stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
           {% comment %}
           The name is editable in place, because a folder can now be made
           without one: the button makes it and the naming happens later,
@@ -109,6 +127,19 @@ is a shortcut to it rather than a second implementation.
 (function () {
   var csrf = document.querySelector("[name=csrfmiddlewaretoken]");
   if (!csrf) return;
+
+  // Collapsing is remembered per folder, because somebody who puts a
+  // finished project away wants it to stay away across a reload. Kept in
+  // the browser rather than on the record: it is how one person is
+  // looking at the page today, not a fact about the folder.
+  var SHUT = "datadesk.folders.shut";
+  function shut() {
+    try { return JSON.parse(localStorage.getItem(SHUT) || "[]"); }
+    catch (e) { return []; }
+  }
+  function remember(list) {
+    try { localStorage.setItem(SHUT, JSON.stringify(list)); } catch (e) { /* private window */ }
+  }
 
   function recount() {
     document.querySelectorAll("tbody.folder").forEach(function (body) {
@@ -204,7 +235,37 @@ is a shortcut to it rather than a second implementation.
       head.classList.remove("drop-target");
       var slug = e.dataTransfer.getData("text/plain");
       var row = document.querySelector('tr[data-slug="' + slug + '"]');
-      if (row && row.parentNode !== body) move(slug, body.dataset.folder, row, body);
+      if (row && row.parentNode !== body) {
+        // Opening on receipt: a row dropped into a folder that stays shut
+        // has visibly gone nowhere. Remembered as open too, or the next
+        // reload puts it away again and hides what was just filed.
+        body.classList.remove("shut");
+        var twist = body.querySelector(".twist");
+        if (twist) twist.setAttribute("aria-expanded", "true");
+        var open = shut().filter(function (x) { return x !== body.dataset.folder; });
+        remember(open);
+        move(slug, body.dataset.folder, row, body);
+      }
+    });
+  });
+
+  document.querySelectorAll("tbody.folder[data-folder] .twist").forEach(function (twist) {
+    var body = twist.closest("tbody.folder");
+    var id = body.dataset.folder;
+    function apply(open) {
+      body.classList.toggle("shut", !open);
+      twist.setAttribute("aria-expanded", String(open));
+      twist.setAttribute("aria-label",
+        (open ? "Hide the visuals in " : "Show the visuals in ") + (body.dataset.name || "this folder"));
+    }
+    apply(shut().indexOf(id) === -1);
+    twist.addEventListener("click", function () {
+      var list = shut();
+      var at = list.indexOf(id);
+      var open = at !== -1;
+      if (open) list.splice(at, 1); else list.push(id);
+      remember(list);
+      apply(open);
     });
   });
 
