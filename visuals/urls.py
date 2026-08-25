@@ -10,6 +10,11 @@ app_name = "visuals"
 urlpatterns = [
     path("visuals/", views.index, name="index"),
     path("visuals/folders/new/", views.folder_create, name="folder_create"),
+    path(
+        "visuals/folders/<int:pk>/rename/",
+        views.folder_rename,
+        name="folder_rename",
+    ),
     path("visuals/<slug:slug>/move/", views.visual_move, name="visual_move"),
     path("visuals/builder/new/", views.builder_new, name="builder_new"),
     path(

@@ -4,27 +4,37 @@
 {% block content %}
 <section class="card card-wide">
   <h1>Visuals</h1>
-  {% if may_design %}
-  <p><a href="{% url 'visuals:builder_new' %}">New visual</a></p>
-  {% endif %}
   <p class="notice">Built in the form-driven builder, or authored as code
   (a renderer template plus a data source) and registered in the
   <a href="/admin/visuals/visual/">admin</a>.</p>
 
   {% if may_design %}
   {% comment %}
+  The two things somebody starts here, on one line and looking alike:
+  making a visual and making a folder to put visuals in. "New visual" was
+  a link among prose, which reads as a footnote rather than as the main
+  thing this page is for.
+
   Folders are projects, named by whoever is working on one, and shared:
   the point of naming a project is that a colleague can find the work in
   it. A folder holds whatever each viewer may see and says nothing about
   the rest — a count of things hidden from you would describe them.
   {% endcomment %}
-  <form method="post" action="{% url 'visuals:folder_create' %}" class="new-folder">
+  <div class="page-actions">
+    <a class="button" href="{% url 'visuals:builder_new' %}">New visual</a>
+    <form method="post" action="{% url 'visuals:folder_create' %}" class="new-folder">
     {% csrf_token %}
     <label class="visually-hidden" for="folder-name">New folder</label>
+    {% comment %}
+    A name is optional. Pressing the button with the box empty makes an
+    "Untitled folder" to rename later, which is better than refusing to
+    make one until somebody knows what it is going to hold.
+    {% endcomment %}
     <input id="folder-name" type="text" name="name" maxlength="120"
-           placeholder="New folder — a project, not a dataset">
+           placeholder="New folder — name it now or later">
     <button type="submit">Add folder</button>
-  </form>
+    </form>
+  </div>
   {% endif %}
 
   <table class="grid visuals-list">
@@ -42,7 +52,22 @@
     <tbody class="folder" data-folder="{{ group.folder.id }}">
       <tr class="folder-head">
         <th colspan="5" scope="colgroup">
-          {{ group.folder.name }}
+          {% comment %}
+          The name is editable in place, because a folder can now be made
+          without one: the button makes it and the naming happens later,
+          when there is something in it to name.
+          {% endcomment %}
+          <form method="post" class="rename"
+                action="{% url 'visuals:folder_rename' group.folder.id %}">
+            {% csrf_token %}
+            <label class="visually-hidden"
+                   for="rename-{{ group.folder.id }}">Rename this folder</label>
+            <input id="rename-{{ group.folder.id }}" type="text" name="name"
+                   value="{{ group.folder.name }}" maxlength="120"
+                   size="{{ group.folder.name|length }}"
+                   aria-label="Folder name">
+            <button type="submit" class="rename-save">Rename</button>
+          </form>
           <span class="dim">{{ group.visuals|length }}</span>
         </th>
       </tr>
