@@ -1567,6 +1567,18 @@ tr.prop td { border-bottom: 0; }
   margin: .3rem 0 .2rem; font-size: var(--fs-sm); color: var(--text-2); }
 .how-many select{ font: inherit; font-size: var(--fs-sm); }
 
+/* A facet arranged rather than listed: a county of publishers, a state
+   of counties. The same shape the newsroom step shows, because it is the
+   same sources. */
+.facet-group{ border-left: 2px solid var(--border); padding-left: .5rem;
+  margin: .2rem 0; }
+.facet-group > summary{ cursor: pointer; font-size: var(--fs-sm);
+  color: var(--text-2); padding: .15rem 0; }
+.facet-group > summary:hover{ color: var(--text); }
+.facet-group > summary em{ float: right; color: var(--text-3);
+  font-style: normal; font-variant-numeric: tabular-nums; }
+.facet-all{ color: var(--text-3); font-size: var(--fs-sm); }
+
 .values-list{ max-height: 13rem; overflow-y: auto; }
 .values .row{ display: flex; align-items: center; gap: .5rem;
   padding: .26rem .5rem; font-size: var(--fs-sm); cursor: pointer; }

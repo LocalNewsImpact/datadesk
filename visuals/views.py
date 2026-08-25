@@ -1173,6 +1173,15 @@ def role_values(request, slug, role):
         from explorer.scoping import scopes_for
 
         scopes = scopes_for(request.user, READ)
+    # A publisher or a place is already arranged, and the newsroom step
+    # arranges it: county inside state, newsrooms inside county, counted.
+    # A flat list of 179 publishers or 109 cities is the same information
+    # with the arrangement thrown away -- and it costs an aggregate over
+    # the articles to produce, where the tree is the source table and one
+    # counts map the warmer has already filled.
+    if chosen in _CASCADES:
+        return JsonResponse(_cascade(visual, chosen, kept, scopes))
+
     try:
         rows = values_of(chosen, visual.spec or {}, scopes)
     except (CorpusSpecError, DataSourceError) as exc:
@@ -1189,6 +1198,113 @@ def role_values(request, slug, role):
     )
 
 
+#: Which dimensions are arranged rather than listed, and how deep. A
+#: publisher belongs to a county and a city belongs to a county in a
+#: state; the levels are the ones the newsroom step already shows.
+_CASCADES = {
+    "publisher": ("county",),
+    "publisher_name": ("county",),
+    "publisher_city": ("state", "county"),
+    "publisher_county": ("state",),
+}
+
+
+def _cascade(visual, chosen, kept, scopes):
+    """The facet as the newsroom step draws it: grouped, and counted.
+
+    Built from the same tree and the same counts, so the two screens
+    cannot disagree about which newsrooms exist or how much each
+    published -- and so opening a facet costs a cached lookup rather than
+    a fresh aggregate.
+    """
+    from datasets.geo import state_name
+
+    tree = _newsroom_tree(visual)
+    counts = newsroom_counts_for(scopes)
+    levels = _CASCADES[chosen]
+
+    # What one row of the facet is called, per dimension. The value is
+    # what gets stored in `only`, so it has to be the value the pivot
+    # groups by, not the name beside it.
+    def named(source):
+        if chosen == "publisher":
+            return source["host"], source["name"]
+        if chosen == "publisher_name":
+            return source["name"], source["name"]
+        return None, None
+
+    groups = []
+    for state in sorted(tree, key=lambda s: (s == UNRECORDED, s)):
+        counties = tree[state]
+        if chosen == "publisher_county":
+            rows = [
+                _row(
+                    county,
+                    county,
+                    sum(counts.get(str(s["id"]), 0) or 0 for s in counties[county]),
+                    kept,
+                )
+                for county in sorted(counties, key=lambda c: (c == UNRECORDED, c))
+            ]
+            groups.append(_group(state_name(state) or state, rows))
+            continue
+        for county in sorted(counties, key=lambda c: (c == UNRECORDED, c)):
+            sources = counties[county]
+            if chosen == "publisher_city":
+                cities = {}
+                for source in sources:
+                    city = (source.get("city") or "").strip() or UNRECORDED
+                    cities[city] = (cities.get(city) or 0) + (
+                        counts.get(str(source["id"]), 0) or 0
+                    )
+                rows = [_row(c, c, n, kept) for c, n in sorted(cities.items())]
+                # The state only where there is more than one. "Missouri
+                # — Adair" ninety-nine times says the same word ninety-nine
+                # times, and says nothing.
+                label = (
+                    f"{state_name(state) or state} — {county}"
+                    if len(tree) > 1
+                    else county
+                )
+            else:
+                rows = []
+                for source in sources:
+                    value, name = named(source)
+                    if not value:
+                        continue
+                    rows.append(
+                        _row(value, name, counts.get(str(source["id"]), 0) or 0, kept)
+                    )
+                label = county
+            if rows:
+                groups.append(_group(label, rows))
+
+    return {
+        "cascade": True,
+        "levels": len(levels) + 1,
+        "groups": groups,
+        # Flat too, so anything reading the old shape keeps working.
+        "values": [row for group in groups for row in group["values"]],
+    }
+
+
+def _group(label, rows):
+    return {
+        "label": label,
+        "n": sum(r["n"] or 0 for r in rows),
+        "values": rows,
+    }
+
+
+def _row(value, name, n, kept):
+    return {
+        "value": value,
+        "name": name,
+        "n": n,
+        "kept": not kept or value in kept,
+    }
+
+
 def _newsroom_tree(visual):
     """State -> county -> newsrooms, for the datasets this visual draws on.
 
@@ -1199,10 +1315,20 @@ def _newsroom_tree(visual):
     forth through the builder should not pay that each time.
     """
 
+    return newsroom_tree_for(scopes_of(visual))
+
+
+def newsroom_tree_for(scopes):
+    """The same tree, by scope rather than by visual.
+
+    Its own function so `warm_caches` can fill the entry the step will
+    read, the way it already does for the counts. Warming something
+    adjacent warms nothing -- and the facet cascade reads this too now,
+    so an unwarmed tree is a facet that waits on it.
+    """
     from explorer.models import DatasetSource, Source
     from visuals.corpus import CORPUS_CACHE_SECONDS, _cache_key
 
-    scopes = scopes_of(visual)
     # 13 to 24 seconds without this: a count of articles per source across
     # every dataset the visual is wired to, rebuilt on every visit to the
     # step. Keyed on the scopes, because those decide which sources are in
@@ -1227,6 +1353,11 @@ def _newsroom_tree(visual):
             {
                 "id": source.id,
                 "name": source.canonical_name or source.host,
+                # Read by the facet cascade, which groups the same
+                # sources a different way. Carried here rather than
+                # fetched again: this is the query that already has them.
+                "host": source.host_norm or source.host,
+                "city": (source.city or "").strip(),
                 # Filled in after the page paints, by newsroom_counts
                 # below. None rather than 0, so the template can tell
                 # "not counted yet" from "counted, and none".
