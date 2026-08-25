@@ -7,6 +7,7 @@ silent -- a form that quietly empties when somebody looks at another chart
 type teaches them not to explore.
 """
 
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -16,6 +17,8 @@ from accounts.models import DATADESK, Grant
 from explorer.models import Dataset, DatasetSource, Source
 from visuals.models import Visual
 from visuals.types import BY_ID
+
+ROOT = Path(__file__).resolve().parent.parent
 
 pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
 
@@ -2867,3 +2870,66 @@ def test_the_panel_takes_the_way_back_with_it(client, author, visual, corpus):
     assert home < redraw, "the download links are destroyed by the redraw"
     # ...and handed to the panel when it opens.
     assert "renderTable(el, data, credits, takeaway, toggle)" in script
+
+
+def test_the_panel_offers_each_download_once(client, author, visual, corpus):
+    """Two CSV controls for one table is worse than either. The page's
+    own is the snapshot file at a versioned URL, which is the one worth
+    keeping -- the other was generated from the rows on screen."""
+    import re
+
+    from django.test import Client, override_settings
+
+    _a_corpus_map(visual)
+    visual.status = Visual.PUBLISHED
+    visual.save(update_fields=["status"])
+    from visuals.services import record_snapshot
+
+    snap = record_snapshot(
+        visual, author, {"areas": [{"county": "Boone", "stories": 41}], "points": []}
+    )
+    visual.pinned_snapshot = snap
+    visual.save(update_fields=["pinned_snapshot"])
+
+    with override_settings(ROOT_URLCONF="datadesk.urls_data"):
+        body = Client().get(f"/visuals/{visual.uuid}/").content.decode()
+
+    # Every download carries the version on the page, and names its file.
+    hrefs = re.findall(r'class="dd-download" href="([^"]+)"', body)
+    assert hrefs, "the panel offers no downloads"
+    assert all(f"v={snap.version}" in h for h in hrefs), hrefs
+    assert body.count('download="') == len(hrefs)
+
+    # And the runtime knows not to add a second CSV where the page has one.
+    runtime = (ROOT / "static/js/datadesk-chart.js").read_text()
+    assert "exportBar(el, rows, name ? `${slug}-${name}` : slug, !takeaway)" in runtime
+    assert "if (withCsv)" in runtime
+
+
+def test_the_embed_is_where_the_version_choice_lives(client, author, visual, corpus):
+    """A link takes the numbers behind the chart on this page and always
+    should. An embed is a chart on somebody else's page, and whether that
+    moves when this is republished has two right answers."""
+    from django.test import Client, override_settings
+
+    _a_corpus_map(visual)
+    visual.status = Visual.PUBLISHED
+    visual.save(update_fields=["status"])
+    from visuals.services import record_snapshot
+
+    snap = record_snapshot(visual, author, [{"county": "Boone", "stories": 41}])
+    visual.pinned_snapshot = snap
+    visual.save(update_fields=["pinned_snapshot"])
+
+    with override_settings(ROOT_URLCONF="datadesk.urls_data"):
+        body = Client().get(f"/visuals/{visual.uuid}/").content.decode()
+
+    assert "Follows what is published" in body
+    assert f"Fixed to v{snap.version}" in body
+    # Both snippets, so the difference is visible rather than described.
+    assert body.count("datadesk-visual") >= 2
+    assert f"data-version=&quot;{snap.version}&quot;" in body
+    # ...and no checkbox rewriting the download links, which is the thing
+    # nobody could work out: the page said "snapshot v4" above links that
+    # followed whatever got published next.
+    assert "pin-links" not in body

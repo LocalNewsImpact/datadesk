@@ -486,6 +486,25 @@ def data_csv(request, slug=None, uuid=None):
     return _cache_for(response, visual, versioned)
 
 
+def _embed_choices(visual, shown):
+    """The snippet in both promises, or None where there is nothing to
+    paste yet.
+
+    Two of them rather than a control that rewrites one: the difference
+    is a `v=` in the URL, and seeing both is what makes the choice mean
+    something to somebody who has not read the docs.
+    """
+    from visuals.embed import snippet
+
+    if shown is None:
+        return None
+    return {
+        "current": snippet(visual),
+        "pinned": snippet(visual, version=shown.version),
+        "version": shown.version,
+    }
+
+
 def _downloads(visual, by_uuid, version=None):
     """Every file a reader can take away: the whole payload as JSON, and
     each row-list as CSV.
@@ -503,19 +522,14 @@ def _downloads(visual, by_uuid, version=None):
         path = reverse(route, args=[ident])
         return f"{path}?{urlencode(params)}" if params else path
 
-    def latest_url(route, **extra):
-        """The same file without a version on it, which follows whatever
-        is published. Both are rendered so the choice between them costs
-        no round trip."""
-        path = reverse(route, args=[ident])
-        return f"{path}?{urlencode(extra)}" if extra else path
-
+    # `suffix` is what the saved file is called. Without it a browser
+    # names it from a URL ending "data.csv?table=areas".
     files = [
         {
             "label": "JSON",
             "note": "the whole payload",
             "url": url("visuals:data"),
-            "latest_url": latest_url("visuals:data"),
+            "suffix": ".json",
         }
     ]
     snapshot = (
@@ -529,9 +543,7 @@ def _downloads(visual, by_uuid, version=None):
                 "label": f"CSV — {name}" if name else "CSV",
                 "note": f"{len(rows):,} rows",
                 "url": url("visuals:data_csv", **({"table": name} if name else {})),
-                "latest_url": latest_url(
-                    "visuals:data_csv", **({"table": name} if name else {})
-                ),
+                "suffix": f"-{name}.csv" if name else ".csv",
             }
         )
     return files
@@ -590,7 +602,18 @@ def public_page(request, slug=None, uuid=None):
             # A snapshot is one answer at a URL that says which, so there
             # is no live question here to name.
             "stamp": "",
-            "downloads": _downloads(visual, by_uuid=uuid is not None, version=asked),
+            # The version being shown, not the one the URL asked for.
+            # Those differ on the plain URL -- the page draws the pinned
+            # snapshot and `asked` is None -- so the page said "snapshot
+            # v4" above links that followed whatever gets published
+            # next. Somebody downloading the numbers behind the chart
+            # they just read would have got different ones.
+            "downloads": _downloads(
+                visual,
+                by_uuid=uuid is not None,
+                version=(shown or visual.pinned_snapshot)
+                and (shown or visual.pinned_snapshot).version,
+            ),
             "attribution": _attribution(visual),
             "libs": libs_for((visual.config or {}).get("kind")),
             "credit_name": _credit_line(visual)[0],
@@ -598,6 +621,12 @@ def public_page(request, slug=None, uuid=None):
             # What the reader is looking at, whether they pinned it or
             # took the current one.
             "shown": shown or visual.pinned_snapshot,
+            # The one thing here a version choice changes. A link takes
+            # the numbers behind the chart on this page and always
+            # should; an embed is a chart on somebody else's page, and
+            # whether that moves when this is republished is a real
+            # decision with two right answers.
+            "snippets": _embed_choices(visual, shown or visual.pinned_snapshot),
             "pinned_by_url": shown is not None,
         },
     )

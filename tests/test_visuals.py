@@ -143,9 +143,14 @@ def test_the_data_host_serves_the_page_the_snippet_links_to(client, visual, auth
     # under it, and folding those below the fold asked them to go looking
     # for the one thing the page exists to back up.
     assert "data.json" in body
-    # No embed code. Whoever pastes an embed is the author, and the author
-    # is in the builder, where the publish step hands it over.
-    assert "datadesk-embed.js" not in body
+    # The embed code is here. A newsroom that finds a visual this way is
+    # exactly who needs it -- which is what this view's docstring has
+    # always said -- and it is the one thing on the page where a version
+    # is a real choice: a link takes the numbers behind this chart, an
+    # embed is a chart on somebody else's page.
+    assert "datadesk-embed.js" in body
+    assert "Follows what is published" in body
+    assert "Fixed to v" in body
     assert "<details>" not in body
 
 
@@ -941,8 +946,18 @@ def test_the_page_lists_every_file_a_reader_can_take(client, visual, author):
     publish(visual, author)
     body = client.get(f"/visuals/{visual.uuid}/").content.decode()
     assert "data.json" in body
-    assert "data.csv?table=areas" in body
-    assert "data.csv?table=points" in body
+    assert "table=areas" in body
+    assert "table=points" in body
+    # Every one carries the version on the page. The links used to follow
+    # whatever got published next, under a line saying "snapshot v1", so
+    # a reader checking the chart could take different numbers from it.
+    version = visual.pinned_snapshot.version
+    import re
+
+    for href in re.findall(r'class="dd-download" href="([^"]+)"', body):
+        assert f"v={version}" in href, href
+    # ...and each is a download with a name, not a link to a page.
+    assert body.count('download="') >= 3
 
 
 def test_the_python_and_the_javascript_agree_about_what_a_table_is():
@@ -1231,18 +1246,33 @@ def test_the_credit_sits_with_the_numbers_not_on_the_page():
     assert "creditLine(el, credits)" in table
 
 
-def test_the_source_line_names_the_consortium_unless_told_otherwise():
-    """ "LNIC research corpus" was free text typed once, and it read as a
-    database name rather than a publisher."""
-    from pathlib import Path
+@pytest.mark.urls("datadesk.urls_data")
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_source_line_names_the_consortium_and_links_to_it(client, visual, author):
+    """Two answers, and `config.source` is not one of them.
 
-    template = (
-        Path(__file__).resolve().parent.parent
-        / "templates/visuals/renderers/builder.html"
-    ).read_text()
-    assert 'default:"Local News Impact Consortium"' in template
-    # And the designer can name the dataset instead, linked to its contact.
-    assert "credit_name" in template and "credit_email" in template
+    It is free text from the settings page, and the visuals carrying
+    "LNIC research corpus" -- a database name, read by nobody as a
+    publisher -- kept showing it because the template preferred whatever
+    was stored over the consortium it falls back to.
+    """
+    # The renderer that draws a credit line. The table renderer has none,
+    # and the free text was on charts.
+    visual.template = "builder"
+    visual.config = dict(visual.config or {}, kind="bar", source="LNIC research corpus")
+    visual.save(update_fields=["template", "config"])
+    _snapshot(visual, author, MAP_DATA)
+    publish(visual, author)
+
+    import re
+
+    body = client.get(f"/visuals/{visual.uuid}/").content.decode()
+    # The line a reader sees, not the config blob the renderer reads --
+    # `source` is still stored, it is simply no longer what is shown.
+    line = re.search(r'<span class="dd-source">(.*?)</span>', body, re.S).group(1)
+    assert "LNIC research corpus" not in line, "stored free text is still preferred"
+    assert 'href="https://localnewsimpact.org"' in line
+    assert "Local News Impact Consortium" in line
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
