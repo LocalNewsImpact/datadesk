@@ -52,4 +52,126 @@
     </table>
   </div>
 </section>
+
+{% comment %}
+Two ways in that are not the organisation's own domain, on the page that
+lists who can sign in -- because both are decisions about who can sign
+in, and this is where somebody looks for that.
+{% endcomment %}
+
+<section class="card card-wide">
+  <h2>Invited from outside</h2>
+  <p class="lede">
+    A Google account outside the domain. A personal one carries no
+    hosted-domain claim, so it gets in because an address is named here
+    or not at all. The role is granted the first time they sign in.
+    Withdrawing closes the door; the role they hold is changed on
+    <a href="{% url 'accounts:roles' %}">Roles</a>.
+  </p>
+
+  {% if datasets %}
+  <form method="post" action="{% url 'accounts:invite' %}" class="page-actions">
+    {% csrf_token %}
+    <label class="visually-hidden" for="invite-email">Email address</label>
+    <input id="invite-email" type="email" name="email" required
+           placeholder="name@example.org" autocomplete="off">
+    <label class="visually-hidden" for="invite-scope">Dataset</label>
+    <select id="invite-scope" name="scope" required>
+      <option value="">Which dataset…</option>
+      {% for d in datasets %}
+      <option value="{{ d.slug }}">{{ d.label|default:d.slug }}</option>
+      {% endfor %}
+    </select>
+    <label class="visually-hidden" for="invite-role">Role</label>
+    <select id="invite-role" name="role">
+      {% for value, label in roles %}
+      <option value="{{ value }}" {% if value == default_role %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="primary">Invite</button>
+  </form>
+  {% else %}
+  <p class="error">The dataset list is unreachable, so an invitation
+  cannot name one. Nobody can be invited until it is.</p>
+  {% endif %}
+
+  <div class="table-viewport">
+    <table class="grid">
+      <thead>
+        <tr>
+          <th scope="col">Email</th><th scope="col">Dataset</th>
+          <th scope="col" class="shrink">Role</th><th scope="col">Signed in</th>
+          <th scope="col"><span class="visually-hidden">Withdraw</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for i in invitations %}
+        <tr>
+          <td>{{ i.email }}</td>
+          <td>{{ i.scope }}</td>
+          <td>{{ i.get_role_display }}</td>
+          <td>{% if i.accepted_at %}{{ i.accepted_at|date:"Y-m-d" }}{% else %}<span class="dim">not yet</span>{% endif %}</td>
+          <td>
+            <form method="post" action="{% url 'accounts:uninvite' %}" class="inline-form">
+              {% csrf_token %}
+              <input type="hidden" name="email" value="{{ i.email }}">
+              <button type="submit" class="linklike">Withdraw</button>
+            </form>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="notice">Nobody is invited from outside.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% comment %}
+Somebody who does not sign in with Google at all. The same person, the
+same account and the same grants; only the door differs, and an
+institution that does not use Google could otherwise not have an account
+here.
+
+The password is never set on this screen. The account is made without a
+usable one and a link sets it, so the only person who ever knows it is
+the person using it.
+{% endcomment %}
+<section class="card card-wide">
+  <h2>Accounts without Google</h2>
+  <p class="lede">
+    Signed in to with an address and a password. It holds a role on one
+    dataset from the moment it is made.
+    {% if not mail_configured %}
+    <b>Mail is not configured here</b>, so the set-password link is shown
+    to you once and you send it yourself.
+    {% endif %}
+  </p>
+
+  {% if datasets %}
+  <form method="post" action="{% url 'accounts:add_account' %}" class="page-actions">
+    {% csrf_token %}
+    <label class="visually-hidden" for="account-email">Email address</label>
+    <input id="account-email" type="email" name="email" required
+           placeholder="name@example.edu" autocomplete="off">
+    <label class="visually-hidden" for="account-scope">Dataset</label>
+    <select id="account-scope" name="scope" required>
+      <option value="">Which dataset…</option>
+      {% for d in datasets %}
+      <option value="{{ d.slug }}">{{ d.label|default:d.slug }}</option>
+      {% endfor %}
+    </select>
+    <label class="visually-hidden" for="account-role">Role</label>
+    <select id="account-role" name="role">
+      {% for value, label in roles %}
+      <option value="{{ value }}" {% if value == default_role %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="primary">Create account</button>
+  </form>
+  {% else %}
+  <p class="error">The dataset list is unreachable, so an account cannot
+  be given one.</p>
+  {% endif %}
+</section>
 {% endblock %}

@@ -17,6 +17,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from accounts.decorators import APP, requires_admin
@@ -67,6 +68,7 @@ def users(request):
     already taken, so it belongs on the list of who can get in rather
     than somewhere else.
     """
+    from accounts.mail import configured as mail_configured
     from accounts.models import Invitation
     from accounts.privileges import DESIGNER, ROLE_CHOICES
 
@@ -80,6 +82,10 @@ def users(request):
             "roles": ROLE_CHOICES,
             "default_role": DESIGNER,
             "domains": settings.ALLOWED_AUTH_DOMAINS,
+            # Whether a set-password link can actually be sent. A screen
+            # that promises one where nothing sends mail makes an account
+            # nobody can reach.
+            "mail_configured": mail_configured(),
         },
     )
 
@@ -153,6 +159,153 @@ def invite(request):
         f"{email} may now sign in with Google. They will hold {role} on {scope}.",
     )
     return redirect("accounts:users")
+
+
+@requires_admin
+@require_POST
+def add_account(request):
+    """Create an account for somebody who does not sign in with Google.
+
+    The same person, the same `User` row and the same grants as everybody
+    else; only the door differs. An institution that does not use Google,
+    or a contractor, could otherwise not have an account at all.
+
+    The password is never set here. The account is made with an unusable
+    one and a set-password link is sent, so the only person who ever knows
+    it is the person using it -- an admin typing a password into a form is
+    an admin who knows a password they should not.
+    """
+    from django.contrib.auth.tokens import default_token_generator
+    from django.utils.encoding import force_bytes
+    from django.utils.http import urlsafe_base64_encode
+
+    from accounts.mail import configured
+    from accounts.privileges import DESIGNER, ROLES
+
+    User = get_user_model()
+    email = (request.POST.get("email") or "").strip().lower()
+    scope = (request.POST.get("scope") or "").strip()
+    role = (request.POST.get("role") or DESIGNER).strip()
+
+    if "@" not in email:
+        messages.error(request, "That is not an address.")
+        return redirect("accounts:users")
+    if not scope:
+        messages.error(request, "Choose the dataset they are being given.")
+        return redirect("accounts:users")
+    if role not in ROLES:
+        messages.error(request, f"{role} is not a role.")
+        return redirect("accounts:users")
+    if User.objects.filter(email__iexact=email).exists():
+        messages.error(request, f"{email} already has an account.")
+        return redirect("accounts:users")
+
+    person = User.objects.create(username=email[:150], email=email)
+    # Unusable rather than blank: a blank password is a password, and
+    # `set_unusable_password` is what makes the login form refuse until
+    # they have set one of their own.
+    person.set_unusable_password()
+    person.save(update_fields=["password"])
+
+    Grant.objects.create(
+        user=person, app=APP, scope=scope, role=role, granted_by=request.user
+    )
+    AuditLogEntry.objects.create(
+        actor=request.user,
+        action="accounts:account_created",
+        target_table="auth_user",
+        target_ids=[email],
+        after={"scope": scope, "role": role},
+        reason=f"created an account for {email} as {role} on {scope}",
+    )
+
+    link = request.build_absolute_uri(
+        reverse(
+            "set_password",
+            args=[
+                urlsafe_base64_encode(force_bytes(person.pk)),
+                default_token_generator.make_token(person),
+            ],
+        )
+    )
+    if configured():
+        _send_set_password(person, link)
+        messages.success(
+            request,
+            f"{email} can now set a password from the link sent to them. "
+            f"They hold {role} on {scope}.",
+        )
+    else:
+        # Shown rather than swallowed. Mail unconfigured is a state a
+        # local console is always in, and an admin who cannot see the
+        # link has made an account nobody can reach.
+        request.session["proposal_receipt"] = None
+        messages.success(
+            request,
+            f"{email} holds {role} on {scope}. Mail is not configured here, "
+            f"so send them this link yourself: {link}",
+        )
+    return redirect("accounts:users")
+
+
+def set_password(request, uidb64, token):
+    """Where the link lands: choose a password, then sign in.
+
+    Django's own token generator, so the link expires on its own and is
+    spent once the password changes. No sign-in required to reach it --
+    the whole point is that they cannot sign in yet.
+    """
+    from django.contrib.auth.forms import SetPasswordForm
+    from django.contrib.auth.tokens import default_token_generator
+    from django.utils.encoding import force_str
+    from django.utils.http import urlsafe_base64_decode
+
+    User = get_user_model()
+    try:
+        person = User.objects.get(pk=force_str(urlsafe_base64_decode(uidb64)))
+    except (User.DoesNotExist, ValueError, TypeError, OverflowError):
+        person = None
+
+    if person is None or not default_token_generator.check_token(person, token):
+        return render(request, "accounts/set_password.html", {"spent": True})
+
+    if request.method == "POST":
+        form = SetPasswordForm(person, request.POST)
+        if form.is_valid():
+            form.save()
+            AuditLogEntry.objects.create(
+                actor=person,
+                action="accounts:password_set",
+                target_table="auth_user",
+                target_ids=[person.email or person.username],
+                reason=f"{person.email or person.username} set their password",
+            )
+            messages.success(request, "Password set. Sign in with it.")
+            return redirect("account_login")
+    else:
+        form = SetPasswordForm(person)
+    return render(
+        request, "accounts/set_password.html", {"form": form, "person": person}
+    )
+
+
+def _send_set_password(person, link):
+    """The one message this application sends."""
+    from django.core.mail import send_mail
+
+    send_mail(
+        subject="Your Datadesk account",
+        message=(
+            "An account has been made for you on Datadesk, the Local News "
+            "Impact Consortium's research console.\n\n"
+            f"Set a password and sign in:\n{link}\n\n"
+            "The link can be used once. If it has expired, ask whoever "
+            "invited you to send another.\n"
+        ),
+        from_email=None,
+        recipient_list=[person.email],
+        fail_silently=False,
+    )
 
 
 @requires_admin

@@ -16,6 +16,7 @@ from django.contrib import admin
 from django.urls import include, path
 from django.views.generic import RedirectView
 
+from accounts import views as accounts_views
 from datadesk import views
 
 admin.site.site_header = "News Source Directory"
@@ -45,6 +46,14 @@ urlpatterns += [
     # Public, and deliberately so: Google requires the page its consent
     # screen links to be reachable without signing in, which every other
     # page of this console is not.
+    # Reached without signing in, because not being able to sign in is
+    # the state it exists to end. Outside `manage/` deliberately:
+    # everything under that prefix is admin-only, and a test enforces it.
+    path(
+        "set-password/<uidb64>/<token>/",
+        accounts_views.set_password,
+        name="set_password",
+    ),
     path("privacy/", views.privacy, name="privacy"),
     path("terms/", views.terms, name="terms"),
     path("", RedirectView.as_view(url="/admin/", permanent=False)),
