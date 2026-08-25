@@ -45,8 +45,6 @@ from visuals.services import (
     visible_to,
 )
 
-_LIVE_CACHE_SECONDS = 300
-
 
 def _get_visual(request, slug=None, uuid=None):
     """One visual, found by whichever name the caller was given.
@@ -298,22 +296,19 @@ def _feed_payload(request, visual):
         def fetch():
             return fetch_source_data(visual)
 
-        # Nothing the builder draws is cached. It exists to show what the
-        # options currently chosen produce, and a cached answer is by
-        # definition the answer to a question somebody has since changed:
-        # keyed by slug, the five minutes after any change served the rows
-        # from before it, so pressing Update redrew the same picture and
-        # the step looked as though it had not saved.
+        # No cache here at all. An output is cached by publishing it: the
+        # snapshot is the cached copy, it carries a version, and `?v=`
+        # serves that version for as long as anybody asks for it.
         #
-        # A published embed reading live data is the other case. Nobody is
-        # editing it, the question is fixed, and the cache is what keeps a
-        # popular page off the corpus.
-        if may_act_on(request.user, visual):
-            data = fetch()
-        else:
-            data = cache.get_or_set(
-                f"visuals.live.{visual.slug}", fetch, _LIVE_CACHE_SECONDS
-            )
+        # A second copy kept under the visual's slug is a cache with no
+        # version on it. Nothing names which question it answers, so for
+        # five minutes after any change it answered the previous one --
+        # pressing Update redrew the same picture, which is
+        # indistinguishable from a step that failed to save.
+        #
+        # Repeat reads are limited by the response's own Cache-Control,
+        # set below, which is visible to whoever is reading it.
+        data = fetch()
         return {"slug": visual.slug, "version": None, "data": data}, False
 
     asked = _asked_for_version(request)
@@ -1014,7 +1009,6 @@ def newsroom_counts_for(scopes):
     can fill the same entries the step will read. A warmer that recomputes
     something adjacent warms nothing.
     """
-    from django.core.cache import cache
     from django.db.models import Count
 
     from explorer.models import Article, DatasetSource
@@ -1104,7 +1098,6 @@ def _newsroom_tree(visual):
     article in every dataset the visual is wired to, and walking back and
     forth through the builder should not pay that each time.
     """
-    from django.core.cache import cache
 
     from explorer.models import DatasetSource, Source
     from visuals.corpus import CORPUS_CACHE_SECONDS, _cache_key
