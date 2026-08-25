@@ -915,6 +915,31 @@
     return h;
   }
 
+  // Trim each label to the room it was given, measuring rather than
+  // estimating. A character-width guess was what let the text run past
+  // the end of its path, where SVG cuts it without a mark -- the reader
+  // cannot tell a truncated name from a short one.
+  //
+  // Must run with the node in the document: getComputedTextLength on a
+  // detached element returns zero, and everything would "fit".
+  function fitLabels(svgNode) {
+    svgNode.querySelectorAll("text[data-room]").forEach((text) => {
+      const room = parseFloat(text.getAttribute("data-room"));
+      const path = text.querySelector("textPath");
+      const full = path.textContent;
+      if (text.getComputedTextLength() <= room) return;
+      // Nothing legible fits. Better nothing than "E…" -- the tooltip and
+      // the table still carry the name.
+      let n = full.length;
+      while (n > 3) {
+        n -= 1;
+        path.textContent = full.slice(0, n).trimEnd() + "\u2026";
+        if (text.getComputedTextLength() <= room) return;
+      }
+      text.remove();
+    });
+  }
+
   function renderChord(el, config, rows, t, width) {
     const d3 = global.d3;
     const { from, to, value } = config;
@@ -967,7 +992,6 @@
     // surface, whose contrast is a known quantity.
     const BAND = 12;
     const LABEL_R = R + BAND + 3;
-    const CHAR = 6.1;                      // 11px sans, near enough
     const uid = `chord-${Math.abs(hashOf(names.join("|")))}`;
     const defs = svg.append("defs");
 
@@ -985,21 +1009,35 @@
       return `M${x1},${y1}A${LABEL_R},${LABEL_R} 0 ${large} ${flip ? 0 : 1} ${x2},${y2}`;
     };
 
+    // How much ring a label may use: up to halfway to the arc on either
+    // side of it, not the width of its own arc.
+    //
+    // Its own arc was the first answer and it is wrong twice over. A name
+    // longer than its arc overflowed a path that stopped at the arc's
+    // ends, and SVG clips a textPath at both -- which is how "Environment
+    // and Planning" lost its E as well as its tail. And a real
+    // distribution is lopsided: on March's data, Civic Life takes a
+    // quarter of the ring and Economic Development a few degrees, so
+    // sizing to the arc means the small categories can never be named at
+    // all. The space between neighbours is the space actually free.
+    const two = Math.PI * 2;
+    const mids = chords.groups.map((g) => (g.startAngle + g.endAngle) / 2);
+    const spans = mids.map((mid, i) => {
+      const before = mids[(i - 1 + mids.length) % mids.length];
+      const after = mids[(i + 1) % mids.length];
+      const left = ((mid - before + two) % two) / 2;
+      const right = ((after - mid + two) % two) / 2;
+      // A tenth held back on each side, so two full labels never touch.
+      return { mid, half: Math.min(left, right) * 0.9 };
+    });
+
     group.each(function (d, i) {
-      d.angle = (d.startAngle + d.endAngle) / 2;
-      const flip = d.angle > Math.PI / 2 && d.angle < (3 * Math.PI) / 2;
+      d.angle = mids[i];
+      const { mid, half } = spans[i];
+      const flip = mid > Math.PI / 2 && mid < (3 * Math.PI) / 2;
       const id = `${uid}-${i}`;
       defs.append("path").attr("id", id)
-        .attr("d", arcPath(d.startAngle, d.endAngle, flip));
-
-      // What fits on this arc. A name that cannot be shortened to fit is
-      // left off rather than overlapping its neighbour; the tooltip and
-      // the table still carry it.
-      const room = Math.abs(d.endAngle - d.startAngle) * LABEL_R;
-      const full = String(names[d.index]);
-      const fits = Math.floor(room / CHAR);
-      if (fits < 4) return;
-      const label = full.length <= fits ? full : full.slice(0, fits - 1) + "\u2026";
+        .attr("d", arcPath(mid - half, mid + half, flip));
 
       d3.select(this).append("text")
         // dy moves the text along the path's own "down", which points at
@@ -1007,12 +1045,14 @@
         // bottom half. So the sign differs to put both outside the ring.
         .attr("dy", flip ? "0.95em" : "-0.4em")
         .attr("fill", "currentColor")
+        .attr("data-room", (half * 2 * LABEL_R).toFixed(1))
         .append("textPath")
         .attr("href", `#${id}`)
         .attr("startOffset", "50%")
         .attr("text-anchor", "middle")
-        .text(label);
+        .text(String(names[d.index]));
     });
+
     const ribbons = svg.append("g").selectAll("path").data(chords).join("path")
       .attr("d", d3.ribbon().radius(R - 2))
       .attr("fill", (d) => colors[d.source.index])
@@ -1020,6 +1060,7 @@
       .attr("stroke", t.surface).attr("stroke-width", 0.5);
 
     el.replaceChildren(svg.node());
+    fitLabels(svg.node());
     const tip = tooltip(el);
     // Hovering a group isolates every flow touching it; a ribbon isolates
     // that one pair.
