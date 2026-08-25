@@ -547,7 +547,68 @@ def index(request):
         # sees every published visual and may act on none of them.
         v.actionable = may_act_on(request.user, v)
         visuals.append(v)
-    return render(request, "visuals/index.html", {"visuals": visuals})
+
+    from visuals.models import Folder
+
+    folders = list(Folder.objects.all())
+    filed = {f.id: [] for f in folders}
+    unfiled = []
+    for v in visuals:
+        # `.get` with a default, so a visual whose folder was deleted
+        # between the two queries lands in unfiled rather than raising.
+        filed.get(v.folder_id, unfiled).append(v)
+
+    return render(
+        request,
+        "visuals/index.html",
+        {
+            "visuals": visuals,
+            # Named projects first, then whatever nobody has filed. An
+            # empty folder still shows: it is somewhere to drag to, and a
+            # folder that vanished when its last visual moved out would be
+            # a folder you could not put anything back into.
+            "groups": [{"folder": f, "visuals": filed[f.id]} for f in folders],
+            "unfiled": unfiled,
+            "folders": folders,
+        },
+    )
+
+
+@requires(DESIGN)
+def folder_create(request):
+    """Make a project folder."""
+    from visuals.models import Folder
+
+    if request.method != "POST":
+        raise Http404("Use the form")
+    name = (request.POST.get("name") or "").strip()
+    if name and not Folder.objects.filter(name__iexact=name).exists():
+        Folder.objects.create(name=name[:120], created_by=request.user)
+    return redirect("visuals:index")
+
+
+@requires(DESIGN)
+def visual_move(request, slug):
+    """File a visual into a folder, or out of every folder.
+
+    The check is the same one that guards editing it: filing is a change
+    to the record, and somebody who may not change a visual may not decide
+    where it lives either.
+    """
+    from visuals.models import Folder
+
+    if request.method != "POST":
+        raise Http404("Use the control")
+    visual = _get_visual(request, slug)
+    if not may_act_on(request.user, visual):
+        raise PermissionDenied("This visual is not yours to move.")
+
+    wanted = (request.POST.get("folder") or "").strip()
+    visual.folder = Folder.objects.filter(pk=wanted).first() if wanted else None
+    visual.save(update_fields=["folder", "updated_at"])
+    if request.headers.get("X-Requested-With") == "fetch":
+        return JsonResponse({"folder": visual.folder_id, "slug": visual.slug})
+    return redirect("visuals:index")
 
 
 # --- the form-driven builder (SCOPE.md §2.7 v2) -----------------------------

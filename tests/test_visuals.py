@@ -1325,3 +1325,102 @@ def test_duplicating_is_a_post(client, visual, author):
     assert client.get(url).status_code == 404
     assert client.post(url).status_code == 302
     assert Visual.objects.count() == 2
+
+
+# --- project folders ---------------------------------------------------------
+
+
+@pytest.fixture
+def designer(client, django_user_model):
+    user = django_user_model.objects.create_user("designer", email="d@example.org")
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="editor")
+    client.force_login(user)
+    return user
+
+
+def test_a_folder_is_a_project_not_a_dataset(client, designer):
+    """Grouping by dataset is free and always correct and answers a
+    different question -- what the data is, rather than what somebody is
+    doing with it. "Drafts for the board" is not a dataset."""
+    from visuals.models import Folder
+
+    client.post("/visuals/folders/new/", {"name": "March CIN work"})
+    assert Folder.objects.filter(name="March CIN work").exists()
+
+
+def test_a_folder_name_is_not_taken_twice(client, designer):
+    from visuals.models import Folder
+
+    for _ in range(2):
+        client.post("/visuals/folders/new/", {"name": "Board deck"})
+    assert Folder.objects.filter(name__iexact="Board deck").count() == 1
+
+
+def test_filing_a_visual_moves_it(client, designer):
+    from visuals.models import Folder
+
+    # Made by the person filing it: `may_act_on` guards moving exactly as
+    # it guards editing, which the next test is about.
+    visual = Visual.objects.create(
+        slug="mine",
+        title="Mine",
+        source_kind="bigquery",
+        query="SELECT 1",
+        template="table",
+        created_by=designer,
+    )
+    folder = Folder.objects.create(name="Board deck", created_by=designer)
+    client.post(f"/visuals/{visual.slug}/move/", {"folder": folder.id})
+    visual.refresh_from_db()
+    assert visual.folder == folder
+
+    # And out again.
+    client.post(f"/visuals/{visual.slug}/move/", {"folder": ""})
+    visual.refresh_from_db()
+    assert visual.folder is None
+
+
+def test_deleting_a_folder_keeps_the_visuals(client, designer, visual):
+    """Deleting a folder is filing, not destruction. Taking the charts
+    with it would be the worst possible reading of "remove folder"."""
+    from visuals.models import Folder
+
+    folder = Folder.objects.create(name="Temporary", created_by=designer)
+    visual.folder = folder
+    visual.save(update_fields=["folder"])
+
+    folder.delete()
+    visual.refresh_from_db()
+    assert Visual.objects.filter(pk=visual.pk).exists()
+    assert visual.folder is None
+
+
+def test_moving_is_gated_by_the_same_check_as_editing(client, viewer, visual, author):
+    """Filing is a change to the record. Somebody who may not change a
+    visual may not decide where it lives either."""
+    from visuals.models import Folder
+
+    folder = Folder.objects.create(name="Theirs", created_by=author)
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+
+    # `viewer` holds read across the application and made none of this.
+    response = client.post(f"/visuals/{visual.slug}/move/", {"folder": folder.id})
+    assert response.status_code in (403, 404)
+    visual.refresh_from_db()
+    assert visual.folder is None
+
+
+def test_moving_is_a_post(client, designer, visual):
+    assert client.get(f"/visuals/{visual.slug}/move/").status_code == 404
+
+
+def test_an_empty_folder_still_shows(client, designer):
+    """It is somewhere to drag to. A folder that vanished when its last
+    visual moved out would be one you could not put anything back into."""
+    from visuals.models import Folder
+
+    Folder.objects.create(name="Empty on purpose", created_by=designer)
+    body = client.get("/visuals/").content.decode()
+    assert "Empty on purpose" in body
+    assert "Nothing filed here yet" in body

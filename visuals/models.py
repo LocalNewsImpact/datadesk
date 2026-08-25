@@ -124,6 +124,17 @@ class Visual(models.Model):
         ),
     )
 
+    # The project this belongs to, or none. SET_NULL rather than CASCADE:
+    # deleting a folder is filing, not destruction, and taking the charts
+    # with it would be the worst possible reading of "remove folder".
+    folder = models.ForeignKey(
+        "Folder",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="visuals",
+    )
+
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
     )
@@ -145,6 +156,36 @@ class Visual(models.Model):
                 {"bucket_path": "A bucket visual needs its object path."}
             )
         # Inline visuals carry their data as snapshots; nothing to configure.
+
+
+class Folder(models.Model):
+    """A project somebody is working on, named by them.
+
+    Shared rather than personal: a project is a shared thing, and the
+    point of naming one is that a colleague can find the work in it. The
+    cost is that a folder can hold visuals a given person may not see --
+    visibility is per-person and already a union of three rules -- so the
+    list shows what each viewer may see and says nothing about the rest.
+    An empty-looking folder is the honest rendering of "nothing here for
+    you", and a count of hidden things would leak what they are.
+
+    Not derived from the datasets a visual draws on. That grouping is
+    free and always correct and answers a different question: what the
+    data *is*, rather than what somebody is doing with it. "Drafts for
+    the board" is not a dataset.
+    """
+
+    name = models.CharField(max_length=120, unique=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
 
 
 class VisualSnapshot(models.Model):
