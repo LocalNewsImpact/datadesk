@@ -1409,11 +1409,14 @@ def test_changing_an_option_changes_what_the_preview_draws(
     assert drawn() == []
 
 
-def test_the_builder_never_draws_from_a_cache(client, author, visual, corpus):
-    """It exists to show what the options currently chosen produce, and a
-    cached answer is the answer to a question somebody has since changed.
-    Keyed by slug, the five minutes after any change served the rows from
-    before it."""
+def test_output_is_cached_by_publishing_it_and_not_otherwise(
+    client, author, visual, corpus
+):
+    """A snapshot is the cached copy of an output: it carries a version,
+    and `?v=` serves that version for as long as anybody asks. A second
+    copy kept under the visual's slug is a cache with no version on it --
+    nothing names which question it answers, and for five minutes after
+    any change it answered the previous one."""
     from unittest import mock
 
     Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
@@ -1434,3 +1437,26 @@ def test_the_builder_never_draws_from_a_cache(client, author, visual, corpus):
         client.get(url)
         client.get(url)
     assert ran.call_count == 2, "the second read came from a cache"
+
+
+def test_a_published_visual_is_served_from_its_snapshot(client, visual, author):
+    """What caching an output looks like when publishing does it: the rows
+    are stored once, under a version, and reading them re-runs nothing."""
+    from visuals.models import VisualSnapshot
+    from visuals.services import publish
+
+    snapshot = VisualSnapshot.objects.create(
+        visual=visual,
+        version=1,
+        data=[{"county": "Boone", "stories": 41}],
+        created_by=author,
+    )
+    visual.pinned_snapshot = snapshot
+    visual.save(update_fields=["pinned_snapshot"])
+    publish(visual, author)
+
+    with mock.patch("visuals.views.fetch_source_data") as never:
+        feed = client.get(f"/visuals/{visual.slug}/data.json").json()
+    assert not never.called, "a published feed must not re-run the query"
+    assert feed["version"] == 1
+    assert feed["data"] == [{"county": "Boone", "stories": 41}]
