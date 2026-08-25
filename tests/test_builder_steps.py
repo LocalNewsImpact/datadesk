@@ -1600,3 +1600,131 @@ def test_a_live_preview_is_credited(client, author, visual, corpus, two_newsroom
     _a_corpus_map(visual)
     feed = client.get(f"/visuals/{visual.slug}/data.json?live=1").json()
     assert "attribution" in feed, "a live preview carries no credit"
+
+
+# --- the map follows the newsrooms -------------------------------------------
+#
+# The focus box is rendered holding whatever focus is stored, so every
+# save posted one back and every save read as somebody typing a place.
+# A map that had ever been focused could never be re-framed by choosing
+# different newsrooms again -- and the box doing it sits inside a fold
+# that only opens when it is already set.
+
+
+def _a_focused_map(visual, focus="jackson", geoid="29095"):
+    visual.config = {
+        "kind": "storymap",
+        "theme": "datadesk",
+        "focus": geoid,
+        "focus_name": focus,
+        "focus_level": "county",
+    }
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {"datasets": ["mizzou"], "shape": "story_map", "publishers": []}
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+    return visual
+
+
+def test_choosing_newsrooms_reframes_a_map_that_was_already_focused(
+    client, author, visual, corpus, two_newsrooms
+):
+    """The form posts the focus back because the form was given it. That
+    is not somebody asking for it again."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _a_focused_map(visual)
+
+    one = two_newsrooms[0]
+    client.post(
+        f"/visuals/builder/{visual.slug}/step/newsrooms/",
+        # Exactly what the rendered page posts: the box holds the stored
+        # focus, untouched.
+        {
+            "publishers": [str(one.id)],
+            "focus": "jackson",
+            "focus_level": "county",
+            "stay": "1",
+        },
+    )
+    visual.refresh_from_db()
+    assert (
+        visual.config.get("focus_name") != "jackson"
+    ), "the newsroom choice could not reach the frame"
+    assert visual.spec.get("publishers") == [str(one.id)]
+
+
+def test_a_place_actually_typed_still_wins(
+    client, author, visual, corpus, two_newsrooms
+):
+    """Saying something the box did not already say is the override, and
+    a newsroom change must not silently undo it."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _a_focused_map(visual)
+
+    one = two_newsrooms[0]
+    client.post(
+        f"/visuals/builder/{visual.slug}/step/newsrooms/",
+        {
+            "publishers": [str(one.id)],
+            "focus": "Boone",
+            "focus_level": "county",
+            "stay": "1",
+        },
+    )
+    visual.refresh_from_db()
+    assert (visual.config.get("focus_name") or "").lower() == "boone"
+
+
+def test_a_typed_place_can_be_kept_across_a_newsroom_change(
+    client, author, visual, corpus, two_newsrooms
+):
+    """The newsroom change clears it, and typing it again keeps it --
+    because by then it differs from what is stored. An override that
+    cannot be re-stated after a newsroom change would not be one."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _a_focused_map(visual)
+    where = f"/visuals/builder/{visual.slug}/step/newsrooms/"
+
+    one, two = two_newsrooms[0], two_newsrooms[1]
+    client.post(
+        where,
+        {
+            "publishers": [str(one.id)],
+            "focus": "jackson",
+            "focus_level": "county",
+            "stay": "1",
+        },
+    )
+    visual.refresh_from_db()
+    assert visual.config.get("focus_name") != "jackson", "the change did not land"
+
+    client.post(
+        where,
+        {
+            "publishers": [str(one.id)],
+            "focus": "Jackson",
+            "focus_level": "county",
+            "stay": "1",
+        },
+    )
+    visual.refresh_from_db()
+    assert visual.config.get("focus_name") == "Jackson"
+
+    # ...and it now survives, because the next change is to the focus box
+    # or to nothing at all.
+    client.post(
+        where,
+        {
+            "publishers": [str(one.id), str(two.id)],
+            "focus": "Jackson",
+            "focus_level": "county",
+            "stay": "1",
+        },
+    )
+    visual.refresh_from_db()
+    assert (
+        visual.config.get("focus_name") != "Jackson"
+    ), "moving the newsrooms again must re-frame it again"

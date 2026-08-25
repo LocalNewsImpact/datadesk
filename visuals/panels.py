@@ -320,6 +320,7 @@ def newsrooms_panel(visual, post=None, tree=None):
     make "all" a list that goes stale the moment a publisher is added.
     """
     if post is not None:
+        spec_now = visual.spec or {}
         picked = [p for p in post.getlist("publishers") if p]
         # Everything ticked is not a filter. Storing all of them made the
         # selection a snapshot that goes stale the moment a newsroom is
@@ -352,7 +353,30 @@ def newsrooms_panel(visual, post=None, tree=None):
         # no override.
         config = visual.config or {}
         if config.get("kind") in _MAP_KINDS:
+            # The frame follows whichever of the two the author just
+            # changed. Both are on this page and either may decide it, so
+            # what settles it is which one was touched -- not which is
+            # non-empty, because the focus box is rendered holding the
+            # focus already stored and therefore posts one back on every
+            # save. Reading that as somebody typing meant a map that had
+            # ever been focused could never be re-framed by choosing
+            # different newsrooms again: a copy of the Boone map, pointed
+            # at St. Louis, kept `focus_name: jackson` from the county
+            # before that -- and the box responsible sits inside a fold
+            # that is only open when it is already set.
+            #
+            # Typing is saying something the box did not already say,
+            # which is how the fields step tells a facet somebody opened
+            # from one they never touched.
+            #
+            # Keeping a typed place across a newsroom change is still
+            # sayable, and takes saying: the change clears it, and typing
+            # it again then differs from what is stored.
             typed = (post.get("focus") or "").strip()
+            before = (config.get("focus_name") or config.get("focus") or "").strip()
+            moved = sorted(picked) != sorted(spec_now.get("publishers") or [])
+            if typed == before and moved:
+                typed = ""
             written["config"] = (
                 # `visual.datasets` -- the frozen list -- not
                 # `spec["datasets"]`. The two are different: the spec's is
