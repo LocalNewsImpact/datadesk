@@ -1862,6 +1862,13 @@ FIELDS_FOR = {
         "role-to": "cin_alternate",
         "role-value": "articles",
     },
+    # Two vocabularies, which is the whole point of it: who owns the
+    # newsroom on the left, the newsroom on the right.
+    "sankey": {
+        "role-from": "owner",
+        "role-to": "publisher_name",
+        "role-value": "articles",
+    },
     "arc": {
         "role-from": "cin_primary",
         "role-to": "cin_alternate",
@@ -2697,3 +2704,113 @@ def test_a_failed_upload_opens_the_fold_that_holds_its_field(client, author):
     ).content.decode()
     assert "Upload a CSV." in body
     assert '<details class="advanced" open>' in body, "the fold hides the error's field"
+
+
+# --- a sankey: who owns the newsrooms ----------------------------------------
+
+
+def test_the_corpus_can_say_who_owns_a_newsroom(client, author, corpus, newsroom):
+    """The directory records an owner and the corpus never offered it, so
+    "who owns what" could not be asked here at all."""
+    from visuals.corpus import DIMENSIONS, run_spec
+
+    assert "owner" in DIMENSIONS and "publisher_name" in DIMENSIONS
+
+    newsroom.owner = "CherryRoad Media"
+    newsroom.save(update_fields=["owner"])
+    rows, _meta = run_spec(
+        {
+            "datasets": ["mizzou"],
+            "subset": "complete",
+            "dimensions": ["owner", "publisher_name"],
+            "measure": "articles",
+        },
+        frozenset(["mizzou"]),
+    )
+    assert rows, "nothing grouped by owner"
+    assert rows[0]["Owner"] == "CherryRoad Media"
+    assert rows[0]["Publisher name"] == newsroom.canonical_name
+
+
+def test_a_sankey_is_a_flow_between_two_vocabularies():
+    """A chord folds one vocabulary against itself -- the same ten needs
+    either side -- and constraining a sankey the same way is what made
+    "who owns what" unaskable with the flow types already here."""
+    from visuals.types import BY_ID
+
+    assert BY_ID["chord"].pairs == ("from", "to")
+    assert BY_ID["sankey"].pairs == (), "a sankey's two ends are different sets"
+    assert [r.id for r in BY_ID["sankey"].roles] == ["from", "to", "value"]
+
+    from visuals.builder import libs_for
+
+    assert libs_for("sankey") == ("d3", "sankey"), "the layout is its own module"
+
+
+def test_the_sankey_graph_is_two_columns_summed_and_never_recoloured():
+    """Read out of the runtime. The decisions are here -- two
+    vocabularies, one flow per pair, the colour order -- and the drawing
+    is d3 doing what d3 does."""
+    import json
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("no node to run the runtime in")
+
+    harness = """
+    global.window = global;
+    global.document = {
+      addEventListener() {}, querySelectorAll: () => [],
+      documentElement: { dataset: { theme: "light" } },
+    };
+    global.matchMedia = () => ({ matches: false });
+    RUNTIME
+    const g = DatadeskChart.__test.sankeyGraph;
+    const rows = [
+      { Owner: "Gannett", Pub: "Columbia Daily Tribune", N: 10 },
+      { Owner: "Gannett", Pub: "Columbia Daily Tribune", N: 5 },
+      { Owner: "Gannett", Pub: "Springfield News-Leader", N: 7 },
+      { Owner: "CherryRoad Media", Pub: "Vandalia Leader", N: 3 },
+      { Owner: "",        Pub: "Some Independent", N: 2 },
+      { Owner: "Gannett", Pub: "Nothing At All", N: 0 },
+    ];
+    const built = g(rows, "Owner", "Pub", "N");
+    // A name on both sides is two nodes, not one with a loop.
+    const both = g([{ a: "Nexstar", b: "Nexstar", v: 4 }], "a", "b", "v");
+    const t = DatadeskChart.__test.theme("datadesk");
+    console.log(JSON.stringify({
+      nodes: built.nodes.map((n) => [n.name, n.side]),
+      links: built.links.map((l) => [built.nodes[l.source].name,
+                                     built.nodes[l.target].name, l.value]),
+      leftOrder: built.lefts.map((i) => built.nodes[i].name),
+      bothSides: both.nodes.map((n) => [n.name, n.side]),
+      bothLinks: both.links.length,
+      palette: t.series.length,
+    }));
+    """.replace("RUNTIME", Path("static/js/datadesk-chart.js").read_text())
+
+    done = subprocess.run([node, "-e", harness], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr[-2000:]
+    got = json.loads(done.stdout)
+
+    # Two rows for one pair are one flow, not two bands at the same place.
+    assert ["Gannett", "Columbia Daily Tribune", 15] in got["links"]
+    # A zero-width flow is not a flow.
+    assert all(name != "Nothing At All" for name, _side in got["nodes"])
+    # A blank owner is not "owned by nobody".
+    assert ["Not recorded", 0] in got["nodes"]
+    assert ["Not recorded", "Some Independent", 2] in got["links"]
+    # Owners left, publications right.
+    assert {n for n, side in got["nodes"] if side == 0} == {
+        "Gannett",
+        "CherryRoad Media",
+        "Not recorded",
+    }
+    # Colour order is the data's, biggest first, not the row order.
+    assert got["leftOrder"][0] == "Gannett", got["leftOrder"]
+    # The same name on both sides is two nodes with one link between them.
+    assert got["bothSides"] == [["Nexstar", 0], ["Nexstar", 1]]
+    assert got["bothLinks"] == 1

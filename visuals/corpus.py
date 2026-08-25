@@ -37,6 +37,21 @@ DIMENSIONS = {
         "label": "Publisher",
         "expr": F("candidate_link__source__host_norm"),
     },
+    "publisher_name": {
+        "label": "Publisher name",
+        # The name a reader would use, where `publisher` is the host it
+        # publishes from. A flow from an owner to "komu.com" is a flow to
+        # a domain; "KOMU 8" is the newsroom.
+        "expr": F("candidate_link__source__canonical_name"),
+    },
+    "owner": {
+        "label": "Owner",
+        # Who owns the newsroom, which the directory records and the
+        # corpus never offered -- so "who owns what" could not be asked
+        # here at all. Recorded for a quarter of the sources; the rest
+        # group as blank, which is the honest answer and not a zero.
+        "expr": F("candidate_link__source__owner"),
+    },
     "publisher_city": {
         "label": "Publisher city",
         "expr": F("candidate_link__source__city"),

@@ -298,6 +298,7 @@
     if (kind === "storymap") return renderStoryMap(el, config, rows, opts, t, width);
     if (kind === "donut") return renderDonut(el, config, rows, t, width);
     if (kind === "chord") return renderChord(el, config, rows, t, width);
+    if (kind === "sankey") return renderSankey(el, config, rows, t, width);
     if (kind === "arc") return renderArc(el, config, rows, t, width);
 
     const x = config.x, y = config.y, series = config.series;
@@ -978,6 +979,173 @@
     });
   }
 
+  // A sankey: how much flows from each of one thing to each of another.
+  //
+  // Two vocabularies, which is what separates it from the chord beneath.
+  // A chord folds one vocabulary against itself and its ring makes both
+  // ends the same set; a sankey has owners down the left and the
+  // newsrooms they own down the right, and the same name on both sides
+  // would be two different nodes.
+  //
+  // Colour follows the left column, the one the flows come from: that is
+  // the thing the chart is comparing -- who owns how much of this -- and
+  // there are few enough of them to tell apart. Colouring by the right
+  // column instead gives a hue per newsroom, which past about nine is a
+  // key nobody can read.
+  function renderSankey(el, config, rows, t, width) {
+    const d3 = global.d3;
+    const { from, to, value } = config;
+    if (!from || !to || !value) {
+      el.textContent = "Pick the from, to, and value columns."; return;
+    }
+    if (typeof d3.sankey !== "function") {
+      el.textContent = "The sankey layout did not load.";
+      return;
+    }
+    rows = coerce(rows.slice(), value);
+    const { nodes, links, lefts, sides } = sankeyGraph(rows, from, to, value);
+    if (!links.length) { el.textContent = "No flows to draw."; return; }
+
+    // Never cycled. Past the palette a hue would be reused for a second
+    // owner, and two owners in one colour is a chart that says they are
+    // the same one. The tail takes the neutral instead and keeps its own
+    // node and its own label, because a long tail of small owners is
+    // most of what this chart is about -- folding them into one "Other"
+    // would answer the question by deleting it.
+    const hue = new Map(lefts.map((at, i) =>
+      [at, i < t.series.length ? t.series[i] : t.other]));
+    const greyed = Math.max(0, lefts.length - t.series.length);
+
+    // Room for the longest label on each side, measured rather than
+    // guessed: the names here are newsroom names and owner names, and
+    // guessing clipped "Southeast Missourian" in half.
+    const height = Math.max(320, Math.min(24 * links.length + 60, 900));
+    const svg = d3.create("svg")
+      .attr("viewBox", [0, 0, width, height])
+      .attr("width", width).attr("height", height)
+      .attr("font-family", 'system-ui, -apple-system, "Segoe UI", sans-serif')
+      .attr("font-size", 12);
+    const measure = svg.append("g").attr("visibility", "hidden");
+    function widest(side) {
+      let most = 0;
+      for (const name of sides[side].keys()) {
+        const node = measure.append("text").text(name).node();
+        most = Math.max(most, node.getComputedTextLength
+          ? node.getComputedTextLength() : name.length * 6.6);
+      }
+      return Math.min(most, width * 0.28);
+    }
+    const leftRoom = widest(0) + 10, rightRoom = widest(1) + 10;
+    measure.remove();
+
+    const layout = d3.sankey()
+      .nodeWidth(10)
+      .nodePadding(Math.max(4, Math.min(14, 220 / Math.max(nodes.length, 1))))
+      .extent([[leftRoom, 10], [Math.max(leftRoom + 60, width - rightRoom), height - 10]]);
+    const graph = layout({
+      nodes: nodes.map((n) => ({ ...n })),
+      links: links.map((l) => ({ ...l })),
+    });
+
+    // Links under nodes, so a band never covers the block it arrives at.
+    svg.append("g")
+      .attr("fill", "none")
+      .selectAll("path")
+      .data(graph.links)
+      .join("path")
+        .attr("d", d3.sankeyLinkHorizontal())
+        .attr("stroke", (d) => hue.get(d.source.index) || t.other)
+        .attr("stroke-width", (d) => Math.max(1, d.width))
+        .attr("stroke-opacity", 0.45)
+      .append("title")
+        .text((d) => `${d.source.name} → ${d.target.name}: ${fmt(d.value)}`);
+
+    svg.append("g")
+      .selectAll("rect")
+      .data(graph.nodes)
+      .join("rect")
+        .attr("x", (d) => d.x0)
+        .attr("y", (d) => d.y0)
+        .attr("width", (d) => d.x1 - d.x0)
+        .attr("height", (d) => Math.max(1, d.y1 - d.y0))
+        .attr("fill", (d) => d.side === 0 ? (hue.get(d.index) || t.other) : t.muted)
+      .append("title")
+        .text((d) => `${d.name}: ${fmt(d.value)}`);
+
+    // Outside the diagram on both sides, so a label never sits on a band.
+    svg.append("g")
+      .attr("fill", t.ink)
+      .selectAll("text")
+      .data(graph.nodes)
+      .join("text")
+        .attr("x", (d) => d.side === 0 ? d.x0 - 6 : d.x1 + 6)
+        .attr("y", (d) => (d.y0 + d.y1) / 2)
+        .attr("dy", "0.35em")
+        .attr("text-anchor", (d) => d.side === 0 ? "end" : "start")
+        .text((d) => d.name);
+
+    el.replaceChildren(svg.node());
+    if (greyed) {
+      const note = document.createElement("p");
+      note.className = "dd-note";
+      note.textContent =
+        "The " + t.series.length + " largest are coloured; the other " +
+        greyed + (greyed === 1 ? " is grey" : " are grey") +
+        " and told apart by their labels.";
+      el.appendChild(note);
+    }
+  }
+
+  //: What a blank name is called. A newsroom with no owner recorded is
+  //: not owned by nobody, and a node labelled "" says it is.
+  const NOT_RECORDED = "Not recorded";
+
+  // The graph a sankey draws, without drawing it. Separated because this
+  // is the part with decisions in it -- two vocabularies, summing, the
+  // colour order -- and the drawing is d3 doing what d3 does.
+  function sankeyGraph(rows, from, to, value) {
+    // One node per name per side. A name can appear on both, and an
+    // owner that is also a newsroom is two nodes with a link between
+    // them rather than one node with a loop.
+    const sides = [new Map(), new Map()];
+    const nodes = [];
+    function nodeAt(side, name) {
+      const key = String(name ?? "").trim() || NOT_RECORDED;
+      if (!sides[side].has(key)) {
+        sides[side].set(key, nodes.length);
+        nodes.push({ name: key, side });
+      }
+      return sides[side].get(key);
+    }
+
+    // Summed, because a pivot hands back one row per pair and a file may
+    // hand back several. Two rows for the same pair are one flow, not
+    // two bands stacked at the same place.
+    const flows = new Map();
+    for (const r of rows) {
+      const amount = +r[value] || 0;
+      if (amount <= 0) continue;
+      const a = nodeAt(0, r[from]), b = nodeAt(1, r[to]);
+      const key = a + ":" + b;
+      flows.set(key, (flows.get(key) || 0) + amount);
+    }
+    const links = [...flows].map(([key, amount]) => {
+      const [a, b] = key.split(":").map(Number);
+      return { source: a, target: b, value: amount };
+    });
+
+    // The left column, biggest first, is the colour order -- so the
+    // largest gets the first hue and the ordering is a fact about the
+    // data rather than about the order the rows arrived in.
+    const weight = new Map();
+    for (const link of links) {
+      weight.set(link.source, (weight.get(link.source) || 0) + link.value);
+    }
+    const lefts = [...sides[0].values()].sort(
+      (a, b) => (weight.get(b) || 0) - (weight.get(a) || 0));
+    return { nodes, links, lefts, sides };
+  }
+
   function renderChord(el, config, rows, t, width) {
     const d3 = global.d3;
     const { from, to, value } = config;
@@ -1396,6 +1564,6 @@
   // hues is a fact about these functions, not about the page.
   global.DatadeskChart = {
     render, mount, renderTable,
-    __test: { scaleColors, colorScale, theme, quantizeRamp },
+    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph },
   };
 })(window);

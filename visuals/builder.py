@@ -17,6 +17,7 @@ CHART_KINDS = (
     "donut",
     "chord",
     "arc",
+    "sankey",
     "choropleth",
     "points",
     "storymap",
@@ -172,6 +173,10 @@ CHART_LIBS = {
     "donut": ("d3",),
     "chord": ("d3",),
     "arc": ("d3",),
+    # d3 ships the layout as its own module rather than in the bundle,
+    # the same way it ships hexbin and the extra projections. It is 6KB
+    # and only a sankey needs it.
+    "sankey": ("d3", "sankey"),
     "storymap": ("d3", "topojson"),
     "bar": ("d3", "plot"),
     "line": ("d3", "plot"),
@@ -181,8 +186,9 @@ CHART_LIBS = {
     "points": ("d3", "plot", "topojson"),
 }
 
-#: Every library, for a kind this table does not know about.
-ALL_LIBS = ("d3", "plot", "topojson")
+#: Every library, for a kind this table does not know about. In load
+#: order: the sankey layout reads the d3 global and must follow it.
+ALL_LIBS = ("d3", "plot", "topojson", "sankey")
 
 
 def libs_for(kind):
