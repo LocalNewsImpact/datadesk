@@ -1753,6 +1753,15 @@ a.button:hover{ background: var(--surface-2); }
 .visuals-list tr[draggable]{ cursor: grab; }
 .visuals-list .empty-folder td{ font-size: .82rem; }
 
+/* The map's frame follows the newsrooms above it, so this is shut and
+   empty in the ordinary case -- open only where somebody has overridden
+   it, which the template does by looking at whether a place is set. */
+.focus-override{ margin: var(--s-2) 0 0; border-top: 1px solid var(--border);
+  padding-top: var(--s-2); }
+.focus-override > summary{ cursor: pointer; font-size: .82rem;
+  color: var(--text-2); }
+.focus-override > summary:hover{ color: var(--text); }
+
 /* The chevron that opens and shuts a folder. Rotated rather than swapped
    for a different character, so it reads as one control in two states. */
 .folder-head .twist{ background: none; border: 0; padding: .1rem .3rem;

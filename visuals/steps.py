@@ -47,27 +47,25 @@ STEPS = (
         "Data",
         "Which articles?",
         "The slice of the corpus. Which fields to draw comes later.",
-        # `focus` and what it implies belong to this step now: where a
-        # map is centred is a question about which part of the world the
-        # visual is about, which is the question this step asks.
-        (
-            "dataset",
-            "datasets",
-            "from",
-            "to",
-            "focus",
-            "focus_name",
-            "focus_level",
-            "extent",
-            "frame",
-        ),
+        ("dataset", "datasets", "from", "to"),
     ),
     Step(
         "newsrooms",
         "Newsrooms",
         "Which newsrooms?",
         "All of them unless you narrow it. Spans every dataset chosen.",
-        ("publishers",),
+        # The newsroom choice frames the map too: choosing whose coverage
+        # this is answers where it is about, and asking again in another
+        # step was a second way to say the same thing that could disagree
+        # with the first.
+        (
+            "publishers",
+            "focus",
+            "focus_name",
+            "focus_level",
+            "extent",
+            "frame",
+        ),
     ),
     Step(
         "fields",

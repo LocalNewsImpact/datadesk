@@ -166,6 +166,7 @@ def _focus_from(post, datasets):
     typed = (post.get("focus") or "").strip()
     if not typed:
         # Cleared on purpose: an uncentred map frames itself on its data.
+        # Cleared on purpose: back to following the newsrooms.
         return {
             "focus": "",
             "focus_name": "",
@@ -216,17 +217,6 @@ def data_panel(visual, post=None, choices=()):
                 "to": post.get("to", "").strip(),
             }
         }
-        # Where a map is centred is a data question -- which part of the
-        # world this is about -- and it lived only on the advanced
-        # settings page. So the one thing you most want to change about a
-        # duplicated map was the one thing the flow could not change, and
-        # retargeting a copy meant editing the focus in one place and the
-        # newsrooms in another with nothing connecting them. When they
-        # disagreed the map drew nothing and said only "No mapped
-        # stories".
-        config = visual.config or {}
-        if config.get("kind") in _MAP_KINDS:
-            written["config"] = _focus_from(post, picked)
         return written
     spec = visual.spec or {}
     picked = spec.get("datasets") or ([spec["dataset"]] if spec.get("dataset") else [])
@@ -244,12 +234,6 @@ def data_panel(visual, post=None, choices=()):
         ],
         "date_from": spec.get("from", ""),
         "date_to": spec.get("to", ""),
-        # Only for the kinds that have somewhere to be centred.
-        "is_map": (visual.config or {}).get("kind") in _MAP_KINDS,
-        "focus": (visual.config or {}).get("focus_name")
-        or (visual.config or {}).get("focus", ""),
-        "focus_level": (visual.config or {}).get("focus_level", ""),
-        "extent": (visual.config or {}).get("extent", "auto"),
     }
 
 
@@ -264,6 +248,58 @@ NA_STATE = "NA State"
 NA_COUNTY = "NA County"
 
 
+def _frame_from_newsrooms(publishers, visual):
+    """The counties a map should paint, taken from the newsrooms chosen.
+
+    Their own counties, not the places their stories mention: the question
+    the newsroom step asks is whose coverage this is, and the answer to
+    "where is this map about" is where those newsrooms are. Stories
+    reaching further still plot as points on top.
+
+    Empty selection means every newsroom in the datasets, which is a
+    frame nobody drew deliberately -- so it frames itself on its data
+    instead, which is what an empty focus already means.
+    """
+    from django.db import DatabaseError
+
+    from explorer.models import Source
+    from visuals.geofocus import COUNTY, FocusError, resolve, state_of
+
+    if not publishers:
+        return {"focus": "", "focus_name": "", "focus_level": "", "frame": []}
+
+    state = state_of(visual.datasets or [])
+    try:
+        names = Source.objects.filter(id__in=publishers).values_list(
+            "county", flat=True
+        )
+        counties = set()
+        for name in names:
+            if not (name or "").strip():
+                continue
+            try:
+                geoid, _ = resolve(name, COUNTY, state)
+            except FocusError:
+                # A county the gazetteer does not know is left out of the
+                # frame rather than taking the frame down with it.
+                continue
+            if geoid:
+                counties.add(geoid)
+        counties = sorted(counties)
+    except DatabaseError:
+        # A frame that cannot be worked out is not a reason to lose the
+        # newsroom selection, which is what the author actually asked for.
+        return {}
+
+    return {
+        "focus": "",
+        "focus_name": "",
+        "focus_level": "",
+        "extent": "selected" if counties else "auto",
+        "frame": counties,
+    }
+
+
 def newsrooms_panel(visual, post=None, tree=None):
     """State, then county, then newsroom.
 
@@ -271,7 +307,32 @@ def newsrooms_panel(visual, post=None, tree=None):
     make "all" a list that goes stale the moment a publisher is added.
     """
     if post is not None:
-        return {"spec": {"publishers": [p for p in post.getlist("publishers") if p]}}
+        picked = [p for p in post.getlist("publishers") if p]
+        written = {"spec": {"publishers": picked}}
+        # Choosing newsrooms is choosing where the map is about. Asking
+        # again, in a different step, was a second way to say the same
+        # thing -- and the two could disagree, which is how a copy of the
+        # Boone map retargeted at Jackson ended up framed on Adair and
+        # drawing nothing.
+        #
+        # Skipped where somebody has typed a place on purpose: an override
+        # that the next newsroom change silently undid would be worse than
+        # no override.
+        config = visual.config or {}
+        if config.get("kind") in _MAP_KINDS:
+            typed = (post.get("focus") or "").strip()
+            written["config"] = (
+                # `visual.datasets` -- the frozen list -- not
+                # `spec["datasets"]`. The two are different: the spec's is
+                # what the data step last wrote, and this one is what the
+                # visual is actually wired to. Reading the wrong one left
+                # the state empty, so "Jackson" could not be resolved and
+                # the step refused a save it should have made.
+                _focus_from(post, visual.datasets or [])
+                if typed
+                else _frame_from_newsrooms(picked, visual)
+            )
+        return written
     spec = visual.spec or {}
     kept = set(spec.get("publishers") or ())
     states = []
@@ -315,7 +376,17 @@ def newsrooms_panel(visual, post=None, tree=None):
             }
         )
     total = sum(s["rooms"] for s in states)
-    return {"states": states, "kept": len(kept) or total, "total": total}
+    config = visual.config or {}
+    return {
+        "states": states,
+        "kept": len(kept) or total,
+        "total": total,
+        # The override, shown only where there is a map to frame.
+        "is_map": config.get("kind") in _MAP_KINDS,
+        "focus": config.get("focus_name") or config.get("focus", ""),
+        "focus_level": config.get("focus_level", ""),
+        "extent": config.get("extent", "auto"),
+    }
 
 
 # --- step 5: the fields ------------------------------------------------------

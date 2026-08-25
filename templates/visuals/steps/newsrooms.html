@@ -38,6 +38,43 @@ Sending nothing means every one of them -- storing exclusions would make
     </details>
     {% endfor %}
   </div>
+  {% if is_map %}
+  {% comment %}
+  The frame follows the newsrooms above, because choosing whose coverage
+  this is answers where the map is about. Asking again somewhere else was
+  a second way to say the same thing, and the two could disagree -- which
+  is how a copy of the Boone map retargeted at Jackson ended up framed on
+  Adair, drawing nothing and saying only "No mapped stories".
+
+  So this is an override, sitting next to what it overrides, and empty
+  most of the time. A name rather than a code: the gazetteer resolves
+  "Boone" to 29019 on save.
+  {% endcomment %}
+  <details class="focus-override"{% if focus %} open{% endif %}>
+    <summary>Centred somewhere other than these newsrooms</summary>
+    <div class="range">
+      <input type="text" name="focus" value="{{ focus }}"
+             placeholder="Boone, MO — or Missouri, or 29019">
+      <select name="focus_level" aria-label="What kind of place">
+        <option value="" {% if not focus_level %}selected{% endif %}>work it out</option>
+        <option value="city" {% if focus_level == "city" %}selected{% endif %}>a city</option>
+        <option value="county" {% if focus_level == "county" %}selected{% endif %}>a county</option>
+        <option value="state" {% if focus_level == "state" %}selected{% endif %}>a state</option>
+      </select>
+    </div>
+    <label class="stacked">Show
+      <select name="extent">
+        <option value="auto" {% if extent == "auto" %}selected{% endif %}>wherever the stories are</option>
+        <option value="selected" {% if extent == "selected" %}selected{% endif %}>only what is centred on</option>
+        <option value="county" {% if extent == "county" %}selected{% endif %}>its whole county</option>
+        <option value="state" {% if extent == "state" %}selected{% endif %}>its whole state</option>
+      </select>
+    </label>
+    <p class="notice">Leave the place empty and the map frames itself on
+    the newsrooms you chose.</p>
+  </details>
+  {% endif %}
+
   <div class="action-bar">
     <button type="submit" class="primary">Next</button>
     <button type="submit" name="stay" value="1"
