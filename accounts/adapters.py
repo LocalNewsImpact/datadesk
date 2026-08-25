@@ -55,10 +55,28 @@ class DomainRestrictedAdapter(DefaultSocialAccountAdapter):
         if Invitation.for_email(email) is not None:
             return
 
+        # ...and the provisioned one. The admin's add-account screen writes a
+        # user and a grant, not an invitation, so an account made that way
+        # had no standing here at all: its owner could only ever use the
+        # password door, and met a 403 at the one they were pointed to.
+        # Creating the account outright is the same decision an invitation
+        # records, made in a different screen.
+        #
+        # `is_active` is the whole of the check that matters: switching an
+        # account off is how access is taken away, and it has to close this
+        # door too.
+        from django.contrib.auth import get_user_model
+
+        provisioned = get_user_model().objects.filter(
+            email__iexact=email, is_active=True
+        )
+        if provisioned.exists():
+            return
+
         raise ImmediateHttpResponse(
             HttpResponseForbidden(
                 f"This application is restricted to {', '.join(allowed)} "
-                "accounts and people who have been invited."
+                "accounts and people an administrator has given an account."
             )
         )
 
