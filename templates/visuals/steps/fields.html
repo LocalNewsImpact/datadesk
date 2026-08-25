@@ -68,23 +68,6 @@ the steps before this one.</p>
     value, which the panel reads back as no filter at all.
     {% endcomment %}
     {% if role.chosen %}
-    {% comment %}
-    How many of them to draw, beside which of them to draw. Two different
-    questions: "the ten biggest" stays true as the corpus grows, where a
-    list of ten ticked names is a decision about the ten that were
-    biggest on the day somebody ticked them.
-
-    This is the answer to a sankey of 111 cities against 179 publishers,
-    where the alternative was every value ticked by hand or four fifths
-    of the picture gathered into one band.
-    {% endcomment %}
-    <label class="how-many">How many
-      <select name="top-{{ role.chosen }}">
-        {% for value, label in role.tops %}
-        <option value="{{ value }}" {% if role.top == value %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </label>
     <details class="values" data-role="{{ role.id }}"{% if role.kept %} open{% endif %}>
       <summary>{% if role.kept %}{{ role.kept|length }} kept{% else %}Narrow the values{% endif %}</summary>
       <div class="values-list" data-for="{{ role.chosen }}">
@@ -108,6 +91,30 @@ the steps before this one.</p>
     {% endif %}
   </div>
   {% endfor %}
+  {% comment %}
+  How much of the chart to draw, once, in the chart's own unit. Asking it
+  per field was the mistake: "the top ten publisher names" and "the top
+  ten cities" are two narrowings whose intersection nobody can predict,
+  and neither is the question a flow chart asks -- which is which
+  pairings are the biggest.
+
+  Ranked by the amount that makes the pairing, which is the value field
+  above. A different question from the ticked values beside each field:
+  "the ten biggest" stays true as the corpus grows, where ten ticked
+  names is a decision about the day they were ticked.
+  {% endcomment %}
+  <div class="role how-much">
+    <h4>How much to draw</h4>
+    <label class="how-many">Show
+      <select name="top">
+        {% for value, label in tops %}
+        <option value="{{ value }}" {% if top == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      {{ top_unit }}{% if measure_label %}, the biggest by {{ measure_label|lower }}{% endif %}
+    </label>
+  </div>
+
   <div class="action-bar">
     <button type="submit" class="primary" name="stay" value="1"
       title="Save these fields and redraw the preview with them">Update</button>
