@@ -20,9 +20,11 @@ and neither of those exists on this host.
             display: flex; flex-direction: column; gap: 1.5rem; }
     /* Inside the data panel, above the tables: its own block rather
        than loose notes, so what is about the data reads as one thing. */
-    .takeaway { display: flex; flex-direction: column; gap: 0.4rem;
-                padding-bottom: 1rem; margin-bottom: 0.5rem;
-                border-bottom: 1px solid var(--border); }
+    .takeaway { display: flex; flex-direction: column; gap: 0.4rem; }
+    /* A class beats the browser's own `[hidden] { display: none }`, so
+       `display: flex` above made the attribute do nothing and the block
+       sat under the figure -- the footer it was moved out of being. */
+    .takeaway[hidden] { display: none; }
     .takeaway label { display: inline-flex; align-items: center;
                       gap: 0.4rem; cursor: pointer; }
     .figure { background: var(--surface); border: 1px solid var(--border);
