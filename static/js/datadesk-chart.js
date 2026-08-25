@@ -1062,10 +1062,34 @@
         most = Math.max(most, node.getComputedTextLength
           ? node.getComputedTextLength() : name.length * 6.6);
       }
-      return Math.min(most, width * 0.28);
+      return most;
     }
-    const leftRoom = widest(0) + 10, rightRoom = widest(1) + 10;
+
+    // Names get the room they need, and the flows keep a floor.
+    //
+    // Each side used to be capped at 28% of the width whether or not
+    // anything needed capping, so "The Kansas City Star" and "St. Louis
+    // city, MO" were trimmed while the middle of the diagram had room to
+    // spare. A cap that binds when nothing is short is not a cap, it is
+    // the layout.
+    //
+    // Only where the two sides together would leave the flows less than
+    // the floor do they give way, and then both by the same proportion:
+    // trimming one side to spare the other would say the names on that
+    // side matter less.
+    let leftRoom = widest(0) + 10;
+    let rightRoom = widest(1) + 10;
     measure.remove();
+
+    // What the bands need to still read as bands. Below this the diagram
+    // is two columns of text with a smear between them.
+    const floor = Math.max(120, width * 0.3);
+    const spare = Math.max(60, width - floor);
+    if (leftRoom + rightRoom > spare) {
+      const share = spare / (leftRoom + rightRoom);
+      leftRoom = Math.floor(leftRoom * share);
+      rightRoom = Math.floor(rightRoom * share);
+    }
 
     const layout = d3.sankey()
       .nodeWidth(10)

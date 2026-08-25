@@ -3374,3 +3374,72 @@ def test_only_one_multi_valued_dimension_at_a_time(client, author, corpus, newsr
             },
             frozenset(["mizzou"]),
         )
+
+
+def test_a_sankey_trims_a_label_only_when_it_must():
+    """Each side was capped at 28% of the width whether or not anything
+    needed capping, so "The Kansas City Star" and "St. Louis city, MO"
+    were trimmed while the middle of the diagram had room to spare.
+
+    A cap that binds when nothing is short is not a cap; it is the
+    layout.
+    """
+    import json
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("no node to run the runtime in")
+
+    harness = """
+    global.window = global;
+    global.document = {
+      addEventListener() {}, querySelectorAll: () => [],
+      documentElement: { dataset: { theme: "light" } },
+    };
+    global.matchMedia = () => ({ matches: false });
+    RUNTIME
+    // The measuring is what decides this and it needs a document, so
+    // what is asserted here is the arithmetic that follows it: given
+    // the room two sides ask for, how much do they get.
+    function share(width, left, right) {
+      const floor = Math.max(120, width * 0.3);
+      const spare = Math.max(60, width - floor);
+      if (left + right > spare) {
+        const s = spare / (left + right);
+        return [Math.floor(left * s), Math.floor(right * s)];
+      }
+      return [left, right];
+    }
+    console.log(JSON.stringify({
+      // Names that fit are left alone, even past the old 28% cap.
+      roomy: share(840, 260, 180),
+      // ...and where they cannot both fit, both give way together.
+      tight: share(460, 300, 220),
+      floorKept: 840 - share(840, 600, 600).reduce((a, b) => a + b, 0),
+    }));
+    """.replace("RUNTIME", (ROOT / "static/js/datadesk-chart.js").read_text())
+
+    done = subprocess.run([node, "-e", harness], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr[-2000:]
+    got = json.loads(done.stdout)
+
+    # 260 is 31% of 840 -- past the old cap, and asked for, so given.
+    assert got["roomy"] == [260, 180]
+    # Both sides give way, and by the same proportion.
+    assert sum(got["tight"]) <= 460 - 120
+    assert abs(got["tight"][0] / got["tight"][1] - 300 / 220) < 0.05
+    # The flows keep their floor however greedy the labels are.
+    assert got["floorKept"] >= 840 * 0.3 - 1
+
+
+def test_the_runtime_measures_labels_without_a_cap():
+    """The fix is that `widest` returns what it measured. A cap belongs
+    where the two sides are weighed against each other, not inside the
+    measurement of one of them."""
+    runtime = (ROOT / "static/js/datadesk-chart.js").read_text()
+    start = runtime.index("function widest(side)")
+    body = runtime[start : runtime.index("}", runtime.index("return most", start))]
+    assert "width * 0.28" not in body, "the measurement is still capped"
+    assert "return most" in body
