@@ -3049,10 +3049,42 @@ def test_a_sankey_folds_each_side_and_says_so():
 # --- how many of a dimension to draw -----------------------------------------
 
 
-def test_a_dimension_can_be_narrowed_to_its_largest_few(client, author, corpus):
-    """A different question from the values ticked beside it. "The ten
-    biggest" stays true as the corpus grows; a list of ten names is a
-    decision about the ten that were biggest the day it was made."""
+def test_the_chart_is_narrowed_to_its_largest_relationships(client, author, corpus):
+    """The unit is the row, not either end of it.
+
+    "The top ten publisher names" and "the top ten cities" are two
+    different narrowings that intersect unpredictably, and neither is the
+    question a flow chart asks -- which is which pairings are the
+    biggest.
+    """
+    from visuals.corpus import run_spec
+
+    base = {
+        "datasets": ["mizzou"],
+        "subset": "complete",
+        "dimensions": ["cin_primary", "publisher_name"],
+        "measure": "articles",
+    }
+    rows, meta = run_spec(base, frozenset(["mizzou"]))
+    assert len(rows) >= 2, "nothing to narrow"
+    assert meta["narrowed_away"] == 0
+
+    one, meta1 = run_spec(dict(base, top=1), frozenset(["mizzou"]))
+    assert len(one) == 1
+    # The biggest pairing, not the first one back.
+    assert one[0]["Articles"] == max(r["Articles"] for r in rows)
+    assert meta1["narrowed_away"] == len(rows) - 1
+
+    # Asking for more than there are narrows nothing.
+    plenty, meta2 = run_spec(dict(base, top=99), frozenset(["mizzou"]))
+    assert len(plenty) == len(rows)
+    assert meta2["narrowed_away"] == 0
+
+
+def test_a_visual_saved_under_the_old_question_keeps_its_number(client, author, corpus):
+    """`top` used to be per dimension. Its largest value is read as the
+    number somebody meant, so a saved visual keeps showing about as much
+    as it did rather than springing back to everything."""
     from visuals.corpus import run_spec
 
     base = {
@@ -3061,27 +3093,17 @@ def test_a_dimension_can_be_narrowed_to_its_largest_few(client, author, corpus):
         "dimensions": ["cin_primary"],
         "measure": "articles",
     }
-    rows, meta = run_spec(base, frozenset(["mizzou"]))
-    assert len(rows) >= 2, "nothing to narrow"
-    assert meta["narrowed_away"] == {}
-
-    top1, meta1 = run_spec(dict(base, top={"cin_primary": 1}), frozenset(["mizzou"]))
-    assert len(top1) == 1
-    # The biggest, not the first one back.
-    assert top1[0]["Articles"] == max(r["Articles"] for r in rows)
-    # ...and it says what it left out, because a chart that narrowed
-    # silently is one a reader takes for the whole picture.
-    assert meta1["narrowed_away"] == {"cin_primary": len(rows) - 1}
-
-    # Asking for more than there are narrows nothing.
-    plenty, meta2 = run_spec(dict(base, top={"cin_primary": 99}), frozenset(["mizzou"]))
-    assert len(plenty) == len(rows)
-    assert meta2["narrowed_away"] == {}
+    rows, _ = run_spec(base, frozenset(["mizzou"]))
+    old, _ = run_spec(dict(base, top={"cin_primary": 1}), frozenset(["mizzou"]))
+    assert len(old) == 1, f"the old shape was ignored: {len(rows)} rows"
 
 
-def test_the_fields_step_offers_how_many_and_saves_it(
+def test_the_fields_step_asks_how_much_once(
     client, author, visual, corpus, two_newsrooms
 ):
+    """One number for the chart, named in its own unit. Asked per field
+    it meant nothing: ten publisher names and ten cities are two
+    narrowings whose intersection nobody can predict."""
     Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
     client.force_login(author)
     visual.config = {"kind": "sankey", "theme": "datadesk"}
@@ -3095,12 +3117,17 @@ def test_the_fields_step_offers_how_many_and_saves_it(
             "value": "articles",
         },
         "dimensions": ["publisher_city", "publisher_name"],
+        "measure": "articles",
     }
     visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
 
     body = client.get(f"/visuals/builder/{visual.slug}/step/fields/").content.decode()
-    assert 'name="top-publisher_city"' in body, "no way to say how many"
-    assert "Top 10" in body
+    assert 'name="top"' in body, "no way to say how much"
+    assert 'name="top-publisher_city"' not in body, "still asking per field"
+    # Named in the chart's unit and ranked by the amount, so "top ten" of
+    # what is answered on the page.
+    assert "pairings" in body
+    assert "the biggest by" in body
 
     client.post(
         f"/visuals/builder/{visual.slug}/step/fields/",
@@ -3108,14 +3135,26 @@ def test_the_fields_step_offers_how_many_and_saves_it(
             "role-from": "publisher_city",
             "role-to": "publisher_name",
             "role-value": "articles",
-            "top-publisher_city": "10",
-            "top-publisher_name": "0",
+            "top": "10",
             "stay": "1",
         },
     )
     visual.refresh_from_db()
-    # Only the ones actually limited: "all of them" is not a limit.
-    assert visual.spec["top"] == {"publisher_city": 10}
+    assert visual.spec["top"] == 10
+
+    # "All of them" is not a limit.
+    client.post(
+        f"/visuals/builder/{visual.slug}/step/fields/",
+        {
+            "role-from": "publisher_city",
+            "role-to": "publisher_name",
+            "role-value": "articles",
+            "top": "0",
+            "stay": "1",
+        },
+    )
+    visual.refresh_from_db()
+    assert visual.spec["top"] == 0
 
 
 # --- the fields the corpus was hiding ----------------------------------------
@@ -3227,3 +3266,111 @@ def test_the_warmer_fills_the_tree_the_facet_reads(client, author, corpus):
     labels = [label for label, _key, _fill in _newsroom_count_targets()]
     assert any("newsroom tree" in label for label in labels), labels
     assert any("newsroom counts" in label for label in labels), labels
+
+
+# --- the places a publication covers -----------------------------------------
+#
+# The place set: every county a story is about, not the one point it was
+# pinned to. A regional story has no point by design, so the point
+# dimensions cannot see its geography at all.
+
+
+def _covering(corpus, newsroom, places):
+    """An article whose enrichment names several counties."""
+    import json
+
+    from explorer.models import ArticleEnrichment
+
+    enrichment = ArticleEnrichment.objects.filter(
+        article__candidate_link__source=newsroom
+    ).first()
+    assert enrichment is not None, "the fixture has no enrichment to place"
+    enrichment.geoids = json.dumps(places)
+    enrichment.save(update_fields=["geoids"])
+    return enrichment
+
+
+def test_a_story_counts_in_every_county_it_covers(client, author, corpus, newsroom):
+    """Which is what "covered" means, and why these add up to more than
+    the number of stories."""
+    from visuals.corpus import run_spec
+
+    _covering(corpus, newsroom, ["29019", "29095", "29510"])
+    rows, meta = run_spec(
+        {
+            "datasets": ["mizzou"],
+            "subset": "complete",
+            "dimensions": ["geo_covered"],
+            "measure": "articles",
+        },
+        frozenset(["mizzou"]),
+    )
+    covered = {r["County covered"]: r["Articles"] for r in rows}
+    assert len(covered) == 3, covered
+    assert all(n == 1 for n in covered.values()), covered
+    # Named, not coded: a chart labelled 29095 is one nobody can read.
+    assert "Boone, MO" in covered
+    assert "St. Louis city, MO" in covered
+
+
+def test_a_county_covered_carries_its_centroid(client, author, corpus, newsroom):
+    """So a map of coverage can be drawn without choosing coordinates."""
+    from visuals.corpus import LAT_LABEL, LON_LABEL, run_spec
+
+    _covering(corpus, newsroom, ["29019"])
+    rows, _ = run_spec(
+        {
+            "datasets": ["mizzou"],
+            "subset": "complete",
+            "dimensions": ["geo_covered"],
+            "measure": "articles",
+        },
+        frozenset(["mizzou"]),
+    )
+    assert rows and LAT_LABEL in rows[0]
+    assert 35 < rows[0][LAT_LABEL] < 41
+    assert -96 < rows[0][LON_LABEL] < -89
+
+
+def test_the_place_set_refuses_a_measure_that_would_double_count(
+    client, author, corpus, newsroom
+):
+    """A sum over a multi-valued dimension counts the same story once per
+    county it mentions, which is a different number wearing the same
+    name. It says so rather than answering wrongly."""
+    from visuals.corpus import CorpusSpecError, run_spec
+
+    _covering(corpus, newsroom, ["29019", "29095"])
+    with pytest.raises(CorpusSpecError) as refused:
+        run_spec(
+            {
+                "datasets": ["mizzou"],
+                "subset": "complete",
+                "dimensions": ["geo_covered"],
+                "measure": "cost_sum",
+            },
+            frozenset(["mizzou"]),
+        )
+    assert "several values per story" in str(refused.value)
+
+
+def test_only_one_multi_valued_dimension_at_a_time(client, author, corpus, newsroom):
+    """Two would multiply each other and count a story once per pair of
+    counties it touches."""
+    from visuals.corpus import DIMENSIONS, CorpusSpecError, run_spec
+
+    exploding = [k for k, d in DIMENSIONS.items() if d.get("explode")]
+    if len(exploding) < 2:
+        # One today. The guard is what keeps a second one from being
+        # added without anybody thinking about the multiplication.
+        assert len(exploding) == 1
+        return
+    with pytest.raises(CorpusSpecError):
+        run_spec(
+            {
+                "datasets": ["mizzou"],
+                "dimensions": exploding[:2],
+                "measure": "articles",
+            },
+            frozenset(["mizzou"]),
+        )

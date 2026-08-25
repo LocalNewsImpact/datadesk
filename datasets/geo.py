@@ -46,6 +46,51 @@ def to_county(geoid, level):
     return None
 
 
+_by_geoid = None
+
+
+def county_label(fips):
+    """ "Jackson, MO" for a county FIPS, or the code where it is unknown.
+
+    A chart labelled 29095 is a chart nobody can read. The state rides
+    along because county names repeat across state lines -- there is a
+    Jackson in twenty-odd of them -- and a flow diagram gives no other
+    clue which one it means.
+    """
+    global _by_geoid
+    if _by_geoid is None:
+        _by_geoid = {}
+        with open(_COUNTIES, newline="") as fh:
+            for row in csv.DictReader(fh):
+                _by_geoid[row["GEOID"]] = (
+                    _COUNTY_SUFFIX.sub("", row["NAME"]).strip(),
+                    row["USPS"],
+                )
+    found = _by_geoid.get(str(fips or "").strip())
+    return f"{found[0]}, {found[1]}" if found else str(fips or "")
+
+
+def county_of(geoid):
+    """County FIPS for a coding of any level, from its length.
+
+    A place set holds whatever the model claimed: "29053" is a county,
+    "2907318" is a place, "20121" is a county in another state. Reading
+    them all as places sends the county codes through the place
+    crosswalk, which does not hold them, and they come back unresolved.
+
+    Length is what says which is which, and the Census codings are fixed
+    widths: two digits a state, five a county, seven a place, eleven a
+    tract, fifteen a block.
+    """
+    code = str(geoid or "").strip()
+    if len(code) == 7:
+        return county_for_place(code)[0]
+    if len(code) in (5, 11, 15):
+        return code[:5]
+    # A state has no county, and anything else is not a coding.
+    return None
+
+
 def to_state(geoid, level=None):
     """State FIPS — the first two digits of any GEOID coding."""
     return geoid[:2] if geoid and len(geoid) >= 2 else None
