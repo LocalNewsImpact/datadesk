@@ -518,10 +518,14 @@ def test_the_missing_rows_sort_last(client, author, visual, newsroom):
 
 def test_the_buttons_say_what_happens(client, author, visual, dataset):
     """ "Continue" and "Save and stay" describe the mechanism. "Next" moves
-    on; "Save" does not."""
+    on; "Update" stays -- and it is named for the reason to press it,
+    which is that the preview redraws with what you just chose. "Save"
+    read as filing something away and said nothing about the picture."""
     body = step(client, visual, "data").content.decode()
-    assert ">Next<" in body and ">Save<" in body
+    assert ">Next<" in body
+    assert ">Update</button>" in body
     assert "Continue" not in body and "Save and stay" not in body
+    assert ">Save<" not in body
 
 
 def test_the_two_numbers_on_a_row_are_explained(client, author, visual, newsroom):
@@ -884,3 +888,62 @@ def test_a_counted_answer_is_kept_until_the_corpus_moves(crawler_schema):
     cache.delete("corpus.version")
     assert corpus_version() != before
     assert _cache_key("x", ["mizzou"]) != key_before
+
+
+def test_choosing_newsrooms_actually_narrows_the_chart(client, author, visual, corpus):
+    """The step wrote `publishers` and nothing read it. A chart built
+    after narrowing to one county was a chart of every newsroom in the
+    dataset, and it looked right -- the panel said "934 of 1143 kept" and
+    the picture did not change, because the picture never depended on it.
+    """
+    from accounts.access import ALL_SCOPES
+    from explorer.models import Article, CandidateLink
+    from visuals.corpus import _base_queryset
+
+    # A second newsroom, so there is something for the filter to exclude.
+    other = Source.objects.create(
+        id="s2", host="two.example", host_norm="two.example", canonical_name="Two"
+    )
+    DatasetSource.objects.create(id="ds2", dataset=corpus, source=other)
+    link = CandidateLink.objects.create(
+        id="cl2", url="https://two.example/1", source=other
+    )
+    Article.objects.create(
+        id="a9", status="ok", candidate_link=link, primary_label="Health"
+    )
+
+    everything = _base_queryset({}, ALL_SCOPES).count()
+    assert everything == 4
+
+    assert _base_queryset({"publishers": ["s1"]}, ALL_SCOPES).count() == 3
+    assert _base_queryset({"publishers": ["s2"]}, ALL_SCOPES).count() == 1
+
+    # Empty is "all", which is what the step stores rather than listing
+    # every publisher -- a stored list of everything goes stale the moment
+    # a newsroom is added.
+    assert _base_queryset({"publishers": []}, ALL_SCOPES).count() == everything
+
+
+def test_a_chart_carries_its_own_title(client, author, visual):
+    """`visual.title` names the record in the console. The title a reader
+    sees is a different sentence for a different person, and nothing in
+    the stepped flow could set it."""
+    step(
+        client,
+        visual,
+        "theme",
+        theme="datadesk",
+        title="How CIN needs pair up",
+        subtitle="Primary against alternate, March 2026",
+    )
+    visual.refresh_from_db()
+    assert visual.config["title"] == "How CIN needs pair up"
+    assert visual.config["subtitle"] == "Primary against alternate, March 2026"
+    assert visual.title == "Walk", "the record's own name is left alone"
+
+
+def test_the_title_box_opens_on_the_record_name(client, author, visual):
+    """An empty box on a new visual invites leaving it empty."""
+    body = step(client, visual, "theme").content.decode()
+    assert 'name="title"' in body
+    assert f'value="{visual.title}"' in body

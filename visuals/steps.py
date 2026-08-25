@@ -37,10 +37,10 @@ STEPS = (
     ),
     Step(
         "theme",
-        "Colour",
-        "Which colours?",
-        "Enough distinct steps for the categories in play.",
-        ("theme", "theme_mode", "taxonomy"),
+        "Look",
+        "How should it read?",
+        "A title, and enough distinct colours for the categories in play.",
+        ("title", "subtitle", "theme", "theme_mode", "taxonomy"),
     ),
     Step(
         "data",

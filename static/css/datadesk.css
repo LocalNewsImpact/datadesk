@@ -1691,6 +1691,13 @@ tr.prop td { border-bottom: 0; }
 .dd-credit{ margin: var(--s-2) 0 0; font-size: .78rem; color: var(--text-3); }
 .dd-credit a{ color: inherit; text-decoration: underline; }
 
+/* Sits in the preview's own header, beside where the chart will change.
+   Quiet: it is a way to ask, not the step's main action, which is Next. */
+.stage-head .refresh{ font-size: .8rem; padding: .25rem .6rem;
+  border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+  background: var(--surface-2); color: var(--text-2); cursor: pointer; }
+.stage-head .refresh:hover{ color: var(--text); border-color: var(--accent); }
+
 /* A count that has not arrived yet. An ellipsis rather than a spinner or
    a zero: the row is already readable, and a zero would be a lie for the
    second it took to be replaced. */

@@ -1,7 +1,21 @@
 {% extends "visuals/steps/_shell.html" %}
 {% block panel %}
-<form method="post">
+<form method="post" id="step-form">
   {% csrf_token %}
+  {% comment %}
+  The chart's own words, which nothing in the stepped flow could set --
+  `visual.title` names the record in the console, and the title a reader
+  sees is a different sentence written for a different person.
+  {% endcomment %}
+  <label class="stacked">Title
+    <input type="text" name="title" value="{{ title }}" maxlength="200"
+           placeholder="What the chart says">
+  </label>
+  <label class="stacked">Subtitle
+    <input type="text" name="subtitle" value="{{ subtitle }}" maxlength="300"
+           placeholder="The qualification — where, when, out of what">
+  </label>
+
   <div class="swatches">
     {% comment %}
     The palette, not its name. Somebody choosing colours is choosing
@@ -44,7 +58,8 @@
   </label>
   <div class="action-bar">
     <button type="submit" class="primary">Next</button>
-    <button type="submit" name="stay" value="1">Save</button>
+    <button type="submit" name="stay" value="1"
+      title="Save this step and redraw the preview with it">Update</button>
   </div>
 </form>
 {% endblock %}
