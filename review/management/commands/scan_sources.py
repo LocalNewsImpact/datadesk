@@ -34,7 +34,15 @@ class Command(BaseCommand):
     help = "Flag publisher records that are incorrect or incomplete."
 
     def add_arguments(self, parser):
-        parser.add_argument("--dataset", required=True)
+        # Optional. Coverage is the point (REVIEW.md): every record that
+        # might be incomplete should surface, not only the ones somebody
+        # thought to name. A scan that has to be asked for one dataset at
+        # a time is as complete as the last person's memory -- which is
+        # how 894 Vermont publishers with no owner recorded stayed
+        # invisible while Missouri's were found and fixed.
+        parser.add_argument(
+            "--dataset", default="", help="one dataset; omit to scan every one"
+        )
         parser.add_argument("--state", default="")
         parser.add_argument("--evidence", default="", help="gs:// or local CSV")
         parser.add_argument("--evidence-name", default="a source file")
@@ -43,9 +51,24 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        dataset = Dataset.objects.filter(slug=options["dataset"]).first()
-        if dataset is None:
-            raise CommandError(f"No dataset {options['dataset']}")
+        if options["dataset"]:
+            wanted = Dataset.objects.filter(slug=options["dataset"])
+            if not wanted.exists():
+                raise CommandError(f"No dataset {options['dataset']}")
+        else:
+            wanted = Dataset.objects.all().order_by("slug")
+            if not wanted.exists():
+                raise CommandError("No datasets to scan")
+        # Evidence is a file about one dataset's records, so it is only
+        # meaningful with one named. Scanning everything with a file
+        # attached would apply one directory's spreadsheet to another's
+        # publishers.
+        if options["evidence"] and not options["dataset"]:
+            raise CommandError("--evidence needs --dataset: a file is about one")
+        for dataset in wanted:
+            self._scan(dataset, options)
+
+    def _scan(self, dataset, options):
         default_state = (
             options["state"] or (dataset.meta or {}).get("default_state") or ""
         )
@@ -132,8 +155,11 @@ class Command(BaseCommand):
                 f"{'would withdraw' if options['dry_run'] else 'withdrew'} "
                 f"{withdrawn} no longer flagged"
             )
+        # Named, because a run over every dataset writes several of
+        # these and a bare count says nothing about which directory it
+        # is a count of.
         self.stdout.write(
-            f"{len(sources)} publishers scanned; "
+            f"{dataset.slug}: {len(sources)} publishers scanned; "
             f"{'would queue' if options['dry_run'] else 'queued'} {total}"
         )
         # A check that has been corrected leaves behind the proposals it

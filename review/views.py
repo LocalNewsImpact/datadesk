@@ -478,6 +478,11 @@ def proposals(request):
 
     flag = request.GET.get("flag") or ""
     state = request.GET.get("state") or ChangeProposal.PENDING
+    # Which directory to work in. Scanning every dataset is what makes
+    # the queue complete and what makes it long: 894 Vermont publishers
+    # with no owner recorded would otherwise sit on top of the twelve
+    # Missouri questions somebody came here to answer.
+    dataset = request.GET.get("dataset") or ""
     # A proposal is reviewed by whoever may write the dataset it belongs
     # to. Without this every reviewer sees every dataset's queue, and the
     # first person through decides other people's records.
@@ -487,13 +492,25 @@ def proposals(request):
         qs = qs.filter(state=state)
     if flag:
         qs = qs.filter(flag=flag)
+    if dataset:
+        qs = qs.filter(dataset=dataset)
 
     pending = _within_reach(
         ChangeProposal.objects.filter(target="sources", state=ChangeProposal.PENDING),
         request.user,
     )
+    # Flag counts are for the directory being worked in, or every one
+    # of them. A count that ignores the dataset filter promises rows the
+    # filter then hides.
+    scoped = pending.filter(dataset=dataset) if dataset else pending
     counts = dict(
-        pending.values_list("flag").annotate(n=Count("id")).values_list("flag", "n")
+        scoped.values_list("flag").annotate(n=Count("id")).values_list("flag", "n")
+    )
+    by_dataset = sorted(
+        pending.values_list("dataset")
+        .annotate(n=Count("id"))
+        .values_list("dataset", "n"),
+        key=lambda row: -row[1],
     )
     return render(
         request,
@@ -507,7 +524,13 @@ def proposals(request):
             ],
             "flag": flag,
             "state": state,
+            "dataset": dataset,
+            # Every directory with something pending in it, biggest
+            # first, and what "" means said in words: a proposal on a
+            # record in no dataset is still somebody's to answer.
+            "datasets": [(slug, slug or "In no dataset", n) for slug, n in by_dataset],
             "pending_total": pending.count(),
+            "pending_here": scoped.count(),
             # An empty queue means nothing wrong or nothing looked, and a
             # reviewer cannot tell which without this.
             "last_scan": ScanRun.objects.filter(state=ScanRun.DONE).first(),
@@ -710,7 +733,9 @@ def rescan_sources(request):
         # publisher rows and takes seconds. A job would need somewhere to
         # report back to, which is what this row already is.
         out = io.StringIO()
-        call_command("scan_sources", dataset=dataset or None, stdout=out)
+        # "" rather than None: with no dataset named the command scans
+        # every one, and None is not a string the option can hold.
+        call_command("scan_sources", dataset=dataset or "", stdout=out)
         summary = out.getvalue().strip()
     except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
         run.state = ScanRun.FAILED
@@ -723,12 +748,21 @@ def rescan_sources(request):
     run.state = ScanRun.DONE
     run.note = summary[:500]
     run.finished_at = timezone.now()
+    # Summed, not taken from the last line. A run over every dataset
+    # writes one of these per dataset, and reading only the last would
+    # report the smallest directory's numbers as the whole scan's.
+    import re as _re
+
+    run.scanned = run.queued = run.withdrawn = 0
     for line in summary.splitlines():
-        if "publishers scanned" in line:
-            run.scanned = int(line.split()[0])
-            run.queued = int(line.rsplit(maxsplit=1)[-1])
+        counted = _re.search(
+            r"(\d+) publishers scanned; (?:would queue|queued) (\d+)", line
+        )
+        if counted:
+            run.scanned += int(counted.group(1))
+            run.queued += int(counted.group(2))
         elif "withdrew" in line:
-            run.withdrawn = int(line.split()[1])
+            run.withdrawn += int(line.split()[1])
     run.save(
         update_fields=["state", "note", "finished_at", "scanned", "queued", "withdrawn"]
     )

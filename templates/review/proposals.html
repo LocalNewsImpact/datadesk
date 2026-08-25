@@ -19,15 +19,41 @@
   </p>
   {% endif %}
 
+  {% comment %}
+  Which directory to work in, first, because it decides what the rest of
+  the row is counting. The scan covers every dataset, which is what makes
+  the queue complete and what makes it long -- one directory's 894
+  publishers with no owner recorded would otherwise sit on top of the
+  dozen questions somebody came here to answer.
+
+  Shown only where there is more than one to choose between: a single
+  directory needs no filter, and a chip that is always the only chip is a
+  control that never does anything.
+  {% endcomment %}
+  {% if datasets|length > 1 %}
+  <nav class="queue-facets" aria-label="Which directory">
+    <a href="?flag={{ flag }}&state={{ state }}"
+       class="facet-chip {% if not dataset %}on{% endif %}">
+      Every directory <span>{{ pending_total }}</span>
+    </a>
+    {% for slug, label, count in datasets %}
+    <a href="?dataset={{ slug|urlencode }}&flag={{ flag }}&state={{ state }}"
+       class="facet-chip {% if dataset == slug %}on{% endif %}">{{ label }} <span>{{ count }}</span></a>
+    {% endfor %}
+  </nav>
+  {% endif %}
+
   <nav class="queue-facets" aria-label="What is wrong">
-    <a href="?state={{ state }}" class="facet-chip {% if not flag %}on{% endif %}">
-      Review all <span>{{ pending_total }}</span>
+    <a href="?dataset={{ dataset|urlencode }}&state={{ state }}"
+       class="facet-chip {% if not flag %}on{% endif %}">
+      Review all <span>{{ pending_here }}</span>
     </a>
     {% for key, label, defect, count in flags %}
-    <a href="?flag={{ key }}&state={{ state }}" title="{{ defect }}"
+    <a href="?dataset={{ dataset|urlencode }}&flag={{ key }}&state={{ state }}" title="{{ defect }}"
        class="facet-chip {% if flag == key %}on{% endif %}">{{ label }} <span>{{ count }}</span></a>
     {% endfor %}
-    <a href="?flag={{ flag }}&state=all" class="facet-chip {% if state == 'all' %}on{% endif %}">Including decided</a>
+    <a href="?dataset={{ dataset|urlencode }}&flag={{ flag }}&state=all"
+       class="facet-chip {% if state == 'all' %}on{% endif %}">Including decided</a>
   </nav>
 
   {% comment %}

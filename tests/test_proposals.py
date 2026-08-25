@@ -1,6 +1,8 @@
 """The proposal queue: grouped by record, decided in a session, applied
 as one audited batch."""
 
+import io
+
 import pytest
 from django.contrib.auth.models import User
 
@@ -1407,3 +1409,192 @@ def test_the_scan_needs_write_not_merely_a_sign_in(client, crawler_schema):
     from review.proposals import ScanRun
 
     assert not ScanRun.objects.exists()
+
+
+# --- coverage is the point ---------------------------------------------------
+#
+# A scan that has to be asked for one dataset at a time is as complete as
+# the last person's memory. Missouri's owners were found and fixed while
+# 894 Vermont publishers with none recorded stayed invisible, because
+# nobody had ever typed Vermont's name.
+
+
+@pytest.fixture
+def vt(crawler_schema):
+    from explorer.models import Dataset
+
+    return Dataset.objects.create(
+        id="d-vt", slug="vt", label="Vermont", meta={"default_state": "VT"}
+    )
+
+
+def _in(dataset, source):
+    from explorer.models import DatasetSource
+
+    DatasetSource.objects.create(
+        id=f"ds-{dataset.slug}-{source.id}", dataset=dataset, source=source
+    )
+    return source
+
+
+def test_a_scan_with_no_dataset_named_covers_every_one(mo, vt, editor):
+    from django.core.management import call_command
+
+    _in(
+        mo,
+        Source.objects.create(
+            id="s-mo1",
+            host="mo1.example",
+            host_norm="mo1.example",
+            canonical_name="Missouri Paper",
+            city="Columbia",
+            county="Boone",
+            owner="",
+            meta={"state": "MO"},
+        ),
+    )
+    _in(
+        vt,
+        Source.objects.create(
+            id="s-vt1",
+            host="vt1.example",
+            host_norm="vt1.example",
+            canonical_name="Vermont Paper",
+            city="Burlington",
+            county="Chittenden",
+            owner="",
+            meta={"state": "VT"},
+        ),
+    )
+
+    out = io.StringIO()
+    call_command("scan_sources", stdout=out)
+
+    queued = ChangeProposal.objects.filter(target="sources", flag="owner_missing")
+    assert set(queued.values_list("record_id", flat=True)) == {"s-mo1", "s-vt1"}
+    # ...and each proposal knows which directory it belongs to, or it
+    # cannot be filtered back out again.
+    assert set(queued.values_list("dataset", flat=True)) == {"mo", "vt"}
+    # The summary names each, because a bare count over several datasets
+    # says nothing about which one it counted.
+    assert "mo:" in out.getvalue() and "vt:" in out.getvalue()
+
+
+def test_a_named_dataset_still_scans_only_that_one(mo, vt, editor):
+    from django.core.management import call_command
+
+    _in(
+        mo,
+        Source.objects.create(
+            id="s-mo2",
+            host="mo2.example",
+            host_norm="mo2.example",
+            canonical_name="Missouri Paper",
+            owner="",
+            meta={"state": "MO"},
+        ),
+    )
+    _in(
+        vt,
+        Source.objects.create(
+            id="s-vt2",
+            host="vt2.example",
+            host_norm="vt2.example",
+            canonical_name="Vermont Paper",
+            owner="",
+            meta={"state": "VT"},
+        ),
+    )
+
+    call_command("scan_sources", dataset="mo", stdout=io.StringIO())
+    assert set(
+        ChangeProposal.objects.filter(target="sources").values_list(
+            "dataset", flat=True
+        )
+    ) == {"mo"}
+
+
+def test_the_queue_can_be_worked_one_directory_at_a_time(client, mo, vt, editor):
+    """Scanning everything is what makes the queue complete and what
+    makes it long. Somebody working Missouri must not have to read past
+    Vermont to do it."""
+    from django.core.management import call_command
+
+    _in(
+        mo,
+        Source.objects.create(
+            id="s-mo3",
+            host="mo3.example",
+            host_norm="mo3.example",
+            canonical_name="Missouri Paper",
+            owner="",
+            meta={"state": "MO"},
+        ),
+    )
+    for i in range(3):
+        _in(
+            vt,
+            Source.objects.create(
+                id=f"s-vt3{i}",
+                host=f"vt3{i}.example",
+                host_norm=f"vt3{i}.example",
+                canonical_name="Vermont Paper",
+                owner="",
+                meta={"state": "VT"},
+            ),
+        )
+    call_command("scan_sources", stdout=io.StringIO())
+
+    every = client.get(URL).content.decode()
+    assert "Every directory" in every, "no way to choose a directory"
+
+    only_mo = client.get(URL + "?dataset=mo").content.decode()
+    assert "mo3.example" in only_mo
+    assert "vt30.example" not in only_mo, "Vermont is in Missouri's queue"
+
+    only_vt = client.get(URL + "?dataset=vt").content.decode()
+    assert "vt30.example" in only_vt
+    assert "mo3.example" not in only_vt
+
+
+def test_the_flag_counts_follow_the_directory_being_worked(client, mo, vt, editor):
+    """A count that ignores the filter promises rows the filter hides."""
+    from django.core.management import call_command
+
+    _in(
+        mo,
+        Source.objects.create(
+            id="s-mo4",
+            host="mo4.example",
+            host_norm="mo4.example",
+            canonical_name="Missouri Paper",
+            owner="",
+            meta={"state": "MO"},
+        ),
+    )
+    for i in range(4):
+        _in(
+            vt,
+            Source.objects.create(
+                id=f"s-vt4{i}",
+                host=f"vt4{i}.example",
+                host_norm=f"vt4{i}.example",
+                canonical_name="Vermont Paper",
+                owner="",
+                meta={"state": "VT"},
+            ),
+        )
+    call_command("scan_sources", stdout=io.StringIO())
+
+    mo_only = ChangeProposal.objects.filter(dataset="mo", flag="owner_missing").count()
+    vt_only = ChangeProposal.objects.filter(dataset="vt", flag="owner_missing").count()
+    assert (mo_only, vt_only) == (1, 4)
+
+    body = client.get(URL + "?dataset=mo").content.decode()
+    # The "No owner recorded" chip counts Missouri's one, not all five.
+    import re
+
+    chip = re.search(r"No owner recorded <span>(\d+)</span>", body)
+    assert chip and chip.group(1) == "1", body[body.find("No owner recorded") - 200 :][
+        :400
+    ]
