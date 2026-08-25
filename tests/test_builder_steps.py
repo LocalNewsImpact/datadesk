@@ -952,7 +952,22 @@ def test_the_title_box_opens_on_the_record_name(client, author, visual):
 # --- where a map is centred, in the flow that builds it ----------------------
 
 
-def test_the_newsrooms_frame_the_map(client, author, visual, newsroom):
+@pytest.fixture
+def two_newsrooms(dataset, newsroom):
+    """A second newsroom, so selecting one is a subset rather than all."""
+    other = Source.objects.create(
+        id="s-kc2",
+        host="kc2.example",
+        host_norm="kc2.example",
+        canonical_name="KC Star",
+        county="Jackson",
+        meta={"state": "MO"},
+    )
+    DatasetSource.objects.create(id="ds-kc2", dataset=dataset, source=other)
+    return newsroom, other
+
+
+def test_the_newsrooms_frame_the_map(client, author, visual, two_newsrooms):
     """Choosing whose coverage this is answers where the map is about.
     Asking again in another step was a second way to say the same thing,
     and the two could disagree -- which is how a copy of the Boone map
@@ -961,7 +976,8 @@ def test_the_newsrooms_frame_the_map(client, author, visual, newsroom):
     visual.datasets = ["mizzou"]
     visual.save(update_fields=["config", "datasets"])
 
-    step(client, visual, "newsrooms", publishers=[newsroom.id])
+    boone, _ = two_newsrooms
+    step(client, visual, "newsrooms", publishers=[boone.id])
     visual.refresh_from_db()
 
     # KOMU is in Boone County, so that is what the map paints.
@@ -987,13 +1003,14 @@ def test_an_override_survives_a_newsroom_change(client, author, visual, newsroom
 
 
 def test_clearing_the_override_hands_the_map_back_to_the_newsrooms(
-    client, author, visual, newsroom
+    client, author, visual, two_newsrooms
 ):
     visual.config = {"kind": "storymap", "focus": "29095", "focus_name": "Jackson"}
     visual.datasets = ["mizzou"]
     visual.save(update_fields=["config", "datasets"])
 
-    step(client, visual, "newsrooms", publishers=[newsroom.id], focus="")
+    boone, _ = two_newsrooms
+    step(client, visual, "newsrooms", publishers=[boone.id], focus="")
     visual.refresh_from_db()
     assert visual.config["focus"] == ""
     assert visual.config["frame"] == ["29019"], "back to the newsrooms' own county"
@@ -1103,3 +1120,96 @@ def test_the_empty_map_names_the_filter_that_empties_it(client, author, corpus):
     said = _why_nothing_mapped({"from": "1999-01-01", "to": "1999-12-31"}, ALL_SCOPES)
     assert "Nothing published between 1999-01-01 and 1999-12-31" in said
     assert "3 articles sit" in said
+
+
+def test_choosing_every_newsroom_stores_no_filter(client, author, visual, newsroom):
+    """Everything ticked is not a filter. Stored in full it becomes a
+    snapshot that goes stale the moment a newsroom is added -- one such
+    spec holds 942 publishers across four states, which is every newsroom
+    that existed on the day the box was ticked."""
+    visual.datasets = ["mizzou"]
+    visual.save(update_fields=["datasets"])
+
+    step(client, visual, "newsrooms", publishers=[newsroom.id])
+    visual.refresh_from_db()
+    assert visual.spec["publishers"] == [], "all of them means no filter"
+
+
+def test_the_newsroom_step_clears_the_older_county_filter(
+    client, author, visual, newsroom
+):
+    """`publisher_county` names the same thing from before this step
+    existed, and nothing in the flow shows it. A map filtered to Jackson's
+    newsrooms while still carrying `publisher_county: Boone` matches
+    nothing, and the two are ANDed with no way to see the second."""
+    visual.spec = {"publisher_county": "Boone", "publisher_city": "Columbia"}
+    visual.datasets = ["mizzou"]
+    visual.save(update_fields=["spec", "datasets"])
+
+    step(client, visual, "newsrooms", publishers=[newsroom.id])
+    visual.refresh_from_db()
+    assert visual.spec["publisher_county"] == ""
+    assert visual.spec["publisher_city"] == ""
+
+
+def test_two_newsroom_filters_cannot_contradict(client, author, corpus):
+    """The failure they produced: articles exist for each filter alone and
+    none for both, so the map drew nothing and blamed the newsrooms."""
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import _base_queryset
+
+    other = Source.objects.create(
+        id="s-kc",
+        host="kc.example",
+        host_norm="kc.example",
+        canonical_name="KC Star",
+        county="Jackson",
+    )
+    DatasetSource.objects.create(id="ds-kc", dataset=corpus, source=other)
+
+    # Boone's newsrooms have articles; Jackson's newsroom is real.
+    assert _base_queryset({"publisher_county": "Boone"}, ALL_SCOPES).count() == 3
+    # Both together: the contradiction.
+    both = {"publisher_county": "Boone", "publishers": ["s-kc"]}
+    assert _base_queryset(both, ALL_SCOPES).count() == 0
+
+
+def test_every_step_writes_every_key_it_owns(client, author, visual, two_newsrooms):
+    """A step's save rebuilds its part of the query; it does not add to
+    it. Keys are merged onto what is stored, so one a step owns and does
+    not write on every save survives forever -- invisible, because no
+    control shows it, and still filtering.
+
+    That is `publisher_county`: set by a hand-authored visual, owned by
+    nobody, ANDed with the newsroom selection. A map filtered to Jackson's
+    newsrooms kept `publisher_county: Boone` and matched nothing.
+    """
+    from visuals.steps import STEPS
+
+    boone, _ = two_newsrooms
+    visual.datasets = ["mizzou"]
+    visual.save(update_fields=["datasets"])
+
+    posts = {
+        "type": {"kind": "storymap"},
+        "theme": {"theme": "datadesk", "title": "T", "subtitle": "S"},
+        "data": {
+            "datasets": ["mizzou"],
+            "subset": "complete",
+            "from": "2026-03-01",
+            "to": "2026-03-31",
+        },
+        "newsrooms": {"publishers": [boone.id]},
+        # Not empty: `step()` treats an empty dict as a GET, which saves
+        # nothing and would pass this test without exercising it.
+        "fields": {"role-from": "cin_primary"},
+    }
+    for spec_step in (s for s in STEPS if s.slug in posts):
+        step(client, visual, spec_step.slug, **posts[spec_step.slug])
+        visual.refresh_from_db()
+        held = {**(visual.config or {}), **(visual.spec or {})}
+        missing = [k for k in spec_step.owns if k not in held]
+        assert not missing, (
+            f"the {spec_step.slug} step owns {missing} and left them unwritten, "
+            "so whatever was there before survives its save"
+        )

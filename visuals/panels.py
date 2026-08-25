@@ -212,6 +212,14 @@ def data_panel(visual, post=None, choices=()):
         written = {
             "spec": {
                 "datasets": picked,
+                # The singular key is older and `_base_queryset` still
+                # filters on it, so leaving it unwritten leaves a filter
+                # nothing in the flow shows -- the same shape as
+                # `publisher_county`, which ANDed a county nobody could
+                # see with a newsroom choice and matched nothing. It
+                # follows the plural: one dataset names itself, several
+                # name none.
+                "dataset": picked[0] if len(picked) == 1 else "",
                 "subset": subset,
                 "from": post.get("from", "").strip(),
                 "to": post.get("to", "").strip(),
@@ -300,6 +308,11 @@ def _frame_from_newsrooms(publishers, visual):
     }
 
 
+def _newsroom_count(tree):
+    """How many newsrooms the picker is offering."""
+    return sum(len(rooms) for state in tree.values() for rooms in state.values())
+
+
 def newsrooms_panel(visual, post=None, tree=None):
     """State, then county, then newsroom.
 
@@ -308,7 +321,26 @@ def newsrooms_panel(visual, post=None, tree=None):
     """
     if post is not None:
         picked = [p for p in post.getlist("publishers") if p]
-        written = {"spec": {"publishers": picked}}
+        # Everything ticked is not a filter. Storing all of them made the
+        # selection a snapshot that goes stale the moment a newsroom is
+        # added -- and one such spec holds 942 publishers across four
+        # states, which is every newsroom that existed on the day the box
+        # was ticked and no statement about what the visual is for.
+        if tree is not None and len(picked) >= _newsroom_count(tree):
+            picked = []
+        written = {
+            "spec": {
+                "publishers": picked,
+                # Two older keys naming the same thing, from before this
+                # step existed. Nothing in the flow shows them, so nobody
+                # could see that a map filtered to Jackson's newsrooms
+                # also carried `publisher_county: Boone` -- and the two
+                # AND together to nothing. Choosing newsrooms is the one
+                # way to choose newsrooms.
+                "publisher_county": "",
+                "publisher_city": "",
+            }
+        }
         # Choosing newsrooms is choosing where the map is about. Asking
         # again, in a different step, was a second way to say the same
         # thing -- and the two could disagree, which is how a copy of the
