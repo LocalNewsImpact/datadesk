@@ -473,22 +473,61 @@ class CorpusSpecError(ValueError):
     """A pivot spec that cannot run; the message is user-facing."""
 
 
-def _top_rows(spec):
-    """How many relationships to keep, or 0 for all of them.
+def _top_wanted(spec, choices):
+    """How many of the first dimension to keep, or 0 for all of them.
 
-    A dict is the older shape, which asked per dimension. Its largest
-    value is read as the number somebody meant, so a visual saved under
-    the old question keeps showing about as much as it did rather than
-    springing back to everything.
+    A number is a number. A string ending in "%" is a share of however
+    many there turn out to be -- "the top 10%" of a hundred and eleven
+    cities is eleven of them, and stays a tenth as the corpus grows,
+    where a fixed twenty slowly becomes a smaller slice of a longer list.
+
+    Older shapes are read for what they meant rather than ignored: a
+    mapping asked this per dimension and its largest value is taken, so a
+    saved visual keeps showing about as much as it did.
     """
     top = spec.get("top")
     if isinstance(top, dict):
         numbers = [int(v or 0) for v in top.values()]
-        return max(numbers) if numbers else 0
+        top = max(numbers) if numbers else 0
+    if isinstance(top, str) and top.strip().endswith("%"):
+        try:
+            share = float(top.strip()[:-1])
+        except ValueError:
+            return 0
+        if share <= 0:
+            return 0
+        # At least one: a tenth of four is not none of them.
+        return max(1, round(choices * share / 100))
     try:
         return max(0, int(top or 0))
     except (TypeError, ValueError):
         return 0
+
+
+def _narrow_to_the_first(rows, dim_keys, measure_key, spec):
+    """Keep the largest few values of the *first* dimension, whole.
+
+    The number names the left-hand column and nothing else. A sankey
+    shows a relationship between two things, and "the top ten" is a
+    statement about one of them -- the publishers, not the pairings and
+    not the counties. Limiting both ends, or limiting the pairs, gives a
+    number nobody can say out loud: ten of what.
+
+    Every flow belonging to a kept value is kept with it, so a publisher
+    that is shown is shown whole rather than truncated to its largest
+    county. Whether the right-hand column needs gathering is the
+    renderer's question, and it answers it with "Everything else".
+    """
+    first = dim_keys[0]
+    weight = {}
+    for row in rows:
+        weight[row[first]] = (weight.get(row[first]) or 0) + (row[measure_key] or 0)
+    wanted = _top_wanted(spec, len(weight))
+    if not wanted or len(weight) <= wanted:
+        return rows, 0
+    ranked = sorted(weight.items(), key=lambda kv: -(kv[1] or 0))
+    keep = {value for value, _ in ranked[:wanted]}
+    return [row for row in rows if row[first] in keep], len(weight) - len(keep)
 
 
 #: What an exploded dimension can be counted by. A sum or a mean over a
@@ -600,11 +639,7 @@ def run_spec(spec, scopes):
         rows, unresolved = _run_exploded(
             spec, scopes, dim_keys, measure_key, exploding[0]
         )
-        wanted = _top_rows(spec)
-        narrowed = 0
-        if wanted and len(rows) > wanted:
-            narrowed = len(rows) - wanted
-            rows = rows[:wanted]
+        rows, narrowed = _narrow_to_the_first(rows, dim_keys, measure_key, spec)
         out = []
         for row in rows:
             item = {}
@@ -726,12 +761,7 @@ def run_spec(spec, scopes):
     # After the fold, because a rolled-up dimension does not exist in SQL:
     # geo_county is folded from place codings in Python, so a SQL LIMIT
     # could not rank the one that most needs ranking.
-    wanted = _top_rows(spec)
-    narrowed = 0
-    if wanted and len(rows) > wanted:
-        rows = sorted(rows, key=lambda r: -(r[measure_key] or 0))
-        narrowed = len(rows) - wanted
-        rows = rows[:wanted]
+    rows, narrowed = _narrow_to_the_first(rows, dim_keys, measure_key, spec)
 
     # Rename to display headers and normalise types for JSON.
     out = []
@@ -764,8 +794,9 @@ def run_spec(spec, scopes):
 
     meta = {
         "qualifying_groups": None if qualifying is None else len(qualifying),
-        # How many pairings a "top ten" left out. A chart that narrowed
-        # silently is one a reader takes for the whole picture.
+        # How many values of the first dimension a "top ten" left out --
+        # publishers, not pairings. A chart that narrowed silently is one
+        # a reader takes for the whole picture.
         "narrowed_away": narrowed,
         "thresholds": {
             "min_articles": int(spec.get("min_articles") or 0),

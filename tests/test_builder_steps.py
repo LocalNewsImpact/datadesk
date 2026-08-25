@@ -3124,10 +3124,14 @@ def test_the_fields_step_asks_how_much_once(
     body = client.get(f"/visuals/builder/{visual.slug}/step/fields/").content.decode()
     assert 'name="top"' in body, "no way to say how much"
     assert 'name="top-publisher_city"' not in body, "still asking per field"
-    # Named in the chart's unit and ranked by the amount, so "top ten" of
-    # what is answered on the page.
-    assert "pairings" in body
+    # It names the left-hand column, not the pairings and not the other
+    # end: "the top ten" is a statement about one of the two things a
+    # relationship is between.
+    assert "publisher city" in body.lower()
+    assert "pairings" not in body.lower(), "still counting pairings"
     assert "the biggest by" in body
+    # ...and a share is offered as well as a count.
+    assert 'value="10%"' in body
 
     client.post(
         f"/visuals/builder/{visual.slug}/step/fields/",

@@ -588,27 +588,43 @@ def _uploaded_data_panel(visual, post=None, files=None, actor=None):
     }
 
 
-#: How much a chart can show. Ten and twenty-five are what a reader can
-#: tell apart; fifty is for a table rather than a picture. Zero means all
-#: of them, which is what a small chart still wants.
-TOP_CHOICES = ((0, "All of them"), (10, "Top 10"), (25, "Top 25"), (50, "Top 50"))
+#: How many of the left-hand thing to draw. A share as well as a count,
+#: because "the top 10%" stays a tenth as the corpus grows where a fixed
+#: twenty slowly becomes a smaller slice of a longer list.
+TOP_CHOICES = (
+    ("0", "All of them"),
+    ("10", "Top 10"),
+    ("20", "Top 20"),
+    ("50", "Top 50"),
+    ("10%", "Top 10%"),
+    ("25%", "Top 25%"),
+)
 
 
-def _top_unit(chart):
-    """What one row of this chart is, in the words its author would use.
+def _limited_by(chart, spec):
+    """The role whose values the limit counts, and what to call them.
 
-    "The top ten" is meaningless without it, which is the whole problem
-    with asking per field: ten publisher names and ten cities are two
-    narrowings whose intersection nobody can predict, and a flow chart is
-    about neither of them.
+    The number names one column and nothing else. A sankey shows a
+    relationship between two things, and "the top ten" is a statement
+    about one of them -- the publishers, not the pairings and not the
+    counties -- so the control says which, in the name of the field
+    somebody chose.
+
+    The first slot, because that is the left-hand column: `from` on a
+    flow chart, `x` on a bar. The other end is not limited; where it has
+    too many to draw, the chart gathers the tail and says so.
     """
-    if len(chart.roles) >= 2 and all(
-        r.id in ("from", "to", "value") for r in chart.roles
-    ):
-        return "pairings"
-    if any(r.id == "series" for r in chart.roles):
-        return "bars"
-    return "groups"
+    from visuals.corpus import DIMENSIONS
+
+    roles = spec.get("roles") or {}
+    for role in chart.roles:
+        if not role.needs:
+            continue
+        chosen = roles.get(role.id)
+        if not chosen or chosen not in DIMENSIONS:
+            continue
+        return role, DIMENSIONS[chosen]["label"]
+    return None, ""
 
 
 def _picks_columns(chart):
@@ -848,7 +864,12 @@ def field_panel(visual, post=None, user=None):
         # names is a decision about the ten that were biggest the day
         # somebody ticked them.
         asked = str(post.get("top") or "").strip()
-        top = int(asked) if asked.isdigit() and int(asked) > 0 else 0
+        if asked.endswith("%") and asked[:-1].isdigit() and int(asked[:-1]) > 0:
+            top = asked
+        elif asked.isdigit() and int(asked) > 0:
+            top = int(asked)
+        else:
+            top = 0
         return {
             "spec": {
                 "roles": roles,
@@ -924,7 +945,7 @@ def field_panel(visual, post=None, user=None):
             f"{first} and {second} must come from the same set of values \u2014 "
             f"a {chart.label.lower()} compares a vocabulary with itself."
         )
-    from visuals.corpus import _top_rows, measure_label_for
+    from visuals.corpus import measure_label_for
 
     return {
         "chart": chart,
@@ -932,11 +953,13 @@ def field_panel(visual, post=None, user=None):
         "columns": [],
         "pairs": chart.pairs,
         "pair_note": pair_note,
-        # One number for the chart. Named in its own terms below, because
-        # "top ten" of what is the whole question.
-        "top": _top_rows(spec),
+        # As stored: a number, or a share ending in "%".
+        "top": str(spec.get("top") or 0),
         "tops": TOP_CHOICES,
-        "top_unit": _top_unit(chart),
+        # What the number counts, named as the field somebody chose.
+        # "Top ten pairings" was a number about neither column; this is a
+        # number about the left one.
+        "top_of": _limited_by(chart, spec)[1],
         "measure_label": measure_label_for(spec.get("measure") or "articles"),
     }
 
