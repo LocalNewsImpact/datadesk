@@ -194,6 +194,29 @@
     return { domain, range, legend: domain.length > 1 };
   }
 
+  // The most a scale can be read as one. Beyond this the steps are too
+  // close to tell apart and the thing has stopped being a scale a reader
+  // can follow, so it falls back to distinct hues -- which at least
+  // separate.
+  const SCALE_STEPS = 9;
+
+  // An ordered scale: None, Very little, Some, Quite a bit, A lot. Those
+  // are not five unrelated things, and five unrelated hues say they are.
+  // One hue, light to dark, in the order the values appear -- so the
+  // segments read as a progression and the legend reads as its scale.
+  //
+  // The order is the order the values first appear in the data, which is
+  // the only statement of it there is: a scale is ordered by what it
+  // means, and nothing in a column of text says which end is which.
+  function scaleColors(domain, t) {
+    if (domain.length < 2 || domain.length > SCALE_STEPS) return null;
+    return {
+      domain,
+      range: quantizeRamp(t.seqLow, t.seqHigh, domain.length),
+      legend: true,
+    };
+  }
+
   function pad(v, n) {
     return String(v ?? "").replace(/\.0$/, "").padStart(n, "0");
   }
@@ -299,7 +322,13 @@
     } else if (series) {
       ({ rows, domain, folded } = foldSeries(
         rows, series, kind === "scatter" ? CAP_ALLPAIRS : CAP_ADJACENT));
-      color = colorScale(domain, t, folded);
+      // A scale is never folded into "Other": a bucket at the end of a
+      // progression is not a step of it, and the fold would put one
+      // there.
+      color =
+        (!folded && config.series_scale === "sequential"
+          ? scaleColors(domain, t)
+          : null) || colorScale(domain, t, folded);
     }
     const stroke1 = t.series[0];
     const marks = baseMarks(Plot, t);
@@ -1361,5 +1390,12 @@
     return { redraw: draw };
   }
 
-  global.DatadeskChart = { render, mount, renderTable };
+  // Reached by the test harness only. The colour decisions are the part
+  // worth asserting on and the part a screenshot cannot check: whether
+  // five ordered levels come out as a progression or as five unrelated
+  // hues is a fact about these functions, not about the page.
+  global.DatadeskChart = {
+    render, mount, renderTable,
+    __test: { scaleColors, colorScale, theme, quantizeRamp },
+  };
 })(window);

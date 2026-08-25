@@ -506,6 +506,35 @@ def read_more_accurately_than(chart_id, available):
     )
 
 
+def joins_loosely(chart_id, available):
+    """A caution about how a map will find its places, or "".
+
+    A choropleth's join takes geography *or* text, because county names
+    join to boundaries as well as FIPS codes do -- so a file with no
+    coded column is not refused. But a name has to match the gazetteer's
+    spelling exactly and a code cannot be spelt wrong, and the difference
+    between the two is a map that comes out blank.
+
+    A caution rather than a refusal, for the same reason as the volume
+    one: the author can see what is in their file and decide.
+    """
+    chart = BY_ID[chart_id]
+    if not available:
+        return ""
+    if not any(GEO in role.accepts for role in chart.roles if role.needs):
+        return ""
+    kinds = set(available.values())
+    if GEO in kinds:
+        return ""
+    if TEXT not in kinds:
+        return ""
+    return (
+        "No FIPS or GEOID column here, so this joins on names — which have "
+        "to match the boundary spelling exactly. A column of codes named "
+        "FIPS or GEOID cannot be spelt wrong."
+    )
+
+
 def strains_at(chart_id, row_count):
     """A caution about volume, or "".
 
@@ -559,7 +588,7 @@ def gallery(available, row_count=0):
             "requires": requirement_of(c.id),
             "why_not": unavailable(c.id, available),
             "read_better": read_more_accurately_than(c.id, available),
-            "caution": strains_at(c.id, row_count),
+            "caution": strains_at(c.id, row_count) or joins_loosely(c.id, available),
             "zero_baseline": c.zero_baseline,
             "functions": c.functions,
         }
@@ -591,14 +620,50 @@ def column_types(rows, sample=200):
         if not values:
             found[name] = TEXT
             continue
-        if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in values):
+        coded = all(geoid.match(str(v).strip()) for v in values)
+        if coded and _named_as_geography(name):
+            # A code is not a quantity even when it survives as one.
+            # "29019" keeps its leading digit and parses as an integer,
+            # so shape alone cannot separate Boone County from a column
+            # of household counts -- but a census table says which it is
+            # in the header, and both halves have to agree.
+            found[name] = GEO
+        elif all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) for v in values
+        ):
             found[name] = NUMBER
         elif all(isinstance(v, (datetime.date, datetime.datetime)) for v in values):
             found[name] = DATE
-        elif all(isinstance(v, str) and geoid.match(v.strip()) for v in values):
+        elif all(isinstance(v, str) and _ISO_DATE.match(v.strip()) for v in values):
+            # A pivot hands back real dates; a CSV hands back "2026-03".
+            # Read as text it still draws -- every slot taking a date
+            # takes a category too -- but the data step then tells
+            # somebody their date column is text, which is the sort of
+            # wrong that gets believed.
+            found[name] = DATE
+        elif coded and all(isinstance(v, str) for v in values):
             # Census codes arrive as strings and are identifiers, not
-            # quantities: a chart must not average a county's FIPS.
+            # quantities: a chart must not average a county's FIPS. A
+            # leading zero is what keeps them strings, and `parse_upload`
+            # preserves it for exactly this reason.
             found[name] = GEO
         else:
             found[name] = TEXT
     return found
+
+
+#: A date as a CSV writes one: a year and a month, and a day if it has
+#: one. Not a bare year, which is a number somebody may well want to
+#: plot as one.
+_ISO_DATE = __import__("re").compile(r"^\d{4}-\d{2}(-\d{2})?$")
+
+#: What a column of geography is called. Read with the values, never
+#: instead of them: a column called FIPS holding something else is not
+#: geography, and five-digit populations are not either.
+GEO_NAMES = frozenset(
+    ("fips", "geoid", "geo_id", "county_fips", "state_fips", "place_fips")
+)
+
+
+def _named_as_geography(name):
+    return str(name).strip().lower().replace(" ", "_") in GEO_NAMES

@@ -2503,3 +2503,167 @@ def test_replacing_the_file_is_a_new_version(client, author):
     assert v.snapshots.count() == 2
     assert v.snapshots.order_by("-version").first().data[0]["None"] == 9
     assert v.snapshots.order_by("version").first().data[0]["None"] == 8
+
+
+# --- the picker offers what the file can actually fill -----------------------
+
+
+def test_the_picker_and_the_fields_step_agree_about_every_column(client, author):
+    """Two inferences would be two answers to "what is this column", and
+    the picker would grey out a chart the fields step could fill. A
+    census table hit exactly that: its FIPS column parses as an integer,
+    so one called it a number and the other geography."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _upload(
+        client,
+        "Agreeing",
+        "County,FIPS,Month,Households,Note\n"
+        "Boone,29019,2026-03,48210,n/a\n"
+        "Jackson,29095,2026-04,283900,fine\n",
+    )
+    v = Visual.objects.get(slug="agreeing")
+
+    from visuals.panels import _rows, variables
+    from visuals.types import column_types
+
+    picker = column_types(_rows(v))
+    fields = {c["id"]: c["kind"] for c in variables(v)}
+    assert picker == fields, "the picker and the fields step disagree"
+    assert fields["FIPS"] == "geo"
+    assert fields["Households"] == "number"
+    assert fields["Month"] == "date"
+    assert fields["Note"] == "text"
+
+
+def test_a_file_with_no_geography_is_told_how_a_map_will_find_its_places(
+    client, author
+):
+    """Not refused: a choropleth joins on county names as well as codes,
+    so a file without codes can still draw one. But a name has to match
+    the gazetteer's spelling and a code cannot be spelt wrong, and the
+    difference between them is a map that comes out blank."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _upload(client, "No Places")  # the survey: a label and five counts
+    v = Visual.objects.get(slug="no-places")
+
+    from visuals.panels import _rows
+    from visuals.types import column_types, gallery
+
+    entries = {e["id"]: e for e in gallery(column_types(_rows(v)))}
+    assert not entries["bar"]["why_not"], "a bar needs a category and a number"
+    assert "FIPS" in entries["choropleth"]["caution"], entries["choropleth"]
+    assert not entries["bar"]["caution"], "a bar has no places to find"
+
+    body = client.get(f"/visuals/builder/{v.slug}/step/type/").content.decode()
+    assert "joins on names" in body, "the caution is not on the page"
+
+
+def test_a_census_table_is_offered_a_choropleth(client, author):
+    """The point of reading FIPS as geography: a table keyed by it joins
+    to the boundaries."""
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _upload(
+        client,
+        "Census Places",
+        "County,FIPS,Households\nBoone,29019,48210\nJackson,29095,283900\n",
+    )
+    v = Visual.objects.get(slug="census-places")
+
+    from visuals.panels import _rows
+    from visuals.types import column_types, gallery
+
+    entries = {e["id"]: e for e in gallery(column_types(_rows(v)))}
+    assert not entries["choropleth"]["why_not"], entries["choropleth"]["why_not"]
+
+
+# --- an ordered series is a scale --------------------------------------------
+
+
+def test_the_look_step_offers_a_scale_only_where_there_is_a_series(
+    client, author, visual, corpus, two_newsrooms
+):
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": "bar", "theme": "datadesk"}
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {"datasets": ["mizzou"], "roles": {"x": "month", "y": "articles"}}
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+    where = f"/visuals/builder/{visual.slug}/step/theme/"
+    assert 'name="series_scale"' not in client.get(where).content.decode()
+
+    visual.spec = dict(visual.spec, roles={**visual.spec["roles"], "series": "wire"})
+    visual.save(update_fields=["spec"])
+    assert 'name="series_scale"' in client.get(where).content.decode()
+
+    client.post(
+        where,
+        {"theme": "datadesk", "title": "T", "series_scale": "sequential", "stay": "1"},
+    )
+    visual.refresh_from_db()
+    assert visual.config["series_scale"] == "sequential"
+
+
+def test_an_ordered_series_is_drawn_as_one_hue_light_to_dark():
+    """Read out of the runtime, not asserted about the source. Five
+    unrelated hues say five unrelated things; a scale is one hue getting
+    darker, in the order the values appear."""
+    import json
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("no node to run the runtime in")
+
+    harness = """
+    global.window = global;
+    global.document = {
+      addEventListener() {}, querySelectorAll: () => [],
+      documentElement: { dataset: { theme: "light" } },
+    };
+    global.matchMedia = () => ({ matches: false });
+    RUNTIME
+    const levels = ["None", "Very little", "Some", "Quite a bit", "A lot"];
+    const t = DatadeskChart.__test.theme("datadesk");
+    const asScale = DatadeskChart.__test.scaleColors(levels, t);
+    const asSet = DatadeskChart.__test.colorScale(levels, t, false);
+    console.log(JSON.stringify({
+      scale: asScale.range, set: asSet.range,
+      seqLow: t.seqLow, seqHigh: t.seqHigh,
+      tooMany: DatadeskChart.__test.scaleColors(
+        Array.from({length: 12}, (_, i) => "v" + i), t),
+      tooFew: DatadeskChart.__test.scaleColors(["only"], t),
+    }));
+    """.replace("RUNTIME", Path("static/js/datadesk-chart.js").read_text())
+
+    done = subprocess.run([node, "-e", harness], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr[-2000:]
+    got = json.loads(done.stdout)
+
+    # Five steps for five levels, each distinct, running low to high.
+    assert len(got["scale"]) == 5
+    assert len(set(got["scale"])) == 5, got["scale"]
+    assert got["scale"][0].lower() == got["seqLow"].lower()
+    assert got["scale"][-1].lower() == got["seqHigh"].lower()
+
+    # ...and monotonic: every step darker than the one before it, which
+    # is what makes it readable as an order rather than as a set.
+    def luminance(hex_colour):
+        r, g, b = (int(hex_colour[i : i + 2], 16) for i in (1, 3, 5))
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    lums = [luminance(c) for c in got["scale"]]
+    assert lums == sorted(lums, reverse=True), lums
+
+    # The categorical range it replaces is not a progression at all.
+    assert got["set"] != got["scale"]
+
+    # A scale nobody can follow is not a scale, and one value is not one
+    # either: both fall back to the categorical hues.
+    assert got["tooMany"] is None
+    assert got["tooFew"] is None

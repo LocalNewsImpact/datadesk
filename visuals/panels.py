@@ -116,6 +116,14 @@ def theme_panel(visual, post=None):
         # for it would be taking their work. The name then links to the
         # contact that dataset publishes.
         config["credit"] = "dataset" if post.get("credit") == "dataset" else ""
+        # An ordered series is not a set of unrelated things. "None, Very
+        # little, Some, Quite a bit, A lot" drawn in five unrelated hues
+        # says those are five categories; one hue light to dark says it
+        # is a scale, which is what it is. It belongs here for the same
+        # reason the taxonomy does: it is a colour decision.
+        config["series_scale"] = (
+            "sequential" if post.get("series_scale") == "sequential" else ""
+        )
         return {"config": config}
     config = visual.config or {}
     return {
@@ -135,6 +143,12 @@ def theme_panel(visual, post=None):
         "title": config.get("title", "") or visual.title,
         "subtitle": config.get("subtitle", ""),
         "credit": config.get("credit", ""),
+        "series_scale": config.get("series_scale", ""),
+        # Only where there is a series to colour. Offering "these are a
+        # scale" for a chart that draws one colour is offering a decision
+        # about nothing.
+        "has_series": bool((visual.spec or {}).get("roles", {}).get("series"))
+        or bool(config.get("series")),
         # Who the alternative actually is, rather than the word "dataset".
         # Offering "credit the dataset owner" without saying who that is
         # asks somebody to choose a name they cannot see.
@@ -621,83 +635,30 @@ def _uploaded_columns(visual):
     the variables. Id and label are both the header, because the rows are
     keyed by it and a reader of the file already calls it that.
 
-    Types are read from the values rather than declared, which is what
-    lets the picker say which charts a file supports. `parse_upload` has
-    already turned numeric columns into numbers, so a column holding
-    numbers is a measure.
+    Typed by `column_types`, which is what the chart picker reads. Two
+    inferences would be two answers to "what is this column", and the
+    picker would grey out a chart the fields step could fill -- which is
+    exactly what a census table hit: its FIPS column parses as an
+    integer, so one of them called it a number and the other geography.
     """
+    from visuals.types import NUMBER, column_types
+
     latest = visual.snapshots.order_by("-version").first()
     rows = latest.data if latest else None
     if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
         return []
-    out = []
-    for name in rows[0]:
-        values = [r.get(name) for r in rows if r.get(name) not in (None, "")]
-        number = bool(values) and all(
-            isinstance(v, (int, float)) and not isinstance(v, bool) for v in values
-        )
-        kind = _geo_kind(name, values) or ("number" if number else _text_kind(values))
-        out.append(
-            {
-                "id": name,
-                "label": name,
-                "kind": kind,
-                # A code is not a quantity. Averaging FIPS codes is
-                # arithmetic on names, and offering that as a measure
-                # invites it.
-                "measure": number and kind == "number",
-            }
-        )
-    return out
-
-
-#: What a column of geography is called. A FIPS column reads as a number
-#: -- 29019 is a perfectly good integer -- so its shape alone cannot
-#: separate it from a column of household counts. The name can, and a
-#: census table names it.
-_GEO_NAMES = ("fips", "geoid", "geo_id", "county_fips", "state_fips", "place_fips")
-
-
-def _geo_kind(name, values):
-    """ "geo" where a column is an identifier for a place, else None.
-
-    Both halves have to agree: a column called FIPS whose values are not
-    codings is not geography, and a column of five-digit numbers called
-    "population" is not either.
-    """
-    import re
-
-    if name.strip().lower().replace(" ", "_") not in _GEO_NAMES:
-        return None
-    text = [str(v).strip() for v in values]
-    if text and all(re.fullmatch(r"\d{2}|\d{5}|\d{7}", v) for v in text):
-        return "geo"
-    return None
-
-
-def _text_kind(values):
-    """ "date", "geo" or "text", from what the values look like.
-
-    A geo column is what lets an uploaded table draw a choropleth: census
-    tables are keyed by FIPS, and a column of them is a join to the
-    boundaries rather than a category to colour by. Two digits is a
-    state, five a county, seven a place -- the same codings the corpus
-    groups by.
-
-    Guessed from the values because an upload declares nothing. Where the
-    guess is wrong the column is still offered as text, which is what
-    every column is offered as anyway.
-    """
-    import re
-
-    if not values:
-        return "text"
-    text = [str(v).strip() for v in values]
-    if all(re.fullmatch(r"\d{2}|\d{5}|\d{7}", v) for v in text):
-        return "geo"
-    if all(re.fullmatch(r"\d{4}-\d{2}(-\d{2})?", v) for v in text):
-        return "date"
-    return "text"
+    return [
+        {
+            "id": name,
+            "label": name,
+            "kind": kind,
+            # A code is not a quantity. Averaging FIPS codes is
+            # arithmetic on names, and offering that as a measure
+            # invites it.
+            "measure": kind == NUMBER,
+        }
+        for name, kind in column_types(rows).items()
+    ]
 
 
 def variables(visual=None):

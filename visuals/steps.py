@@ -54,6 +54,7 @@ STEPS = (
             "config:theme_mode",
             "config:taxonomy",
             "config:credit",
+            "config:series_scale",
         ),
     ),
     Step(
