@@ -531,6 +531,18 @@ nav.pager a { text-decoration: none; }
    still renders — in the neutral tone — rather than vanishing or
    borrowing a meaning it has not earned.
    =========================================================================== */
+/* One row per dataset somebody holds, each its own form: applying a
+   change to one must not carry the others with it. */
+.grants{ min-width: 20rem; }
+.grant-row{ display: flex; align-items: center; gap: .4rem;
+  margin: .15rem 0; font-size: var(--fs-sm); }
+.grant-scope{ flex: 1 1 auto; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.grant-row select{ font: inherit; font-size: var(--fs-sm); }
+/* The row that adds one sits apart from the rows that change one. */
+.grant-add{ margin-top: .4rem; padding-top: .4rem;
+  border-top: 1px dashed var(--border); }
+
 
 .chip {
   display: inline-block;

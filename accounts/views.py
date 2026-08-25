@@ -42,6 +42,25 @@ def _dataset_grant_count(user):
     )
 
 
+def _dataset_grants(user):
+    """The datasets this person holds, and the role on each.
+
+    Counted before this and never listed, which meant a role given by an
+    invitation could be created and then not changed, moved or taken
+    away by anything in the interface -- the only remedies were
+    withdrawing the invitation, which does not touch the grant, or a
+    database shell.
+    """
+    return sorted(
+        (
+            {"scope": g.scope, "role": g.role, "label": g.get_role_display()}
+            for g in user.grants.all()
+            if g.app == APP and g.scope != WHOLE_APPLICATION
+        ),
+        key=lambda g: g["scope"],
+    )
+
+
 def _people():
     """Every account, with what it holds here, newest sign-in first."""
     User = get_user_model()
@@ -50,6 +69,7 @@ def _people():
             "user": user,
             "role": ADMIN if user.is_superuser else _application_role(user),
             "dataset_grants": _dataset_grant_count(user),
+            "datasets": _dataset_grants(user),
             # A superuser holds everything from the account flag, not a
             # grant, and cannot be changed here.
             "locked": user.is_superuser,
@@ -86,6 +106,12 @@ def users(request):
             # that promises one where nothing sends mail makes an account
             # nobody can reach.
             "mail_configured": mail_configured(),
+            # Admin is missing on purpose: it is application-wide by
+            # definition and the model refuses it with a scope, so
+            # offering it here would offer a save that cannot happen.
+            "dataset_roles": [
+                (value, label) for value, label in ROLE_CHOICES if value != ADMIN
+            ],
         },
     )
 
@@ -158,6 +184,89 @@ def invite(request):
         request,
         f"{email} may now sign in with Google. They will hold {role} on {scope}.",
     )
+    return redirect("accounts:users")
+
+
+@requires_admin
+@require_POST
+def set_dataset_grant(request):
+    """Give, change or take away one person's role on one dataset.
+
+    One endpoint for all three, because they are one decision with
+    different answers: an empty role means "none", which is the only
+    way to take a dataset away without taking the account with it.
+
+    Application-wide roles are not touched here. Those are Roles, and an
+    admin grant cannot name a dataset -- the model refuses it -- so the
+    two cannot be confused for each other.
+    """
+    from accounts.privileges import ADMIN as ADMIN_ROLE
+    from accounts.privileges import ROLES
+
+    User = get_user_model()
+    target = User.objects.filter(pk=request.POST.get("user_id")).first()
+    scope = (request.POST.get("scope") or "").strip()
+    role = (request.POST.get("role") or "").strip()
+
+    if target is None:
+        messages.error(request, "No such account.")
+        return redirect("accounts:users")
+    if target.is_superuser:
+        # A superuser holds everything from the account flag rather than
+        # from a grant, so a dataset row would be a decoration that
+        # changes nothing.
+        messages.error(request, f"{target.email} is a superuser; grants do not apply.")
+        return redirect("accounts:users")
+    if not scope:
+        messages.error(request, "Choose a dataset.")
+        return redirect("accounts:users")
+    if role and role not in ROLES:
+        messages.error(request, f"{role} is not a role.")
+        return redirect("accounts:users")
+    if role == ADMIN_ROLE:
+        # The model refuses it, and saying why is better than an
+        # IntegrityError: admin means the whole application by
+        # definition, so an admin grant naming one dataset reads as
+        # "everything, but only here".
+        messages.error(
+            request,
+            "Admin is application-wide by definition; give it on Roles instead.",
+        )
+        return redirect("accounts:users")
+
+    held = Grant.objects.filter(user=target, app=APP, scope=scope).first()
+    before = held.role if held else None
+
+    if not role:
+        if held is None:
+            messages.error(request, f"{target.email} holds nothing on {scope}.")
+            return redirect("accounts:users")
+        held.delete()
+        said = f"took {scope} away from {target.email}"
+    elif held is None:
+        Grant.objects.create(
+            user=target, app=APP, scope=scope, role=role, granted_by=request.user
+        )
+        said = f"gave {target.email} {role} on {scope}"
+    elif held.role == role:
+        messages.error(request, f"{target.email} already holds {role} on {scope}.")
+        return redirect("accounts:users")
+    else:
+        held.role = role
+        held.granted_by = request.user
+        held.save(update_fields=["role", "granted_by"])
+        said = f"changed {target.email} from {before} to {role} on {scope}"
+
+    AuditLogEntry.objects.create(
+        actor=request.user,
+        action="accounts:dataset_grant",
+        target_table="accounts_grant",
+        target_ids=[f"{target.email or target.username}:{scope}"],
+        before={"role": before} if before else None,
+        after={"role": role} if role else None,
+        reason=said,
+    )
+    messages.success(request, said.capitalize() + ".")
     return redirect("accounts:users")
 
 
