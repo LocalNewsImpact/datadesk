@@ -1424,3 +1424,63 @@ def test_an_empty_folder_still_shows(client, designer):
     body = client.get("/visuals/").content.decode()
     assert "Empty on purpose" in body
     assert "Nothing filed here yet" in body
+
+
+def test_a_fresh_copy_can_be_previewed(client, visual, author):
+    """A copy has no snapshot by design, so the preview falls through to
+    running the source -- and `allow_live` used to gate that. It is a
+    promise to readers, that an embed may bypass the pin, and it was also
+    the gate on the author's own preview: so a visual that had never been
+    published could not be previewed at all, and a fresh copy is exactly
+    that. The builder answered "404 from the feed"."""
+    from visuals.services import duplicate
+
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+    copy = duplicate(visual, author)
+    assert copy.allow_live is False
+    assert copy.snapshots.count() == 0
+
+    Grant.objects.create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    with mock.patch("explorer.analytics.query_rows", return_value=ROWS_V2):
+        feed = client.get(f"/visuals/{copy.slug}/data.json?live=1")
+    assert feed.status_code == 200
+    assert feed.json()["data"] == ROWS_V2
+
+
+def test_a_reader_still_cannot_bypass_the_pin(client, visual, author):
+    """Widening the preview must not widen the embed. `allow_live` is
+    still what decides for anybody who cannot change the visual."""
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+    _snapshot(visual, author, ROWS_V2)
+
+    # Signed out: the pin, whatever the URL asks for.
+    feed = client.get(f"/visuals/{visual.slug}/data.json?live=1").json()
+    assert feed["data"] == ROWS_V1
+    assert feed["version"] == 1
+
+
+def test_copying_uploaded_data_carries_the_rows(client, author):
+    """There is no source behind an upload -- the rows *are* the snapshot.
+    A copy without one is a visual that can never draw anything and has no
+    way to be given data."""
+    from visuals.services import duplicate
+
+    uploaded = Visual.objects.create(
+        slug="uploaded",
+        title="Uploaded",
+        source_kind="inline",
+        template="table",
+        created_by=author,
+    )
+    snapshot = uploaded.snapshots.create(version=1, data=ROWS_V1, created_by=author)
+    uploaded.pinned_snapshot = snapshot
+    uploaded.status = Visual.PUBLISHED
+    uploaded.save(update_fields=["pinned_snapshot", "status"])
+
+    copy = duplicate(uploaded, author)
+    assert copy.snapshots.count() == 1
+    assert copy.pinned_snapshot.data == ROWS_V1
+    assert copy.status == Visual.DRAFT, "still a draft, data or not"

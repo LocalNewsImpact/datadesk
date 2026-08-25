@@ -274,8 +274,18 @@ def _feed_payload(request, visual):
     without one means "current", and caching *that* hard is why a
     republished visual never reached anybody who had already loaded it.
     """
-    live = request.GET.get("live") == "1"
-    if live and visual.allow_live:
+    # `allow_live` is a promise to readers -- it says an embed may bypass
+    # the pin -- and it was also, accidentally, the gate on the author's
+    # own preview. So a visual that had never been published could not be
+    # previewed at all, which is exactly the state a fresh copy is in:
+    # no snapshot to fall back to, and no permission to run the source.
+    #
+    # Somebody who may change the visual may see what it currently draws.
+    # A reader still needs the visual to allow it.
+    live = request.GET.get("live") == "1" and (
+        visual.allow_live or may_act_on(request.user, visual)
+    )
+    if live:
 
         def fetch():
             return fetch_source_data(visual)
