@@ -21,6 +21,18 @@ urlpatterns = [
         name="builder_step",
     ),
     path("visuals/builder/<slug:slug>/", views.builder_edit, name="builder_edit"),
+    # The two counts that used to run while a step rendered. Fetched once
+    # the step has drawn, so the page appears at once and fills in.
+    path(
+        "visuals/builder/<slug:slug>/newsroom-counts/",
+        views.newsroom_counts,
+        name="newsroom_counts",
+    ),
+    path(
+        "visuals/builder/<slug:slug>/values/<slug:role>/",
+        views.role_values,
+        name="role_values",
+    ),
     path("visuals/<slug:slug>/", views.page, name="page"),
     path("visuals/<slug:slug>/data.json", views.data_json, name="data"),
     path("visuals/<slug:slug>/data.csv", views.data_csv, name="data_csv"),

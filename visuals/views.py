@@ -835,6 +835,94 @@ def builder_type(request, slug):
 UNRECORDED = "\u0000unrecorded"
 
 
+def newsroom_counts_for(scopes):
+    """Articles per newsroom for a set of dataset scopes.
+
+    Its own function rather than the body of the view, so `warm_caches`
+    can fill the same entries the step will read. A warmer that recomputes
+    something adjacent warms nothing.
+    """
+    from django.core.cache import cache
+    from django.db.models import Count
+
+    from explorer.models import Article, DatasetSource
+    from visuals.corpus import CORPUS_CACHE_SECONDS, _cache_key
+
+    key = _cache_key("visuals.newsroom_counts", sorted(scopes) if scopes else [])
+    counts = cache.get(key)
+    if counts is not None:
+        return counts
+    members = DatasetSource.objects.all()
+    if scopes:
+        members = members.filter(dataset__slug__in=scopes)
+    ids = set(members.values_list("source_id", flat=True))
+    counts = {
+        str(k): v
+        for k, v in Article.objects.filter(candidate_link__source_id__in=ids)
+        .values_list("candidate_link__source_id")
+        .annotate(n=Count("id"))
+        .values_list("candidate_link__source_id", "n")
+    }
+    cache.set(key, counts, CORPUS_CACHE_SECONDS)
+    return counts
+
+
+@requires(DESIGN)
+def newsroom_counts(request, slug):
+    """Articles per newsroom, fetched after the step has drawn.
+
+    This is the expensive half of the newsroom step and none of its
+    structure: an aggregate over every article in every dataset the visual
+    is wired to, where listing the newsrooms themselves is a few hundred
+    rows. Counting it inline took the step to 24 seconds and drew nothing
+    until it finished.
+    """
+
+    visual = _get_visual(request, slug=slug)
+    return JsonResponse({"counts": newsroom_counts_for(scopes_of(visual))})
+
+
+@requires(DESIGN)
+def role_values(request, slug, role):
+    """Every value of the variable in a role, counted, on demand.
+
+    One aggregate over the corpus per call. It used to run once per role
+    while the step rendered -- three for a chord, before anything drew --
+    to fill a disclosure that starts closed. Now it runs when somebody
+    opens one.
+    """
+    from visuals.corpus import CorpusSpecError, values_of
+
+    visual = _get_visual(request, slug=slug)
+    if not may_act_on(request.user, visual):
+        raise PermissionDenied
+    chosen = ((visual.spec or {}).get("roles") or {}).get(role, "")
+    if not chosen:
+        return JsonResponse({"values": []})
+
+    kept = set(((visual.spec or {}).get("only") or {}).get(chosen) or [])
+    scopes = scopes_of(visual)
+    if not scopes:
+        from accounts.privileges import READ
+        from explorer.scoping import scopes_for
+
+        scopes = scopes_for(request.user, READ)
+    try:
+        rows = values_of(chosen, visual.spec or {}, scopes)
+    except (CorpusSpecError, DataSourceError) as exc:
+        # A facet that cannot be counted leaves the picker working rather
+        # than taking the step down with it.
+        return JsonResponse({"values": [], "error": str(exc)})
+    return JsonResponse(
+        {
+            "values": [
+                {"value": value, "n": n, "kept": not kept or value in kept}
+                for value, n in rows
+            ]
+        }
+    )
+
+
 def _newsroom_tree(visual):
     """State -> county -> newsrooms, for the datasets this visual draws on.
 
@@ -845,9 +933,8 @@ def _newsroom_tree(visual):
     forth through the builder should not pay that each time.
     """
     from django.core.cache import cache
-    from django.db.models import Count
 
-    from explorer.models import Article, DatasetSource, Source
+    from explorer.models import DatasetSource, Source
     from visuals.corpus import CORPUS_CACHE_SECONDS, _cache_key
 
     scopes = scopes_of(visual)
@@ -864,12 +951,6 @@ def _newsroom_tree(visual):
     if scopes:
         members = members.filter(dataset__slug__in=scopes)
     ids = set(members.values_list("source_id", flat=True))
-    counts = dict(
-        Article.objects.filter(candidate_link__source_id__in=ids)
-        .values_list("candidate_link__source_id")
-        .annotate(n=Count("id"))
-        .values_list("candidate_link__source_id", "n")
-    )
     tree = {}
     for source in Source.objects.filter(id__in=ids):
         # A publisher record needs a state and a county. One missing is not
@@ -881,12 +962,15 @@ def _newsroom_tree(visual):
             {
                 "id": source.id,
                 "name": source.canonical_name or source.host,
-                "count": counts.get(source.id, 0),
+                # Filled in after the page paints, by newsroom_counts
+                # below. None rather than 0, so the template can tell
+                # "not counted yet" from "counted, and none".
+                "count": None,
             }
         )
     for state in tree:
         for county in tree[state]:
-            tree[state][county].sort(key=lambda r: -r["count"])
+            tree[state][county].sort(key=lambda r: r["name"].lower())
     cache.set(key, tree, CORPUS_CACHE_SECONDS)
     return tree
 

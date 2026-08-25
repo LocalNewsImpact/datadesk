@@ -21,15 +21,23 @@
     whether narrowing leaves anything to draw. All boxes ticked submits every
     value, which the panel reads back as no filter at all.
     {% endcomment %}
-    {% if role.values %}
-    <details class="values"{% if role.kept %} open{% endif %}>
-      <summary>{% if role.kept %}{{ role.kept|length }} of {{ role.values|length }} kept{% else %}All {{ role.values|length }} values{% endif %}</summary>
-      <div class="values-list">
-        {% for v in role.values %}
+    {% if role.chosen %}
+    <details class="values" data-role="{{ role.id }}"{% if role.kept %} open{% endif %}>
+      <summary>{% if role.kept %}{{ role.kept|length }} kept{% else %}Narrow the values{% endif %}</summary>
+      <div class="values-list" data-for="{{ role.chosen }}">
+        {% comment %}
+        What the visual already narrows to, which the spec knows and costs
+        nothing to draw. Listing every value with its count is the corpus
+        aggregate, and it arrives when this is opened.
+
+        These matter beyond decoration: a save posts back whatever boxes
+        are here, so a step that drew none would clear the filter of
+        anybody who never opened the facet.
+        {% endcomment %}
+        {% for v in role.kept %}
         <label class="row">
-          <input type="checkbox" name="only-{{ role.chosen }}" value="{{ v.value }}"
-            {% if v.on %}checked{% endif %}>
-          <span class="label">{{ v.value }}</span><em>{{ v.count }}</em>
+          <input type="checkbox" name="only-{{ role.chosen }}" value="{{ v }}" checked>
+          <span class="label">{{ v }}</span>
         </label>
         {% endfor %}
       </div>
@@ -43,3 +51,57 @@
 </form>
 {% endif %}
 {% endblock %}
+
+{% comment %}
+Values arrive when a facet is opened. Listing every value of a dimension
+with its count is one aggregate over the corpus per role -- three for a
+chord -- and running them while the step rendered took it to 65 seconds,
+to fill disclosures that start closed.
+{% endcomment %}
+<script>
+(function () {
+  var base = "{% url 'visuals:role_values' visual.slug 'ROLE' %}";
+  document.querySelectorAll("details.values[data-role]").forEach(function (box) {
+    var list = box.querySelector(".values-list");
+    var loaded = false;
+    function load() {
+      if (loaded) return;
+      loaded = true;
+      // What is already ticked stays ticked: the fetch adds the rest of
+      // the vocabulary around it, it does not replace the answer.
+      var on = {};
+      list.querySelectorAll("input:checked").forEach(function (i) { on[i.value] = true; });
+      var narrowed = Object.keys(on).length > 0;
+      list.setAttribute("aria-busy", "true");
+      fetch(base.replace("ROLE", box.dataset.role), {credentials: "same-origin"})
+        .then(function (r) { return r.ok ? r.json() : {values: []}; })
+        .then(function (payload) {
+          var rows = payload.values || [];
+          if (!rows.length) return;
+          var name = "only-" + list.dataset.for;
+          list.innerHTML = "";
+          rows.forEach(function (v) {
+            var label = document.createElement("label");
+            label.className = "row";
+            var input = document.createElement("input");
+            input.type = "checkbox";
+            input.name = name;
+            input.value = v.value;
+            input.checked = narrowed ? !!on[v.value] : true;
+            var text = document.createElement("span");
+            text.className = "label";
+            text.textContent = v.value;
+            var count = document.createElement("em");
+            count.textContent = v.n.toLocaleString();
+            label.append(input, text, count);
+            list.appendChild(label);
+          });
+        })
+        .catch(function () { loaded = false; })
+        .finally(function () { list.removeAttribute("aria-busy"); });
+    }
+    box.addEventListener("toggle", function () { if (box.open) load(); });
+    if (box.open) load();
+  });
+})();
+</script>
