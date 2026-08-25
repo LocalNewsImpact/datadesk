@@ -456,7 +456,13 @@ def newsrooms_panel(visual, post=None, tree=None):
 #: all of them on every save, because a slot left alone is one the last
 #: chart type filled in and this one does not draw.
 _EVERY_SLOT = tuple(
-    sorted({role.id for chart in BY_ID.values() for role in chart.roles})
+    sorted(
+        {role.id for chart in BY_ID.values() for role in chart.roles}
+        # Not roles any more, but still columns the renderer reads: a dot
+        # map takes a place and is given its coordinates, and a
+        # choropleth may carry a dot layer on top.
+        | {"lat", "lon"}
+    )
 )
 
 
@@ -653,6 +659,20 @@ def field_panel(visual, post=None, user=None):
         columns = dict.fromkeys(_EVERY_SLOT, "")
         for role in chart.roles:
             columns[role.id] = by_id.get(roles.get(role.id), {}).get("label", "")
+        # A place brings its coordinates with it. The pivot writes the
+        # centroid of a geo dimension beside it, so a chart plotting
+        # places is told where they are without anybody choosing a
+        # latitude -- which was never choosable anyway, a pivot having
+        # one measure to give and a dot needing two numbers.
+        from visuals.corpus import LAT_LABEL, LON_LABEL
+
+        placed = any(
+            by_id.get(chosen, {}).get("kind") == "geo"
+            for slot, chosen in roles.items()
+            if slot == "place"
+        )
+        columns["lat"] = LAT_LABEL if placed else ""
+        columns["lon"] = LON_LABEL if placed else ""
         return {
             "spec": {
                 "roles": roles,
