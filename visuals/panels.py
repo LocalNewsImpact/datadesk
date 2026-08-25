@@ -588,6 +588,13 @@ def _uploaded_data_panel(visual, post=None, files=None, actor=None):
     }
 
 
+#: How many of a dimension a chart can show. Ten and twenty-five are
+#: what a reader can tell apart; fifty is for a table rather than a
+#: picture. Zero means all of them, which is what the pivot did before
+#: this and what a small dimension still wants.
+TOP_CHOICES = ((0, "All of them"), (10, "Top 10"), (25, "Top 25"), (50, "Top 50"))
+
+
 def _picks_columns(chart):
     """Whether this kind groups by whatever is ticked.
 
@@ -814,12 +821,24 @@ def field_panel(visual, post=None, user=None):
         )
         columns["lat"] = LAT_LABEL if placed else ""
         columns["lon"] = LON_LABEL if placed else ""
+        # How many of each dimension to draw. A different question from
+        # the ticked values beside it: "the ten biggest" stays true as
+        # the corpus grows, where a list of ten names is a decision about
+        # the ten that were biggest the day somebody ticked them.
+        top = {}
+        for key, value in post.items():
+            if not key.startswith("top-"):
+                continue
+            wanted = str(value).strip()
+            if wanted.isdigit() and int(wanted) > 0:
+                top[key[4:]] = int(wanted)
         return {
             "spec": {
                 "roles": roles,
                 "dimensions": dimensions,
                 "measure": measure or "articles",
                 "only": only,
+                "top": top,
             },
             "config": columns,
         }
@@ -864,6 +883,11 @@ def field_panel(visual, post=None, user=None):
                 "options": [dict(v, on=v["id"] == chosen) for v in fits],
                 "chosen": chosen,
                 "kept": kept,
+                # What "how many" is set to, and what it can be set to.
+                # Offered on every facet, because a wall of values is a
+                # wall whichever dimension it is.
+                "top": (spec.get("top") or {}).get(chosen, 0),
+                "tops": TOP_CHOICES,
                 # Not fetched here. Listing every value of a dimension with
                 # its count is an aggregate over the whole corpus, one per
                 # role, and it took this step to 65 seconds -- to fill a

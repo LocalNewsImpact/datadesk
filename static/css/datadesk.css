@@ -1560,6 +1560,13 @@ tr.prop td { border-bottom: 0; }
   border-radius: var(--r-md); background: var(--surface-2); }
 .values > summary{ padding: .35rem .5rem; font-size: var(--fs-sm);
   color: var(--text-3); cursor: pointer; }
+/* How many of a dimension to draw, above the values themselves. A
+   question about the chart rather than about the data, so it sits with
+   the facet rather than inside it. */
+.how-many{ display: inline-flex; align-items: center; gap: .4rem;
+  margin: .3rem 0 .2rem; font-size: var(--fs-sm); color: var(--text-2); }
+.how-many select{ font: inherit; font-size: var(--fs-sm); }
+
 .values-list{ max-height: 13rem; overflow-y: auto; }
 .values .row{ display: flex; align-items: center; gap: .5rem;
   padding: .26rem .5rem; font-size: var(--fs-sm); cursor: pointer; }

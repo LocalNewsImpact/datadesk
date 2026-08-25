@@ -98,6 +98,7 @@ STEPS = (
             "spec:measure",
             "spec:roles",
             "spec:only",
+            "spec:top",
             "config:x",
             "config:y",
             "config:series",
