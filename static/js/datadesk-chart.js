@@ -1119,7 +1119,7 @@
     });
 
     // Links under nodes, so a band never covers the block it arrives at.
-    svg.append("g")
+    const bands = svg.append("g")
       .attr("fill", "none")
       .selectAll("path")
       .data(graph.links)
@@ -1127,11 +1127,9 @@
         .attr("d", d3.sankeyLinkHorizontal())
         .attr("stroke", (d) => hue.get(d.source.index) || t.other)
         .attr("stroke-width", (d) => Math.max(1, d.width))
-        .attr("stroke-opacity", 0.45)
-      .append("title")
-        .text((d) => `${d.source.name} → ${d.target.name}: ${fmt(d.value)}`);
+        .attr("stroke-opacity", 0.45);
 
-    svg.append("g")
+    const blocks = svg.append("g")
       .selectAll("rect")
       .data(graph.nodes)
       .join("rect")
@@ -1139,9 +1137,7 @@
         .attr("y", (d) => d.y0)
         .attr("width", (d) => d.x1 - d.x0)
         .attr("height", (d) => Math.max(1, d.y1 - d.y0))
-        .attr("fill", (d) => d.side === 0 ? (hue.get(d.index) || t.other) : t.muted)
-      .append("title")
-        .text((d) => `${d.name}: ${fmt(d.value)}`);
+        .attr("fill", (d) => d.side === 0 ? (hue.get(d.index) || t.other) : t.muted);
 
     // Outside the diagram on both sides, so a label never sits on a band.
     //
@@ -1151,7 +1147,7 @@
     // "www.fourstateshomepage.com" 171 pixels off the right edge and cut
     // 26 labels on the ownership map. The whole name stays in the
     // tooltip, so nothing is lost by trimming it.
-    svg.append("g")
+    const labels = svg.append("g")
       .attr("fill", t.ink)
       .selectAll("text")
       .data(graph.nodes)
@@ -1162,9 +1158,33 @@
         .attr("text-anchor", (d) => d.side === 0 ? "end" : "start")
         .each(function (d) {
           trimTo(this, d.name, (d.side === 0 ? leftRoom : rightRoom) - 8);
-        })
-      .append("title")
-        .text((d) => `${d.name}: ${fmt(d.value)}`);
+        });
+
+    // The same hover layer every other d3 kind here carries. The sankey
+    // was drawn last and had only the browser's own <title>: a tooltip
+    // that waits a second, cannot be styled, and never appears at all on
+    // a touch screen. It also could not do the thing this chart most
+    // needs, which is to separate one flow from the eighty crossing it.
+    //
+    // A band isolates itself. A block isolates every band touching it,
+    // which is how you read "everything this publisher covers" off a
+    // diagram where its bands run under six others. Labels answer for
+    // their own block, because the label is the part small enough to be
+    // trimmed and so the part a reader points at to find out what it said.
+    const tip = tooltip(el);
+    const touching = (node, band) => band.source === node || band.target === node;
+    const blockTip = (d) =>
+      `<strong>${d.name}</strong>` +
+      tipRow(d.side === 0 ? "flows out" : "flows in", d.value);
+
+    interactive(bands, tip, (d) =>
+      `<strong>${d.source.name} \u2192 ${d.target.name}</strong>` +
+      tipRow(value, d.value),
+      { group: bands, related: (target, other) => target === other });
+    interactive(blocks, tip, blockTip,
+      { group: bands, related: touching });
+    interactive(labels, tip, blockTip,
+      { group: bands, related: touching });
 
     // What was folded, and into what. A chart of the top twelve that
     // looks like a chart of everything is the one thing a cap must not
