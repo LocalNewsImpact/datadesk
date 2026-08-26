@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 {% load datadesk %}
 {% block title %}Articles — Datadesk{% endblock %}
 
@@ -50,9 +51,49 @@
         {% endfor %}
       </select>
     </label>
-    <label>Publisher
-      <input type="search" name="publisher" value="{{ params.publisher|default:'' }}" placeholder="host contains…">
-    </label>
+    {% comment %}
+    The same ladder the visual builder offers -- state, then county, then
+    the newsrooms -- rather than the search box that stood here, which
+    asked a reader to know a name before they could narrow by one. Folded
+    away, because two hundred newsrooms is not a filter bar.
+
+    A parent box is a shortcut that never submits; only the leaves are
+    `source`, and sending none of them means all of them.
+    {% endcomment %}
+    <details class="facet">
+      <summary>Publishers{% if chosen_publishers %} <em>{{ chosen_publishers }} chosen</em>{% endif %}</summary>
+      <div class="tree" id="publisher-facet">
+        {% for s in publisher_states %}
+        <details class="node state">
+          <summary>
+            <input type="checkbox" class="branch" data-scope="state"
+                   aria-label="Every newsroom in {{ s.label }}">
+            <span class="label strong">{{ s.label }}</span>
+            <em>{{ s.counties|length }}</em>
+          </summary>
+          {% for c in s.counties %}
+          <details class="node county">
+            <summary>
+              <input type="checkbox" class="branch" data-scope="county"
+                     aria-label="Every newsroom in {{ c.name }}">
+              <span class="label">{{ c.name }}</span>
+              <em>{{ c.rooms|length }}</em>
+            </summary>
+            <div class="kids">
+              {% for r in c.rooms %}
+              <label class="row pub">
+                <input type="checkbox" name="source" value="{{ r.id }}"
+                       {% if r.on %}checked{% endif %}>
+                <span class="label">{{ r.name }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </details>
+          {% endfor %}
+        </details>
+        {% endfor %}
+      </div>
+    </details>
     <label>Scope
       <select name="scope">
         <option value="">all</option>
@@ -132,4 +173,15 @@
   {% endif %}
   {% endif %}
 </section>
+
+{% comment %}
+Inside the block: markup after {% endblock %} is discarded, and a loader
+that never runs looks exactly like a facet with nothing in it.
+{% endcomment %}
+<script src="{% static 'js/facet-tree.js' %}"></script>
+<script>
+  // Shared with both builder steps: a parent box sets the leaves under it
+  // and reads its own state back from them.
+  DatadeskFacetTree.wire(document.getElementById("publisher-facet"), "source");
+</script>
 {% endblock %}
