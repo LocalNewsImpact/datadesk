@@ -641,3 +641,42 @@ def test_the_observer_measures_what_the_renderer_measures():
     body = body[: body.index("return { redraw: draw };")]
     assert "roomFor(el)" in body
     assert "el.clientWidth" not in body, "the two measurements disagree again"
+
+
+# --- every drawn kind answers the pointer ------------------------------------
+
+
+def test_every_d3_kind_carries_the_same_hover_layer():
+    """The sankey was drawn last and carried only the browser's own
+    <title>: a tooltip that waits a second, cannot be styled, and never
+    appears on a touch screen at all. Four kinds had the real one and the
+    fifth did not, which is not a decision anybody made -- so assert the
+    set, not the sankey."""
+    js = _chart_js()
+    for kind in (
+        "renderDonut",
+        "renderChord",
+        "renderArc",
+        "renderStoryMap",
+        "renderSankey",
+    ):
+        body = js[js.index(f"function {kind}(") :]
+        body = body[: body.index("\n  function ")]
+        assert "tooltip(el)" in body, f"{kind} has no tooltip"
+        assert "interactive(" in body, f"{kind} has no hover layer"
+        assert (
+            'append("title")' not in body
+        ), f"{kind} draws a native tooltip as well as the real one"
+
+
+def test_the_sankey_isolates_a_flow_from_the_ones_crossing_it():
+    """A diagram of eighty crossing bands is unreadable without it, and
+    isolation is the one thing a native <title> cannot do."""
+    js = _chart_js()
+    body = js[js.index("function renderSankey(") :]
+    body = body[: body.index("\n  function ")]
+    # A band isolates itself; a block and its label isolate every band
+    # touching them.
+    assert "group: bands" in body
+    assert "band.source === node || band.target === node" in body
+    assert body.count("interactive(") == 3, "a mark stopped answering"
