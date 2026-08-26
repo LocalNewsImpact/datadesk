@@ -1959,6 +1959,17 @@ tr.dragging{ opacity: .5; }
   margin: 1.5rem 0 1rem; color: var(--text-3); font-size: var(--fs-sm); }
 .auth-or::before, .auth-or::after{ content: ""; flex: 1 1 auto;
   border-top: 1px solid var(--border); }
-.auth-password p{ margin: .5rem 0; }
+.auth-password p{ margin: 0; }
 .auth-password input[type="email"], .auth-password input[type="text"],
 .auth-password input[type="password"]{ width: 100%; }
+
+/* A label above its field, and a checkbox beside its own. `form.as_p` put
+   the label inline with a colon after it, which is Django's default and
+   nobody's design. */
+.auth-password .field{ display: flex; flex-direction: column; gap: .25rem; }
+.auth-password .field-check{ display: flex; align-items: center; gap: .45rem; }
+.auth-password .field-check input{ width: auto; margin: 0; }
+.auth-password .field-check label{ margin: 0; }
+/* Under the button, where somebody looks only once the password failed. */
+.auth-password .auth-note{ align-self: flex-start; text-decoration: none; }
+.auth-password .auth-note:hover{ text-decoration: underline; }
