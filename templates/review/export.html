@@ -9,8 +9,17 @@
 
   <form method="post">
     {% csrf_token %}
-    {% for key, value in params.items %}
+    {% comment %}
+    `.lists`, not `.items`: a facet chosen more than once -- eleven
+    publishers -- is eleven values under one key, and `.items` hands over
+    the last of them. The export would then quietly cover more than the
+    grid it was started from, which is the worst way for a filter to fail
+    because the file leaves the building.
+    {% endcomment %}
+    {% for key, values in params.lists %}
+    {% for value in values %}
     <input type="hidden" name="f_{{ key }}" value="{{ value }}">
+    {% endfor %}
     {% endfor %}
 
     <fieldset class="columns-pick">

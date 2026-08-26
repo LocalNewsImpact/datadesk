@@ -134,6 +134,28 @@ def sort_headers(key, direction):
     return headers
 
 
+def _many(params, key):
+    """Every value given for `key`, whatever shape the caller's params are.
+
+    The grid passes a QueryDict, where a facet chosen three times is three
+    values. A saved export definition passes a plain dict, where the same
+    filter arrives as a list or as one comma-joined string. All three mean
+    the same thing and the filter should not care which it was handed.
+    """
+    getter = getattr(params, "getlist", None)
+    if getter is not None:
+        raw = getter(key)
+    else:
+        value = params.get(key)
+        raw = value if isinstance(value, (list, tuple)) else [value]
+    out = []
+    for value in raw:
+        if not value:
+            continue
+        out.extend(part for part in str(value).split(",") if part.strip())
+    return out
+
+
 def _filtered_articles(params, user):
     """Apply the grid filters from the query string to the corpus.
 
@@ -166,6 +188,14 @@ def _filtered_articles(params, user):
         qs = qs.filter(status=status)
     if wire := params.get("wire"):
         qs = qs.filter(wire_check_status=wire)
+    # Chosen from the facet tree: state, then county, then the newsrooms
+    # themselves, the same ladder the visual builder offers. Ids rather
+    # than names, because the tree already knows which record it drew.
+    if sources := _many(params, "source"):
+        qs = qs.filter(candidate_link__source_id__in=sources)
+    # The search box the tree replaced. Kept because saved export
+    # definitions hold it, and a definition that silently stopped
+    # narrowing would export more than it was asked for.
     if publisher := params.get("publisher"):
         # Text search over host and canonical name; hundreds of sources
         # make a dropdown unwieldy and a search box is how March worked.
@@ -200,6 +230,41 @@ def _filtered_articles(params, user):
     return qs.order_by(*_ordering(*_sort_state(params)))
 
 
+def publisher_facet(params, user, chosen):
+    """The publisher facet, as the ladder the data already sits on.
+
+    State, then county, then the newsrooms themselves -- the same tree the
+    visual builder offers, from the same builder and the same cache, so a
+    reader meets one way of choosing a newsroom rather than two.
+
+    Scoped to the datasets `user` may read, and narrowed further when the
+    grid is already filtered to one: offering every publisher in Vermont
+    beside a grid showing only Missouri is offering a choice that returns
+    nothing.
+    """
+    from visuals.views import newsroom_tree_for
+
+    scopes = scopes_for(user, READ)
+    wanted = None if scopes is ALL_SCOPES else sorted(scopes)
+    if slug := params.get("dataset"):
+        wanted = [slug] if wanted is None or slug in wanted else wanted
+
+    tree = newsroom_tree_for(wanted or [])
+    picked = {str(value) for value in chosen}
+
+    states = []
+    for state in sorted(tree):
+        counties = []
+        for county in sorted(tree[state]):
+            rooms = [
+                {"id": r["id"], "name": r["name"], "on": str(r["id"]) in picked}
+                for r in tree[state][county]
+            ]
+            counties.append({"name": county, "rooms": rooms})
+        states.append({"label": state, "counties": counties})
+    return states
+
+
 @requires(READ)
 def articles(request):
     vocab = _filter_vocab(request.user)
@@ -219,6 +284,11 @@ def articles(request):
         "headers": sort_headers(sort, direction),
     }
     if vocab is not None:
+        chosen = _many(request.GET, "source")
+        context["publisher_states"] = publisher_facet(request.GET, request.user, chosen)
+        # Named on the summary, so a folded facet still says it is narrowing
+        # the grid. A filter you cannot see is one you forget you set.
+        context["chosen_publishers"] = len(chosen)
         try:
             page_number = int(request.GET.get("page", "1"))
         except ValueError:

@@ -301,12 +301,16 @@ def export(request):
         columns = [c for c in request.POST.getlist("columns") if c in EXPORT_COLUMNS]
         if not columns:
             return HttpResponseBadRequest("Pick at least one column")
-        params = {
-            key: value
-            for key, value in request.POST.items()
-            if key.startswith("f_") and value
-        }
-        params = {key[2:]: value for key, value in params.items()}
+        # `.lists()`, not `.items()`: a facet chosen more than once arrives
+        # as one key with many values, and `.items()` would keep the last.
+        # `_filtered_articles` takes a list for those.
+        params = {}
+        for key, values in request.POST.lists():
+            if not key.startswith("f_"):
+                continue
+            kept = [value for value in values if value]
+            if kept:
+                params[key[2:]] = kept if len(kept) > 1 else kept[0]
         if request.POST.get("save_as"):
             ExportDefinition.objects.update_or_create(
                 name=request.POST["save_as"],

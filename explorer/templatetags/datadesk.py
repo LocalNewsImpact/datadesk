@@ -93,23 +93,37 @@ def active_filters(params):
     """
     if not params:
         return []
+
+    # A facet may be chosen more than once -- three publishers is one
+    # filter, not three. Reading a single value per key would show the last
+    # one and, worse, drop the rest from every other chip's "remove me"
+    # link, so taking off one filter would quietly discard the others.
+    def values_of(key):
+        getter = getattr(params, "getlist", None)
+        raw = getter(key) if getter else [params.get(key)]
+        return [v for v in raw if v]
+
     chips = []
-    for key in params:
+    for key in dict.fromkeys(params):  # each key once, in the order given
         if key in _NOT_A_FILTER:
             continue
-        value = params.get(key)
-        if not value:
+        values = values_of(key)
+        if not values:
             continue
         remaining = [
-            (other, params.get(other))
-            for other in params
-            if other != key and params.get(other)
+            (other, value)
+            for other in dict.fromkeys(params)
+            if other != key
+            for value in values_of(other)
         ]
         chips.append(
             {
                 "key": key,
                 "label": FILTER_LABELS.get(key, key),
-                "value": value,
+                # One chip for the facet, named by how many were chosen --
+                # eleven publishers do not fit on a chip and are not worth
+                # eleven of them.
+                "value": (values[0] if len(values) == 1 else f"{len(values)} selected"),
                 "without": urlencode(remaining),
             }
         )

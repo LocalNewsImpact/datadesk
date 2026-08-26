@@ -329,10 +329,9 @@ def test_sort_defaults_to_newest_first(client, viewer, corpus):
 
 def test_sort_by_publication(client, viewer, corpus):
     # Publications sort by name; a hostname is not a sortable identity.
-    content = client.get(URL, {"sort": "publication"}).content.decode()
+    content = _results(client, {"sort": "publication"})
     assert content.index("Herald") < content.index("Tribune")
-    reversed_ = client.get(URL, {"sort": "publication", "dir": "desc"})
-    body = reversed_.content.decode()
+    body = _results(client, {"sort": "publication", "dir": "desc"})
     assert body.index("Tribune") < body.index("Herald")
 
 
@@ -361,6 +360,18 @@ def test_filter_form_carries_the_active_sort(client, viewer, corpus):
     assert 'name="dir" value="desc"' in content
 
 
+def _results(client, params=None):
+    """The rows, without the page around them.
+
+    The publisher facet lists every newsroom in the filter bar, above the
+    grid and alphabetically, so searching the whole page for a name finds
+    the filter rather than the row. Asking for the htmx fragment returns
+    the results region alone, which is what these assertions are about.
+    """
+    response = client.get(URL, params or {}, HTTP_HX_REQUEST="true")
+    return response.content.decode()
+
+
 def _order_of(response, needles):
     content = response.content.decode()
     return sorted((n for n in needles if n in content), key=lambda n: content.index(n))
@@ -380,3 +391,81 @@ def test_no_template_syntax_reaches_the_page(client, viewer, corpus, path):
     content = client.get(path).content.decode()
     for marker in ("{#", "#}", "{%", "%}", "{{", "}}"):
         assert marker not in content, f"{marker} leaked into {path}"
+
+
+# --- the publisher facet -----------------------------------------------------
+
+
+def test_the_publisher_facet_is_the_same_tree_the_builder_offers(
+    client, viewer, corpus
+):
+    """State, then county, then the newsrooms. The search box that stood
+    here asked a reader to know a name before they could narrow by one."""
+    page = client.get(URL).content.decode()
+    assert 'id="publisher-facet"' in page
+    assert 'name="source"' in page
+    assert "js/facet-tree.js" in page
+    # Inside the block, or Django discards it and the facet never wires up.
+    assert page.index("facet-tree.js") < page.index("</body>")
+    # The box that takes a whole county, and no second implementation.
+    assert 'class="branch"' in page
+    assert "indeterminate" not in page
+    # The control it replaced is gone from the page.
+    assert 'name="publisher"' not in page
+
+
+def test_choosing_publishers_narrows_the_grid(client, viewer, corpus):
+    """Ids, not names: the tree already knows which record it drew."""
+    from explorer.models import Article
+
+    first = (
+        Article.objects.select_related("candidate_link__source")
+        .exclude(candidate_link__source__isnull=True)
+        .first()
+    )
+    source_id = first.candidate_link.source_id
+
+    everything = _results(client)
+    narrowed = _results(client, {"source": source_id})
+    assert first.title in narrowed
+    assert narrowed.count("<tr") <= everything.count("<tr")
+
+    # An id nobody has returns nothing rather than everything -- a filter
+    # that fails open is worse than one that fails.
+    assert "No articles match these filters." in _results(
+        client, {"source": "no-such-source"}
+    )
+
+
+def test_several_publishers_are_one_filter(client, viewer, corpus):
+    """Eleven publishers is one narrowing, not eleven chips, and taking a
+    different filter off must not discard the other ten."""
+    from django.http import QueryDict
+
+    from explorer.templatetags.datadesk import active_filters
+
+    params = QueryDict("source=1&source=2&source=3&status=enriched")
+    chips = {chip["label"]: chip for chip in active_filters(params)}
+    assert len(chips) == 2
+    source_chip = next(c for c in chips.values() if c["key"] == "source")
+    assert source_chip["value"] == "3 selected"
+
+    # Removing the status filter keeps all three publishers.
+    status_chip = next(c for c in chips.values() if c["key"] == "status")
+    assert status_chip["without"].count("source=") == 3
+
+
+def test_an_export_takes_every_chosen_publisher(client, viewer, corpus):
+    """`.items()` on a QueryDict hands over the last value of a key. An
+    export that quietly covered more than the grid it started from is the
+    worst way for a filter to fail, because the file leaves the building."""
+    from explorer.views import _many
+
+    # The shape the export form posts back, and the shape a saved
+    # definition stores.
+    assert _many({"source": ["1", "2", "3"]}, "source") == ["1", "2", "3"]
+    assert _many({"source": "1,2,3"}, "source") == ["1", "2", "3"]
+    assert _many({"source": ""}, "source") == []
+
+    page = client.get("/review/export/?source=1&source=2").content.decode()
+    assert page.count('name="f_source"') == 2, "the export form dropped one"
