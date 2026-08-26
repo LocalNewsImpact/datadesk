@@ -683,3 +683,48 @@ def test_a_change_returns_to_the_page_it_was_made_from(client, admin, dataset):
         },
     )
     assert "example.com" not in away["Location"]
+
+
+# --- the password door -------------------------------------------------------
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_password_account_outside_the_domain_can_sign_in(client, settings):
+    """The point of the exercise: somebody who is not on Google gets an
+    address and a password from an administrator and signs in with them.
+    No invitation, no social account, no LNIC address."""
+    from allauth.account.models import EmailAddress
+    from django.urls import reverse
+
+    settings.ALLOWED_AUTH_DOMAINS = ["localnewsimpact.org"]
+    password = "a-probe-password-9271"
+    user = User.objects.create_user(
+        username="probe@missouri.edu", email="probe@missouri.edu", password=password
+    )
+    EmailAddress.objects.create(
+        user=user, email=user.email, verified=True, primary=True
+    )
+
+    response = client.post(
+        reverse("account_login"),
+        {"login": "probe@missouri.edu", "password": password},
+        follow=True,
+    )
+    assert response.status_code == 200
+    assert response.wsgi_request.user.is_authenticated
+    assert response.wsgi_request.user.email == "probe@missouri.edu"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_sign_in_page_offers_the_password_door_to_everybody(client):
+    """It opened by telling every reader to use a localnewsimpact.org Google
+    account -- the first line somebody with a password account read, naming
+    an account they do not have."""
+    from django.urls import reverse
+
+    page = client.get(reverse("account_login")).content.decode()
+    assert 'name="login"' in page and 'name="password"' in page
+    assert "Use your localnewsimpact.org Google account" not in page
+    # Rendered field by field: `form.as_p` labels these "Email:" and
+    # "Remember Me:", which is Django's default and nobody's design.
+    assert "Email:" not in page and "Remember Me:" not in page

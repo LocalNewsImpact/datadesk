@@ -21,7 +21,13 @@ wrong.
   <h1>Sign in</h1>
   {% get_providers as socialaccount_providers %}
   {% if socialaccount_providers %}
-    <p>Use your localnewsimpact.org Google account. One sign-in reaches
+    {% comment %}
+    "Use your localnewsimpact.org Google account" was the first line a
+    person with a password account read, and it told them to use an account
+    they do not have. It named the common case as though it were the only
+    one.
+    {% endcomment %}
+    <p>If you have a localnewsimpact.org Google account, one sign-in reaches
     every console.</p>
     <form method="post" action="{% provider_login_url 'google' process='login' %}">
       {% csrf_token %}
@@ -38,15 +44,41 @@ wrong.
   whole point.
   {% endcomment %}
   <div class="auth-or">
-    <span>or, if an administrator gave you a password</span>
+    <span>or with an email address and password</span>
   </div>
+  {% comment %}
+  Rendered field by field rather than with `form.as_p`, which produced
+  "Email:", "Password:" and "Remember Me:" -- Django's own labels, colons
+  and all, in a page that styles neither. Beside a finished Google button
+  it read as the half of the page that was not working, which is the
+  opposite of what somebody sent here needs to believe.
+
+  The form is still allauth's. It carries the rate limiting and the error
+  messages; only the markup is ours.
+  {% endcomment %}
   <form method="post" action="{% url 'account_login' %}" class="auth-password">
     {% csrf_token %}
-    {{ form.as_p }}
+    {{ form.non_field_errors }}
+    {% for field in form %}
+      {% if field.field.widget.input_type == "checkbox" %}
+      <p class="field-check">
+        {{ field }}
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field.errors }}
+      </p>
+      {% else %}
+      <p class="field">
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {{ field.errors }}
+      </p>
+      {% endif %}
+    {% endfor %}
     {% if redirect_field_value %}
     <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
     {% endif %}
     <button type="submit">Sign in</button>
+    <a class="auth-note" href="{% url 'account_reset_password' %}">Forgot your password?</a>
   </form>
 
   <p class="auth-note">Accounts are created by an administrator — there is no

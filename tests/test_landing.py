@@ -65,7 +65,7 @@ def test_sign_in_page_offers_both_doors_and_no_signup(client, settings):
     assert "Continue with Google" in content
     # ...and somewhere to type a password an administrator gave out.
     assert 'type="password"' in content, "a password account has nowhere to sign in"
-    assert "administrator gave you a password" in content
+    assert "email address and password" in content
     # Nobody registers themselves, which is the part that has not changed.
     assert "sign up" not in content.lower()
     assert "created by an administrator" in content
