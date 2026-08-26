@@ -39,13 +39,17 @@ wrong.
   {% endif %}
 
   {% comment %}
-  Below the Google button and separated from it, because it is the
-  exception rather than the usual way in -- but present, which is the
-  whole point.
+  Folded away now that the Google app is published and any Google account
+  may sign in. Folded, not removed: publishing the app does not give
+  anybody a Google account, and the one external account this console has
+  is at an institution running Microsoft, not Google. Google is the way in;
+  this is the way in for somebody Google has no answer for.
+
+  <details> rather than a script, so it opens with JavaScript off, and a
+  browser that never opens it still submits the form inside.
   {% endcomment %}
-  <div class="auth-or">
-    <span>or with an email address and password</span>
-  </div>
+  <details class="auth-more">
+    <summary>Sign in with an email address and password</summary>
   {% comment %}
   Rendered field by field rather than with `form.as_p`, which produced
   "Email:", "Password:" and "Remember Me:" -- Django's own labels, colons
@@ -80,6 +84,8 @@ wrong.
     <button type="submit">Sign in</button>
     <a class="auth-note" href="{% url 'account_reset_password' %}">Forgot your password?</a>
   </form>
+
+  </details>
 
   <p class="auth-note">Accounts are created by an administrator — there is no
   self-signup. A new account has no role until one is assigned.</p>
