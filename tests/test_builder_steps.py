@@ -3284,14 +3284,23 @@ def test_the_facet_tree_takes_a_whole_level_at_once(
     visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
 
     body = client.get(f"/visuals/builder/{visual.slug}/step/fields/").content.decode()
-    # Built by the script rather than rendered as markup, so this is
-    # where the behaviour is.
+    # The page builds the boxes...
     assert 'className = "branch"' in body, "no box that takes a whole level"
-    assert "indeterminate" in body, "a half-chosen level cannot say so"
+    # ...and loads the behaviour, which is shared with the newsroom step
+    # rather than written out twice.
+    assert "js/facet-tree.js" in body
+    assert "DatadeskFacetTree.wire" in body
+
+    from pathlib import Path
+
+    shared = (
+        Path(__file__).resolve().parent.parent / "static/js/facet-tree.js"
+    ).read_text()
+    assert "indeterminate" in shared, "a half-chosen level cannot say so"
     # A click on the parent box ticks it rather than opening the level.
-    assert "stopPropagation" in body
+    assert "stopPropagation" in shared
     # ...and it sets the leaves rather than submitting itself.
-    assert "l.checked = e.target.checked" in body
+    assert "l.checked = e.target.checked" in shared
 
 
 def test_a_facet_with_no_arrangement_stays_a_list(
@@ -3500,3 +3509,24 @@ def test_the_runtime_measures_labels_without_a_cap():
     body = runtime[start : runtime.index("}", runtime.index("return most", start))]
     assert "width * 0.28" not in body, "the measurement is still capped"
     assert "return most" in body
+
+
+def test_the_facet_tree_has_one_implementation():
+    """It existed twice -- the newsroom step and the fields step, character
+    for character apart from the leaf name being hardcoded in one. The
+    explorer wanted it a third time, which is what made the copying worth
+    stopping. Any template writing its own is the copy coming back."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    shared = (root / "static/js/facet-tree.js").read_text()
+    assert "function wire(" in shared
+
+    offenders = []
+    for template in (root / "templates").rglob("*.html"):
+        body = template.read_text()
+        # The tell is the behaviour, not the markup: a template may render a
+        # tree, but it must not teach one how to behave.
+        if "indeterminate" in body and "DatadeskFacetTree" not in body:
+            offenders.append(str(template.relative_to(root)))
+    assert offenders == [], f"a second facet tree implementation: {offenders}"

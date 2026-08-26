@@ -1,4 +1,5 @@
 {% extends "visuals/steps/_shell.html" %}
+{% load static %}
 {% block panel %}
 {% if not chart %}
 <p class="notice">Pick a chart type first — what it needs is what this asks for.</p>
@@ -134,40 +135,11 @@ with its count is one aggregate over the corpus per role -- three for a
 chord -- and running them while the step rendered took it to 65 seconds,
 to fill disclosures that start closed.
 {% endcomment %}
+<script src="{% static 'js/facet-tree.js' %}"></script>
 <script>
-// A parent checkbox is a shortcut, not a value: it never submits, it sets
-// the leaves. Its own state is read back from them, so "some" shows as
-// indeterminate rather than a parent claiming its children are all
-// chosen. The newsroom step does this too -- same tree, same behaviour.
-function wire(tree, name) {
-  var leavesUnder = function (el) {
-    return [].slice.call(el.querySelectorAll('input[name="' + name + '"]'));
-  };
-  function refresh(el) {
-    var box = el.querySelector("summary > .branch");
-    if (!box) return;
-    var leaves = leavesUnder(el);
-    var on = leaves.filter(function (l) { return l.checked; }).length;
-    box.checked = on === leaves.length && leaves.length > 0;
-    box.indeterminate = on > 0 && on < leaves.length;
-  }
-  var refreshAll = function () {
-    tree.querySelectorAll("details").forEach(refresh);
-  };
-  tree.addEventListener("change", function (e) {
-    if (e.target.classList.contains("branch")) {
-      leavesUnder(e.target.closest("details")).forEach(function (l) {
-        l.checked = e.target.checked;
-      });
-    }
-    refreshAll();
-  });
-  // A click on the parent box should tick it, not open the disclosure.
-  tree.querySelectorAll(".branch").forEach(function (b) {
-    b.addEventListener("click", function (e) { e.stopPropagation(); });
-  });
-  refreshAll();
-}
+// The tree's behaviour is shared with the newsroom step, which renders
+// the same tree from the server. See static/js/facet-tree.js.
+var wire = DatadeskFacetTree.wire;
 
 (function () {
   var base = "{% url 'visuals:role_values' visual.slug 'ROLE' %}";

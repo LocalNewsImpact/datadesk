@@ -1,4 +1,5 @@
 {% extends "visuals/steps/_shell.html" %}
+{% load static %}
 {% block panel %}
 {% comment %}
 State, then county, then newsroom. A flat list of two hundred names is not a
@@ -82,38 +83,12 @@ Sending nothing means every one of them -- storing exclusions would make
   </div>
 </form>
 
+<script src="{% static 'js/facet-tree.js' %}"></script>
 <script>
-// A parent checkbox is a shortcut, not a value: it never submits, it sets
-// the leaves. Its own state is read back from them, so "some" is visible
-// rather than a parent claiming its children are all chosen.
-(function () {
-  const tree = document.querySelector(".tree");
-  if (!tree) return;
-  const leavesUnder = (el) => [...el.querySelectorAll('input[name="publishers"]')];
-
-  function refresh(el) {
-    const box = el.querySelector("summary > .branch");
-    if (!box) return;
-    const leaves = leavesUnder(el);
-    const on = leaves.filter((l) => l.checked).length;
-    box.checked = on === leaves.length && leaves.length > 0;
-    box.indeterminate = on > 0 && on < leaves.length;
-  }
-  const refreshAll = () => tree.querySelectorAll("details").forEach(refresh);
-
-  tree.addEventListener("change", (e) => {
-    if (e.target.classList.contains("branch")) {
-      leavesUnder(e.target.closest("details")).forEach((l) => {
-        l.checked = e.target.checked;
-      });
-    }
-    refreshAll();
-  });
-  // A click on the parent box should tick it, not open the disclosure.
-  tree.querySelectorAll(".branch").forEach((b) =>
-    b.addEventListener("click", (e) => e.stopPropagation()));
-  refreshAll();
-})();
+  // The behaviour is shared with the fields step's facet, which builds the
+  // same tree from JSON after the page paints. `publishers` is what the
+  // leaves are called here; the shortcut boxes are never submitted.
+  DatadeskFacetTree.wire(document.querySelector(".tree"), "publishers");
 </script>
 
 {% comment %}
