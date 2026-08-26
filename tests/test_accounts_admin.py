@@ -728,3 +728,22 @@ def test_the_sign_in_page_offers_the_password_door_to_everybody(client):
     # Rendered field by field: `form.as_p` labels these "Email:" and
     # "Remember Me:", which is Django's default and nobody's design.
     assert "Email:" not in page and "Remember Me:" not in page
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_password_form_is_folded_away_but_still_there(client):
+    """Google is published, so it is the way in and the page should say so
+    with its whole layout. Folded, not removed: publishing the app does not
+    hand anybody a Google account, and this console's one external account
+    is at an institution running Microsoft.
+
+    Inside a <details>, so it needs no script -- a browser that never opens
+    it still submits the form, and one with JavaScript off can open it."""
+    from django.urls import reverse
+
+    page = client.get(reverse("account_login")).content.decode()
+    assert "<details" in page
+    # Still a real form, inside the fold.
+    fold = page[page.index("<details") :]
+    assert 'name="login"' in fold and 'name="password"' in fold
+    assert "account_login" not in fold or 'action="/accounts/login/"' in fold
