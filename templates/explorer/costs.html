@@ -131,13 +131,26 @@ answer.
 {% endcomment %}
 <section class="card card-wide">
   <h2>Google Cloud</h2>
-  {% if gcp_error %}
+  {% if gcp_waiting %}
+  {% comment %}
+  Not an error. BigQuery answers a missing wildcard table with "Access
+  Denied ... or perhaps it does not exist", because saying which would
+  tell a stranger what exists — so the alarming half of that sentence is
+  a guess, and repeating it as news sends somebody to check permissions
+  that are fine.
+  {% endcomment %}
+  <p class="notice">
+    <strong>Waiting for the first write.</strong>
+    The export is configured and writes to
+    <code>mizzou-news-crawler:billing_export</code>. It does not backfill,
+    so history starts the day it was switched on and the first day's rows
+    arrive within about a day of that.
+  </p>
+  {% elif gcp_error %}
   <p class="notice bad"><strong>Not connected.</strong> {{ gcp_error }}</p>
   <p class="lede">Billing export is switched on per billing account in the
   Cloud console — there is no command for it — and it does not backfill,
-  so history starts the day it is enabled. It writes to
-  <code>mizzou-news-crawler:billing_export</code>, which exists and is
-  empty until then.</p>
+  so history starts the day it is enabled.</p>
   {% elif gcp %}
   <div class="stat-row">
     <div class="stat">
