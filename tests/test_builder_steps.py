@@ -4148,3 +4148,62 @@ def test_every_dimension_has_a_family():
     from visuals.corpus import DIMENSIONS, GROUP_OF
 
     assert [k for k in DIMENSIONS if k not in GROUP_OF] == []
+
+
+# --- a table may have columns ------------------------------------------------
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_table_may_group_by_more_than_two_columns(visual, corpus):
+    """Two was the cap for everything. That is right for a chart -- one
+    dimension is a category chart, two are the cross-tab a chord reads --
+    and wrong for a table, whose whole purpose is columns.
+
+    Production, 2026-08-27: a table with ten columns ticked returned 502
+    on every preview, in 0.0s, saying "Group by at most two dimensions."
+    A chart cannot reach three anyway; it has only that many roles.
+    """
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import run_spec
+
+    rows, _ = run_spec(
+        {
+            "measure": "articles",
+            "dimensions": ["cin_primary", "cin_alternate", "publisher_name"],
+        },
+        ALL_SCOPES,
+    )
+    assert rows, "three columns is not too many for a table"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_column_ticked_twice_is_one_column(visual, corpus):
+    """There is no cap on how many columns a table may have: the real
+    maximum is how many dimensions exist, and MAX_GROUPS bounds what comes
+    back however many are used. What a repeat would do is put a second
+    identical column beside the first."""
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import run_spec
+
+    _, meta = run_spec(
+        {
+            "measure": "articles",
+            "dimensions": ["cin_primary", "cin_primary", "cin_alternate"],
+        },
+        ALL_SCOPES,
+    )
+    assert [d["key"] for d in meta["dimensions"]] == ["cin_primary", "cin_alternate"]
+
+
+def test_the_preview_shows_what_the_feed_said():
+    """ "502 from the feed" sent somebody to read Cloud Run logs to find out
+    the pivot had been refusing ten columns and saying so the whole time."""
+    from pathlib import Path
+
+    renderer = (
+        Path(__file__).resolve().parent.parent
+        / "templates/visuals/renderers/builder.html"
+    ).read_text()
+    assert "body.error" in renderer
+    # ...and still says something when the body is not JSON.
+    assert 'r.status + " from the feed"' in renderer
