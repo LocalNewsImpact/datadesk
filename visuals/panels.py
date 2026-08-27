@@ -652,9 +652,14 @@ def _variables():
         "geo_county": "geo",
         "geo_place": "geo",
     }
+    # Facet-only dimensions are left out: they narrow a chart, they are not
+    # a chart. "Which model ran" is a question about a slice of the corpus,
+    # not a story about local news, and a reader who came for the
+    # journalism should not be shown a bar chart of our pipeline.
     out = [
         {"id": k, "label": v["label"], "kind": kinds.get(k, "text"), "measure": False}
         for k, v in DIMENSIONS.items()
+        if not v.get("facet_only")
     ]
     out += [
         {"id": k, "label": v["label"], "kind": "number", "measure": True}
@@ -945,11 +950,27 @@ def field_panel(visual, post=None, user=None):
             f"{first} and {second} must come from the same set of values \u2014 "
             f"a {chart.label.lower()} compares a vocabulary with itself."
         )
-    from visuals.corpus import measure_label_for
+    from visuals.corpus import DIMENSIONS, measure_label_for
+
+    # Dimensions that narrow a chart without being one. They have no role,
+    # so they are listed on their own rather than beside a slot -- and they
+    # are offered whatever the chart type is, since narrowing by which model
+    # ran means the same thing on every one of them.
+    narrows = [
+        {
+            "id": key,
+            "label": value["label"],
+            "kept": only.get(key, []),
+            "note": value.get("note", ""),
+        }
+        for key, value in DIMENSIONS.items()
+        if value.get("facet_only")
+    ]
 
     return {
         "chart": chart,
         "roles": slots,
+        "narrows": narrows,
         "columns": [],
         "pairs": chart.pairs,
         "pair_note": pair_note,

@@ -111,11 +111,23 @@ DIMENSIONS = {
         "label": "User need (CIN)",
         "expr": F("enrichment__user_need"),
     },
-    "model": {"label": "Enrichment model", "expr": F("enrichment__model")},
-    "skip_reason": {"label": "Skip reason", "expr": F("enrichment__skip_reason")},
+    # Filterable, never an axis: which model ran is a question about a
+    # slice of the corpus, not a story about local news. A chart of it says
+    # something about our pipeline to a reader who came for the journalism.
+    "model": {
+        "label": "Enrichment model",
+        "expr": F("enrichment__model"),
+        "facet_only": True,
+    },
+    "skip_reason": {
+        "label": "Skip reason",
+        "expr": F("enrichment__skip_reason"),
+        "facet_only": True,
+    },
     "geo_skip_reason": {
         "label": "Geo skip reason",
         "expr": F("enrichment__geo_skip_reason"),
+        "facet_only": True,
     },
     # Geography. Only rollups the codings support.
     "geo_state": {

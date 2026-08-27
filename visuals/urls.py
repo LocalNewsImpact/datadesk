@@ -45,6 +45,13 @@ urlpatterns = [
         views.role_values,
         name="role_values",
     ),
+    # Before the role route would shadow it: a facet-only dimension has no
+    # role to be looked up by.
+    path(
+        "visuals/builder/<slug:slug>/narrow/<slug:dim>/",
+        views.dimension_values,
+        name="dimension_values",
+    ),
     path("visuals/<slug:slug>/", views.page, name="page"),
     path("visuals/<slug:slug>/data.json", views.data_json, name="data"),
     path("visuals/<slug:slug>/data.csv", views.data_csv, name="data_csv"),
