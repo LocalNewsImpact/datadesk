@@ -657,12 +657,24 @@ def _variables():
     # not a story about local news, and a reader who came for the
     # journalism should not be shown a bar chart of our pipeline.
     out = [
-        {"id": k, "label": v["label"], "kind": kinds.get(k, "text"), "measure": False}
+        {
+            "id": k,
+            "label": v["label"],
+            "kind": kinds.get(k, "text"),
+            "measure": False,
+            "internal": bool(v.get("internal")),
+        }
         for k, v in DIMENSIONS.items()
         if not v.get("facet_only")
     ]
     out += [
-        {"id": k, "label": v["label"], "kind": "number", "measure": True}
+        {
+            "id": k,
+            "label": v["label"],
+            "kind": "number",
+            "measure": True,
+            "internal": bool(v.get("internal")),
+        }
         for k, v in MEASURES.items()
     ]
     return out
@@ -720,7 +732,21 @@ def variables(visual=None):
     global VARIABLES
     if VARIABLES is None:
         VARIABLES = _variables()
-    return VARIABLES
+    # Internal fields belong in a table and nowhere else. A table is how
+    # data is taken out -- read as rows, exported as a CSV -- where a chart
+    # is a claim made to a reader, and "cost, by need" drawn as bars is a
+    # claim about our spending dressed as one about local news.
+    #
+    # Left out of the picker rather than offered and refused later: a
+    # choice that cannot be used is worse than one that was never there.
+    if _draws_a_table(visual):
+        return VARIABLES
+    return [v for v in VARIABLES if not v.get("internal")]
+
+
+def _draws_a_table(visual):
+    """Whether this visual is a table rather than a chart."""
+    return bool(visual is not None and (visual.config or {}).get("kind") == "table")
 
 
 def _plainly(role):

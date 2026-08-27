@@ -162,7 +162,8 @@ def test_a_role_offers_only_variables_that_fit_it(client, author, visual):
     body = step(client, visual, "fields").content.decode()
     # `from` takes a category, so a measure is not offered for it.
     assert "CIN (primary)" in body
-    assert "Cost (sum, USD)" in body, "the amount slot takes a measure"
+    # A publishable measure: cost is internal, so a chart is not offered it.
+    assert "Distinct publishers" in body, "the amount slot takes a measure"
 
 
 def test_choosing_variables_writes_the_pivot(client, author, visual, dataset):
@@ -1881,8 +1882,10 @@ FIELDS_FOR = {
     "area": {"role-x": "month", "role-y": "articles"},
     # Both axes are numbers, so both are measures: cost against articles
     # is the pair a corpus can actually plot against itself.
+    # Two measures against each other. Distinct publishers rather than
+    # cost: cost is internal, so a chart is not offered it.
     "scatter": {
-        "role-x": "cost_sum",
+        "role-x": "publishers",
         "role-y": "articles",
         "role-series": "publisher",
     },
@@ -3747,3 +3750,23 @@ def test_the_publish_button_is_inactive_when_a_field_is_internal(
     page = client.get(f"/visuals/builder/{visual.slug}/step/publish/").content.decode()
     assert "cannot-publish" not in page
     assert "disabled" not in page
+
+
+def test_an_internal_field_is_offered_to_a_table_and_no_chart(visual):
+    """A table is how data is taken out; a chart is a claim made to a
+    reader. Left out of the chart picker rather than offered and refused
+    later -- a choice that cannot be used is worse than one that was never
+    there."""
+    from visuals.panels import variables
+
+    visual.config = {"kind": "bar"}
+    chart = {v["id"] for v in variables(visual)}
+    assert "cost_sum" not in chart and "status" not in chart
+    assert "articles" in chart and "cin_primary" in chart
+
+    visual.config = {"kind": "table"}
+    table = {v["id"] for v in variables(visual)}
+    assert "cost_sum" in table, "a table cannot reach the data it is for"
+    assert "status" in table
+    # The facet-only ones stay out of both: they narrow, they are not columns.
+    assert "model" not in table
