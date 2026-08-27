@@ -101,12 +101,23 @@ class DomainRestrictedAdapter(DefaultSocialAccountAdapter):
         if provisioned.exists():
             return
 
+        # Named, because the address Google hands over is not always the
+        # one somebody typed. A Workspace account signs in under its
+        # primary address whatever alias was used to reach it, and a
+        # university running Microsoft for mail and Google for identity
+        # will have people whose mail address is not their Google one at
+        # all. An invitation is matched against what Google says, so an
+        # admin who cannot see that is inviting an address by guesswork --
+        # which is exactly how dkiesow@missouri.edu was invited to a door
+        # that only ever knew kiesowd@umsystem.edu.
         raise ImmediateHttpResponse(
             _back_to_sign_in(
                 request,
-                "That account cannot sign in here. This console is open to "
+                f"Google signed you in as {email}, and that account cannot "
+                "use this console. It is open to "
                 f"{', '.join(allowed)} accounts and to people an "
-                "administrator has given an account — try another account.",
+                "administrator has given an account. If somebody invited a "
+                "different address of yours, ask them to invite this one.",
             )
         )
 
