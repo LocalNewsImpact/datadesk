@@ -396,6 +396,12 @@ def qualifying_values(spec, dim_key, scopes):
     return {row["_dim"] for row in qs}
 
 
+#: Annotation prefix for a facet filter. Distinct from DIM_PREFIX, whose
+#: aliases are the pivot's grouping columns -- colliding with one would
+#: quietly replace a grouping with a filter.
+ONLY_PREFIX = "_only_"
+
+
 def _base_queryset(spec, scopes):
     """Articles narrowed to `scopes`, then by the spec's filters.
 
@@ -466,6 +472,26 @@ def _base_queryset(spec, scopes):
         # "articles evaluated" — those the classifier actually labelled,
         # so a group threshold counts the same articles the chart plots.
         qs = qs.filter(primary_label__isnull=False)
+
+    # The values the author ticked in the facet. The fields step has written
+    # these since the facet existed and nothing read them, so ticking three
+    # of eleven labels produced a chart of all eleven -- the step said it
+    # was narrowing, the picture disagreed, and neither said so. The same
+    # failure the publishers filter above had, for the same reason.
+    #
+    # Generic, by the dimension's own expression, so a dimension does not
+    # have to be named here to be filterable. A dimension that holds several
+    # values per article cannot be reached this way; `_run_exploded` narrows
+    # those after it has taken them apart.
+    for key, values in (spec.get("only") or {}).items():
+        if key not in DIMENSIONS or not values:
+            continue
+        dimension = DIMENSIONS[key]
+        if dimension.get("explode"):
+            continue
+        qs = qs.annotate(**{f"{ONLY_PREFIX}{key}": dimension["expr"]}).filter(
+            **{f"{ONLY_PREFIX}{key}__in": list(values)}
+        )
     return qs
 
 
@@ -575,6 +601,22 @@ def _run_exploded(spec, scopes, dim_keys, measure_key, exploded):
     # story about that county.
     seen, unresolved = {}, set()
     counted = "id" if measure_key == "articles" else "candidate_link__source_id"
+    # The facet, for the dimension that holds several values per article.
+    # `_base_queryset` cannot narrow this one -- the values are inside a
+    # text column -- so it is applied here, once they have been taken
+    # apart. Narrowing the article would be the wrong answer anyway: a
+    # story covering three counties still belongs in the one that was
+    # ticked, and dropping the story would lose the other two as well.
+    only_values = (spec.get("only") or {}).get(exploded) or []
+    # Compared as the chart shows it. The facet offers "Boone, MO" because
+    # "29019" is not a value anybody can tick; the code stays underneath,
+    # where the centroid is looked up by it.
+    wanted = {str(v) for v in only_values} or None
+    shown = (
+        county_label
+        if DIMENSIONS[exploded].get("geo_level") == "counties"
+        else (lambda v: v)
+    )
     # Fetched in one go rather than streamed. A server-side cursor over
     # this join took fifty seconds against production where one fetch of
     # the same fifteen thousand rows takes five: the rows are small, and
@@ -593,6 +635,8 @@ def _run_exploded(spec, scopes, dim_keys, measure_key, exploded):
                 unresolved.add(str(place))
                 continue
             counties.add(county)
+        if wanted is not None:
+            counties = {c for c in counties if shown(c) in wanted}
         for county in counties:
             key = (*rest, county)
             seen.setdefault(key, set()).add(article if counted == "id" else source)
@@ -1037,6 +1081,42 @@ def question_stamp(spec, scopes):
     return _cache_key("question", spec, sorted(scopes or ()))
 
 
+def _exploded_values(dim_key, spec, scopes, limit):
+    """[(value, articles)] for a dimension whose column holds a list.
+
+    The same explosion the pivot runs, counted per value and named the way
+    the chart names it -- a facet must offer what a reader will see, or
+    ticking one filters nothing.
+    """
+    import json as _json
+
+    from datasets.geo import county_of
+
+    counts = {}
+    column = DIMENSIONS[dim_key]["explode"]
+    counties = DIMENSIONS[dim_key].get("geo_level") == "counties"
+    rows = (
+        _base_queryset(spec, scopes)
+        .exclude(**{f"{column}__isnull": True})
+        .values_list("id", column)
+    )
+    for article, raw in rows:
+        try:
+            places = _json.loads(raw) if raw else []
+        except (TypeError, ValueError):
+            continue
+        seen = set()
+        for place in places or ():
+            value = county_of(place) if counties else place
+            if value is None:
+                continue
+            seen.add(county_label(value) if counties else str(value))
+        for value in seen:
+            counts.setdefault(value, set()).add(article)
+    ranked = sorted(counts.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+    return [(value, len(ids)) for value, ids in ranked[:limit]]
+
+
 def values_of(dim_key, spec, scopes, limit=200):
     """[(value, articles)] for a dimension, most common first.
 
@@ -1069,6 +1149,16 @@ def values_of(dim_key, spec, scopes, limit=200):
     hit = cache.get(key)
     if hit is not None:
         return hit
+
+    # A dimension holding several values per story has no expression to
+    # group by -- the values are inside a text column. Counting them means
+    # taking them apart, which is what the pivot already does; without this
+    # the facet raised KeyError on "expr" and the panel showed nothing at
+    # all for the one dimension whose values a reader most wants to narrow.
+    if DIMENSIONS[dim_key].get("explode"):
+        out = _exploded_values(dim_key, spec, scopes, limit)
+        cache.set(key, out, CORPUS_CACHE_SECONDS)
+        return out
 
     alias = f"{DIM_PREFIX}{dim_key}"
     qs = _base_queryset(spec, scopes).annotate(**{alias: DIMENSIONS[dim_key]["expr"]})

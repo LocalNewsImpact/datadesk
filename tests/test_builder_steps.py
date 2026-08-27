@@ -3530,3 +3530,101 @@ def test_the_facet_tree_has_one_implementation():
         if "indeterminate" in body and "DatadeskFacetTree" not in body:
             offenders.append(str(template.relative_to(root)))
     assert offenders == [], f"a second facet tree implementation: {offenders}"
+
+
+# --- the facet has to reach the query ----------------------------------------
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_ticking_values_narrows_what_the_pivot_returns(visual, corpus):
+    """`test_ticking_some_values_is_a_filter` asserted the spec stored the
+    ticks and stopped there, so it passed for as long as nothing applied
+    them -- which was always. The step said "narrowed", the picture showed
+    every value, and neither said so.
+
+    Assert on the rows, which is the only thing a reader sees."""
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import run_spec
+
+    base = {
+        "roles": {"x": "cin_primary", "y": "articles"},
+        "measure": "articles",
+        "dimensions": ["cin_primary"],
+    }
+
+    def labels(spec):
+        rows, _ = run_spec(spec, ALL_SCOPES)
+        return {row["CIN (primary)"] for row in rows}
+
+    assert labels(base) == {"Civic Life", "Sports"}
+    assert labels({**base, "only": {"cin_primary": ["Sports"]}}) == {"Sports"}
+    assert labels({**base, "only": {"cin_primary": ["Civic Life"]}}) == {"Civic Life"}
+    # Ticking everything is not a filter, and neither is ticking nothing.
+    assert labels({**base, "only": {"cin_primary": []}}) == {"Civic Life", "Sports"}
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_facet_counts_only_what_it_kept(visual, corpus):
+    """Narrowing must change the measure, not only the row list. Three
+    articles, two of them Civic Life."""
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import run_spec
+
+    base = {
+        "roles": {"x": "cin_primary", "y": "articles"},
+        "measure": "articles",
+        "dimensions": ["cin_primary"],
+    }
+    rows, _ = run_spec({**base, "only": {"cin_primary": ["Civic Life"]}}, ALL_SCOPES)
+    assert [(r["CIN (primary)"], r["Articles"]) for r in rows] == [("Civic Life", 2)]
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_facet_on_a_dimension_with_several_values_narrows_too(
+    visual, corpus, newsroom
+):
+    """The county set lives inside a text column, so the queryset cannot
+    reach it and the filter runs after the explosion.
+
+    Narrowing the article would be the wrong answer: a story covering three
+    counties still belongs in the one that was ticked, and dropping the
+    story would lose the other two with it."""
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import run_spec
+
+    base = {
+        "roles": {"x": "geo_covered", "y": "articles"},
+        "measure": "articles",
+        "dimensions": ["geo_covered"],
+    }
+    _covering(corpus, newsroom, ["29019", "29095", "29510"])
+    everything, _ = run_spec(base, ALL_SCOPES)
+    counties = {row["County covered"] for row in everything}
+    assert len(counties) > 1, "fixture cannot show narrowing"
+
+    one = sorted(counties)[0]
+    narrowed, _ = run_spec({**base, "only": {"geo_covered": [one]}}, ALL_SCOPES)
+    assert {row["County covered"] for row in narrowed} == {one}
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_facet_can_list_a_dimension_that_holds_several_values(
+    visual, corpus, newsroom
+):
+    """`values_of` read DIMENSIONS[key]["expr"], which the one exploding
+    dimension does not have -- so opening its facet raised KeyError and the
+    panel offered nothing for the dimension whose values a reader most
+    wants to narrow.
+
+    The values must be named the way the chart names them, or ticking one
+    filters nothing."""
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import values_of
+
+    _covering(corpus, newsroom, ["29019", "29095"])
+    rows = values_of("geo_covered", {}, ALL_SCOPES)
+    assert rows, "the facet had nothing to offer"
+    names = {value for value, _ in rows}
+    assert "Boone, MO" in names, names
+    assert not any(value.isdigit() for value in names), "offered raw FIPS codes"
+    assert dict(rows)["Boone, MO"] == 1
