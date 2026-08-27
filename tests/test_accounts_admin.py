@@ -968,3 +968,51 @@ def test_a_person_needs_at_least_a_first_name(client):
     )
     target.refresh_from_db()
     assert target.last_name == "", "a nameless account was half-named"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_disabled_account_leaves_the_main_table(client):
+    """Disabling is how access is taken away without taking the audit
+    trail's subject with it, so the account stays -- but it is not part of
+    who can sign in, and a list of who can sign in should not be padded
+    with people who cannot."""
+    from django.urls import reverse
+
+    admin = User.objects.create_user("boss", email="boss@localnewsimpact.org")
+    Grant.objects.create(user=admin, app=DATADESK, scope="", role="admin")
+    gone = User.objects.create_user(
+        "gone", email="gone@localnewsimpact.org", first_name="Departed"
+    )
+    User.objects.create_user(
+        "here", email="here@localnewsimpact.org", first_name="Present"
+    )
+    client.force_login(admin)
+
+    page = client.get(reverse("accounts:users")).content.decode()
+    assert page.count("Departed") == 1 and "Present" in page
+
+    gone.is_active = False
+    gone.save(update_fields=["is_active"])
+    page = client.get(reverse("accounts:users")).content.decode()
+
+    # Still reachable, under a toggle that says how many.
+    assert "1 disabled account" in page
+    assert "Departed" in page
+    # ...and out of the table of who can sign in: the only mention left is
+    # inside the fold.
+    main, fold = page.split('<details class="more-rows">', 1)
+    assert "Departed" not in main, "still in the main table"
+    assert "Departed" in fold
+    assert "Present" in main
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_no_toggle_when_nobody_is_disabled(client):
+    """An empty disclosure is a thing to open and be disappointed by."""
+    from django.urls import reverse
+
+    admin = User.objects.create_user("boss2", email="boss2@localnewsimpact.org")
+    Grant.objects.create(user=admin, app=DATADESK, scope="", role="admin")
+    client.force_login(admin)
+    page = client.get(reverse("accounts:users")).content.decode()
+    assert "more-rows" not in page

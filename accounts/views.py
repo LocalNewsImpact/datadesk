@@ -83,9 +83,19 @@ def _dataset_grants(user):
     )
 
 
-def _people():
-    """Every account, with what it holds here, newest sign-in first."""
+def _people(active=None):
+    """Accounts, with what each holds here, newest sign-in first.
+
+    `active` narrows to the ones that can sign in, or the ones that
+    cannot. A disabled account keeps everything it did -- that is the
+    point of disabling rather than deleting -- but it is not part of who
+    can get in, and a list of who can get in should not be padded with
+    people who cannot.
+    """
     User = get_user_model()
+    accounts = User.objects.prefetch_related("grants")
+    if active is not None:
+        accounts = accounts.filter(is_active=active)
     return [
         {
             "user": user,
@@ -96,9 +106,7 @@ def _people():
             # grant, and cannot be changed here.
             "locked": user.is_superuser,
         }
-        for user in User.objects.prefetch_related("grants").order_by(
-            "-last_login", "email", "username"
-        )
+        for user in accounts.order_by("-last_login", "email", "username")
     ]
 
 
@@ -118,7 +126,12 @@ def users(request):
         request,
         "accounts/users.html",
         {
-            "people": _people(),
+            "people": _people(active=True),
+            # Kept, and kept apart. Disabling is how access is taken away
+            # without taking the audit trail's subject with it, so these
+            # have to stay reachable -- turning one back on is done on its
+            # own page.
+            "disabled": _people(active=False),
             "invitations": Invitation.objects.all(),
             "datasets": _invitable_datasets(),
             "roles": ROLE_CHOICES,
