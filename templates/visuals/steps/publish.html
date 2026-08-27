@@ -7,6 +7,25 @@ changed, this is where its work is finished. Somebody looking for the code
 to paste was being sent to a page about data sources.
 {% endcomment %}
 
+{% comment %}
+Said before the button is pressed. "Cannot publish" as the answer to a
+click is the same sentence delivered too late -- by then the author has
+decided they are finished.
+
+Republishing is stopped too, and this sits above every branch: it is true
+before there is anything to publish, and a published visual must not be
+able to acquire one of these by editing.
+{% endcomment %}
+{% if blocked %}
+<p class="notice bad" id="cannot-publish">
+  <strong>This cannot be published.</strong>
+  {{ blocked|join:", " }} {% if blocked|length > 1 %}are{% else %}is{% endif %}
+  for internal use. Everything else still works: look at it here, or take
+  the CSV. Change {% if blocked|length > 1 %}them{% else %}it{% endif %} on
+  the Fields step and publishing opens up.
+</p>
+{% endif %}
+
 {% if not ready %}
 <p class="notice">Nothing to publish yet — the sentence at the top of this
 page still has gaps in it, so there is nothing for an embed to draw. An
@@ -93,7 +112,14 @@ does not exist.</p>
 
 <form method="post" class="action-bar">
   {% csrf_token %}
-  <button type="submit" name="do" value="publish" class="primary">Publish the current data</button>
+  {% comment %}
+  Disabled rather than removed: the button is where somebody looks to
+  finish, and a missing one reads as a page that has not loaded. Disabled,
+  beside the reason, reads as the answer to a question they were about to
+  ask.
+  {% endcomment %}
+  <button type="submit" name="do" value="publish" class="primary"
+    {% if blocked %}disabled aria-describedby="cannot-publish"{% endif %}>Publish the current data</button>
   <button type="submit" name="do" value="unpublish" class="linklike">Unpublish</button>
 </form>
 
@@ -103,7 +129,8 @@ that exact version until you publish again, so a chart in somebody's
 article cannot change under them without you deciding it should.</p>
 <form method="post" class="action-bar">
   {% csrf_token %}
-  <button type="submit" name="do" value="publish" class="primary">Publish</button>
+  <button type="submit" name="do" value="publish" class="primary"
+    {% if blocked %}disabled aria-describedby="cannot-publish"{% endif %}>Publish</button>
 </form>
 {% endif %}
 {% endblock %}

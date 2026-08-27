@@ -290,3 +290,101 @@ def test_publish_skips_rather_than_fails_when_unconfigured():
     assert "vars.PUBLISH_ACTOR != ''" in condition
     # And never publishes from a revision that failed to deploy.
     assert "workflow_run.conclusion == 'success'" in condition
+
+
+# --- class D: internal use only ----------------------------------------------
+
+
+INTERNAL_SPEC = {
+    "roles": {"x": "cin_primary", "y": "cost_sum"},
+    "measure": "cost_sum",
+    "dimensions": ["cin_primary"],
+}
+PUBLISHABLE_SPEC = {
+    "roles": {"x": "cin_primary", "y": "articles"},
+    "measure": "articles",
+    "dimensions": ["cin_primary"],
+}
+
+
+def _visual(admin, spec):
+    from visuals.services import record_snapshot
+
+    visual = Visual.objects.create(
+        slug=f"v-{abs(hash(str(spec))) % 10000}",
+        title="Spending by need",
+        source_kind="inline",
+        created_by=admin,
+        spec=spec,
+        config={"kind": "bar", "theme": "datadesk"},
+    )
+    record_snapshot(visual, admin, [{"a": 1}])
+    return visual
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_an_internal_field_cannot_be_published(admin):
+    """Class D is internal use only. Build it, look at it, take the CSV --
+    it may not go on a page a reader can reach, because what these say is a
+    fact about our pipeline that a reader meets as a fact about the
+    journalism."""
+    from visuals.services import NotPublishable, publish
+
+    visual = _visual(admin, INTERNAL_SPEC)
+    with pytest.raises(NotPublishable) as raised:
+        publish(visual, admin)
+    # Named, because "cannot publish" without saying which field is a dead
+    # end when several were chosen.
+    assert "Cost (sum, USD)" in str(raised.value)
+    visual.refresh_from_db()
+    assert visual.status != Visual.PUBLISHED
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_published_visual_cannot_acquire_one_by_editing(admin):
+    """Republishing is the same door."""
+    from visuals.services import NotPublishable, publish
+
+    visual = _visual(admin, PUBLISHABLE_SPEC)
+    publish(visual, admin)
+    visual.refresh_from_db()
+    assert visual.status == Visual.PUBLISHED
+    pinned = visual.pinned_snapshot_id
+
+    visual.spec = INTERNAL_SPEC
+    visual.save(update_fields=["spec"])
+    with pytest.raises(NotPublishable):
+        publish(visual, admin)
+    # What is already serving is left alone: it was published under the
+    # rules of its day, and pulling it is a separate decision.
+    visual.refresh_from_db()
+    assert visual.pinned_snapshot_id == pinned
+
+
+def test_narrowing_by_an_internal_field_counts_as_using_it():
+    """Filtering to the stories a gate excluded and publishing the chart
+    publishes the gate's opinion, even though the reason never appears on
+    an axis."""
+    from visuals.corpus import internal_fields
+
+    assert internal_fields(
+        {
+            "roles": {"x": "cin_primary"},
+            "measure": "articles",
+            "only": {"content_gate_reason": ["boilerplate"]},
+        }
+    ) == ["Why the gate excluded it"]
+    # ...and an ordinary spec is not caught by it.
+    assert internal_fields(PUBLISHABLE_SPEC) == []
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_everything_but_publishing_still_works(admin):
+    """The rule is about one door, not about the field: a snapshot of an
+    internal report can still be taken and read in the console."""
+    from visuals.services import record_snapshot
+
+    visual = _visual(admin, INTERNAL_SPEC)
+    snapshot = record_snapshot(visual, admin, [{"Cost (sum, USD)": 1.25}])
+    assert snapshot.version >= 1
+    assert visual.snapshots.count() >= 1
