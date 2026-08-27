@@ -47,6 +47,10 @@ def newsroom(dataset):
         canonical_name="KOMU",
         city="Columbia",
         county="Boone",
+        # Owned by somebody: without this the sankey walk drew nothing and
+        # published it, which passed until publishing an empty snapshot
+        # stopped being allowed.
+        owner="Gray Media",
         meta={"state": "MO"},
     )
     DatasetSource.objects.create(id="ds1", dataset=dataset, source=source)
@@ -2134,7 +2138,27 @@ def test_a_duplicate_walks_on_its_own_and_leaves_the_original_serving(
     assert copy.status == Visual.DRAFT
     assert copy.snapshots.count() == 0, "a copy starts with nothing published"
 
-    # Point the copy somewhere else and publish it on its own.
+    # Point the copy somewhere else and publish it on its own. The second
+    # newsroom needs a story of its own, or the copy publishes a blank
+    # chart -- which is what this asserted until publishing nothing stopped
+    # being allowed.
+    import datetime as dt
+
+    from django.utils import timezone
+
+    from explorer.models import Article, CandidateLink
+
+    other_link = CandidateLink.objects.create(
+        id="cl-copy", url="https://kc2.example/9", source=two
+    )
+    Article.objects.create(
+        id="a-copy",
+        status="ok",
+        candidate_link=other_link,
+        primary_label="Civic Life",
+        publish_date=timezone.make_aware(dt.datetime(2026, 3, 12, 9)),
+    )
+
     press(copy, "newsrooms", publishers=[str(two.id)], focus="", focus_level="")
     assert copy.spec["publishers"] == [str(two.id)]
     body = client.get(f"/visuals/builder/{copy.slug}/step/publish/").content.decode()
