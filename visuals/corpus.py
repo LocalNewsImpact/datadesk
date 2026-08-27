@@ -1155,6 +1155,11 @@ def internal_fields(spec):
     Narrowing counts. Filtering to the stories a gate excluded, and then
     publishing the chart, publishes the gate's opinion even though the
     reason never appears on an axis.
+
+    Nothing is exempt, table included. A table is where these are offered
+    -- it is how data is taken out, read as rows and taken as a CSV -- and
+    taking data out is not publishing it. The export stays open; the
+    publish button does not.
     """
     spec = spec or {}
     keys = set(spec.get("dimensions") or [])

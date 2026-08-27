@@ -317,6 +317,7 @@ def _visual(admin, spec):
         created_by=admin,
         spec=spec,
         config={"kind": "bar", "theme": "datadesk"},
+        template="builder",
     )
     record_snapshot(visual, admin, [{"a": 1}])
     return visual
@@ -388,3 +389,89 @@ def test_everything_but_publishing_still_works(admin):
     snapshot = record_snapshot(visual, admin, [{"Cost (sum, USD)": 1.25}])
     assert snapshot.version >= 1
     assert visual.snapshots.count() >= 1
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_table_carrying_one_cannot_be_published_either(admin):
+    """A table is where these are offered -- it is how data is taken out --
+    but taking data out is not publishing it. Both a chart and a table are
+    publishable in general; neither is with one of these in it."""
+    from visuals.services import NotPublishable, publish
+
+    visual = _visual(admin, INTERNAL_SPEC)
+    visual.config = {"kind": "table", "theme": "datadesk"}
+    visual.save(update_fields=["config"])
+
+    with pytest.raises(NotPublishable):
+        publish(visual, admin)
+    visual.refresh_from_db()
+    assert visual.status != Visual.PUBLISHED
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_csv_is_still_there_to_take(client, admin):
+    """The export is the point of surfacing them. Blocking publishing and
+    then blocking the download would leave the field offered and useless."""
+    from visuals.services import record_snapshot
+
+    visual = _visual(admin, INTERNAL_SPEC)
+    visual.config = {"kind": "table", "theme": "datadesk"}
+    visual.save(update_fields=["config"])
+    record_snapshot(
+        visual, admin, [{"CIN (primary)": "Sports", "Cost (sum, USD)": 1.25}]
+    )
+
+    client.force_login(admin)
+    response = client.get(f"/visuals/{visual.slug}/data.csv")
+    assert response.status_code == 200, response.status_code
+    body = (
+        b"".join(response.streaming_content).decode()
+        if response.streaming
+        else response.content.decode()
+    )
+    assert "Cost (sum, USD)" in body
+    assert "1.25" in body
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_teammate_can_read_an_unpublished_internal_table(client, admin):
+    """Filed in a folder and shared inside the console. Publishing is the
+    public door and it is shut; the console is not publishing, and a
+    teammate who may read the dataset may read the table."""
+    from visuals.services import record_snapshot
+
+    visual = _visual(admin, INTERNAL_SPEC)
+    visual.config = {"kind": "table", "theme": "datadesk"}
+    visual.save(update_fields=["config"])
+    record_snapshot(
+        visual, admin, [{"CIN (primary)": "Sports", "Cost (sum, USD)": 1.25}]
+    )
+    assert visual.status != Visual.PUBLISHED
+    assert visual.pinned_snapshot_id is None
+
+    mate = _user("mate", "viewer")
+    client.force_login(mate)
+
+    # The console page opens...
+    assert client.get(f"/visuals/{visual.slug}/").status_code == 200
+    # ...and its rows arrive, from the latest snapshot rather than a pin.
+    payload = client.get(f"/visuals/{visual.slug}/data.json").json()
+    assert payload["data"][0]["Cost (sum, USD)"] == 1.25
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_an_unpublished_internal_table_can_be_filed(client, admin):
+    """ "Saved to a folder" is how it gets shared, so filing must not depend
+    on being published."""
+    from visuals.models import Folder
+
+    visual = _visual(admin, INTERNAL_SPEC)
+    visual.config = {"kind": "table", "theme": "datadesk"}
+    visual.save(update_fields=["config"])
+    folder = Folder.objects.create(name="Spending", created_by=admin)
+
+    client.force_login(admin)
+    response = client.post(f"/visuals/{visual.slug}/move/", {"folder": folder.id})
+    assert response.status_code in (200, 302), response.status_code
+    visual.refresh_from_db()
+    assert visual.folder_id == folder.id
