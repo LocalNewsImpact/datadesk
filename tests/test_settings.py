@@ -45,7 +45,11 @@ def test_no_hosted_domain_is_sent_to_google():
     Whatever ALLOWED_AUTH_DOMAINS says, the chooser stays open and the
     adapter stays the only gate."""
     config = build_socialaccount_providers("id", "secret")
-    assert config["google"]["AUTH_PARAMS"] == {}
+    params = config["google"]["AUTH_PARAMS"]
+    assert "hd" not in params
+    # ...and Google is asked to let people choose, rather than picking the
+    # browser's default account for them.
+    assert params["prompt"] == "select_account"
 
     import inspect
 
@@ -120,3 +124,16 @@ def test_the_sections_modules_cite_are_the_ones_they_implement():
     assert "§2.5" in datasets.places.__doc__
     assert "§2.6" in explorer.costs.__doc__
     assert "§2.7" in visuals.services.__doc__
+
+
+def test_google_is_asked_to_let_people_choose():
+    """Google picks the browser's default account unless told to ask. For
+    anybody signed into a personal account as well, that is the wrong one
+    -- and being refused, then choosing again on the tab behind you,
+    resends a spent authorization state and fails as "Third-Party Login
+    Failure". Production, 2026-08-27: two callbacks thirty seconds apart,
+    same state, 403 then 401.
+
+    One extra click, and the trap is gone."""
+    config = build_socialaccount_providers("id", "secret")
+    assert config["google"]["AUTH_PARAMS"]["prompt"] == "select_account"
