@@ -1987,6 +1987,34 @@ tr.dragging{ opacity: .5; }
 .site-footer a{ color: var(--text-3); text-decoration: none; }
 .site-footer a:hover{ color: var(--text); text-decoration: underline; }
 
+/* A date field that opens a calendar and only a calendar. The native
+   control differs by browser and cannot be styled; in Firefox its month
+   and year are a second view that replaces the day grid, which is the one
+   view anybody wanted. */
+.cal-field{ position: relative; display: inline-block; }
+.cal-pop{ position: absolute; z-index: 30; top: calc(100% + .25rem); left: 0;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-md); box-shadow: var(--shadow-2, 0 6px 24px rgba(0,0,0,.12));
+  padding: .6rem; width: 17rem; }
+.cal-head{ display: flex; align-items: center; justify-content: space-between;
+  gap: .5rem; margin-bottom: .45rem; }
+.cal-title{ font-weight: 600; font-size: var(--fs-sm); }
+.cal-step{ border: 1px solid var(--border); background: var(--surface);
+  border-radius: var(--r-sm); width: 1.7rem; height: 1.7rem; line-height: 1;
+  cursor: pointer; color: var(--text-2); font-size: 1rem; }
+.cal-step:hover{ background: var(--bg); color: var(--text); }
+.cal-grid{ display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
+.cal-day{ text-align: center; font-size: .7rem; color: var(--text-3);
+  padding: .2rem 0; }
+.cal-date{ border: 0; background: transparent; cursor: pointer;
+  padding: .3rem 0; border-radius: var(--r-sm); font-size: var(--fs-sm);
+  color: var(--text); font-variant-numeric: tabular-nums; }
+.cal-date:hover{ background: var(--bg); }
+.cal-date.is-today{ box-shadow: inset 0 0 0 1px var(--border-strong); }
+.cal-date.is-chosen{ background: var(--accent); color: #fff; }
+.cal-foot{ display: flex; justify-content: flex-end; margin-top: .4rem; }
+.cal-field :focus-visible{ outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+
 /* The second door on the sign-in page: present, and plainly the
    exception rather than the usual way in. */
 .auth-or{ display: flex; align-items: center; gap: .75rem;

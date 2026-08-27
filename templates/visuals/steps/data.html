@@ -1,4 +1,5 @@
 {% extends "visuals/steps/_shell.html" %}
+{% load static %}
 {% block panel %}
 {% if uploaded %}
 {% comment %}
@@ -109,6 +110,7 @@ snapshot, so a corrected file is the next answer to the same question and
   </div>
 </form>
 
+<script src="{% static 'js/calendar.js' %}"></script>
 <script>
 // Chips mirror the ticks; they are not a second place a choice lives. The
 // checkboxes are what submits, so removing a chip unticks its box.
