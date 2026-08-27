@@ -621,6 +621,8 @@ def enrichment(request):
 def costs(request):
     """The cost dashboard (SCOPE.md §2.6): recorded vs billed by day,
     recorded by dataset and model, the cache discount as the headline."""
+    from django.conf import settings as django_settings
+
     recorded = recorded_costs()
     billed = billed_costs()
     # A failure comes back carrying its reason rather than as None, so the
@@ -699,6 +701,7 @@ def costs(request):
             "gcp": gcp,
             "gcp_error": gcp_error,
             "gcp_waiting": gcp_waiting,
+            "gcp_projects": django_settings.GCP_COST_PROJECTS,
             "days": days,
         },
     )

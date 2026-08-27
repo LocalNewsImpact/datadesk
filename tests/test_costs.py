@@ -151,7 +151,7 @@ def test_a_broken_billed_query_says_so_instead_of_vanishing(monkeypatch):
 
     cache.delete("explorer.billed_costs")
 
-    def boom(_sql):
+    def boom(_sql, **_params):
         raise RuntimeError("Unrecognized name: created_at")
 
     monkeypatch.setattr("explorer.analytics.query_rows", boom)
@@ -174,7 +174,7 @@ def test_gcp_costs_say_why_when_there_is_no_export(monkeypatch):
 
     cache.delete("explorer.gcp_costs")
 
-    def boom(_sql):
+    def boom(_sql, **_params):
         raise RuntimeError("Not found: Table gcp_billing_export_v1_*")
 
     monkeypatch.setattr("explorer.analytics.query_rows", boom)
@@ -209,7 +209,7 @@ def test_a_labelled_job_is_attributed_and_the_rest_is_not(monkeypatch):
             "credits": 0.0,
         },
     ]
-    monkeypatch.setattr("explorer.analytics.query_rows", lambda _sql: rows)
+    monkeypatch.setattr("explorer.analytics.query_rows", lambda _sql, **_p: rows)
     result = costs.gcp_costs()
     assert result["attributed"] == 10.0
     assert result["infrastructure"] == 40.0
@@ -332,7 +332,7 @@ def test_a_missing_export_reads_as_waiting_not_as_denied(monkeypatch):
 
     cache.delete("explorer.gcp_costs")
 
-    def not_there(_sql):
+    def not_there(_sql, **_params):
         raise RuntimeError(
             "403 Access Denied: Table "
             "mizzou-news-crawler:billing_export.gcp_billing_export_v1_*: "
@@ -347,6 +347,53 @@ def test_a_missing_export_reads_as_waiting_not_as_denied(monkeypatch):
     cache.delete("explorer.gcp_costs")
     monkeypatch.setattr(
         "explorer.analytics.query_rows",
-        lambda _sql: (_ for _ in ()).throw(RuntimeError("403 Access Denied: no key")),
+        lambda _sql, **_p: (_ for _ in ()).throw(
+            RuntimeError("403 Access Denied: no key")
+        ),
     )
     assert costs.gcp_costs()["waiting"] is False
+
+
+def test_only_this_application_s_projects_are_counted(monkeypatch, settings):
+    """The billing account carries projects that are not this app. The
+    first export had an unrelated Slack tool and a sandbox in it, and a
+    total that quietly included them would answer "what does the app cost"
+    with somebody else's spending."""
+    from django.core.cache import cache
+
+    from explorer import costs
+
+    settings.GCP_COST_PROJECTS = ["lnic-datadesk", "mizzou-news-crawler"]
+    cache.delete("explorer.gcp_costs:" + ",".join(sorted(settings.GCP_COST_PROJECTS)))
+    seen = {}
+
+    def capture(sql, **params):
+        seen.update(params)
+        seen["sql"] = sql
+        return []
+
+    monkeypatch.setattr("explorer.analytics.query_rows", capture)
+    costs.gcp_costs()
+
+    assert seen["projects"] == "lnic-datadesk,mizzou-news-crawler"
+    # Split in SQL from a scalar: the runner takes scalars, and a list is
+    # not a thing to paste into a query.
+    assert "SPLIT(@projects" in seen["sql"]
+    assert "project.id IN UNNEST" in seen["sql"]
+
+
+def test_changing_the_projects_does_not_reuse_the_old_answer(monkeypatch, settings):
+    """Which projects count is part of the question, so it has to be part
+    of the name the answer is filed under."""
+    from explorer import costs
+
+    calls = []
+    monkeypatch.setattr(
+        "explorer.analytics.query_rows",
+        lambda _sql, **p: calls.append(p["projects"]) or [],
+    )
+    settings.GCP_COST_PROJECTS = ["one"]
+    costs.gcp_costs()
+    settings.GCP_COST_PROJECTS = ["two"]
+    costs.gcp_costs()
+    assert calls == ["one", "two"], "the second answer came from the first's cache"

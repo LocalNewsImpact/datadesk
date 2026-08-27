@@ -398,6 +398,16 @@ SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True
 # adapter has to be the only gate.
 ALLOWED_AUTH_DOMAINS = env_list("ALLOWED_AUTH_DOMAINS")
 
+# The projects whose Google bill is this application's. The billing account
+# carries others -- slack-membership-invites and a stray sandbox were in the
+# first export -- and counting them would answer "what does the app cost"
+# with somebody else's spending.
+GCP_COST_PROJECTS = env_list("GCP_COST_PROJECTS") or [
+    "lnic-datadesk",
+    "lnic-source-directory",
+    "mizzou-news-crawler",
+]
+
 # .strip() matters: secrets may exist as blank placeholders until real
 # credentials are issued, and whitespace would read as "configured".
 GOOGLE_OAUTH_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "").strip()

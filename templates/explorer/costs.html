@@ -142,9 +142,9 @@ answer.
   <p class="notice">
     <strong>Waiting for the first write.</strong>
     The export is configured and writes to
-    <code>mizzou-news-crawler:billing_export</code>. It does not backfill,
-    so history starts the day it was switched on and the first day's rows
-    arrive within about a day of that.
+    <code>mizzou-news-crawler:billing_export</code>. The first rows arrive
+    within about a day of switching it on, and carry some history with
+    them rather than starting from zero.
   </p>
   {% elif gcp_error %}
   <p class="notice bad"><strong>Not connected.</strong> {{ gcp_error }}</p>
@@ -152,6 +152,13 @@ answer.
   Cloud console — there is no command for it — and it does not backfill,
   so history starts the day it is enabled.</p>
   {% elif gcp %}
+  {% comment %}
+  Named, because the billing account carries projects that are not this
+  application -- an unrelated Slack tool and a sandbox were both in the
+  first export -- and a total that quietly included them would answer
+  "what does the app cost" with somebody else's spending.
+  {% endcomment %}
+  <p class="lede">Counting {{ gcp_projects|join:" and " }}.</p>
   <div class="stat-row">
     <div class="stat">
       <span class="stat-label">Attributed to a dataset</span>
@@ -173,6 +180,7 @@ answer.
       <thead>
         <tr>
           <th scope="col">Month</th>
+          <th scope="col">Days covered</th>
           <th scope="col">Total</th>
           <th scope="col">Attributed</th>
           <th scope="col">Infrastructure</th>
@@ -182,6 +190,12 @@ answer.
         {% for row in gcp.by_month %}
         <tr>
           <td class="nowrap">{{ row.month }}</td>
+          {% comment %}
+          A month the export only partly covers is not a monthly figure.
+          Two days of it read as a suspiciously cheap month, and somebody
+          reasonably asks what happened to the rest of the bill.
+          {% endcomment %}
+          <td class="count">{{ row.days }}</td>
           <td class="count money">${{ row.cost|floatformat:2 }}</td>
           <td class="count money">${{ row.attributed|floatformat:2 }}</td>
           <td class="count money">${{ row.infrastructure|floatformat:2 }}</td>

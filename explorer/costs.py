@@ -200,6 +200,7 @@ def billed_costs():
 _GCP_SQL = """
     SELECT
       FORMAT_DATE('%Y-%m', DATE(usage_start_time)) AS month,
+      COUNT(DISTINCT DATE(usage_start_time)) AS days,
       project.id AS project,
       service.description AS service,
       (
@@ -211,6 +212,12 @@ _GCP_SQL = """
     FROM `mizzou-news-crawler.billing_export.gcp_billing_export_v1_*`
     WHERE DATE(usage_start_time)
           >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH)
+      -- This application's projects only. The billing account carries
+      -- others, and counting them answers "what does the app cost" with
+      -- somebody else's spending. Split from a scalar rather than
+      -- interpolated: the runner takes scalars, and SQL is not a place to
+      -- paste a list into.
+      AND project.id IN UNNEST(SPLIT(@projects, ','))
     GROUP BY month, project, service, dataset
     ORDER BY month DESC, cost DESC
 """
@@ -226,9 +233,11 @@ def gcp_costs():
     """
 
     def fetch():
+        from django.conf import settings
+
         from explorer.analytics import query_rows
 
-        rows = query_rows(_GCP_SQL)
+        rows = query_rows(_GCP_SQL, projects=",".join(settings.GCP_COST_PROJECTS))
         months, attributed, infrastructure = {}, 0.0, 0.0
         by_dataset: dict[str, float] = {}
         for row in rows:
@@ -240,9 +249,15 @@ def gcp_costs():
                     "cost": 0.0,
                     "attributed": 0.0,
                     "infrastructure": 0.0,
+                    # How much of the month the export actually covers. A
+                    # partial month shown as a month reads as a monthly
+                    # figure, and the first two days of an export read as
+                    # a suspiciously cheap one.
+                    "days": 0,
                 },
             )
             entry["cost"] += cost
+            entry["days"] = max(entry["days"], int(row.get("days") or 0))
             if row["dataset"]:
                 entry["attributed"] += cost
                 by_dataset[row["dataset"]] = by_dataset.get(row["dataset"], 0.0) + cost
@@ -266,11 +281,18 @@ def gcp_costs():
         }
 
     try:
-        cached_value = cache.get("explorer.gcp_costs")
+        # Keyed on the projects: change which ones count and the answer
+        # changes, so the old one must not be handed back.
+        from django.conf import settings as _settings
+
+        # Keyed on the projects: change which ones count and the answer
+        # changes, so the old one must not be handed back.
+        key = "explorer.gcp_costs:" + ",".join(sorted(_settings.GCP_COST_PROJECTS))
+        cached_value = cache.get(key)
         if cached_value is not None:
             return cached_value
         value = fetch()
-        cache.set("explorer.gcp_costs", value, _CACHE_SECONDS)
+        cache.set(key, value, _CACHE_SECONDS)
         return value
     except Exception as exc:
         # An export that has not written yet and one nobody may read look
