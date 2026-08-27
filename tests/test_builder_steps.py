@@ -4292,3 +4292,117 @@ def test_the_story_and_what_it_names_cannot_share_a_table(visual, corpus):
             ALL_SCOPES,
         )
     assert "Choose one or the other" in str(raised.value)
+
+
+# --- the options that were declared and never drawn --------------------------
+
+
+def _bar_with_series(visual):
+    visual.config = {"kind": "bar", "theme": "datadesk"}
+    visual.spec = {
+        "roles": {"x": "publisher_county", "y": "articles", "series": "cin_primary"}
+    }
+    visual.save(update_fields=["config", "spec"])
+    return visual
+
+
+def test_a_series_role_is_named_after_what_it_does():
+    """ "Split by" said the mechanism and left the outcome to be
+    discovered. A series stacks a bar, draws one line each on a line
+    chart, and colours the dots on a scatter."""
+    from visuals.types import BY_ID
+
+    def series_label(kind):
+        return next(r.label for r in BY_ID[kind].roles if r.id == "series")
+
+    assert series_label("bar") == "Stack by"
+    assert series_label("area") == "Stack by"
+    assert series_label("line") == "One line per"
+    assert series_label("scatter") == "Colour by"
+
+
+def test_the_options_appear_once_there_is_a_series(client, author, visual, corpus):
+    """An option for a series nobody chose is a control with nothing to
+    act on, so the panel is empty until the chart has been given something
+    to draw."""
+    from accounts.models import DATADESK, Grant
+
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+
+    visual.config = {"kind": "bar", "theme": "datadesk"}
+    visual.spec = {"roles": {"x": "publisher_county", "y": "articles"}}
+    visual.save(update_fields=["config", "spec"])
+    page = client.get(f"/visuals/builder/{visual.slug}/step/theme/").content.decode()
+    assert "opt-stacked" not in page, "offered a stack with nothing to stack"
+    assert "opt-sort" in page, "order applies with or without a series"
+
+    _bar_with_series(visual)
+    page = client.get(f"/visuals/builder/{visual.slug}/step/theme/").content.decode()
+    assert "opt-stacked" in page
+    assert "opt-stack" in page
+
+
+def test_setting_an_option_reaches_the_config(client, author, visual, corpus):
+    """They were declared in visuals/types.py from the beginning and drawn
+    by nothing, so the only way to stack a bar chart was to edit its config
+    by hand."""
+    from accounts.models import DATADESK, Grant
+
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _bar_with_series(visual)
+
+    step(
+        client,
+        visual,
+        "theme",
+        theme="datadesk",
+        **{
+            "opt-stacked": "1",
+            "opt-stack": "percent",
+            "opt-sort": "y",
+            "opt-xlabel": "County",
+        },
+    )
+    visual.refresh_from_db()
+    assert visual.config["stacked"] is True
+    assert visual.config["stack"] == "percent"
+    assert visual.config["xlabel"] == "County"
+
+    # Unticked means off: the renderer reads `stacked === false` to put the
+    # bars side by side, so an absent checkbox has to say so.
+    step(client, visual, "theme", theme="datadesk", **{"opt-sort": "y"})
+    visual.refresh_from_db()
+    assert visual.config["stacked"] is False
+    assert visual.config["stack"] == "", "a choice outside its values was kept"
+
+
+def test_an_option_no_renderer_reads_is_not_offered():
+    """A control that changes no pixel is worse than a missing one:
+    somebody sets it and believes they have. `horizontal`, `geo_level`,
+    `extent` and `focus_level` are declared and drawn by nothing."""
+    from visuals.types import UNDRAWN, options_for
+
+    offered = {o.id for o in options_for("bar", ["x", "y", "series"])}
+    assert not (offered & UNDRAWN)
+    assert "horizontal" in UNDRAWN
+
+
+def test_taxonomy_has_one_control(client, author, visual, corpus):
+    """The step owns the fixed-taxonomy checkbox itself. Offering it again
+    among the chart's options would put two controls on one config key, and
+    whichever the reader did not touch would clear the one they did."""
+    from accounts.models import DATADESK, Grant
+
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _bar_with_series(visual)
+
+    page = client.get(f"/visuals/builder/{visual.slug}/step/theme/").content.decode()
+    assert 'name="taxonomy"' in page
+    assert "opt-taxonomy" not in page, "a second control writing the same key"
+
+    step(client, visual, "theme", theme="datadesk", taxonomy="1", **{"opt-sort": "y"})
+    visual.refresh_from_db()
+    assert visual.config["taxonomy"] == "cin"

@@ -1114,6 +1114,22 @@ label.stacked input, label.stacked textarea, label.stacked select {
 
 .builder-form .inline { display: flex; align-items: center; gap: var(--s-1); }
 
+/* The walk's step form is #step-form, not .builder-form, so it never
+   picked either of these up: two checkbox labels in a row ran together on
+   one line, and a note under a control was set in body text. */
+#step-form .inline {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-1);
+  margin: var(--s-2) 0;
+}
+
+#step-form p.hint {
+  margin: calc(var(--s-1) * -1) 0 var(--s-3);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
 .builder-form fieldset {
   margin: var(--s-4) 0;
   padding: var(--s-2) var(--s-3) var(--s-3);
