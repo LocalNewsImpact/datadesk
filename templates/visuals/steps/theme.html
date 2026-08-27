@@ -49,6 +49,42 @@
   </fieldset>
 
   {% comment %}
+  What this chart can be told to do: stacking, shares, order, axis labels.
+  Each chart type declares its own set in visuals/types.py, so what appears
+  here changes with the type on step 1.
+
+  Only the options whose role is filled. An option for a series nobody
+  chose is a control with nothing to act on, so this section stays empty
+  until a chart has been given something to draw.
+  {% endcomment %}
+  {% if options %}
+  <div class="group">
+    <h4>How it draws</h4>
+    {% for o in options %}
+    {% if o.kind == "toggle" %}
+    <label class="inline">
+      <input type="checkbox" name="opt-{{ o.id }}" value="1" {% if o.on %}checked{% endif %}>
+      {{ o.label }}
+    </label>
+    {% elif o.kind == "choice" %}
+    <label class="stacked">{{ o.label }}
+      <select name="opt-{{ o.id }}">
+        {% for v in o.values %}
+        <option value="{{ v.value }}" {% if v.on %}selected{% endif %}>{{ v.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% else %}
+    <label class="stacked">{{ o.label }}
+      <input type="text" name="opt-{{ o.id }}" value="{{ o.value }}">
+    </label>
+    {% endif %}
+    {% if o.note %}<p class="hint">{{ o.note }}</p>{% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% comment %}
   A fixed taxonomy is what keeps one CIN need the same colour in every
   chart, which is the caveat about inconsistent encoding across a set.
   {% endcomment %}

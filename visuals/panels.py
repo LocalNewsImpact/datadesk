@@ -89,6 +89,23 @@ def type_panel(visual, post=None):
 # --- step 2: the colours -----------------------------------------------------
 
 
+def _chart_options(visual):
+    """The options this chart offers, given the roles filled so far."""
+    from visuals.types import options_for
+
+    spec = visual.spec or {}
+    filled = [role for role, value in (spec.get("roles") or {}).items() if value]
+    try:
+        offered = options_for((visual.config or {}).get("kind", ""), filled)
+    except KeyError:
+        # No chart type chosen yet, so there is nothing to offer.
+        return ()
+    # Taxonomy is left out because this step already has its own control
+    # for it below. Two controls on one key means the second write clears
+    # the first, whichever way the reader set it.
+    return tuple(o for o in offered if o.id != "taxonomy")
+
+
 def theme_panel(visual, post=None):
     if post is not None:
         name = post.get("theme", "")
@@ -110,6 +127,20 @@ def theme_panel(visual, post=None):
         # every chart. It belongs to this step because it is a colour
         # decision, not a data one.
         config["taxonomy"] = "cin" if post.get("taxonomy") else ""
+        # The chart's own options -- stacking, shares, order, axis labels.
+        # Read against what the chart offers, so a value cannot be posted
+        # for an option this chart does not have, and a choice cannot take
+        # a value outside the ones it names.
+        for option in _chart_options(visual):
+            posted = post.get(f"opt-{option.id}", "")
+            if option.kind == "toggle":
+                # Absent means off, which is what an unticked box sends.
+                config[option.id] = bool(posted)
+            elif option.kind == "choice":
+                allowed = {value for value, _ in option.values}
+                config[option.id] = posted if posted in allowed else ""
+            else:
+                config[option.id] = posted.strip()
         # Whose name sits on the chart. The consortium publishes what is
         # built here, so that is the default; a chart built on somebody
         # else's data credits them instead, because crediting ourselves
@@ -137,6 +168,24 @@ def theme_panel(visual, post=None):
             for i, label, colours in THEMES
         ],
         "taxonomy": config.get("taxonomy") == "cin",
+        # What this chart can be told to do, and what it has been told.
+        # Only the options whose role is filled: an option for a series
+        # that nobody chose is a control with nothing to act on.
+        "options": [
+            {
+                "id": o.id,
+                "label": o.label,
+                "kind": o.kind,
+                "note": o.note,
+                "value": config.get(o.id, ""),
+                "on": bool(config.get(o.id, True if o.id == "stacked" else "")),
+                "values": [
+                    {"value": v, "label": lab, "on": config.get(o.id, "") == v}
+                    for v, lab in o.values
+                ],
+            }
+            for o in _chart_options(visual)
+        ],
         "theme_mode": config.get("theme_mode", ""),
         # Falls back to the record's name, so a new visual arrives with a
         # sensible title in the box rather than an empty one.
