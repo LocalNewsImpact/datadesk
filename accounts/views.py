@@ -202,10 +202,25 @@ def invite(request):
         after={"scope": scope, "role": role},
         reason=f"invited {email} as {role} on {scope}",
     )
-    messages.success(
-        request,
-        f"{email} may now sign in with Google. They will hold {role} on {scope}.",
-    )
+    from accounts.mail import configured
+
+    link = request.build_absolute_uri(reverse("account_login"))
+    if configured():
+        _send_invitation(email, link, role, scope)
+        messages.success(
+            request,
+            f"{email} was told, and may now sign in with Google. "
+            f"They will hold {role} on {scope}.",
+        )
+    else:
+        # Shown rather than swallowed, the way add_account already does it:
+        # an invitation nobody was told about is an invitation nobody uses.
+        messages.success(
+            request,
+            f"{email} may now sign in with Google and will hold {role} on "
+            f"{scope} — but mail is not configured here, so tell them "
+            f"yourself: {link}",
+        )
     return redirect("accounts:users")
 
 
@@ -608,8 +623,38 @@ def set_password(request, uidb64, token):
     )
 
 
+def _send_invitation(email, link, role, scope):
+    """Tell the person who was invited.
+
+    The invite screen wrote the row and told the admin "they may now sign
+    in with Google", which is true and reaches nobody who needs to know
+    it. Two people were invited on 2026-08-27 and neither was told; the
+    invitations were live the whole time.
+
+    No password link here: an invitation admits a Google account, and
+    there is nothing for them to set.
+    """
+    from django.core.mail import send_mail
+
+    send_mail(
+        subject="You have been added to Datadesk",
+        message=(
+            "You have been given access to Datadesk, the Local News Impact "
+            "Consortium's research console.\n\n"
+            f"Sign in with Google, using this address:\n{link}\n\n"
+            f"You will hold {role} on {scope}.\n\n"
+            "If the address you are reading this at has no Google account, "
+            "say so to whoever invited you — there is another way in that "
+            "does not need one.\n"
+        ),
+        from_email=None,
+        recipient_list=[email],
+        fail_silently=False,
+    )
+
+
 def _send_set_password(person, link):
-    """The one message this application sends."""
+    """The other message this application sends."""
     from django.core.mail import send_mail
 
     send_mail(
