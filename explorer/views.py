@@ -635,9 +635,13 @@ def costs(request):
     # them. A load balancer split four ways produces four figures that are
     # each wrong and together look like an answer.
     gcp = gcp_costs()
-    gcp_error = ""
+    gcp_error, gcp_waiting = "", False
     if gcp and "unavailable" in gcp:
-        gcp_error, gcp = gcp["unavailable"], None
+        gcp_error, gcp_waiting, gcp = (
+            gcp["unavailable"],
+            bool(gcp.get("waiting")),
+            None,
+        )
 
     # Item 1 put spend on `write`, so an editor sees the cost of the
     # datasets they write. Two different shapes of answer:
@@ -667,7 +671,7 @@ def costs(request):
         }
     if not is_application_admin(request.user, APP):
         billed, billed_error = None, ""
-        gcp, gcp_error = None, ""
+        gcp, gcp_error, gcp_waiting = None, "", False
 
     # Join the two sides by day for the comparison table.
     by_day = {}
@@ -694,6 +698,7 @@ def costs(request):
             "billed_error": billed_error,
             "gcp": gcp,
             "gcp_error": gcp_error,
+            "gcp_waiting": gcp_waiting,
             "days": days,
         },
     )

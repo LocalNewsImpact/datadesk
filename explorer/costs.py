@@ -114,7 +114,7 @@ def recorded_costs():
 _BILLED_SQL = """
     WITH t AS (
       SELECT
-        TIMESTAMP(JSON_VALUE(trace, '$.timestamp')) AS at,
+        TIMESTAMP(JSON_VALUE(trace, '$.timestamp')) AS sent_at,
         CAST(JSON_VALUE(trace, '$.metadata.openrouter_generation.usage')
              AS FLOAT64) AS usage,
         CAST(JSON_VALUE(trace, '$.metadata.openrouter_generation.usage_cache')
@@ -125,13 +125,13 @@ _BILLED_SQL = """
       FROM `mizzou-news-crawler.mizzou_analytics.openrouter_traces`
     )
     SELECT
-      DATE(at) AS day,
+      DATE(sent_at) AS day,
       SUM(usage) AS billed,
       SUM(usage_cache) AS cache_discount,
       COUNT(*) AS requests,
       COUNTIF(usage_cache <> 0) AS cached_requests
     FROM t
-    WHERE at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
+    WHERE sent_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
     GROUP BY day
     ORDER BY day DESC
 """
@@ -273,4 +273,15 @@ def gcp_costs():
         cache.set("explorer.gcp_costs", value, _CACHE_SECONDS)
         return value
     except Exception as exc:
-        return {"unavailable": str(exc)[:300]}
+        # An export that has not written yet and one nobody may read look
+        # the same from here: BigQuery answers a missing wildcard table
+        # with "Access Denied ... or perhaps it does not exist", because
+        # saying which would tell a stranger what exists. The page should
+        # not repeat that guess as though it were news -- waiting for the
+        # first write is the ordinary state for days after switching the
+        # export on, and it is not a thing to fix.
+        message = str(exc)
+        waiting = "gcp_billing_export" in message and (
+            "does not exist" in message or "Access Denied" in message
+        )
+        return {"unavailable": message[:300], "waiting": waiting}

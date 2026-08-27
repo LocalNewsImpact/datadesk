@@ -1,5 +1,6 @@
 """The cost dashboard: recorded rollups, the billed join, degraded modes."""
 
+import re
 from datetime import UTC, datetime
 from unittest import mock
 
@@ -233,3 +234,119 @@ def test_infrastructure_is_a_bucket_not_a_number_to_divide():
     # The page reads these two names; renaming one without the other is how
     # a bucket quietly becomes a blank column.
     assert '"infrastructure"' in source and '"attributed"' in source
+
+
+# --- the query that ships is the query that was checked ----------------------
+
+
+def test_no_alias_collides_with_a_bigquery_keyword():
+    """`AS at` cost a deploy: AT is reserved -- AT TIME ZONE -- and the
+    billed side came back "400 Syntax error: Unexpected keyword AT".
+
+    The query had been run against BigQuery and passed. What was run was
+    an inline version written by hand in a terminal; what shipped was a
+    CTE rewritten afterwards and never re-run. Checking a query that
+    resembles the one you ship is not checking the one you ship.
+    """
+    from explorer.costs import _BILLED_SQL, _GCP_SQL
+
+    # Not the whole reserved list -- the ones a cost query reaches for.
+    reserved = {
+        "at",
+        "all",
+        "and",
+        "any",
+        "array",
+        "as",
+        "asc",
+        "by",
+        "case",
+        "cast",
+        "current",
+        "default",
+        "desc",
+        "distinct",
+        "else",
+        "end",
+        "exists",
+        "false",
+        "for",
+        "from",
+        "full",
+        "group",
+        "hash",
+        "having",
+        "if",
+        "in",
+        "inner",
+        "interval",
+        "into",
+        "is",
+        "join",
+        "left",
+        "like",
+        "limit",
+        "natural",
+        "new",
+        "no",
+        "not",
+        "null",
+        "of",
+        "on",
+        "or",
+        "order",
+        "outer",
+        "over",
+        "range",
+        "right",
+        "rows",
+        "select",
+        "set",
+        "some",
+        "struct",
+        "then",
+        "to",
+        "true",
+        "union",
+        "using",
+        "when",
+        "where",
+        "window",
+        "with",
+        "within",
+    }
+    for name, sql in (("billed", _BILLED_SQL), ("gcp", _GCP_SQL)):
+        aliases = re.findall(r"\bAS\s+([A-Za-z_][A-Za-z0-9_]*)", sql)
+        clashes = sorted({a for a in aliases if a.lower() in reserved})
+        assert clashes == [], f"{name} aliases a reserved word: {clashes}"
+
+
+def test_a_missing_export_reads_as_waiting_not_as_denied(monkeypatch):
+    """BigQuery answers a missing wildcard table with "Access Denied ...
+    or perhaps it does not exist", because saying which would tell a
+    stranger what exists. Repeating the alarming half as news sends
+    somebody to check permissions that are fine."""
+    from django.core.cache import cache
+
+    from explorer import costs
+
+    cache.delete("explorer.gcp_costs")
+
+    def not_there(_sql):
+        raise RuntimeError(
+            "403 Access Denied: Table "
+            "mizzou-news-crawler:billing_export.gcp_billing_export_v1_*: "
+            "User does not have permission to query table, or perhaps it "
+            "does not exist."
+        )
+
+    monkeypatch.setattr("explorer.analytics.query_rows", not_there)
+    assert costs.gcp_costs()["waiting"] is True
+
+    # A real permission problem on something else is not waiting.
+    cache.delete("explorer.gcp_costs")
+    monkeypatch.setattr(
+        "explorer.analytics.query_rows",
+        lambda _sql: (_ for _ in ()).throw(RuntimeError("403 Access Denied: no key")),
+    )
+    assert costs.gcp_costs()["waiting"] is False
