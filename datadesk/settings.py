@@ -416,10 +416,18 @@ def build_socialaccount_providers(client_id: str, secret: str) -> dict:
     config: dict = {
         "google": {
             "SCOPE": ["profile", "email"],
-            # Empty deliberately: see ALLOWED_AUTH_DOMAINS above. `hd` here
-            # shuts invited people out at Google's own screen, before any
-            # code of ours runs.
-            "AUTH_PARAMS": {},
+            # No `hd`: see ALLOWED_AUTH_DOMAINS above. It shuts invited
+            # people out at Google's own screen, before any code of ours
+            # runs.
+            #
+            # `select_account` because Google otherwise picks the browser's
+            # default, which for anybody signed into a personal account as
+            # well is the wrong one. Being refused and then choosing again
+            # on the tab behind you resends a spent authorization state,
+            # and the second attempt fails as "Third-Party Login Failure"
+            # -- a 401 that reads as "my own address cannot sign in".
+            # Asking every time costs one click and removes the trap.
+            "AUTH_PARAMS": {"prompt": "select_account"},
         }
     }
     if client_id and secret:
