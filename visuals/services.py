@@ -186,6 +186,19 @@ def refresh_snapshot(visual, actor):
     return record_snapshot(visual, actor, fetch_source_data(visual))
 
 
+def _rows_in(data):
+    """How many rows a snapshot holds, whatever shape it is.
+
+    A pivot stores a list. A story map stores an object of layers, each a
+    list, and it has drawn something if any of them has anything.
+    """
+    if isinstance(data, list):
+        return len(data)
+    if isinstance(data, dict):
+        return sum(len(v) for v in data.values() if isinstance(v, list))
+    return 0
+
+
 class NotPublishable(ValueError):
     """A visual carrying a field that may not be published.
 
@@ -210,6 +223,22 @@ def publish(visual, actor):
     # through, and it is shut for republishing too, so a published visual
     # cannot acquire one by editing.
     from visuals.corpus import internal_fields
+
+    # A pinned snapshot of nothing is a published page with nothing on it.
+    # cin-composition-by-county was published against two empty snapshots
+    # while the same spec returned a hundred rows live: the chart looked
+    # broken, the data was fine, and nothing anywhere said which.
+    #
+    # Checked at the pin rather than at the capture. An empty capture is a
+    # fact worth keeping -- it is how "there was nothing that day" is
+    # recorded -- but it is not a thing to serve to readers.
+    latest = visual.snapshots.order_by("-version").first()
+    if latest is not None and not _rows_in(latest.data):
+        raise NotPublishable(
+            f"{visual.title} has nothing to publish: version "
+            f"{latest.version} came back empty. Press Update to run it "
+            "again, and publish once it draws."
+        )
 
     blocked = internal_fields(visual.spec)
     if blocked:

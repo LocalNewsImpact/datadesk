@@ -475,3 +475,65 @@ def test_an_unpublished_internal_table_can_be_filed(client, admin):
     assert response.status_code in (200, 302), response.status_code
     visual.refresh_from_db()
     assert visual.folder_id == folder.id
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_visual_with_nothing_in_it_is_not_published(admin):
+    """A pinned snapshot of nothing is a published page with nothing on it.
+
+    Production, 2026-08-27: cin-composition-by-county was published against
+    two empty snapshots while the same spec returned a hundred rows live --
+    ten counties by ten CIN categories. The chart looked broken, the data
+    was fine, and nothing anywhere said which.
+    """
+    from visuals.services import NotPublishable, publish, record_snapshot
+
+    visual = Visual.objects.create(
+        slug="empty-one",
+        title="Nothing yet",
+        source_kind="inline",
+        created_by=admin,
+        template="builder",
+        config={"kind": "bar", "theme": "datadesk"},
+    )
+    record_snapshot(visual, admin, [])
+
+    with pytest.raises(NotPublishable) as raised:
+        publish(visual, admin)
+    assert "came back empty" in str(raised.value)
+    assert "Press Update" in str(raised.value)
+    visual.refresh_from_db()
+    assert visual.status != Visual.PUBLISHED
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_story_map_counts_the_rows_in_its_layers(admin):
+    """Its snapshot is an object of layers, not a list. Reading len() of
+    that would call a map with two full layers empty."""
+    from visuals.services import _rows_in
+
+    assert _rows_in([]) == 0
+    assert _rows_in([{"a": 1}]) == 1
+    assert _rows_in({"points": [], "areas": []}) == 0
+    assert _rows_in({"points": [{"a": 1}], "areas": [{"b": 2}]}) == 2
+    assert _rows_in(None) == 0
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_snapshot_with_rows_still_publishes(admin):
+    """The guard is about the pin, not about capture: an empty capture is
+    how "there was nothing that day" gets recorded."""
+    from visuals.services import publish, record_snapshot
+
+    visual = Visual.objects.create(
+        slug="has-rows",
+        title="Something",
+        source_kind="inline",
+        created_by=admin,
+        template="builder",
+        config={"kind": "bar", "theme": "datadesk"},
+    )
+    record_snapshot(visual, admin, [{"County": "Boone", "Articles": 3}])
+    publish(visual, admin)
+    visual.refresh_from_db()
+    assert visual.status == Visual.PUBLISHED

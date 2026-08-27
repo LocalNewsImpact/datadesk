@@ -72,6 +72,11 @@ class Option:
     kind: str = "choice"  # choice | toggle | text
     when: str = ""  # a role id, or "" for always
     note: str = ""
+    #: (value, label) for a choice. Empty string is the default, so the
+    #: first entry is what a visual does when nothing has been set. A
+    #: choice without these has nothing to offer, which is one reason none
+    #: of this reached the page.
+    values: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -152,15 +157,31 @@ FAMILIES = (
 # Shared by everything the generic renderer draws.
 _CATEGORY = Role("x", "Category", accepts=(TEXT, DATE))
 _VALUE = Role("y", "Value", accepts=(NUMBER,))
-_SERIES = Role("series", "Split by", accepts=(TEXT,), needs=False)
+# One role, four results. The label is the only place a reader learns
+# which they are about to get, so each chart names it after what it does.
+_STACK_BY = Role("series", "Stack by", accepts=(TEXT,), needs=False)
+_LINE_PER = Role("series", "One line per", accepts=(TEXT,), needs=False)
+_COLOUR_BY = Role("series", "Colour by", accepts=(TEXT,), needs=False)
 _AXIS_LABELS = (
     Option("xlabel", "Label the horizontal axis", "text"),
     Option("ylabel", "Label the vertical axis", "text"),
 )
-_SORT = Option("sort", "Order by", "choice")
+_SORT = Option(
+    "sort",
+    "Order by",
+    "choice",
+    values=(("y", "The value, largest first"), ("", "The category's own order")),
+)
 # Colour by a fixed taxonomy rather than by first appearance -- only
 # meaningful once something is split into series.
-_TAXONOMY = Option("taxonomy", "Category colours", "choice", when="series")
+_TAXONOMY = Option(
+    "taxonomy",
+    "Category colours",
+    "choice",
+    when="series",
+    values=(("", "By first appearance"), ("cin", "The CIN categories")),
+    note="A fixed taxonomy keeps a category the same colour across charts.",
+)
 
 
 CHART_TYPES = (
@@ -169,7 +190,7 @@ CHART_TYPES = (
         "Bar chart",
         RANKING,
         "Compare a value across categories.",
-        roles=(_CATEGORY, _VALUE, _SERIES),
+        roles=(_CATEGORY, _VALUE, _STACK_BY),
         options=(
             _SORT,
             _TAXONOMY,
@@ -183,10 +204,11 @@ CHART_TYPES = (
             ),
             Option(
                 "stack",
-                "Stack as shares",
+                "Stack as",
                 "choice",
                 when="series",
-                note="Each column fills the axis and the series read as percentages.",
+                values=(("", "Counts"), ("percent", "Shares of each column")),
+                note="Shares make every column the same height: a composition.",
             ),
             *_AXIS_LABELS,
         ),
@@ -201,7 +223,7 @@ CHART_TYPES = (
         "Line chart",
         CHANGE_OVER_TIME,
         "Follow a value over time.",
-        roles=(Role("x", "Time", accepts=(DATE, TEXT)), _VALUE, _SERIES),
+        roles=(Role("x", "Time", accepts=(DATE, TEXT)), _VALUE, _LINE_PER),
         options=(_SORT, _TAXONOMY, *_AXIS_LABELS),
         also=("trend", "time series"),
         encoding=POSITION,
@@ -214,7 +236,7 @@ CHART_TYPES = (
         "Area chart",
         CHANGE_OVER_TIME,
         "Follow a value over time, filled to the baseline.",
-        roles=(Role("x", "Time", accepts=(DATE, TEXT)), _VALUE, _SERIES),
+        roles=(Role("x", "Time", accepts=(DATE, TEXT)), _VALUE, _STACK_BY),
         options=(_SORT, _TAXONOMY, *_AXIS_LABELS),
         encoding=POSITION,
         functions=("Data over time", "Part-to-a-whole"),
@@ -229,7 +251,7 @@ CHART_TYPES = (
         roles=(
             Role("x", "Horizontal", accepts=(NUMBER,)),
             Role("y", "Vertical", accepts=(NUMBER,)),
-            _SERIES,
+            _COLOUR_BY,
             Role("size", "Dot size", accepts=(NUMBER,), needs=False),
         ),
         options=(_SORT, _TAXONOMY, *_AXIS_LABELS),
@@ -314,7 +336,16 @@ CHART_TYPES = (
         ),
         options=(
             Option("geo_level", "Geography", "choice"),
-            Option("geo_palette", "Palette", "choice", when="geo_value"),
+            Option(
+                "geo_palette",
+                "Palette",
+                "choice",
+                when="geo_value",
+                values=(
+                    ("", "One hue, light to dark"),
+                    ("diverging", "Two hues from a midpoint"),
+                ),
+            ),
             Option("geo_fit", "Zoom to the data", "toggle"),
         ),
         also=("heat map", "shaded", "county map"),
@@ -390,6 +421,17 @@ def fits(role, dimension_type):
     return dimension_type in role.accepts
 
 
+#: Options the renderer does not read. Declared here, drawn by nothing, and
+#: so not offered: a control that changes no pixel is worse than a missing
+#: one, because somebody sets it and believes they have.
+#:
+#: They stay declared rather than deleted -- each is a real thing a chart
+#: could do, and the work is in the renderer, not here.
+UNDRAWN = frozenset(
+    {"horizontal", "geo_level", "extent", "extent_custom", "focus", "focus_level"}
+)
+
+
 def options_for(chart_id, filled):
     """The options to show, given the roles filled so far.
 
@@ -398,7 +440,11 @@ def options_for(chart_id, filled):
     """
     chart = BY_ID[chart_id]
     have = set(filled or ())
-    return tuple(o for o in chart.options if not o.when or o.when in have)
+    return tuple(
+        o
+        for o in chart.options
+        if o.id not in UNDRAWN and (not o.when or o.when in have)
+    )
 
 
 def can_draw(chart_id, filled):
