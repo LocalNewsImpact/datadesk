@@ -3628,3 +3628,69 @@ def test_the_facet_can_list_a_dimension_that_holds_several_values(
     assert "Boone, MO" in names, names
     assert not any(value.isdigit() for value in names), "offered raw FIPS codes"
     assert dict(rows)["Boone, MO"] == 1
+
+
+# --- filterable, never an axis -----------------------------------------------
+
+
+def test_a_facet_only_field_is_not_offered_as_an_axis(client, author, visual, corpus):
+    """Which model ran is a question about a slice of the corpus, not a
+    story about local news. A reader who came for the journalism should not
+    be shown a bar chart of our pipeline -- but somebody building one may
+    well want only the rows a given model produced."""
+    from visuals.panels import variables
+
+    offered = {v["id"] for v in variables(visual)}
+    for key in ("model", "skip_reason", "geo_skip_reason"):
+        assert key not in offered, f"{key} is still an axis choice"
+    # ...and the ordinary ones are untouched.
+    assert "cin_primary" in offered and "publisher_name" in offered
+
+
+def test_a_facet_only_field_is_offered_to_narrow_by(client, author, visual, corpus):
+    from accounts.models import DATADESK, Grant
+
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": "bar", "theme": "datadesk"}
+    visual.spec = {"roles": {"x": "cin_primary", "y": "articles"}}
+    visual.save(update_fields=["config", "spec"])
+
+    page = client.get(f"/visuals/builder/{visual.slug}/step/fields/").content.decode()
+    assert "Narrow by" in page
+    assert 'data-dim="model"' in page
+    # It loads from the route that needs no role.
+    assert "/narrow/" in page
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_narrowing_by_a_facet_only_field_reaches_the_query(visual, corpus):
+    """The point of it. Two of the three articles have no model recorded."""
+    from accounts.access import ALL_SCOPES
+    from explorer.models import ArticleEnrichment
+    from visuals.corpus import run_spec
+
+    one = ArticleEnrichment.objects.first()
+    one.model = "haiku"
+    one.save(update_fields=["model"])
+
+    base = {
+        "roles": {"x": "cin_primary", "y": "articles"},
+        "measure": "articles",
+        "dimensions": ["cin_primary"],
+    }
+    everything, _ = run_spec(base, ALL_SCOPES)
+    narrowed, _ = run_spec({**base, "only": {"model": ["haiku"]}}, ALL_SCOPES)
+    assert sum(r["Articles"] for r in everything) == 3
+    assert sum(r["Articles"] for r in narrowed) == 1
+
+
+def test_the_values_route_needs_no_role(client, author, visual, corpus):
+    """A facet-only dimension has no role to be looked up by."""
+    from accounts.models import DATADESK, Grant
+
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    response = client.get(f"/visuals/builder/{visual.slug}/narrow/cin_primary/")
+    assert response.status_code == 200
+    assert {v["value"] for v in response.json()["values"]} == {"Civic Life", "Sports"}

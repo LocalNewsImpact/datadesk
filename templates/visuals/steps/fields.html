@@ -92,6 +92,39 @@ the steps before this one.</p>
     {% endif %}
   </div>
   {% endfor %}
+
+  {% comment %}
+  Dimensions that narrow a chart without being one. They have no slot above
+  because they are not an axis -- which model ran is a question about a
+  slice of the corpus, not a story about local news -- but somebody
+  building a chart may well want only the rows one model produced.
+
+  Offered whatever the chart type is: narrowing by which model ran means
+  the same thing on every one of them.
+  {% endcomment %}
+  {% if narrows %}
+  <div class="narrows">
+    <p class="tree-head">Narrow by</p>
+    {% for n in narrows %}
+    <details class="values" data-dim="{{ n.id }}"{% if n.kept %} open{% endif %}>
+      <summary>{{ n.label }}{% if n.kept %} <em>{{ n.kept|length }} kept</em>{% endif %}</summary>
+      <div class="values-list" data-for="{{ n.id }}">
+        {% comment %}
+        A save posts back whatever boxes are here, so drawing none would
+        clear the filter of anybody who never opened this.
+        {% endcomment %}
+        {% for v in n.kept %}
+        <label class="row">
+          <input type="checkbox" name="only-{{ n.id }}" value="{{ v }}" checked>
+          <span class="label">{{ v }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   {% comment %}
   How many of the left-hand thing to draw.
 
@@ -143,7 +176,12 @@ var wire = DatadeskFacetTree.wire;
 
 (function () {
   var base = "{% url 'visuals:role_values' visual.slug 'ROLE' %}";
-  document.querySelectorAll("details.values[data-role]").forEach(function (box) {
+  var byDim = "{% url 'visuals:dimension_values' visual.slug 'DIM' %}";
+  // Both kinds load the same way and differ only in what names the
+  // dimension: a role, or the dimension itself where nothing put it on an
+  // axis.
+  document.querySelectorAll("details.values[data-role], details.values[data-dim]")
+    .forEach(function (box) {
     var list = box.querySelector(".values-list");
     var loaded = false;
     function load() {
@@ -155,7 +193,10 @@ var wire = DatadeskFacetTree.wire;
       list.querySelectorAll("input:checked").forEach(function (i) { on[i.value] = true; });
       var narrowed = Object.keys(on).length > 0;
       list.setAttribute("aria-busy", "true");
-      fetch(base.replace("ROLE", box.dataset.role), {credentials: "same-origin"})
+      var url = box.dataset.role
+        ? base.replace("ROLE", box.dataset.role)
+        : byDim.replace("DIM", box.dataset.dim);
+      fetch(url, {credentials: "same-origin"})
         .then(function (r) { return r.ok ? r.json() : {values: []}; })
         .then(function (payload) {
           var rows = payload.values || [];

@@ -1149,6 +1149,20 @@ def newsroom_counts(request, slug):
 
 
 @requires(DESIGN)
+def dimension_values(request, slug, dim):
+    """Every value of a dimension nobody put on an axis.
+
+    A facet-only dimension -- which model ran, why a story was skipped --
+    narrows a chart without being one, so there is no role to look it up
+    by. Same answer, same shape; only the way in differs.
+    """
+    visual = _get_visual(request, slug=slug)
+    if not may_act_on(request.user, visual):
+        raise PermissionDenied
+    return _values_response(request, visual, dim)
+
+
+@requires(DESIGN)
 def role_values(request, slug, role):
     """Every value of the variable in a role, counted, on demand.
 
@@ -1157,15 +1171,19 @@ def role_values(request, slug, role):
     to fill a disclosure that starts closed. Now it runs when somebody
     opens one.
     """
-    from visuals.corpus import CorpusSpecError, values_of
-
     visual = _get_visual(request, slug=slug)
     if not may_act_on(request.user, visual):
         raise PermissionDenied
     chosen = ((visual.spec or {}).get("roles") or {}).get(role, "")
+    return _values_response(request, visual, chosen)
+
+
+def _values_response(request, visual, chosen):
+    """The value list for one dimension, however it was reached."""
+    from visuals.corpus import CorpusSpecError, values_of
+
     if not chosen:
         return JsonResponse({"values": []})
-
     kept = set(((visual.spec or {}).get("only") or {}).get(chosen) or [])
     scopes = scopes_of(visual)
     if not scopes:
