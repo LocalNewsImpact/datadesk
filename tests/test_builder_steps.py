@@ -3344,11 +3344,18 @@ def test_the_warmer_fills_the_tree_the_facet_reads(client, author, corpus):
 # dimensions cannot see its geography at all.
 
 
-def _covering(corpus, newsroom, places):
-    """An article whose enrichment names several counties."""
+def _covering(corpus, newsroom, places, primary=None):
+    """An article that names several counties, one of them its own.
+
+    Written to article_geoids, which is where the geography lives with the
+    editorial distinction attached. The enrichment text column is written
+    too: it is the same claim in the older shape, and leaving the two
+    disagreeing in a fixture would hide a change that made them disagree
+    in production.
+    """
     import json
 
-    from explorer.models import ArticleEnrichment
+    from explorer.models import ArticleEnrichment, ArticleGeoid
 
     enrichment = ArticleEnrichment.objects.filter(
         article__candidate_link__source=newsroom
@@ -3356,6 +3363,15 @@ def _covering(corpus, newsroom, places):
     assert enrichment is not None, "the fixture has no enrichment to place"
     enrichment.geoids = json.dumps(places)
     enrichment.save(update_fields=["geoids"])
+
+    ArticleGeoid.objects.filter(article_id=enrichment.article_id).delete()
+    for place in places:
+        ArticleGeoid.objects.create(
+            article_id=enrichment.article_id,
+            geoid=place,
+            geoid_level="county",
+            is_primary=(place == (primary or places[0])),
+        )
     return enrichment
 
 
@@ -3374,7 +3390,7 @@ def test_a_story_counts_in_every_county_it_covers(client, author, corpus, newsro
         },
         frozenset(["mizzou"]),
     )
-    covered = {r["County covered"]: r["Articles"] for r in rows}
+    covered = {r["Counties mentioned"]: r["Articles"] for r in rows}
     assert len(covered) == 3, covered
     assert all(n == 1 for n in covered.values()), covered
     # Named, not coded: a chart labelled 29095 is one nobody can read.
@@ -3426,12 +3442,12 @@ def test_the_place_set_refuses_a_measure_that_would_double_count(
 def test_only_one_multi_valued_dimension_at_a_time(client, author, corpus, newsroom):
     """Two would multiply each other and count a story once per pair of
     counties it touches."""
-    from visuals.corpus import DIMENSIONS, CorpusSpecError, run_spec
+    from visuals.corpus import DIMENSIONS, CorpusSpecError, explodes, run_spec
 
-    exploding = [k for k, d in DIMENSIONS.items() if d.get("explode")]
+    exploding = [k for k in DIMENSIONS if explodes(k)]
     if len(exploding) < 2:
-        # One today. The guard is what keeps a second one from being
-        # added without anybody thinking about the multiplication.
+        # One today. The guard is what keeps a second one from being added
+        # without anybody thinking about the multiplication.
         assert len(exploding) == 1
         return
     with pytest.raises(CorpusSpecError):
@@ -3602,12 +3618,12 @@ def test_a_facet_on_a_dimension_with_several_values_narrows_too(
     }
     _covering(corpus, newsroom, ["29019", "29095", "29510"])
     everything, _ = run_spec(base, ALL_SCOPES)
-    counties = {row["County covered"] for row in everything}
+    counties = {row["Counties mentioned"] for row in everything}
     assert len(counties) > 1, "fixture cannot show narrowing"
 
     one = sorted(counties)[0]
     narrowed, _ = run_spec({**base, "only": {"geo_covered": [one]}}, ALL_SCOPES)
-    assert {row["County covered"] for row in narrowed} == {one}
+    assert {row["Counties mentioned"] for row in narrowed} == {one}
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
@@ -3810,10 +3826,12 @@ def test_the_column_list_is_laid_out_as_rows():
     is a values-list without one, so it got no rule at all and thirty-five
     checkboxes reflowed into a single run-on paragraph."""
     css = _console_css()
-    rule = css[css.index(".values-list{") :]
+    rule = css[css.index(".values-list{ max-height") :]
     rule = rule[: rule.index("}")]
     assert "display: grid" in rule, "one long column of thirty-five fields"
     assert ".values-list .row{ display: flex" in css, "labels still run together"
+    # ...and each family gets a heading, so forty fields read as six lists.
+    assert ".values-group{" in css
 
 
 def _console_css():
@@ -4035,3 +4053,98 @@ def test_free_text_is_not_offered_as_an_axis():
     assert "person_role" not in DIMENSIONS
     assert "org_boundary" not in DIMENSIONS, "98.6% null, and a QA flag"
     assert "person_nature" in DIMENSIONS and "org_nature" in DIMENSIONS
+
+
+# --- where a story is set, and everywhere it mentions ------------------------
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_where_a_story_is_set_is_the_point_already(visual, corpus, newsroom):
+    """A dimension for the primary geoid would have duplicated one that
+    already exists. All 10,723 primary rows in article_geoids equal the
+    article's point_geoid -- none differ, none are missing -- so the
+    central place is what the point columns have always held, under names
+    that said how it was found rather than what it is.
+
+    What was missing was the other question, and a name for each."""
+    from visuals.corpus import DIMENSIONS
+
+    assert "geo_central" not in DIMENSIONS, "a second name for the point"
+    assert DIMENSIONS["point_place"]["label"] == "Central place"
+    assert DIMENSIONS["geo_county"]["label"] == "Central county"
+    assert DIMENSIONS["geo_covered"]["label"] == "Counties mentioned"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_mentioned_counts_every_county_named(visual, corpus, newsroom):
+    """Three counties named, three counted -- where the central place is
+    one story, in one of them."""
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import run_spec
+
+    _covering(corpus, newsroom, ["29019", "29095", "29510"], primary="29019")
+    rows, _ = run_spec(
+        {
+            "roles": {"x": "geo_covered", "y": "articles"},
+            "measure": "articles",
+            "dimensions": ["geo_covered"],
+        },
+        ALL_SCOPES,
+    )
+    assert len({r["Counties mentioned"] for r in rows}) == 3
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_coverage_comes_from_the_table_not_the_text_column(visual, corpus, newsroom):
+    """article_geoids is a strict superset: 13,128 articles against 7,153
+    for the text column, with nothing of its own. Reading the column left
+    45% of the geography we hold out of every answer."""
+    import json
+
+    from accounts.access import ALL_SCOPES
+    from explorer.models import ArticleEnrichment, ArticleGeoid
+    from visuals.corpus import run_spec
+
+    enrichment = ArticleEnrichment.objects.filter(
+        article__candidate_link__source=newsroom
+    ).first()
+    # The table says two counties; the old text column says nothing.
+    enrichment.geoids = json.dumps([])
+    enrichment.save(update_fields=["geoids"])
+    for geoid in ("29019", "29095"):
+        ArticleGeoid.objects.create(
+            article_id=enrichment.article_id,
+            geoid=geoid,
+            geoid_level="county",
+            is_primary=(geoid == "29019"),
+        )
+
+    rows, _ = run_spec(
+        {
+            "roles": {"x": "geo_covered", "y": "articles"},
+            "measure": "articles",
+            "dimensions": ["geo_covered"],
+        },
+        ALL_SCOPES,
+    )
+    assert len(rows) == 2, "still reading the text column"
+
+
+def test_the_two_geography_questions_are_offered_together():
+    """A reader choosing between them cannot tell them apart from a column
+    name, so they sit under one heading, side by side."""
+    from visuals.corpus import GROUP_OF, GROUPS
+
+    assert GROUP_OF["geo_covered"] == GROUP_OF["point_place"] == "geography"
+    assert dict(GROUPS)["geography"] == "Story geography"
+    # Where the publisher sits is a different question and stays with the
+    # publisher.
+    assert GROUP_OF["publisher_county"] == "publisher"
+
+
+def test_every_dimension_has_a_family():
+    """A dimension with no group falls to "Other", which is a prompt to
+    place it rather than a resting spot."""
+    from visuals.corpus import DIMENSIONS, GROUP_OF
+
+    assert [k for k in DIMENSIONS if k not in GROUP_OF] == []

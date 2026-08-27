@@ -17,14 +17,21 @@ to 65 seconds.
   {% csrf_token %}
   <div class="role">
     <h4>Columns <span class="accepts">— tick any</span></h4>
+    {% comment %}
+    Under the same headings the selects use, so a column list of forty
+    fields is read as six short ones.
+    {% endcomment %}
+    {% for group in column_groups %}
+    <p class="values-group">{{ group.label }}</p>
     <div class="values-list">
-      {% for c in columns %}
+      {% for c in group.options %}
       <label class="row">
         <input type="checkbox" name="columns" value="{{ c.id }}" {% if c.on %}checked{% endif %}>
-        <span class="label">{{ c.label }}</span>
+        <span class="label" title="{{ c.note|default:'' }}">{{ c.label }}</span>
       </label>
       {% endfor %}
     </div>
+    {% endfor %}
   </div>
   <div class="role">
     <h4>Count <span class="accepts">— a number</span></h4>
@@ -56,10 +63,19 @@ the steps before this one.</p>
   {% for role in roles %}
   <div class="role">
     <h4>{{ role.label }} <span class="accepts">— {{ role.accepts }}{% if role.optional %}, optional{% endif %}</span></h4>
+    {% comment %}
+    Grouped, because two of these answer each other: where a story is set
+    and everywhere it mentions are the same analysis asked two ways, and
+    nobody can tell them apart from a flat list of forty.
+    {% endcomment %}
     <select class="var" name="role-{{ role.id }}">
       <option value="">Choose{% if role.optional %} (optional){% endif %}</option>
-      {% for v in role.options %}
-      <option value="{{ v.id }}" {% if v.on %}selected{% endif %}>{{ v.label }}</option>
+      {% for group in role.groups %}
+      <optgroup label="{{ group.label }}">
+        {% for v in group.options %}
+        <option value="{{ v.id }}" {% if v.on %}selected{% endif %}>{{ v.label }}</option>
+        {% endfor %}
+      </optgroup>
       {% endfor %}
     </select>
     {% comment %}
