@@ -3822,3 +3822,70 @@ def _console_css():
     return (
         Path(__file__).resolve().parent.parent / "static/css/datadesk.css"
     ).read_text()
+
+
+# --- a date field that opens a calendar and only a calendar -------------------
+
+
+def _calendar_js():
+    from pathlib import Path
+
+    return (
+        Path(__file__).resolve().parent.parent / "static/js/calendar.js"
+    ).read_text()
+
+
+def test_the_date_field_suppresses_the_native_picker():
+    """The native control differs by browser and cannot be styled. In
+    Firefox its month and year are a second view: clicking them replaces
+    the day grid with a scrolling list, and getting back to the days means
+    clicking again. That is two controls where the job needs one.
+
+    Switching the input to text is what stops the native picker. The value
+    format and the field name are untouched, so the form still submits
+    yyyy-mm-dd and the server never learns this happened.
+    """
+    js = _calendar_js()
+    assert 'input.type = "text"' in js
+    # No month or year list anywhere -- that is the view being removed.
+    assert "MONTHS[" in js, "the month is named in the header"
+    assert "<select" not in js and 'createElement("select")' not in js
+
+
+def test_the_calendar_is_progressive():
+    """Where the script does not run the field stays a native date input,
+    which is worse than the calendar and better than a text box nobody can
+    pick a date in."""
+    js = _calendar_js()
+    assert "querySelectorAll('input[type=\"date\"]')" in js
+    assert "DOMContentLoaded" in js
+
+
+def test_weeks_start_on_monday_and_the_blanks_agree():
+    """A grid whose columns do not match the labels above them is worse
+    than either convention. The leading blanks must equal the weekday of
+    the first, counted from Monday."""
+    js = _calendar_js()
+    assert '"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"' in js
+    # (getDay() + 6) % 7 is Monday-first; getDay() alone is Sunday-first and
+    # would put every month one column out.
+    assert "(new Date(year, month, 1).getDay() + 6) % 7" in js
+
+
+def test_the_data_step_loads_the_calendar(client, author, visual, corpus):
+    from accounts.models import DATADESK, Grant
+
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": "table", "theme": "datadesk"}
+    visual.save(update_fields=["config"])
+    page = client.get(f"/visuals/builder/{visual.slug}/step/data/").content.decode()
+    assert "js/calendar.js" in page
+    # Inside the block, or Django discards it and the native picker returns.
+    assert page.index("calendar.js") < page.index("</body>")
+
+
+def test_the_calendar_is_styled():
+    css = _console_css()
+    for name in (".cal-pop{", ".cal-grid{", ".cal-date{", ".cal-step{"):
+        assert name in css, f"{name} has no rule"
