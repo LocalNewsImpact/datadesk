@@ -93,7 +93,14 @@ DIMENSIONS = {
             "bylines. Thousands of values: narrow it to the largest few."
         ),
     },
-    "status": {"label": "Article status", "expr": F("status")},
+    # Built with, viewed and exported freely; never published. Where a
+    # story sits in our pipeline is a fact about us, and a reader meeting
+    # it on a public page reads it as a fact about the journalism.
+    "status": {
+        "label": "Article status",
+        "expr": F("status"),
+        "internal": True,
+    },
     "wire": {"label": "Wire state", "expr": F("wire_check_status")},
     # The CIN taxonomy, as the classifier records it on the article:
     # a primary need and its runner-up. Their cross-tab is the chord.
@@ -219,6 +226,7 @@ DIMENSIONS = {
     "content_gate_reason": {
         "label": "Why the gate excluded it",
         "expr": F("enrichment__content_gate_reason"),
+        "internal": True,
     },
 }
 
@@ -231,23 +239,27 @@ MEASURES = {
         "combine": "sum",
     },
     "cost_sum": {
+        "internal": True,
         "label": "Cost (sum, USD)",
         "agg": lambda: Sum("enrichment__cost_usd"),
         "combine": "sum",
     },
     "cost_avg": {
+        "internal": True,
         "label": "Cost (average, USD)",
         "agg": lambda: Avg("enrichment__cost_usd"),
         "combine": "mean",
         "weight": lambda: Count("enrichment__cost_usd"),
     },
     "confidence_avg": {
+        "internal": True,
         "label": "Scope confidence (average)",
         "agg": lambda: Avg("enrichment__scope_confidence"),
         "combine": "mean",
         "weight": lambda: Count("enrichment__scope_confidence"),
     },
     "cin_confidence_avg": {
+        "internal": True,
         "label": "CIN confidence (average)",
         "agg": lambda: Avg("primary_label_confidence"),
         "combine": "mean",
@@ -1127,6 +1139,38 @@ def _exploded_values(dim_key, spec, scopes, limit):
             counts.setdefault(value, set()).add(article)
     ranked = sorted(counts.items(), key=lambda kv: (-len(kv[1]), kv[0]))
     return [(value, len(ids)) for value, ids in ranked[:limit]]
+
+
+def internal_fields(spec):
+    """The fields in `spec` that a published visual may not carry.
+
+    Class D of the field audit: internal use only. Everything inside the
+    console works on them -- build a report, look at it, take the CSV --
+    and none of it may be published, because what they say is a fact about
+    our pipeline that a reader meets as a fact about the journalism.
+
+    Returns labels rather than keys: whoever is told they cannot publish
+    needs the name they chose, not the column behind it.
+
+    Narrowing counts. Filtering to the stories a gate excluded, and then
+    publishing the chart, publishes the gate's opinion even though the
+    reason never appears on an axis.
+    """
+    spec = spec or {}
+    keys = set(spec.get("dimensions") or [])
+    keys |= {value for value in (spec.get("roles") or {}).values() if value}
+    keys |= set((spec.get("only") or {}).keys())
+
+    out = []
+    for key in sorted(keys):
+        dimension = DIMENSIONS.get(key)
+        if dimension and dimension.get("internal"):
+            out.append(dimension["label"])
+    for key in sorted({spec.get("measure") or ""} | keys):
+        measure = MEASURES.get(key)
+        if measure and measure.get("internal"):
+            out.append(measure["label"])
+    return out
 
 
 def values_of(dim_key, spec, scopes, limit=200):
