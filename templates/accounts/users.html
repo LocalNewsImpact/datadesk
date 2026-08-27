@@ -17,7 +17,7 @@
       <thead>
         <tr>
           <th scope="col">Email</th>
-          <th scope="col">Username</th>
+          <th scope="col">Name</th>
           <th scope="col" class="shrink">Role</th>
           <th scope="col">Datasets</th>
           <th scope="col">Last sign-in</th>
@@ -28,7 +28,7 @@
         {% for person in people %}
         <tr>
           <td><a href="{% url 'accounts:person' person.user.id %}">{{ person.user.email|default:person.user.username }}</a></td>
-          <td>{{ person.user.username }}</td>
+          <td>{{ person.user.get_full_name|default:person.user.username }}</td>
           <td class="shrink">
             {% if person.role %}<span class="chip" data-role="{{ person.role }}">{{ person.role }}</span>
             {% else %}<span class="absent">none</span>{% endif %}

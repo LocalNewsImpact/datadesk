@@ -27,7 +27,7 @@
       <tbody>
         {% for person in people %}
         <tr>
-          <td>{{ person.user.email|default:person.user.username }}
+          <td>{{ person.user.get_full_name|default:person.user.email|default:person.user.username }}
             <span class="sub">last sign-in {{ person.user.last_login|date:"Y-m-d"|default:"never" }}</span></td>
           <td class="shrink">
             {% if person.role %}<span class="chip" data-role="{{ person.role }}">{{ person.role }}</span>

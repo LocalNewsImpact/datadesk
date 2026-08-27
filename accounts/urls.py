@@ -13,6 +13,7 @@ urlpatterns = [
     # screen each half lived on.
     path("users/<int:user_id>/", views.person, name="person"),
     path("users/<int:user_id>/email/", views.set_email, name="set_email"),
+    path("users/<int:user_id>/name/", views.set_name, name="set_name"),
     path(
         "users/<int:user_id>/password-link/",
         views.send_password_link,

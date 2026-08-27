@@ -72,7 +72,12 @@
         </div>
         {% if user.is_authenticated %}
         <nav class="session">
-          <span class="identity">{{ user.email }}</span>
+          {% comment %}
+          A first name where there is one. "damon6" is a generated
+          username and nobody's name; an address is an identifier, not
+          what a person is called.
+          {% endcomment %}
+          <span class="identity" title="{{ user.email }}">{{ user.first_name|default:user.email }}</span>
           <form method="post" action="{% url 'account_logout' %}">
             {% csrf_token %}
             <button type="submit" class="linklike">Sign out</button>
