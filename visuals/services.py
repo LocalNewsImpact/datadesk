@@ -186,12 +186,39 @@ def refresh_snapshot(visual, actor):
     return record_snapshot(visual, actor, fetch_source_data(visual))
 
 
+class NotPublishable(ValueError):
+    """A visual carrying a field that may not be published.
+
+    The message names the fields, because "cannot publish" without saying
+    which field stopped it is a dead end -- the author chose several and
+    has no way to tell which one is the problem.
+    """
+
+
 def publish(visual, actor):
     """Publish: pin the latest snapshot (taking one if none exists).
 
     The pin is the embed stability rule — from here the embed serves
     this exact data until a human re-pins.
     """
+    # Here rather than in the view: publishing happens from the builder,
+    # the admin action, the step panel and a management command, and a
+    # rule enforced in four places is a rule enforced in three.
+    #
+    # Class D of the field audit -- internal use only. Building, viewing
+    # and exporting are all untouched; this is the one door it may not go
+    # through, and it is shut for republishing too, so a published visual
+    # cannot acquire one by editing.
+    from visuals.corpus import internal_fields
+
+    blocked = internal_fields(visual.spec)
+    if blocked:
+        raise NotPublishable(
+            f"{visual.title} cannot be published: "
+            f"{', '.join(blocked)} "
+            f"{'are' if len(blocked) > 1 else 'is'} for internal use. "
+            "Everything else still works — look at it here, or take the CSV."
+        )
     snapshot = visual.snapshots.order_by("-version").first()
     if snapshot is None:
         snapshot = refresh_snapshot(visual, actor)

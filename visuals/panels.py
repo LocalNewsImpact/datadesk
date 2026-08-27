@@ -1031,8 +1031,16 @@ def publish_panel(visual, post=None, actor=None):
     pinned_version = (
         visual.pinned_snapshot.version if visual.pinned_snapshot_id else None
     )
+    # Said before the button is pressed, not after. "Cannot publish" as the
+    # answer to a click is a worse version of the same sentence: by then the
+    # author has decided they are finished.
+    from visuals.corpus import internal_fields
+
+    blocked = internal_fields(visual.spec)
+
     return {
         "published": visual.status == Visual.PUBLISHED,
+        "blocked": blocked,
         "snippet": snippet(visual),
         # One per choice, so picking a theme is not a round trip. The
         # embed follows the reader unless it is told not to, and inside

@@ -1605,6 +1605,14 @@ tr.prop td { border-bottom: 0; }
 
 .values-list{ max-height: 13rem; overflow-y: auto; }
 
+/* A refusal, and the button it refuses. Disabled rather than removed: the
+   button is where somebody looks to finish, and a missing one reads as a
+   page that has not finished loading. */
+.notice.bad{ border-left: 3px solid var(--tone-bad); }
+.notice.bad strong{ display: block; color: var(--text); }
+.action-bar button[disabled]{ opacity: .5; cursor: not-allowed; }
+.action-bar button[disabled]:hover{ background: var(--accent); }
+
 /* Dimensions that narrow a chart without being one, listed together under
    the slots rather than beside any of them -- they answer to no axis. */
 .narrows{ margin-top: var(--s-3); padding-top: var(--s-3);

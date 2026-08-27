@@ -6,7 +6,13 @@ from django.utils.html import format_html
 
 from visuals.embed import snippet
 from visuals.models import Visual, VisualSnapshot
-from visuals.services import DataSourceError, publish, refresh_snapshot, unpublish
+from visuals.services import (
+    DataSourceError,
+    NotPublishable,
+    publish,
+    refresh_snapshot,
+    unpublish,
+)
 
 #: Where an embed points. Its own name because an embed URL, once pasted
 #: into somebody's article, cannot be moved (ROADMAP item 24).
@@ -75,7 +81,7 @@ class VisualAdmin(admin.ModelAdmin):
         for visual in queryset:
             try:
                 publish(visual, request.user)
-            except DataSourceError as exc:
+            except (DataSourceError, NotPublishable) as exc:
                 self.message_user(request, f"{visual.slug}: {exc}", messages.ERROR)
             else:
                 self.message_user(

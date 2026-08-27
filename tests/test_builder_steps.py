@@ -3694,3 +3694,56 @@ def test_the_values_route_needs_no_role(client, author, visual, corpus):
     response = client.get(f"/visuals/builder/{visual.slug}/narrow/cin_primary/")
     assert response.status_code == 200
     assert {v["value"] for v in response.json()["values"]} == {"Civic Life", "Sports"}
+
+
+def test_the_publish_button_is_inactive_when_a_field_is_internal(
+    client, author, visual, corpus
+):
+    """Disabled rather than removed: the button is where somebody looks to
+    finish, and a missing one reads as a page that has not loaded. The
+    reason sits beside it, so the state answers the question they were
+    about to ask."""
+    from accounts.models import DATADESK, Grant
+
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": "bar", "theme": "datadesk"}
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    # Complete, or the step says there is nothing to publish yet and never
+    # reaches the question this test is about.
+    visual.spec = {
+        "datasets": ["mizzou"],
+        "subset": "complete",
+        "roles": {"x": "cin_primary"},
+        "measure": "cost_sum",
+        "dimensions": ["cin_primary"],
+    }
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+
+    # A snapshot exists, or the step says there is nothing to publish yet
+    # and never draws a button at all.
+    from visuals.services import record_snapshot
+
+    record_snapshot(visual, author, [{"CIN (primary)": "Sports", "Cost (sum, USD)": 1}])
+
+    response = client.get(f"/visuals/builder/{visual.slug}/step/publish/")
+    assert response.status_code == 200, response.status_code
+    page = response.content.decode()
+    assert 'value="publish"' in page, "no publish button to disable"
+    assert "disabled" in page, "the button is still live"
+    assert "Cost (sum, USD)" in page, "it does not say which field"
+    assert 'id="cannot-publish"' in page
+
+    # A publishable one keeps its button.
+    visual.spec = {
+        "datasets": ["mizzou"],
+        "subset": "complete",
+        "roles": {"x": "cin_primary"},
+        "measure": "articles",
+        "dimensions": ["cin_primary"],
+    }
+    visual.save(update_fields=["spec"])
+    page = client.get(f"/visuals/builder/{visual.slug}/step/publish/").content.decode()
+    assert "cannot-publish" not in page
+    assert "disabled" not in page

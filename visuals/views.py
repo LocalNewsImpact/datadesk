@@ -35,6 +35,7 @@ from visuals.embed import snippet as embed_snippet
 from visuals.models import BIGQUERY, CORPUS, GCS, INLINE, Visual
 from visuals.services import (
     DataSourceError,
+    NotPublishable,
     fetch_source_data,
     may_act_on,
     publish,
@@ -964,7 +965,7 @@ def builder_edit(request, slug):
                 publish(visual, request.user)
             elif form == "unpublish":
                 unpublish(visual, request.user)
-        except (BuilderError, DataSourceError) as exc:
+        except (BuilderError, DataSourceError, NotPublishable) as exc:
             error = str(exc)
         else:
             return redirect("visuals:builder_edit", visual.slug)
