@@ -21,7 +21,7 @@ from accounts.access import ALL_SCOPES, is_application_admin
 from accounts.decorators import APP, requires
 from accounts.privileges import COST_PRIVILEGE, READ
 from datasets.geo import level_for_geoid, name_for_geoid
-from explorer.costs import billed_costs, recorded_costs
+from explorer.costs import billed_costs, gcp_costs, recorded_costs
 from explorer.models import (
     Article,
     ArticleEnrichment,
@@ -630,6 +630,15 @@ def costs(request):
     if billed and "unavailable" in billed:
         billed_error, billed = billed["unavailable"], None
 
+    # What Google charged, in two buckets kept apart on the page: the jobs
+    # that name a dataset, and the infrastructure that belongs to none of
+    # them. A load balancer split four ways produces four figures that are
+    # each wrong and together look like an answer.
+    gcp = gcp_costs()
+    gcp_error = ""
+    if gcp and "unavailable" in gcp:
+        gcp_error, gcp = gcp["unavailable"], None
+
     # Item 1 put spend on `write`, so an editor sees the cost of the
     # datasets they write. Two different shapes of answer:
     #
@@ -658,6 +667,7 @@ def costs(request):
         }
     if not is_application_admin(request.user, APP):
         billed, billed_error = None, ""
+        gcp, gcp_error = None, ""
 
     # Join the two sides by day for the comparison table.
     by_day = {}
@@ -682,6 +692,8 @@ def costs(request):
             "recorded": recorded,
             "billed": billed,
             "billed_error": billed_error,
+            "gcp": gcp,
+            "gcp_error": gcp_error,
             "days": days,
         },
     )
