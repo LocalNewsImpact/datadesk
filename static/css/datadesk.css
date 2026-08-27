@@ -1603,7 +1603,23 @@ tr.prop td { border-bottom: 0; }
   font-style: normal; font-variant-numeric: tabular-nums; }
 .facet-all{ color: var(--text-3); font-size: var(--fs-sm); }
 
-.values-list{ max-height: 13rem; overflow-y: auto; }
+/* The rule that made these rows was `.values .row`, which is the facet
+   disclosure -- so the table step's column list, which is a values-list
+   without a disclosure around it, got no rule at all and reflowed into one
+   run-on paragraph of thirty-five checkboxes.
+
+   Styled by the list rather than by what encloses it, and laid out in as
+   many columns as fit: a corpus has dozens of fields, and a single column
+   of them inside a scrolling box is a worse way to find one. */
+.values-list{ max-height: 16rem; overflow-y: auto;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: .05rem .75rem; align-content: start; }
+.values-list .row{ display: flex; align-items: center; gap: .45rem;
+  padding: .12rem .2rem; border-radius: var(--r-sm); min-width: 0; }
+.values-list .row:hover{ background: var(--surface-2, var(--surface)); }
+.values-list .row .label{ overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.values-list .row input{ flex: none; }
 
 /* A refusal, and the button it refuses. Disabled rather than removed: the
    button is where somebody looks to finish, and a missing one reads as a

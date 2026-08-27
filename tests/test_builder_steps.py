@@ -3770,3 +3770,55 @@ def test_an_internal_field_is_offered_to_a_table_and_no_chart(visual):
     assert "status" in table
     # The facet-only ones stay out of both: they narrow, they are not columns.
     assert "model" not in table
+
+
+def test_a_table_with_no_columns_does_not_ask_the_feed(client, author, visual, corpus):
+    """The pivot refuses a group-by with no dimensions -- correctly -- and
+    that refusal arrived in the preview as "502 from the feed", painted
+    over the sentence saying which choice was missing.
+
+    Production, 2026-08-27: six 502s on data.json?live=1 while walking a
+    new table through the steps, each one 53 bytes of "Pick at least one
+    dimension to group by."
+    """
+    from accounts.models import DATADESK, Grant
+
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": "table", "theme": "datadesk"}
+    visual.source_kind = "corpus"
+    visual.datasets = ["mizzou"]
+    visual.spec = {"datasets": ["mizzou"], "subset": "complete"}
+    visual.save(update_fields=["config", "source_kind", "datasets", "spec"])
+
+    page = client.get(f"/visuals/builder/{visual.slug}/step/fields/").content.decode()
+    assert "once you choose columns to show" in page
+    # Nothing is fetched, so nothing can fail...
+    assert 'fetch("' not in page, "still asking for data it cannot have"
+    # ...and nothing promises a load that will never arrive.
+    assert "Loading…" not in page
+
+    # With a column chosen it asks again.
+    visual.spec = dict(visual.spec, dimensions=["cin_primary"], measure="articles")
+    visual.save(update_fields=["spec"])
+    page = client.get(f"/visuals/builder/{visual.slug}/step/fields/").content.decode()
+    assert 'fetch("' in page
+
+
+def test_the_column_list_is_laid_out_as_rows():
+    """`.values .row` is the facet disclosure. The table step's column list
+    is a values-list without one, so it got no rule at all and thirty-five
+    checkboxes reflowed into a single run-on paragraph."""
+    css = _console_css()
+    rule = css[css.index(".values-list{") :]
+    rule = rule[: rule.index("}")]
+    assert "display: grid" in rule, "one long column of thirty-five fields"
+    assert ".values-list .row{ display: flex" in css, "labels still run together"
+
+
+def _console_css():
+    from pathlib import Path
+
+    return (
+        Path(__file__).resolve().parent.parent / "static/css/datadesk.css"
+    ).read_text()

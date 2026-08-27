@@ -6,7 +6,13 @@
 <figure class="dd-visual">
   {% if visual.config.title %}<h2 class="dd-title">{{ visual.config.title }}</h2>{% endif %}
   {% if visual.config.subtitle %}<p class="dd-subtitle">{{ visual.config.subtitle }}</p>{% endif %}
-  <div class="dd-chart" id="dd-chart-{{ visual.slug }}">Loading…</div>
+  {% comment %}
+  "Loading…" is a promise that something is on its way. Where a choice is
+  still missing nothing has been asked for, and the sentence above already
+  says which choice -- so this says nothing rather than waiting forever on
+  a request that was never made.
+  {% endcomment %}
+  <div class="dd-chart" id="dd-chart-{{ visual.slug }}">{% if not missing %}Loading…{% endif %}</div>
   <figcaption class="dd-footer">
     {% comment %}
     Everything built here is published by the consortium, so that is the
@@ -174,6 +180,13 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   const already = answered();
+  {% if missing %}
+  // Nothing to ask for yet. The pivot refuses a group-by with no
+  // dimensions -- correctly -- and that refusal arrived as "502 from the
+  // feed", painted over the sentence saying which choice is still missing.
+  // A preview waiting on a choice should say so, not report a failure.
+  if (already) draw(already);
+  {% else %}
   if (already) {
     draw(already);
   } else {
@@ -192,5 +205,6 @@ document.addEventListener("DOMContentLoaded", function () {
         el.textContent = "The data could not be loaded — " + err.message + ".";
       });
   }
+  {% endif %}
 });
 </script>
