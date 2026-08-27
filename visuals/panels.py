@@ -663,6 +663,7 @@ def _variables():
             "kind": kinds.get(k, "text"),
             "measure": False,
             "internal": bool(v.get("internal")),
+            "row_level": bool(v.get("row_level")),
             "group": GROUP_OF.get(k, "other"),
         }
         for k, v in DIMENSIONS.items()
@@ -743,7 +744,10 @@ def variables(visual=None):
     # choice that cannot be used is worse than one that was never there.
     if _draws_a_table(visual):
         return VARIABLES
-    return [v for v in VARIABLES if not v.get("internal")]
+    # A bar chart of headlines is one bar per story, and a chart of body
+    # text is not a thing. Same reasoning as the internal fields above:
+    # left out of the picker rather than offered and refused later.
+    return [v for v in VARIABLES if not v.get("internal") and not v.get("row_level")]
 
 
 def _draws_a_table(visual):

@@ -96,6 +96,45 @@ DIMENSIONS = {
     # Built with, viewed and exported freely; never published. Where a
     # story sits in our pipeline is a fact about us, and a reader meeting
     # it on a public page reads it as a fact about the journalism.
+    # --- the article itself ----------------------------------------------
+    #
+    # A table of articles wants the article: its headline, when it ran, a
+    # link, the text. None of these group into anything -- a headline is
+    # unique to its story -- so choosing one turns the pivot into a
+    # listing, which is what a table of them is. See run_spec.
+    #
+    # Not offered to a chart. A bar chart of headlines is one bar per
+    # story, and a chart of body text is not a thing.
+    "title": {
+        "label": "Headline",
+        "expr": F("title"),
+        "row_level": True,
+    },
+    "url": {
+        "label": "Link",
+        "expr": F("url"),
+        "row_level": True,
+    },
+    "published": {
+        "label": "Published",
+        "expr": F("publish_date"),
+        "row_level": True,
+        "note": "The date itself, where Month and Year group by it.",
+    },
+    "excerpt": {
+        "label": "Body text (excerpt)",
+        "expr": F("text_excerpt"),
+        "row_level": True,
+    },
+    "body": {
+        "label": "Body text (full)",
+        "expr": F("text"),
+        "row_level": True,
+        "note": (
+            "The whole article. Long in a table on screen; the reason to "
+            "pick it is the CSV."
+        ),
+    },
     "status": {
         "label": "Article status",
         "expr": F("status"),
@@ -693,6 +732,7 @@ EXPLODED_MEASURES = ("articles", "publishers")
 #: publisher.
 GROUPS = (
     ("publisher", "Publisher"),
+    ("article", "The article"),
     ("story", "The story"),
     ("time", "When"),
     ("people", "People named"),
@@ -702,6 +742,11 @@ GROUPS = (
 )
 
 GROUP_OF = {
+    "body": "article",
+    "excerpt": "article",
+    "published": "article",
+    "url": "article",
+    "title": "article",
     "dataset": "publisher",
     "publisher": "publisher",
     "publisher_name": "publisher",
@@ -862,6 +907,62 @@ def _run_exploded(spec, scopes, dim_keys, measure_key, exploded):
     return rows, len(unresolved)
 
 
+def _run_rows(spec, scopes, dim_keys):
+    """The articles themselves, one row each, not grouped.
+
+    A headline is unique to its story, so grouping by one makes every
+    story its own group -- a listing, arrived at by hashing every headline
+    and every body text on the way. This asks for the rows instead.
+
+    Newest first, because a table of stories is read from the top and the
+    top is the recent end. Bounded by the same ceiling as a pivot, and it
+    says when it hit it.
+    """
+    alias = {key: f"{DIM_PREFIX}{key}" for key in dim_keys}
+    qs = _base_queryset(spec, scopes).annotate(
+        **{alias[key]: DIMENSIONS[key]["expr"] for key in dim_keys}
+    )
+    for key in dim_keys:
+        requires = DIMENSIONS[key].get("requires")
+        if requires is not None:
+            qs = qs.filter(requires)
+
+    columns = [alias[key] for key in dim_keys]
+    # Nulls last. Postgres puts them first on a descending sort, so a table
+    # of stories would open on the ones with no date -- which reads as a
+    # table of nothing.
+    fetched = list(
+        qs.order_by(F("publish_date").desc(nulls_last=True)).values(*columns)[
+            : MAX_GROUPS + 1
+        ]
+    )
+    truncated = len(fetched) > MAX_GROUPS
+    fetched = fetched[:MAX_GROUPS]
+
+    rows = [
+        {DIMENSIONS[key]["label"]: row[alias[key]] for key in dim_keys}
+        for row in fetched
+    ]
+    return rows, {
+        "qualifying_groups": None,
+        "thresholds": {"min_articles": 0, "min_publishers": 0},
+        "dimensions": [
+            {
+                "key": k,
+                "label": DIMENSIONS[k]["label"],
+                "geo_level": None,
+                "note": DIMENSIONS[k].get("note"),
+            }
+            for k in dim_keys
+        ],
+        "measure": None,
+        "groups": len(rows),
+        "truncated": truncated,
+        "rows_considered": None,
+        "rows_used": None,
+    }
+
+
 def run_spec(spec, scopes):
     """Run a pivot spec and return (rows, meta).
 
@@ -882,6 +983,21 @@ def run_spec(spec, scopes):
     dim_keys = list(dict.fromkeys(k for k in (spec.get("dimensions") or []) if k))
     if not dim_keys:
         raise CorpusSpecError("Pick at least one dimension to group by.")
+    for key in dim_keys:
+        if key not in DIMENSIONS:
+            raise CorpusSpecError(f"Unknown dimension: {key}")
+
+    # A headline, a link, a date, the text: unique to one story each, so
+    # grouping by them makes every story its own group. That is a listing,
+    # reached by hashing every body text on the way. Ask for the rows.
+    if any(DIMENSIONS[k].get("row_level") for k in dim_keys):
+        grouped = [k for k in dim_keys if not DIMENSIONS[k].get("row_level")]
+        if any(explodes(k) or DIMENSIONS[k].get("multi") for k in grouped):
+            raise CorpusSpecError(
+                "A column that names several per story cannot sit beside the "
+                "story's own headline or text. Choose one or the other."
+            )
+        return _run_rows(spec, scopes, dim_keys)
     for key in dim_keys:
         if key not in DIMENSIONS:
             raise CorpusSpecError(f"Unknown dimension: {key}")
