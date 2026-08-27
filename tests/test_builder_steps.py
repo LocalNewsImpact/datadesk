@@ -4207,3 +4207,64 @@ def test_the_preview_shows_what_the_feed_said():
     assert "body.error" in renderer
     # ...and still says something when the body is not JSON.
     assert 'r.status + " from the feed"' in renderer
+
+
+# --- a table of articles wants the article -----------------------------------
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_table_can_list_the_articles_themselves(visual, corpus):
+    """Headline, date, link, text. None of these group into anything -- a
+    headline is unique to its story -- so choosing one asks for the rows
+    rather than making every story its own group by hashing every body
+    text on the way."""
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import run_spec
+
+    rows, meta = run_spec(
+        {
+            "measure": "articles",
+            "dimensions": ["published", "title", "publisher_name"],
+        },
+        ALL_SCOPES,
+    )
+    assert len(rows) == 3, "one row per article, not one per group"
+    assert set(rows[0]) == {"Published", "Headline", "Publisher name"}
+    # Newest first: a table of stories is read from the top.
+    assert [r["Headline"] for r in rows] == sorted(
+        (r["Headline"] for r in rows),
+        key=lambda h: [x["Published"] for x in rows if x["Headline"] == h][0],
+        reverse=True,
+    )
+    # No count column: the rows are the answer.
+    assert meta["measure"] is None
+
+
+def test_a_chart_is_not_offered_the_article_fields(visual):
+    """A bar chart of headlines is one bar per story, and a chart of body
+    text is not a thing."""
+    from visuals.panels import variables
+
+    visual.config = {"kind": "bar"}
+    chart = {v["id"] for v in variables(visual)}
+    visual.config = {"kind": "table"}
+    table = {v["id"] for v in variables(visual)}
+
+    for key in ("title", "url", "published", "excerpt", "body"):
+        assert key not in chart, f"{key} offered to a chart"
+        assert key in table, f"{key} withheld from a table"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_story_and_what_it_names_cannot_share_a_table(visual, corpus):
+    """One row per story, or one row per person named -- a table cannot be
+    both at once, and silently picking one would misreport the other."""
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import CorpusSpecError, run_spec
+
+    with pytest.raises(CorpusSpecError) as raised:
+        run_spec(
+            {"measure": "articles", "dimensions": ["title", "person_type"]},
+            ALL_SCOPES,
+        )
+    assert "Choose one or the other" in str(raised.value)
