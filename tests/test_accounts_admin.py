@@ -797,3 +797,64 @@ def test_the_sign_in_page_says_why():
         request=RequestFactory().get("/accounts/login/"),
     )
     assert "Try another account." in page, "a refusal would arrive silent"
+
+
+# --- an invitation nobody was told about -------------------------------------
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_inviting_somebody_tells_them(client, settings, dataset):
+    from django.urls import reverse
+
+    """The invite screen wrote the row and told the admin "they may now
+    sign in with Google" -- true, and reaching nobody who needed to know
+    it. Two people were invited on 2026-08-27 and neither was told; the
+    invitations were live the whole time."""
+    from django.core import mail
+
+    settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    settings.ALLOWED_AUTH_DOMAINS = ["localnewsimpact.org"]
+    admin = User.objects.create_user("boss", email="boss@localnewsimpact.org")
+    Grant.objects.create(user=admin, app=DATADESK, scope="", role="admin")
+    client.force_login(admin)
+
+    with mock.patch("accounts.mail.configured", return_value=True):
+        client.post(
+            reverse("accounts:invite"),
+            {"email": "guest@example.com", "scope": "mizzou", "role": "reviewer"},
+        )
+
+    assert len(mail.outbox) == 1, "the invitation went to nobody"
+    sent = mail.outbox[0]
+    assert sent.to == ["guest@example.com"]
+    # What they need: where to go, and what they will hold when they do.
+    assert "/accounts/login/" in sent.body
+    assert "reviewer" in sent.body
+    # No password link: an invitation admits a Google account and there is
+    # nothing for them to set.
+    assert "set-password" not in sent.body
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_an_unconfigured_mailer_hands_the_link_over(client, settings, dataset):
+    from django.urls import reverse
+
+    """A local console is always in this state. An admin who cannot see
+    the link has invited somebody nobody can reach."""
+    from django.contrib.messages import get_messages
+
+    settings.ALLOWED_AUTH_DOMAINS = ["localnewsimpact.org"]
+    admin = User.objects.create_user("boss2", email="boss2@localnewsimpact.org")
+    Grant.objects.create(user=admin, app=DATADESK, scope="", role="admin")
+    client.force_login(admin)
+
+    with mock.patch("accounts.mail.configured", return_value=False):
+        response = client.post(
+            reverse("accounts:invite"),
+            {"email": "other@example.com", "scope": "mizzou", "role": "editor"},
+            follow=True,
+        )
+
+    said = " ".join(str(m) for m in get_messages(response.wsgi_request))
+    assert "tell them yourself" in said
+    assert "/accounts/login/" in said
