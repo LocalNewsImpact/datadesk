@@ -919,3 +919,52 @@ def test_a_refusal_names_the_address_google_returned(client, settings):
         )
     said = " ".join(str(m) for m in get_messages(request))
     assert "kiesowd@umsystem.edu" in said, "the admin still has to guess"
+
+
+# --- what to call somebody ---------------------------------------------------
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_an_admin_can_name_a_person(client):
+    """allauth's generated username is an email local part with a number
+    stuck on the end to make it unique. "damon6" is what the console called
+    the person who owns it, on every page that named him."""
+    from django.urls import reverse
+
+    admin = User.objects.create_user("boss", email="boss@localnewsimpact.org")
+    Grant.objects.create(user=admin, app=DATADESK, scope="", role="admin")
+    target = User.objects.create_user("damon6", email="d@umsystem.edu")
+    client.force_login(admin)
+
+    client.post(
+        reverse("accounts:set_name", args=[target.id]),
+        {"first_name": "Damon", "last_name": "Kiesow"},
+    )
+    target.refresh_from_db()
+    assert (target.first_name, target.last_name) == ("Damon", "Kiesow")
+
+    # Shown where people are named, and the address kept as the title so an
+    # identifier is still one hover away.
+    page = client.get(reverse("accounts:person", args=[target.id])).content.decode()
+    assert "Damon Kiesow" in page
+    page = client.get(reverse("accounts:users")).content.decode()
+    assert "Damon Kiesow" in page
+    assert "damon6" not in page, "still calling him by a generated username"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_person_needs_at_least_a_first_name(client):
+    """A surname alone is a filing system, not a greeting."""
+    from django.urls import reverse
+
+    admin = User.objects.create_user("boss2", email="boss2@localnewsimpact.org")
+    Grant.objects.create(user=admin, app=DATADESK, scope="", role="admin")
+    target = User.objects.create_user("nobody", email="n@umsystem.edu")
+    client.force_login(admin)
+
+    client.post(
+        reverse("accounts:set_name", args=[target.id]),
+        {"first_name": "  ", "last_name": "Kiesow"},
+    )
+    target.refresh_from_db()
+    assert target.last_name == "", "a nameless account was half-named"

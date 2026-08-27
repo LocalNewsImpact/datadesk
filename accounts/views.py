@@ -275,6 +275,48 @@ def person(request, user_id):
 
 @requires_admin
 @require_POST
+def set_name(request, user_id):
+    """What to call somebody.
+
+    Google fills these in on first sign-in, but a password account made in
+    the admin has nothing to fill them from, and allauth's generated
+    username -- an email local part with a number stuck on the end to make
+    it unique -- is not a name anybody chose. "damon6" is what the console
+    called the person who owns it.
+
+    Both halves stored, first shown. A surname is what tells two Damons
+    apart on the Roles page, and a first name is what a person is called
+    everywhere else.
+    """
+    User = get_user_model()
+    target = User.objects.filter(pk=user_id).first()
+    if target is None:
+        raise Http404("No such account")
+
+    first = (request.POST.get("first_name") or "").strip()[:150]
+    last = (request.POST.get("last_name") or "").strip()[:150]
+    if not first:
+        messages.error(request, "A first name at least.")
+        return redirect("accounts:person", user_id=user_id)
+
+    was = f"{target.first_name} {target.last_name}".strip()
+    target.first_name, target.last_name = first, last
+    target.save(update_fields=["first_name", "last_name"])
+    AuditLogEntry.objects.create(
+        actor=request.user,
+        action="accounts:name_set",
+        target_table="auth_user",
+        target_ids=[str(target.pk)],
+        before={"name": was},
+        after={"name": f"{first} {last}".strip()},
+        reason=f"named {target.email or target.username} {first} {last}".strip(),
+    )
+    messages.success(request, f"Called {first} {last}".strip() + " from now on.")
+    return redirect("accounts:person", user_id=user_id)
+
+
+@requires_admin
+@require_POST
 def set_email(request, user_id):
     """Change the address an account signs in with.
 

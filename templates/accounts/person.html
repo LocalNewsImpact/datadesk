@@ -5,7 +5,8 @@
 <p class="breadcrumb"><a href="{% url 'accounts:users' %}">← Users</a></p>
 
 <section class="card card-wide">
-  <h1>{{ person.user.email|default:person.user.username }}</h1>
+  <h1>{{ person.user.get_full_name|default:person.user.email|default:person.user.username }}</h1>
+  {% if person.user.get_full_name %}<p class="lede">{{ person.user.email }}</p>{% endif %}
   <p class="lede">
     {% if person.locked %}A superuser: every privilege comes from the
     account flag rather than from a grant, and is changed in the Django
@@ -112,6 +113,25 @@ The address is not cosmetic: Google sign-in matches an account by its
 verified address, and an invitation is held by address too. Changing it
 moves how they get in.
 {% endcomment %}
+<section class="card card-wide">
+  <h2>Name</h2>
+  <p class="lede">What to call them. Google fills these in on first sign-in;
+  an account made here has nothing to fill them from, and the generated
+  username is not a name anybody chose.</p>
+  <form method="post" action="{% url 'accounts:set_name' person.user.id %}" class="page-actions">
+    {% csrf_token %}
+    <label class="visually-hidden" for="first_name">First name</label>
+    <input id="first_name" type="text" name="first_name" required
+           placeholder="First" value="{{ person.user.first_name }}"
+           autocomplete="off">
+    <label class="visually-hidden" for="last_name">Last name</label>
+    <input id="last_name" type="text" name="last_name"
+           placeholder="Last" value="{{ person.user.last_name }}"
+           autocomplete="off">
+    <button type="submit" class="primary">Save</button>
+  </form>
+</section>
+
 <section class="card card-wide">
   <h2>Address</h2>
   <p class="lede">What they sign in with. Changing it changes that, for
