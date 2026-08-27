@@ -215,6 +215,86 @@ DIMENSIONS = {
         "geo_level": "zcta",
         "note": "Census ZCTA, where the coding was precise enough to have one.",
     },
+    # --- who is in the news ---------------------------------------------
+    #
+    # A story names several people and several organisations, so these join
+    # one-to-many and a row multiplies across the join. That is what makes
+    # them answerable at all -- a story about three officials counts in
+    # every type it names -- and it is also why they can only be counted by
+    # something distinct. `multi` says so, and run_spec refuses the rest.
+    #
+    # `role_in_story` from either table is not here: it is free text, 39,997
+    # distinct values across 55,856 rows, one per row in all but name. An
+    # axis of it would draw a chart of forty thousand categories. `nature`
+    # is the vocabulary that field looks like it should be.
+    "person_type": {
+        "label": "Person type",
+        "expr": F("people__person_type"),
+        "multi": True,
+        "requires": Q(people__person_type__isnull=False),
+        "note": (
+            "Who is named: an elected official, an athlete, a community "
+            "member. A story counts in every type it names."
+        ),
+    },
+    "person_nature": {
+        "label": "How a person figures",
+        "expr": F("people__nature"),
+        "multi": True,
+        "requires": Q(people__nature__isnull=False),
+        "note": (
+            "Source, subject, official, witness, victim -- what the person "
+            "is to the story rather than who they are."
+        ),
+    },
+    "person_public": {
+        "label": "Public figure",
+        "expr": F("people__public_figure"),
+        "multi": True,
+        "requires": Q(people__public_figure__isnull=False),
+        "note": "Whether the person named holds a public role.",
+    },
+    "person_name": {
+        "label": "Person named",
+        "expr": F("people__name"),
+        "multi": True,
+        "requires": Q(people__name__isnull=False),
+        "note": (
+            "Tens of thousands of names. Usable with a limit on the "
+            "left-hand side, unreadable without one."
+        ),
+    },
+    "person_affiliation": {
+        "label": "Person's affiliation",
+        "expr": F("people__affiliation"),
+        "multi": True,
+        "requires": Q(people__affiliation__isnull=False),
+        "note": "The organisation behind the name, as the story gives it.",
+    },
+    "org_type": {
+        "label": "Organisation type",
+        "expr": F("organizations__org_type"),
+        "multi": True,
+        "requires": Q(organizations__org_type__isnull=False),
+        "note": (
+            "Government, company, school, sports team. A story counts in "
+            "every type it names."
+        ),
+    },
+    "org_nature": {
+        "label": "How an organisation figures",
+        "expr": F("organizations__nature"),
+        "multi": True,
+        "requires": Q(organizations__nature__isnull=False),
+        "note": "Actor, subject, source, regulator, affected.",
+    },
+    "org_name": {
+        "label": "Organisation named",
+        "expr": F("organizations__name"),
+        "multi": True,
+        "requires": Q(organizations__name__isnull=False),
+        "note": "Thousands of names; wants a limit on the left-hand side.",
+    },
     "is_news_content": {
         "label": "Is news content",
         "expr": F("enrichment__is_news_content"),
@@ -698,6 +778,19 @@ def run_spec(spec, scopes):
     # its own path, and only one of them can be in a pivot: two would
     # multiply each other and count a story once per pair of counties it
     # touches.
+    # A dimension that joins one-to-many multiplies the rows it groups, so
+    # anything but a distinct count is counted once per person or
+    # organisation named. Cost summed that way is not a bigger number, it
+    # is a wrong one, and nothing about the chart would say so.
+    joined = [k for k in dim_keys if DIMENSIONS[k].get("multi")]
+    if joined and measure_key not in EXPLODED_MEASURES:
+        raise CorpusSpecError(
+            f"{DIMENSIONS[joined[0]]['label']} names several per story, so it "
+            f"can be counted by "
+            f"{' or '.join(MEASURES[m]['label'].lower() for m in EXPLODED_MEASURES)}"
+            f" but not by {MEASURES[measure_key]['label'].lower()}."
+        )
+
     exploding = [k for k in dim_keys if DIMENSIONS[k].get("explode")]
     if len(exploding) > 1:
         raise CorpusSpecError(

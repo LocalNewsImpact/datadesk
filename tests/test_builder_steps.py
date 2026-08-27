@@ -3889,3 +3889,149 @@ def test_the_calendar_is_styled():
     css = _console_css()
     for name in (".cal-pop{", ".cal-grid{", ".cal-date{", ".cal-step{"):
         assert name in css, f"{name} has no rule"
+
+
+# --- who is in the news ------------------------------------------------------
+
+
+def _peopled(corpus, newsroom):
+    """Three articles, named people and organisations across them."""
+    from explorer.models import Article, ArticleOrganization, ArticlePerson
+
+    articles = list(Article.objects.order_by("id")[:3])
+    # a0: an official and an athlete. a1: the same official again, so the
+    # count is of stories rather than of mentions. a2: an athlete only.
+    ArticlePerson.objects.create(
+        article=articles[0],
+        name="Mayor Quinn",
+        person_type="elected_official",
+        nature="source",
+        public_figure=True,
+        mention_count=3,
+    )
+    ArticlePerson.objects.create(
+        article=articles[0],
+        name="Sam Reed",
+        person_type="athlete",
+        nature="subject",
+        public_figure=False,
+        mention_count=1,
+    )
+    ArticlePerson.objects.create(
+        article=articles[1],
+        name="Mayor Quinn",
+        person_type="elected_official",
+        nature="official",
+        public_figure=True,
+        mention_count=2,
+    )
+    ArticlePerson.objects.create(
+        article=articles[2],
+        name="Kit Ash",
+        person_type="athlete",
+        nature="subject",
+        public_figure=False,
+        mention_count=1,
+    )
+    ArticleOrganization.objects.create(
+        article=articles[0],
+        name="City Council",
+        org_type="government",
+        nature="actor",
+    )
+    ArticleOrganization.objects.create(
+        article=articles[0],
+        name="Rovers FC",
+        org_type="sports_team",
+        nature="subject",
+    )
+    return articles
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_story_counts_in_every_person_type_it_names(visual, corpus, newsroom):
+    """A story naming an official and an athlete is a story about both.
+    Counted as distinct stories, so naming the same person twice is one."""
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import run_spec
+
+    _peopled(corpus, newsroom)
+    rows, _ = run_spec(
+        {
+            "roles": {"x": "person_type", "y": "articles"},
+            "measure": "articles",
+            "dimensions": ["person_type"],
+        },
+        ALL_SCOPES,
+    )
+    counts = {r["Person type"]: r["Articles"] for r in rows}
+    assert counts == {"elected_official": 2, "athlete": 2}
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_same_person_twice_in_one_story_is_one_story(visual, corpus, newsroom):
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import run_spec
+
+    _peopled(corpus, newsroom)
+    rows, _ = run_spec(
+        {
+            "roles": {"x": "person_name", "y": "articles"},
+            "measure": "articles",
+            "dimensions": ["person_name"],
+        },
+        ALL_SCOPES,
+    )
+    counts = {r["Person named"]: r["Articles"] for r in rows}
+    assert counts["Mayor Quinn"] == 2, "counted mentions rather than stories"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_organisations_answer_the_same_way(visual, corpus, newsroom):
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import run_spec
+
+    _peopled(corpus, newsroom)
+    rows, _ = run_spec(
+        {
+            "roles": {"x": "org_type", "y": "articles"},
+            "measure": "articles",
+            "dimensions": ["org_type"],
+        },
+        ALL_SCOPES,
+    )
+    assert {r["Organisation type"]: r["Articles"] for r in rows} == {
+        "government": 1,
+        "sports_team": 1,
+    }
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_joined_dimension_refuses_a_measure_that_would_double(visual, corpus):
+    """The join multiplies rows. Cost summed across it is not a bigger
+    number, it is a wrong one, and nothing about the chart would say so."""
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import CorpusSpecError, run_spec
+
+    with pytest.raises(CorpusSpecError) as raised:
+        run_spec(
+            {
+                "roles": {"x": "person_type", "y": "cost_sum"},
+                "measure": "cost_sum",
+                "dimensions": ["person_type"],
+            },
+            ALL_SCOPES,
+        )
+    assert "names several per story" in str(raised.value)
+
+
+def test_free_text_is_not_offered_as_an_axis():
+    """`role_in_story` is 39,997 distinct values across 55,856 rows -- one
+    per row in all but name. An axis of it draws forty thousand
+    categories. `nature` is the vocabulary it looks like it should be."""
+    from visuals.corpus import DIMENSIONS
+
+    assert "role_in_story" not in DIMENSIONS
+    assert "person_role" not in DIMENSIONS
+    assert "org_boundary" not in DIMENSIONS, "98.6% null, and a QA flag"
+    assert "person_nature" in DIMENSIONS and "org_nature" in DIMENSIONS
