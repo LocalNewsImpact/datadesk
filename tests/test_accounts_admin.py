@@ -747,3 +747,53 @@ def test_the_password_form_is_folded_away_but_still_there(client):
     fold = page[page.index("<details") :]
     assert 'name="login"' in fold and 'name="password"' in fold
     assert "account_login" not in fold or 'action="/accounts/login/"' in fold
+
+
+# --- a refusal has to leave somewhere to go ----------------------------------
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_refused_account_lands_back_on_the_sign_in_page(client, settings):
+    """A bare 403 ends the flow on a page with no way out, and the way out
+    people take is to pick another account on the Google tab still open
+    behind them. That resends the same single-use state, which allauth has
+    already spent, so the second attempt fails as "Third-Party Login
+    Failure" -- a 401 about the state, not about the account.
+
+    Production, 2026-08-27: an admin whose browser defaults to a personal
+    Google account was refused (403, correctly), picked his LNIC account,
+    and was told that one could not sign in either (401). Both callbacks
+    carried the same state.
+    """
+    from allauth.core.exceptions import ImmediateHttpResponse
+
+    from accounts.adapters import DomainRestrictedAdapter
+
+    settings.ALLOWED_AUTH_DOMAINS = ["localnewsimpact.org"]
+    request = client.request().wsgi_request
+
+    with pytest.raises(ImmediateHttpResponse) as raised:
+        DomainRestrictedAdapter().pre_social_login(
+            request, _google_login("someone@example.com")
+        )
+    response = raised.value.response
+    assert response.status_code == 302
+    assert response["Location"] == "/accounts/login/"
+
+
+def test_the_sign_in_page_says_why():
+    """A redirect that shows nothing is worse than the 403 it replaced:
+    this layout did not render messages at all, so anything said on the way
+    here was said to nobody."""
+    from django.template.loader import render_to_string
+    from django.test import RequestFactory
+
+    message = type(
+        "M", (), {"tags": "error", "__str__": lambda s: "Try another account."}
+    )()
+    page = render_to_string(
+        "account/login.html",
+        {"messages": [message]},
+        request=RequestFactory().get("/accounts/login/"),
+    )
+    assert "Try another account." in page, "a refusal would arrive silent"

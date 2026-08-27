@@ -16,6 +16,34 @@ from django.conf import settings
 from django.http import HttpResponseForbidden
 
 
+def _back_to_sign_in(request, message):
+    """Refuse, and leave somewhere to go.
+
+    A bare 403 ends the flow on a page with no way out of it, and the way
+    people get out of it is to pick a different account on the Google tab
+    still open behind them. That resends the same single-use state, which
+    allauth has already spent, so the second attempt fails as "Third-Party
+    Login Failure" -- a 401 that has nothing to do with the account they
+    chose.
+
+    That is not a hypothetical: it is how an admin whose browser defaults
+    to a personal Google account was told, twice in thirty seconds, that
+    the address he owns the console with could not sign in.
+
+    Landing back on the sign-in page ends this attempt cleanly and starts
+    the next one with a fresh state.
+    """
+    from django.contrib import messages
+    from django.shortcuts import redirect
+
+    if request is not None:
+        messages.error(request, message)
+        return redirect("account_login")
+    # No request only in a direct call from a test; the plain refusal is
+    # still the honest answer there.
+    return HttpResponseForbidden(message)
+
+
 class DomainRestrictedAdapter(DefaultSocialAccountAdapter):
     """Admit only verified addresses in the configured hosted domains."""
 
@@ -34,7 +62,7 @@ class DomainRestrictedAdapter(DefaultSocialAccountAdapter):
         # doors below are decisions about a particular person.
         if not verified:
             raise ImmediateHttpResponse(
-                HttpResponseForbidden("Google has not verified that address.")
+                _back_to_sign_in(request, "Google has not verified that address.")
             )
 
         # The organisation's own door. `hd` establishes the Workspace
@@ -74,9 +102,11 @@ class DomainRestrictedAdapter(DefaultSocialAccountAdapter):
             return
 
         raise ImmediateHttpResponse(
-            HttpResponseForbidden(
-                f"This application is restricted to {', '.join(allowed)} "
-                "accounts and people an administrator has given an account."
+            _back_to_sign_in(
+                request,
+                "That account cannot sign in here. This console is open to "
+                f"{', '.join(allowed)} accounts and to people an "
+                "administrator has given an account — try another account.",
             )
         )
 

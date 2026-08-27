@@ -29,6 +29,19 @@ The head matches base.html so the typefaces and stylesheet are the same.
   <main class="auth-shell">
     <div class="auth-card">
       <p class="auth-brand">Local News Impact Consortium</p>
+      {% comment %}
+      The console's base renders these; this layout did not, so anything
+      said with `messages` on the way to a sign-in page was said to nobody.
+      A refusal that redirects here and shows nothing is worse than the
+      bare 403 it replaced.
+      {% endcomment %}
+      {% if messages %}
+      <ul class="messages">
+        {% for message in messages %}
+        <li class="message {{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
       {% block content %}{% endblock %}
     </div>
     <p class="auth-foot">Consoles for LNIC research data.</p>
