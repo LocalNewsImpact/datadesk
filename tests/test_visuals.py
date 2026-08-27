@@ -763,6 +763,65 @@ def test_a_draft_preview_is_never_cached(client, viewer, visual, author):
     assert feed["Cache-Control"] == "no-store"
 
 
+def test_a_live_preview_of_a_published_visual_is_never_cached(client, visual, author):
+    """`?live=1` means "run the source and tell me what it draws now",
+    which is what the builder's preview asks on every step. Cached for an
+    hour because the visual happens to be published, the author is served
+    the rows from before their last change -- and the chart then draws the
+    new config against the old columns, so choosing a different category
+    puts every row in one nameless band. That reads as a chart that has
+    stopped working, not as a stale copy.
+
+    `public` was the other half: a shared cache could hold a published
+    visual's unpublished working rows.
+    """
+    from visuals.models import INLINE
+
+    _snapshot(visual, author, ROWS_V1)
+    # An upload, so the live branch answers from the rows themselves
+    # rather than reaching for BigQuery, which no test has. Set after the
+    # snapshot, which is how an upload gets one.
+    visual.source_kind = INLINE
+    visual.save(update_fields=["source_kind"])
+    publish(visual, author)
+    client.force_login(author)
+
+    live = client.get("/visuals/story-geography/data.json?live=1")
+    assert live.status_code == 200
+    assert live["Cache-Control"] == "no-store"
+
+    # The CSV of the same rows, which is the same question in a file.
+    csv = client.get("/visuals/story-geography/data.csv?live=1")
+    assert csv.status_code == 200
+    assert csv["Cache-Control"] == "no-store"
+
+    # The pinned answer is still cacheable: it is one immutable version.
+    assert (
+        "immutable"
+        in client.get("/visuals/story-geography/data.json?v=1")["Cache-Control"]
+    )
+
+
+def test_a_live_feed_url_names_the_question_it_asks(visual):
+    """A URL meaning "current" is one URL for every question the builder
+    asks, so anything holding a copy of it answers the next question with
+    the last one's rows -- and a browser that cached an hour of it goes on
+    doing that after the header is fixed. The name in the URL is what ends
+    that: a held copy can only be returned for the question it answers.
+    """
+    from visuals.views import _feed_url
+
+    one = _feed_url(visual, by_uuid=False, live=True, stamp="aaaa1111")
+    two = _feed_url(visual, by_uuid=False, live=True, stamp="bbbb2222")
+    assert "live=1" in one and "q=aaaa1111" in one
+    assert one != two, "two questions, one URL"
+
+    # A published feed is not named this way: it is a version, or it is
+    # "current" and meant to be shared between readers.
+    plain = _feed_url(visual, by_uuid=True, version=1)
+    assert "q=" not in plain and "live" not in plain
+
+
 @pytest.mark.urls("datadesk.urls_data")
 def test_a_pinned_embed_fetches_the_version_it_was_pinned_to(client, visual, author):
     """The frame and the fetch inside it have to agree. An embed at ?v=1
