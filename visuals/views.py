@@ -228,7 +228,7 @@ def _credit_line(visual):
     return first["owner"] or first["dataset"], first["contact"]
 
 
-def _feed_url(visual, by_uuid, version=None, live=False):
+def _feed_url(visual, by_uuid, version=None, live=False, stamp=""):
     """Where this page's renderer fetches its rows.
 
     Built here rather than reversed in the template, because the two
@@ -240,11 +240,22 @@ def _feed_url(visual, by_uuid, version=None, live=False):
 
     The version rides along, or an embed pinned to v3 would frame v3 and
     then fetch whatever is current into it.
+
+    So does the question's name, for a live preview. A URL that means
+    "current" is one URL for every question the builder asks, so anything
+    holding a copy of it -- a browser, a proxy -- answers the next
+    question with the last one's rows. The chart then draws the current
+    config against those columns, and choosing a different category puts
+    every row into one nameless band. Naming the question in the URL
+    means a held copy can only ever be returned for the question it
+    answers.
     """
     url = reverse("visuals:data", args=[visual.uuid if by_uuid else visual.slug])
     params = {}
     if live:
         params["live"] = "1"
+    if stamp:
+        params["q"] = stamp
     if version is not None:
         params["v"] = version
     return f"{url}?{urlencode(params)}" if params else url
@@ -295,12 +306,17 @@ def _asked_for_version(request):
 
 
 def _feed_payload(request, visual):
-    """The rows to serve, and whether the URL that asked can be cached.
+    """The rows to serve, whether the URL names a version, and whether
+    the rows were run live.
 
-    Second return value is the whole point of `?v=`. A version names one
+    The second value is the whole point of `?v=`. A version names one
     immutable snapshot, so that response may be cached for a year. A URL
     without one means "current", and caching *that* hard is why a
     republished visual never reached anybody who had already loaded it.
+
+    The third says the rows came from the source just now rather than
+    from a snapshot, which is a different question from the visual's
+    status and the one `_cache_for` was missing.
     """
     # `allow_live` is a promise to readers -- it says an embed may bypass
     # the pin -- and it was also, accidentally, the gate on the author's
@@ -321,13 +337,17 @@ def _feed_payload(request, visual):
         latest = visual.snapshots.order_by("-version").first()
         if latest is None:
             raise Http404("Nothing uploaded yet")
-        return {
-            "slug": visual.slug,
-            "version": latest.version,
-            "taken": latest.created_at.date().isoformat(),
-            "attribution": _attribution(visual),
-            "data": latest.data,
-        }, False
+        return (
+            {
+                "slug": visual.slug,
+                "version": latest.version,
+                "taken": latest.created_at.date().isoformat(),
+                "attribution": _attribution(visual),
+                "data": latest.data,
+            },
+            False,
+            True,
+        )
     if live:
 
         def fetch():
@@ -350,12 +370,16 @@ def _feed_payload(request, visual):
         # and contact off the payload, so without this the preview of a
         # dataset's own attribution was the one place it could not be
         # checked before publishing it.
-        return {
-            "slug": visual.slug,
-            "version": None,
-            "attribution": _attribution(visual),
-            "data": data,
-        }, False
+        return (
+            {
+                "slug": visual.slug,
+                "version": None,
+                "attribution": _attribution(visual),
+                "data": data,
+            },
+            False,
+            True,
+        )
 
     asked = _asked_for_version(request)
     if asked is not None:
@@ -385,7 +409,7 @@ def _feed_payload(request, visual):
         "attribution": _attribution(visual),
         "data": snapshot.data,
     }
-    return payload, asked is not None
+    return payload, asked is not None, False
 
 
 #: A year, for a URL that names one immutable snapshot.
@@ -394,13 +418,23 @@ _PINNED = "public, max-age=31536000, immutable"
 _CURRENT = "public, max-age=3600"
 
 
-def _cache_for(response, visual, versioned):
+def _cache_for(response, visual, versioned, live=False):
     """How long this URL may be believed.
 
     Only a published visual is cached at all: a draft is a preview, and
     the person previewing it is the one editing it.
+
+    `?live=1` is never cached, whatever the visual's status. It means "run
+    the source and tell me what it draws now", which is what the builder's
+    preview asks on every step -- so an hour of `max-age` on a published
+    visual served the author the rows from before their last change. The
+    chart then drew the new config against the old columns: pick a
+    different category and every row falls into one nameless band, which
+    reads as a chart that has stopped working rather than a stale body.
+    It was `public` as well, so a shared cache could hold a published
+    visual's unpublished working rows.
     """
-    if visual.status != Visual.PUBLISHED:
+    if live or visual.status != Visual.PUBLISHED:
         response["Cache-Control"] = "no-store"
     else:
         response["Cache-Control"] = _PINNED if versioned else _CURRENT
@@ -410,10 +444,10 @@ def _cache_for(response, visual, versioned):
 def data_json(request, slug=None, uuid=None):
     visual = _get_visual(request, slug=slug, uuid=uuid)
     try:
-        payload, versioned = _feed_payload(request, visual)
+        payload, versioned, live = _feed_payload(request, visual)
     except DataSourceError as exc:
         return JsonResponse({"error": str(exc)}, status=502)
-    return _cache_for(JsonResponse(payload), visual, versioned)
+    return _cache_for(JsonResponse(payload), visual, versioned, live)
 
 
 def tables_in(data):
@@ -463,7 +497,7 @@ def data_csv(request, slug=None, uuid=None):
     """
     visual = _get_visual(request, slug=slug, uuid=uuid)
     try:
-        payload, versioned = _feed_payload(request, visual)
+        payload, versioned, live = _feed_payload(request, visual)
     except DataSourceError as exc:
         return JsonResponse({"error": str(exc)}, status=502)
 
@@ -484,7 +518,7 @@ def data_csv(request, slug=None, uuid=None):
         stem = f"{stem}-v{version}"
     response = HttpResponse(_as_csv(rows), content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="{stem}.csv"'
-    return _cache_for(response, visual, versioned)
+    return _cache_for(response, visual, versioned, live)
 
 
 def _embed_choices(visual, shown):
@@ -1518,6 +1552,11 @@ def builder_step(request, slug, step):
 
     context = panel(visual, **extra)
     done = reached(visual)
+    # Named once and used twice: the preview holds its answer under this
+    # name for the tab, and the URL it fetched carries it too, so nothing
+    # between here and the corpus can return one question's rows for
+    # another's.
+    stamp = _question_stamp(visual, True)
     context.update(
         {
             "visual": visual,
@@ -1543,10 +1582,10 @@ def builder_step(request, slug, step):
             # runtime tried to parse HTML: "unexpected character at line 1
             # column 1". Without `libs` no library loaded at all, because
             # an undefined name resolves to "" and "d3" in "" is false.
-            "feed": _feed_url(visual, by_uuid=False, live=True),
+            "feed": _feed_url(visual, by_uuid=False, live=True, stamp=stamp),
             # Named, so walking between panels does not ask the corpus
             # the same question once per panel.
-            "stamp": _question_stamp(visual, True),
+            "stamp": stamp,
             "libs": libs_for((visual.config or {}).get("kind")),
             "credit_name": _credit_line(visual)[0],
             "credit_email": _credit_line(visual)[1],
