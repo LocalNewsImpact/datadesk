@@ -173,3 +173,104 @@ def billed_costs():
         # about the number; a number that is missing for a reason nobody
         # can see is a fact about nothing.
         return {"unavailable": str(exc)[:300]}
+
+
+# --- what Google charges ------------------------------------------------------
+#
+# The billing export writes one row per SKU per project per day, with the
+# resource's labels alongside. It is enabled on the billing account in the
+# console -- there is no gcloud command for it -- and it does not backfill,
+# so history starts the day it was switched on. The dataset it writes into
+# is `mizzou-news-crawler:billing_export`.
+#
+# Attribution has two halves, and the page says which is which rather than
+# adding them up and implying one number was measured.
+#
+# DIRECT. A worker job is always run for one dataset, so the cost of the
+# jobs is attributable rather than estimated -- provided each carries a
+# `dataset` label, which is what makes this query possible at all. Nothing
+# here can add the label; it goes on the job.
+#
+# INFRASTRUCTURE. A load balancer, one Cloud SQL instance, one console --
+# these serve every dataset at once and belong to none. They are their own
+# bucket, not a number waiting to be divided up: splitting a load balancer
+# four ways produces four figures that are each wrong and together look
+# like an answer. What the buckets add up to is the bill; what each dataset
+# cost is the attributed part, and the page says which is which.
+_GCP_SQL = """
+    SELECT
+      FORMAT_DATE('%Y-%m', DATE(usage_start_time)) AS month,
+      project.id AS project,
+      service.description AS service,
+      (
+        SELECT value FROM UNNEST(labels)
+        WHERE key = 'dataset' LIMIT 1
+      ) AS dataset,
+      SUM(cost) AS cost,
+      SUM((SELECT SUM(c.amount) FROM UNNEST(credits) c)) AS credits
+    FROM `mizzou-news-crawler.billing_export.gcp_billing_export_v1_*`
+    WHERE DATE(usage_start_time)
+          >= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH)
+    GROUP BY month, project, service, dataset
+    ORDER BY month DESC, cost DESC
+"""
+
+
+def gcp_costs():
+    """What Google charged, by month, and how much of it names a dataset.
+
+    Returns `{"unavailable": reason}` rather than None when it cannot run,
+    for the reason the billed side does: a query that fails and a source
+    that was never connected are different facts, and a page that shows
+    neither cannot tell you which one it is looking at.
+    """
+
+    def fetch():
+        from explorer.analytics import query_rows
+
+        rows = query_rows(_GCP_SQL)
+        months, attributed, infrastructure = {}, 0.0, 0.0
+        by_dataset: dict[str, float] = {}
+        for row in rows:
+            cost = float(row["cost"] or 0) + float(row["credits"] or 0)
+            entry = months.setdefault(
+                row["month"],
+                {
+                    "month": row["month"],
+                    "cost": 0.0,
+                    "attributed": 0.0,
+                    "infrastructure": 0.0,
+                },
+            )
+            entry["cost"] += cost
+            if row["dataset"]:
+                entry["attributed"] += cost
+                by_dataset[row["dataset"]] = by_dataset.get(row["dataset"], 0.0) + cost
+                attributed += cost
+            else:
+                entry["infrastructure"] += cost
+                infrastructure += cost
+        return {
+            "by_month": sorted(months.values(), key=lambda r: r["month"], reverse=True),
+            "rows": rows,
+            "by_dataset": sorted(
+                (
+                    {"dataset": name, "cost": amount}
+                    for name, amount in by_dataset.items()
+                ),
+                key=lambda r: -r["cost"],
+            ),
+            "attributed": attributed,
+            "infrastructure": infrastructure,
+            "total": attributed + infrastructure,
+        }
+
+    try:
+        cached_value = cache.get("explorer.gcp_costs")
+        if cached_value is not None:
+            return cached_value
+        value = fetch()
+        cache.set("explorer.gcp_costs", value, _CACHE_SECONDS)
+        return value
+    except Exception as exc:
+        return {"unavailable": str(exc)[:300]}

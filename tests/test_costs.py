@@ -157,3 +157,79 @@ def test_a_broken_billed_query_says_so_instead_of_vanishing(monkeypatch):
     result = costs.billed_costs()
     assert result is not None, "the failure vanished again"
     assert "Unrecognized name" in result["unavailable"]
+
+
+# --- what Google charges -----------------------------------------------------
+
+
+def test_gcp_costs_say_why_when_there_is_no_export(monkeypatch):
+    """Billing export is enabled per billing account in the console --
+    there is no gcloud command for it -- and it does not backfill. Until
+    it is on, the table does not exist, and the page has to say that
+    rather than show nothing."""
+    from django.core.cache import cache
+
+    from explorer import costs
+
+    cache.delete("explorer.gcp_costs")
+
+    def boom(_sql):
+        raise RuntimeError("Not found: Table gcp_billing_export_v1_*")
+
+    monkeypatch.setattr("explorer.analytics.query_rows", boom)
+    result = costs.gcp_costs()
+    assert "Not found" in result["unavailable"]
+
+
+def test_a_labelled_job_is_attributed_and_the_rest_is_not(monkeypatch):
+    """A worker job runs for one dataset, so its cost is attributed. One
+    database and one console serve every dataset at once, so that half
+    cannot be measured and must be marked as an estimate."""
+    from django.core.cache import cache
+
+    from explorer import costs
+
+    cache.delete("explorer.gcp_costs")
+    rows = [
+        {
+            "month": "2026-08",
+            "project": "p",
+            "service": "Cloud Run",
+            "dataset": "mizzou",
+            "cost": 10.0,
+            "credits": 0.0,
+        },
+        {
+            "month": "2026-08",
+            "project": "p",
+            "service": "Cloud SQL",
+            "dataset": None,
+            "cost": 40.0,
+            "credits": 0.0,
+        },
+    ]
+    monkeypatch.setattr("explorer.analytics.query_rows", lambda _sql: rows)
+    result = costs.gcp_costs()
+    assert result["attributed"] == 10.0
+    assert result["infrastructure"] == 40.0
+    august = result["by_month"][0]
+    assert august["attributed"] == 10.0
+    assert august["infrastructure"] == 40.0, "the column repeated the total"
+    # ...and the attributed part names the dataset it belongs to.
+    assert result["by_dataset"] == [{"dataset": "mizzou", "cost": 10.0}]
+
+
+def test_infrastructure_is_a_bucket_not_a_number_to_divide():
+    """A load balancer, the database and the console serve every dataset at
+    once and belong to none. Splitting one four ways produces four figures
+    that are each wrong and together look like an answer."""
+    from pathlib import Path
+
+    from explorer import costs
+
+    assert not hasattr(costs, "apportion"), "back to dividing up the shared half"
+    source = (Path(__file__).resolve().parent.parent / "explorer/costs.py").read_text()
+    assert "INFRASTRUCTURE" in source, "the bucket is not named in the reasoning"
+    # The page reads these two names; renaming one without the other is how
+    # a bucket quietly becomes a blank column.
+    assert '"infrastructure"' in source and '"attributed"' in source

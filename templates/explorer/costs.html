@@ -118,4 +118,86 @@
   {% endif %}
   {% endif %}
 </section>
+
+{% comment %}
+Google's own charges, in two buckets.
+
+A worker job runs for one dataset, so its cost is attributed. A load
+balancer, the database and the console serve every dataset at once and
+belong to none -- they are infrastructure, and they stay their own line
+rather than being divided up. Splitting a load balancer four ways
+produces four figures that are each wrong and together look like an
+answer.
+{% endcomment %}
+<section class="card card-wide">
+  <h2>Google Cloud</h2>
+  {% if gcp_error %}
+  <p class="notice bad"><strong>Not connected.</strong> {{ gcp_error }}</p>
+  <p class="lede">Billing export is switched on per billing account in the
+  Cloud console — there is no command for it — and it does not backfill,
+  so history starts the day it is enabled. It writes to
+  <code>mizzou-news-crawler:billing_export</code>, which exists and is
+  empty until then.</p>
+  {% elif gcp %}
+  <div class="stat-row">
+    <div class="stat">
+      <span class="stat-label">Attributed to a dataset</span>
+      <span class="stat-value">${{ gcp.attributed|floatformat:2 }}</span>
+      <span class="stat-detail">jobs that name one</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Infrastructure</span>
+      <span class="stat-value">${{ gcp.infrastructure|floatformat:2 }}</span>
+      <span class="stat-detail">shared by everything, owned by nothing</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Total</span>
+      <span class="stat-value">${{ gcp.total|floatformat:2 }}</span>
+    </div>
+  </div>
+  <div class="table-viewport">
+    <table class="grid">
+      <thead>
+        <tr>
+          <th scope="col">Month</th>
+          <th scope="col">Total</th>
+          <th scope="col">Attributed</th>
+          <th scope="col">Infrastructure</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in gcp.by_month %}
+        <tr>
+          <td class="nowrap">{{ row.month }}</td>
+          <td class="count money">${{ row.cost|floatformat:2 }}</td>
+          <td class="count money">${{ row.attributed|floatformat:2 }}</td>
+          <td class="count money">${{ row.infrastructure|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if gcp.by_dataset %}
+  <h3>By dataset</h3>
+  <p class="lede">Measured, not estimated — these are the jobs that said
+  which dataset they ran for.</p>
+  <div class="table-viewport">
+    <table class="grid">
+      <thead>
+        <tr><th scope="col">Dataset</th><th scope="col">Cost</th></tr>
+      </thead>
+      <tbody>
+        {% for row in gcp.by_dataset %}
+        <tr>
+          <td>{{ row.dataset }}</td>
+          <td class="count money">${{ row.cost|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% endif %}
+</section>
+
 {% endblock %}
