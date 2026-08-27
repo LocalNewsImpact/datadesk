@@ -21,7 +21,6 @@
           <th scope="col" class="shrink">Role</th>
           <th scope="col">Datasets</th>
           <th scope="col">Last sign-in</th>
-          <th scope="col" class="shrink">Active</th>
         </tr>
       </thead>
       <tbody>
@@ -89,11 +88,10 @@
             {% endif %}
           </td>
           <td class="nowrap">{{ person.user.last_login|date:"Y-m-d H:i"|default:"never" }}</td>
-          <td class="shrink">{% if person.user.is_active %}yes{% else %}<span class="chip" data-status="not_article">disabled</span>{% endif %}</td>
         </tr>
         {% empty %}
         <tr class="empty-row">
-          <td colspan="6">
+          <td colspan="5">
             <span class="empty-state">
               <strong>No accounts yet.</strong>
               An account appears here the first time someone signs in.
@@ -104,6 +102,48 @@
       </tbody>
     </table>
   </div>
+
+  {% comment %}
+  Disabling is how access is taken away without taking the audit trail's
+  subject with it, so these accounts stay -- but they are not part of who
+  can sign in, and a list of who can sign in should not be padded with
+  people who cannot.
+
+  A disclosure rather than a second table on the page: they are looked at
+  rarely, and usually to turn one back on. The grant controls are not
+  repeated here -- an account that cannot sign in is not one to be
+  adjusting roles on, and its own page is where it comes back.
+  {% endcomment %}
+  {% if disabled %}
+  <details class="more-rows">
+    <summary>{{ disabled|length }} disabled account{{ disabled|length|pluralize }}</summary>
+    <div class="table-viewport">
+      <table class="grid">
+        <thead>
+          <tr>
+            <th scope="col">Email</th>
+            <th scope="col">Name</th>
+            <th scope="col" class="shrink">Role</th>
+            <th scope="col">Last sign-in</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for person in disabled %}
+          <tr>
+            <td><a href="{% url 'accounts:person' person.user.id %}">{{ person.user.email|default:person.user.username }}</a></td>
+            <td>{{ person.user.get_full_name|default:person.user.username }}</td>
+            <td class="shrink">
+              {% if person.role %}<span class="chip" data-role="{{ person.role }}">{{ person.role }}</span>
+              {% else %}<span class="absent">none</span>{% endif %}
+            </td>
+            <td class="nowrap">{{ person.user.last_login|date:"Y-m-d H:i"|default:"never" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% endif %}
 </section>
 
 {% comment %}

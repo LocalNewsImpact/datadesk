@@ -1984,6 +1984,17 @@ tr.dragging{ opacity: .5; }
 /* The password form, folded away under a summary that reads as a link
    rather than a heading -- it is the second answer to "how do I sign in",
    and the first one is the button above it. */
+/* Rows kept but not counted among the ones that matter: disabled
+   accounts under the users table, folded away. */
+.more-rows{ margin-top: var(--s-3); }
+.more-rows > summary{ cursor: pointer; font-size: var(--fs-sm);
+  color: var(--text-3); list-style: none; }
+.more-rows > summary::-webkit-details-marker{ display: none; }
+.more-rows > summary::before{ content: "+ "; color: var(--text-3); }
+.more-rows[open] > summary::before{ content: "\2212 "; }
+.more-rows > summary:hover{ color: var(--text); }
+.more-rows[open] > summary{ margin-bottom: .6rem; }
+
 .auth-more{ margin-top: 1.25rem; }
 .auth-more > summary{ cursor: pointer; font-size: var(--fs-sm);
   color: var(--text-2); list-style: none; }
