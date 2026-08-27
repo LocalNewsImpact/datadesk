@@ -891,3 +891,31 @@ def test_a_spent_authorization_lands_on_the_sign_in_page(client, settings):
     )
     assert response.status_code == 302, "still a dead end"
     assert response["Location"] == "/accounts/login/"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_refusal_names_the_address_google_returned(client, settings):
+    """The address Google hands over is not always the one somebody typed.
+
+    A Workspace account signs in under its primary address whatever alias
+    was used to reach it, and a university running Microsoft for mail and
+    Google for identity will have people whose mail address is not their
+    Google one at all. Invitations are matched against what Google says,
+    so an admin who cannot see that is inviting by guesswork -- which is
+    how dkiesow@missouri.edu came to be invited to a door that only ever
+    knew kiesowd@umsystem.edu.
+    """
+    from allauth.core.exceptions import ImmediateHttpResponse
+    from django.contrib.messages import get_messages
+
+    from accounts.adapters import DomainRestrictedAdapter
+
+    settings.ALLOWED_AUTH_DOMAINS = ["localnewsimpact.org"]
+    request = client.request().wsgi_request
+
+    with pytest.raises(ImmediateHttpResponse):
+        DomainRestrictedAdapter().pre_social_login(
+            request, _google_login("kiesowd@umsystem.edu", hd="umsystem.edu")
+        )
+    said = " ".join(str(m) for m in get_messages(request))
+    assert "kiesowd@umsystem.edu" in said, "the admin still has to guess"
