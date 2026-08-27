@@ -623,6 +623,12 @@ def costs(request):
     recorded by dataset and model, the cache discount as the headline."""
     recorded = recorded_costs()
     billed = billed_costs()
+    # A failure comes back carrying its reason rather than as None, so the
+    # page can say why the billed side is missing instead of quietly
+    # showing the recorded side under a heading that promises both.
+    billed_error = ""
+    if billed and "unavailable" in billed:
+        billed_error, billed = billed["unavailable"], None
 
     # Item 1 put spend on `write`, so an editor sees the cost of the
     # datasets they write. Two different shapes of answer:
@@ -651,7 +657,7 @@ def costs(request):
             "articles": sum(row["articles"] or 0 for row in kept),
         }
     if not is_application_admin(request.user, APP):
-        billed = None
+        billed, billed_error = None, ""
 
     # Join the two sides by day for the comparison table.
     by_day = {}
@@ -675,6 +681,7 @@ def costs(request):
         {
             "recorded": recorded,
             "billed": billed,
+            "billed_error": billed_error,
             "days": days,
         },
     )
