@@ -92,27 +92,46 @@ def recorded_costs():
         return None
 
 
-# NOTE: field names follow OpenRouter's generation log schema (usage,
-# cache_discount, tokens_prompt/tokens_completion, provider_name) as the
-# external table maps it. True this up against the real openrouter_traces
-# columns on the first run against BigQuery — the query lives only here.
+# The trace is one JSON string per row, not columns. Every field below is
+# read out of it by path, which is what the previous version of this query
+# got wrong: it named columns -- created_at, usage, cache_discount -- that
+# do not exist, BigQuery rejected it with "Unrecognized name: created_at",
+# and `billed_costs()` swallowed the error and returned None. The dashboard
+# has been showing the recorded side alone, without saying so, since it was
+# written.
 #
-# CONFIRMED WRONG, 2026-08-23. The table has one column, `trace`, holding
-# a JSON blob; none of the names below exist. A dry run fails with
-# "Unrecognized name: created_at". `billed_costs()` swallows that and
-# returns None, so the dashboard has been showing the recorded side alone
-# without saying so. See ROADMAP item 4 — the fix is to read the fields
-# out of the JSON, and to have the crawler label each call so the trace
-# can say which dataset it served.
+# `usage` is the net charge, not list price. Checked against a trace on
+# 2026-08-21: inputCost + outputCost == usage exactly, and inputCost is
+# already below unit price x tokens because the cached prompt tokens are
+# billed at about a tenth. `usage_cache` is a negative savings line that
+# says what the cache was worth -- informational, and subtracting it would
+# discount the bill twice.
+#
+# `external_user` is what LiteLLM's `user=` becomes on the OpenRouter side.
+# Nothing sets it yet, so billed cost cannot be split per dataset; the
+# column is read anyway so that it starts working the day the crawler
+# passes one, rather than needing this query changed again.
 _BILLED_SQL = """
+    WITH t AS (
+      SELECT
+        TIMESTAMP(JSON_VALUE(trace, '$.timestamp')) AS at,
+        CAST(JSON_VALUE(trace, '$.metadata.openrouter_generation.usage')
+             AS FLOAT64) AS usage,
+        CAST(JSON_VALUE(trace, '$.metadata.openrouter_generation.usage_cache')
+             AS FLOAT64) AS usage_cache,
+        JSON_VALUE(trace, '$.metadata.openrouter_generation.model') AS model,
+        JSON_VALUE(trace, '$.metadata.openrouter_generation.external_user')
+          AS dataset
+      FROM `mizzou-news-crawler.mizzou_analytics.openrouter_traces`
+    )
     SELECT
-      DATE(created_at) AS day,
+      DATE(at) AS day,
       SUM(usage) AS billed,
-      SUM(cache_discount) AS cache_discount,
+      SUM(usage_cache) AS cache_discount,
       COUNT(*) AS requests,
-      COUNTIF(cache_discount > 0) AS cached_requests
-    FROM `mizzou-news-crawler.mizzou_analytics.openrouter_traces`
-    WHERE created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
+      COUNTIF(usage_cache <> 0) AS cached_requests
+    FROM t
+    WHERE at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
     GROUP BY day
     ORDER BY day DESC
 """
@@ -144,7 +163,13 @@ def billed_costs():
         value = fetch()
         cache.set("explorer.billed_costs", value, _CACHE_SECONDS)
         return value
-    except Exception:
-        # BigQuery unreachable, credentials absent, or the table's columns
-        # differ — the dashboard renders the recorded side and says so.
-        return None
+    except Exception as exc:
+        # Said, not swallowed. This returned None for every failure alike,
+        # so a query that had been broken since it was written looked
+        # exactly like "BigQuery is not configured here" -- and the page
+        # showed recorded cost under a heading that promised both.
+        #
+        # The reason goes on the page. A number that is missing is a fact
+        # about the number; a number that is missing for a reason nobody
+        # can see is a fact about nothing.
+        return {"unavailable": str(exc)[:300]}

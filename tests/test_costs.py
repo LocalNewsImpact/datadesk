@@ -96,3 +96,64 @@ def test_degrades_with_neither_source(client, admin):
         response = client.get(URL)
     assert response.status_code == 200
     assert "Neither cost source is connected" in response.content.decode()
+
+
+# --- the billed side has to actually run -------------------------------------
+
+
+def test_the_billed_query_reads_the_json_not_columns():
+    """openrouter_traces has one column, `trace`, holding a JSON string.
+    The query named columns that do not exist -- created_at, usage,
+    cache_discount -- so BigQuery rejected it with "Unrecognized name:
+    created_at", `billed_costs()` swallowed that, and the dashboard showed
+    the recorded side alone under a heading promising both.
+
+    Verified against the live table on 2026-08-27: 116,806 traces on
+    2026-08-22 summing to $54.57 billed, where the recorded side says
+    $83.98 for the same day.
+    """
+    from explorer.costs import _BILLED_SQL
+
+    assert "JSON_VALUE(trace" in _BILLED_SQL
+    assert "$.metadata.openrouter_generation.usage" in _BILLED_SQL
+    assert "$.timestamp" in _BILLED_SQL
+    # The names that never existed.
+    assert "DATE(created_at)" not in _BILLED_SQL
+    assert "SUM(usage) AS billed" in _BILLED_SQL
+
+
+def test_the_cache_saving_is_not_subtracted_twice():
+    """`usage` is the net charge. Checked against a trace on 2026-08-21:
+    inputCost + outputCost == usage exactly, and inputCost is already below
+    unit price x tokens because cached prompt tokens bill at about a tenth.
+
+    `usage_cache` is a negative savings line -- what the cache was worth.
+    Subtracting it would discount the bill twice, and counting it as
+    positive would call every request uncached."""
+    from explorer.costs import _BILLED_SQL
+
+    assert "SUM(usage) AS billed" in _BILLED_SQL
+    assert "usage - usage_cache" not in _BILLED_SQL
+    assert "usage + usage_cache" not in _BILLED_SQL
+    # The old test for a cached request read `cache_discount > 0`; the
+    # values are negative or zero.
+    assert "cache_discount > 0" not in _BILLED_SQL
+    assert "COUNTIF(usage_cache <> 0)" in _BILLED_SQL
+
+
+def test_a_broken_billed_query_says_so_instead_of_vanishing(monkeypatch):
+    """A number that is missing is a fact about the number. A number
+    missing for a reason nobody can see is a fact about nothing."""
+    from django.core.cache import cache
+
+    from explorer import costs
+
+    cache.delete("explorer.billed_costs")
+
+    def boom(_sql):
+        raise RuntimeError("Unrecognized name: created_at")
+
+    monkeypatch.setattr("explorer.analytics.query_rows", boom)
+    result = costs.billed_costs()
+    assert result is not None, "the failure vanished again"
+    assert "Unrecognized name" in result["unavailable"]

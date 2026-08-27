@@ -20,6 +20,17 @@
       <span class="stat-detail">{{ recorded.totals.articles }} articles · avg ${{ recorded.totals.avg|floatformat:4 }}</span>
     </div>
     {% endif %}
+    {% if billed_error %}
+    {% comment %}
+    Said rather than swallowed. This page showed the recorded side alone
+    under a heading promising both, for as long as the billed query had
+    been broken -- which was since it was written.
+    {% endcomment %}
+    <p class="notice bad">
+      <strong>The billed side is unavailable.</strong>
+      {{ billed_error }}
+    </p>
+    {% endif %}
     {% if billed %}
     <div class="stat">
       <span class="stat-label">Billed (30 days)</span>
