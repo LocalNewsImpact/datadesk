@@ -858,3 +858,36 @@ def test_an_unconfigured_mailer_hands_the_link_over(client, settings, dataset):
     said = " ".join(str(m) for m in get_messages(response.wsgi_request))
     assert "tell them yourself" in said
     assert "/accounts/login/" in said
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_spent_authorization_lands_on_the_sign_in_page(client, settings):
+    """The commonest way a sign-in fails is an authorization used twice: a
+    callback URL restored from history, a synced tab, a browser reopening
+    what it had. The state is single-use, so the second arrival fails
+    however good the account is.
+
+    allauth renders "Third-Party Login Failure" -- a 401 page with nothing
+    on it and no way onward -- and the way out people take is to press
+    back and send the same spent authorization again. Production,
+    2026-08-27: one state replayed for twenty-five minutes across two
+    devices, four 401s, and an admin who concluded his own address had
+    stopped working.
+
+    This walks the real callback with a state the session never issued,
+    which is that failure exactly.
+    """
+    settings.ALLOWED_AUTH_DOMAINS = ["localnewsimpact.org"]
+    settings.SOCIALACCOUNT_PROVIDERS = {
+        "google": {
+            "APP": {"client_id": "x", "secret": "y", "key": ""},
+            "SCOPE": ["profile", "email"],
+            "AUTH_PARAMS": {"prompt": "select_account"},
+        }
+    }
+    response = client.get(
+        "/accounts/google/login/callback/",
+        {"state": "never-issued", "code": "4/spent"},
+    )
+    assert response.status_code == 302, "still a dead end"
+    assert response["Location"] == "/accounts/login/"

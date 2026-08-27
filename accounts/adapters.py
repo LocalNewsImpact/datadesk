@@ -110,6 +110,45 @@ class DomainRestrictedAdapter(DefaultSocialAccountAdapter):
             )
         )
 
+    def on_authentication_error(
+        self, request, provider, error=None, exception=None, extra_context=None
+    ):
+        """Send a failed sign-in back to the start, not to a dead end.
+
+        allauth renders "Third-Party Login Failure" with a 401 for every
+        way a sign-in can go wrong, and much the commonest is an
+        authorization that has already been used: a callback URL restored
+        from history, a synced tab, a browser reopening what it had, or
+        Google re-issuing one of its own. The state is single-use, so the
+        second arrival fails however good the account is.
+
+        That page has nothing on it and no way onward, and the way people
+        take is to press back and try again -- which sends the same spent
+        authorization once more. Production, 2026-08-27: one state
+        replayed for twenty-five minutes across two devices, four 401s,
+        and an admin who concluded his own address had stopped working.
+
+        Landing on the sign-in page with a live button is one click, which
+        is what this should have cost all along. Not straight back to
+        Google: an error that is not going to clear -- a rotated secret,
+        a misconfigured client -- would bounce between us forever, and a
+        loop is a worse failure than a message.
+        """
+        super().on_authentication_error(
+            request,
+            provider,
+            error=error,
+            exception=exception,
+            extra_context=extra_context,
+        )
+        raise ImmediateHttpResponse(
+            _back_to_sign_in(
+                request,
+                "That sign-in could not be completed — it may have been "
+                "started a while ago, or already used. Try again.",
+            )
+        )
+
     def is_open_for_signup(self, request, sociallogin):
         return True
 
