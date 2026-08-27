@@ -1617,9 +1617,20 @@ tr.prop td { border-bottom: 0; }
 .values-list .row{ display: flex; align-items: center; gap: .45rem;
   padding: .12rem .2rem; border-radius: var(--r-sm); min-width: 0; }
 .values-list .row:hover{ background: var(--surface-2, var(--surface)); }
-.values-list .row .label{ overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; }
+/* Wrapped, not truncated. These labels exist to tell two questions apart
+   -- "County set in" against "Counties mentioned" -- and an ellipsis in
+   the middle of that is the one place a label must not be cut. */
+.values-list .row .label{ overflow-wrap: anywhere; }
+.values-list .row{ align-items: flex-start; }
 .values-list .row input{ flex: none; }
+
+/* The heading over each family of fields: six short lists read where one
+   of forty does not. Inside a role the list is already short, so it does
+   not need its own scrollbar as well as the panel's. */
+.values-group{ margin: .7rem 0 .2rem; font-size: .75rem; font-weight: 600;
+  letter-spacing: .02em; text-transform: uppercase; color: var(--text-3); }
+.values-group:first-child{ margin-top: 0; }
+.role .values-list{ max-height: none; }
 
 /* A refusal, and the button it refuses. Disabled rather than removed: the
    button is where somebody looks to finish, and a missing one reads as a

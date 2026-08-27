@@ -643,7 +643,7 @@ def _picks_columns(chart):
 
 def _variables():
     """Every dimension and measure a pivot can use, with what it holds."""
-    from visuals.corpus import DIMENSIONS, MEASURES
+    from visuals.corpus import DIMENSIONS, GROUP_OF, MEASURES
 
     kinds = {
         "month": "date",
@@ -663,6 +663,7 @@ def _variables():
             "kind": kinds.get(k, "text"),
             "measure": False,
             "internal": bool(v.get("internal")),
+            "group": GROUP_OF.get(k, "other"),
         }
         for k, v in DIMENSIONS.items()
         if not v.get("facet_only")
@@ -674,6 +675,7 @@ def _variables():
             "kind": "number",
             "measure": True,
             "internal": bool(v.get("internal")),
+            "group": "counts",
         }
         for k, v in MEASURES.items()
     ]
@@ -747,6 +749,27 @@ def variables(visual=None):
 def _draws_a_table(visual):
     """Whether this visual is a table rather than a chart."""
     return bool(visual is not None and (visual.config or {}).get("kind") == "table")
+
+
+def in_groups(options):
+    """Options arranged into the families they answer within.
+
+    A reader choosing between "where a story is set" and "everywhere it
+    mentions" cannot tell them apart from a list; side by side under one
+    heading, the choice is the difference between them.
+    """
+    from visuals.corpus import GROUPS
+
+    order = [g[0] for g in GROUPS] + ["counts", "other"]
+    names = dict(GROUPS) | {"counts": "Counts", "other": "Other"}
+    held = {}
+    for option in options:
+        held.setdefault(option.get("group") or "other", []).append(option)
+    return [
+        {"id": key, "label": names.get(key, key), "options": held[key]}
+        for key in order
+        if held.get(key)
+    ]
 
 
 def _plainly(role):
@@ -928,6 +951,13 @@ def field_panel(visual, post=None, user=None):
                 for v in variables(visual)
                 if not v["measure"]
             ],
+            "column_groups": in_groups(
+                [
+                    dict(v, on=v["id"] in chosen)
+                    for v in variables(visual)
+                    if not v["measure"]
+                ]
+            ),
             "measures": [
                 dict(v, on=v["id"] == (spec.get("measure") or "articles"))
                 for v in variables(visual)
@@ -950,6 +980,7 @@ def field_panel(visual, post=None, user=None):
                 "accepts": _plainly(role),
                 "optional": not role.needs,
                 "options": [dict(v, on=v["id"] == chosen) for v in fits],
+                "groups": in_groups([dict(v, on=v["id"] == chosen) for v in fits]),
                 "chosen": chosen,
                 "kept": kept,
                 # Not fetched here. Listing every value of a dimension with
@@ -998,6 +1029,7 @@ def field_panel(visual, post=None, user=None):
         "roles": slots,
         "narrows": narrows,
         "columns": [],
+        "column_groups": [],
         "pairs": chart.pairs,
         "pair_note": pair_note,
         # As stored: a number, or a share ending in "%".

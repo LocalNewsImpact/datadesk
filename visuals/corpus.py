@@ -138,14 +138,14 @@ DIMENSIONS = {
     },
     # Geography. Only rollups the codings support.
     "geo_state": {
-        "label": "State FIPS (from point)",
+        "label": "Central state",
         "expr": Substr("enrichment__point_geoid", 1, 2),
         "requires": Q(enrichment__point_geoid__isnull=False),
         "geo_level": "states",
         "note": "First two digits of the point GEOID — valid at every coding.",
     },
     "geo_county": {
-        "label": "County FIPS (from point)",
+        "label": "Central county",
         # Grouped in SQL by the raw point coding, then folded to counties
         # in Python: place GEOIDs carry no county code and resolve through
         # the Census place-to-county crosswalk.
@@ -162,18 +162,33 @@ DIMENSIONS = {
         ),
     },
     "geo_place": {
-        "label": "Place GEOID (from point)",
+        "label": "Central place (code)",
         "expr": F("enrichment__point_geoid"),
         "requires": Q(enrichment__point_geoid_level="place"),
         "geo_level": "places",
         "note": "Place-coded rows only — the corpus's most common coding.",
     },
     "point_place": {
-        "label": "Place name (from point)",
+        "label": "Central place",
         "expr": F("enrichment__point_place"),
+        "note": (
+            "The one place a story is set in, by name. Every story has at "
+            "most one, and it is named for 8,701 of the 10,723 that have a "
+            "location -- the rest are placed only to a county or a state, "
+            "which have no place name to give."
+        ),
     },
+    # Two questions about the same geography, kept apart because they are
+    # not the same question and a reader choosing between them cannot see
+    # the difference from a column name.
+    #
+    # "County covered" was one name for both, over a text column that could
+    # tell them apart in neither direction. article_geoids carries the
+    # editorial distinction -- exactly one row per story is flagged primary
+    # -- and covers 13,128 articles where the text column covers 7,153, a
+    # strict superset with nothing of its own.
     "geo_covered": {
-        "label": "County covered",
+        "label": "Counties mentioned",
         # The place set: every county a story is about, not the one point
         # it was pinned to. A regional story has no point by design -- the
         # pipeline records `regional_uses_place_set` -- so the point
@@ -183,13 +198,14 @@ DIMENSIONS = {
         # what makes this the one dimension the pivot cannot group in
         # SQL. It is exploded in Python, the way the story map's shaded
         # layer already is.
-        "explode": "enrichment__geoids",
+        "explode_join": "geoid_rows__geoid",
         "geo_level": "counties",
         "note": (
-            "Every county a story is about. A story covering three "
-            "counties counts in all three, so these add up to more than "
-            "the number of stories -- which is the point of asking what "
-            "a publication covers."
+            "Every county a story names, the one it is set in and the ones "
+            "it mentions in passing alike. A story naming three counties "
+            "counts in all three, so these add up to more than the number "
+            "of stories. Ask this to see reach; ask what a story is set in "
+            "to see focus."
         ),
     },
     "point_precision": {
@@ -210,7 +226,7 @@ DIMENSIONS = {
         ),
     },
     "point_zcta": {
-        "label": "ZIP code area (from point)",
+        "label": "Central ZIP code area",
         "expr": F("enrichment__point_zcta"),
         "geo_level": "zcta",
         "note": "Census ZCTA, where the coding was precise enough to have one.",
@@ -591,7 +607,7 @@ def _base_queryset(spec, scopes):
         if key not in DIMENSIONS or not values:
             continue
         dimension = DIMENSIONS[key]
-        if dimension.get("explode"):
+        if explodes(key):
             continue
         qs = qs.annotate(**{f"{ONLY_PREFIX}{key}": dimension["expr"]}).filter(
             **{f"{ONLY_PREFIX}{key}__in": list(values)}
@@ -666,6 +682,84 @@ def _narrow_to_the_first(rows, dim_keys, measure_key, spec):
 EXPLODED_MEASURES = ("articles", "publishers")
 
 
+#: Which family a dimension belongs to, for the picker. Ordered: the list
+#: is rendered in this order and a dimension with no entry falls to the end
+#: under "Other", which is a prompt to place it rather than a resting spot.
+#:
+#: Story geography holds both coverage questions -- where a story is set and
+#: everywhere it mentions -- because they are the same analysis asked two
+#: ways, and a reader choosing between them should see them side by side.
+#: Where the publisher sits is a different question and lives with the
+#: publisher.
+GROUPS = (
+    ("publisher", "Publisher"),
+    ("story", "The story"),
+    ("time", "When"),
+    ("people", "People named"),
+    ("organisations", "Organisations named"),
+    ("geography", "Story geography"),
+    ("pipeline", "Pipeline"),
+)
+
+GROUP_OF = {
+    "dataset": "publisher",
+    "publisher": "publisher",
+    "publisher_name": "publisher",
+    "owner": "publisher",
+    "publisher_city": "publisher",
+    "publisher_county": "publisher",
+    "publisher_state": "publisher",
+    "publisher_type": "publisher",
+    "author": "story",
+    "status": "pipeline",
+    "wire": "story",
+    "cin_primary": "story",
+    "cin_alternate": "story",
+    "month": "time",
+    "year": "time",
+    "scope": "story",
+    "subject": "story",
+    "topic": "story",
+    "format": "story",
+    "timeframe": "story",
+    "user_need": "story",
+    "model": "pipeline",
+    "skip_reason": "pipeline",
+    "geo_skip_reason": "pipeline",
+    "person_type": "people",
+    "person_nature": "people",
+    "person_public": "people",
+    "person_name": "people",
+    "person_affiliation": "people",
+    "org_type": "organisations",
+    "org_nature": "organisations",
+    "org_name": "organisations",
+    "geo_covered": "geography",
+    "geo_state": "geography",
+    "geo_county": "geography",
+    "geo_place": "geography",
+    "point_place": "geography",
+    "point_precision": "geography",
+    "point_method": "geography",
+    "point_zcta": "geography",
+    "is_news_content": "pipeline",
+    "content_gate_reason": "pipeline",
+}
+
+
+def explodes(key):
+    """The path a multi-valued dimension's values come from, or None.
+
+    Two sources, one question: `explode` is a text column holding a list,
+    `explode_join` is the rows of a joined table. Asked here so that adding
+    a source cannot leave some caller still testing for the other one --
+    which is exactly what happened, and turned two geography dimensions
+    into a KeyError on 'expr'.
+    """
+    dimension = DIMENSIONS.get(key) or {}
+    return dimension.get("explode") or dimension.get("explode_join")
+
+
 def _run_exploded(spec, scopes, dim_keys, measure_key, exploded):
     """The pivot, where one dimension holds several values per article.
 
@@ -691,13 +785,22 @@ def _run_exploded(spec, scopes, dim_keys, measure_key, exploded):
 
     others = [key for key in dim_keys if key != exploded]
     alias = {key: f"{DIM_PREFIX}{key}" for key in others}
-    qs = _base_queryset(spec, scopes).exclude(
-        **{f"{DIMENSIONS[exploded]['explode']}__isnull": True}
-    )
+    # Two sources for the same shape of answer. `explode` reads a text
+    # column holding a list; `explode_join` reads the rows of
+    # article_geoids, which is where the same geography lives with the
+    # editorial distinction attached -- and where far more of it lives: the
+    # text column is populated for 7,153 articles and the table for 13,128,
+    # a strict superset with nothing of its own.
+    joined = DIMENSIONS[exploded].get("explode_join")
+    path = explodes(exploded)
+    qs = _base_queryset(spec, scopes).exclude(**{f"{path}__isnull": True})
+    keep = DIMENSIONS[exploded].get("explode_where")
+    if keep is not None:
+        qs = qs.filter(keep)
     if others:
         qs = qs.annotate(**{alias[key]: DIMENSIONS[key]["expr"] for key in others})
 
-    columns = ["id", "candidate_link__source_id", DIMENSIONS[exploded]["explode"]]
+    columns = ["id", "candidate_link__source_id", path]
     columns += [alias[key] for key in others]
 
     # One bucket per group, holding the ids it has seen: the measure is a
@@ -728,10 +831,14 @@ def _run_exploded(spec, scopes, dim_keys, measure_key, exploded):
     for row in qs.values_list(*columns):
         article, source, raw = row[0], row[1], row[2]
         rest = row[3:]
-        try:
-            places = _json.loads(raw) if raw else []
-        except (TypeError, ValueError):
-            continue
+        if joined:
+            # One row per geoid already; the join did the exploding.
+            places = [raw] if raw else []
+        else:
+            try:
+                places = _json.loads(raw) if raw else []
+            except (TypeError, ValueError):
+                continue
         counties = set()
         for place in places or ():
             county = county_of(place)
@@ -791,7 +898,7 @@ def run_spec(spec, scopes):
             f" but not by {MEASURES[measure_key]['label'].lower()}."
         )
 
-    exploding = [k for k in dim_keys if DIMENSIONS[k].get("explode")]
+    exploding = [k for k in dim_keys if explodes(k)]
     if len(exploding) > 1:
         raise CorpusSpecError(
             "Only one dimension holding several values per story at a time."
@@ -1210,18 +1317,22 @@ def _exploded_values(dim_key, spec, scopes, limit):
     from datasets.geo import county_of
 
     counts = {}
-    column = DIMENSIONS[dim_key]["explode"]
+    column = explodes(dim_key)
+    keep = DIMENSIONS[dim_key].get("explode_where")
+    joined = bool(DIMENSIONS[dim_key].get("explode_join"))
     counties = DIMENSIONS[dim_key].get("geo_level") == "counties"
-    rows = (
-        _base_queryset(spec, scopes)
-        .exclude(**{f"{column}__isnull": True})
-        .values_list("id", column)
-    )
+    rows = _base_queryset(spec, scopes).exclude(**{f"{column}__isnull": True})
+    if keep is not None:
+        rows = rows.filter(keep)
+    rows = rows.values_list("id", column)
     for article, raw in rows:
-        try:
-            places = _json.loads(raw) if raw else []
-        except (TypeError, ValueError):
-            continue
+        if joined:
+            places = [raw] if raw else []
+        else:
+            try:
+                places = _json.loads(raw) if raw else []
+            except (TypeError, ValueError):
+                continue
         seen = set()
         for place in places or ():
             value = county_of(place) if counties else place
@@ -1309,7 +1420,7 @@ def values_of(dim_key, spec, scopes, limit=200):
     # taking them apart, which is what the pivot already does; without this
     # the facet raised KeyError on "expr" and the panel showed nothing at
     # all for the one dimension whose values a reader most wants to narrow.
-    if DIMENSIONS[dim_key].get("explode"):
+    if explodes(dim_key):
         out = _exploded_values(dim_key, spec, scopes, limit)
         cache.set(key, out, CORPUS_CACHE_SECONDS)
         return out
