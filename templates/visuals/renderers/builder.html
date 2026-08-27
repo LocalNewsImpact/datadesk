@@ -192,7 +192,18 @@ document.addEventListener("DOMContentLoaded", function () {
   } else {
     fetch("{{ feed }}")
       .then((r) => {
-        if (!r.ok) throw new Error(r.status + " from the feed");
+        // The server says what is wrong in the body; the status alone is
+        // "502 from the feed", which sent somebody to read Cloud Run logs
+        // to discover the pivot had been refusing ten columns and saying
+        // so the whole time.
+        if (!r.ok) {
+          return r
+            .json()
+            .catch(() => ({}))
+            .then((body) => {
+              throw new Error(body.error || r.status + " from the feed");
+            });
+        }
         return r.json();
       })
       .then((payload) => {

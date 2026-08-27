@@ -866,13 +866,22 @@ def run_spec(spec, scopes):
     """Run a pivot spec and return (rows, meta).
 
     One dimension gives a category table (bar, donut, map); two give the
-    cross-tab that chord and arc diagrams read as from/to/value.
+    cross-tab that chord and arc diagrams read as from/to/value; a table
+    takes as many columns as somebody ticks.
     """
-    dim_keys = [k for k in (spec.get("dimensions") or []) if k]
+    # Deduplicated, in the order they were ticked. A column ticked twice is
+    # one column, and grouping by it twice would be a second identical
+    # column beside the first.
+    #
+    # No cap on how many. Two was the cap for everything, which is a
+    # chart's number -- one dimension is a category chart, two are the
+    # cross-tab a chord or a sankey reads -- and a table exists to have
+    # columns. A chart cannot exceed two anyway: it has only that many
+    # roles to fill. The real maximum is how many dimensions there are, and
+    # MAX_GROUPS bounds what comes back however many are used.
+    dim_keys = list(dict.fromkeys(k for k in (spec.get("dimensions") or []) if k))
     if not dim_keys:
         raise CorpusSpecError("Pick at least one dimension to group by.")
-    if len(dim_keys) > 2:
-        raise CorpusSpecError("Group by at most two dimensions.")
     for key in dim_keys:
         if key not in DIMENSIONS:
             raise CorpusSpecError(f"Unknown dimension: {key}")

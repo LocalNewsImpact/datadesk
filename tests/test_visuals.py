@@ -651,7 +651,10 @@ def test_a_failed_feed_says_what_went_wrong():
         / "templates/visuals/renderers/builder.html"
     ).read_text()
     assert "err.message" in renderer
-    assert "if (!r.ok) throw" in renderer, "a 404 resolves; only .json() would fail"
+    # A 404 resolves the promise; only .json() would fail. So the status has
+    # to be checked explicitly, and what the server said preferred over it.
+    assert "if (!r.ok)" in renderer
+    assert "throw new Error(body.error || r.status" in renderer
 
 
 def test_the_builder_and_the_admin_hand_out_the_same_snippet():
