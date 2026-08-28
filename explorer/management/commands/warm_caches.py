@@ -86,11 +86,25 @@ class Command(BaseCommand):
         from explorer.costs import billed_costs, recorded_costs
         from explorer.crawler import dataset_row_counts
         from explorer.dashboard import corpus_summary
+        from review.views import (
+            PAYWALL_COUNTS_CACHE_KEY,
+            paywall_corpus_counts,
+        )
 
         targets = (
             ("dataset row counts", "explorer.dataset_row_counts", dataset_row_counts),
             ("recorded costs", "explorer.recorded_costs", recorded_costs),
             ("corpus summary", "explorer.corpus_summary", corpus_summary),
+            # The paywalls page's ranking: every enrichment row joined
+            # through articles and candidate links, 13s cold against
+            # production. It is a working surface -- somebody saves a price
+            # and returns to the list -- so an unwarmed cache is paid on
+            # arrival and again after every five-minute lapse.
+            (
+                "paywall corpus counts",
+                PAYWALL_COUNTS_CACHE_KEY,
+                paywall_corpus_counts,
+            ),
             # The most expensive of the four and the last to be warmed: it
             # goes to BigQuery rather than Postgres, and thirty days of
             # openrouter_traces took 110s uncached on 2026-08-23. It was

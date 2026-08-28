@@ -2,7 +2,9 @@
 
 import io
 
+from django.core.cache import cache
 from django.core.paginator import Paginator
+from django.db import DatabaseError, connections
 from django.db.models import Count, F, Q
 from django.http import Http404, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
@@ -999,6 +1001,59 @@ def schema(request):
     )
 
 
+PAYWALL_COUNTS_CACHE_KEY = "review.paywall_corpus_counts"
+PAYWALL_COUNTS_CACHE_SECONDS = 300
+
+
+def paywall_corpus_counts():
+    """What the pipeline could not read past a paywall, and what it did read.
+
+    One query rather than one per publisher, and cached rather than run on
+    every load: it aggregates every enrichment row through articles and
+    candidate links with no bound, which measured 13 seconds cold and 0.8
+    warm against production. The page is a working surface -- somebody
+    saves a price and comes straight back to it -- so it was paying that
+    on every return.
+
+    Five minutes, matching the dashboard. These numbers move when the
+    pipeline runs, which is not while somebody is editing a record, and
+    `warm_caches` fills this from the deploy so the first reader after a
+    new revision does not pay for it either.
+
+    The second half is the evidence for "verified": a sign-in that is
+    configured is not a sign-in that works. Seven publishers carry
+    credentials and six of them have never produced an article.
+    """
+
+    def fetch():
+        lost, read = {}, {}
+        with connections["crawler"].cursor() as cur:
+            cur.execute("""
+                SELECT cl.source_id,
+                       count(*) FILTER (WHERE e.skip_reason LIKE 'paywall%%'),
+                       count(*) FILTER (WHERE e.skip_reason IS NULL)
+                FROM article_enrichment e
+                JOIN articles a ON a.id = e.article_id
+                JOIN candidate_links cl ON cl.id = a.candidate_link_id
+                GROUP BY 1
+                """)
+            for source_id, blocked, extracted in cur.fetchall():
+                if blocked:
+                    lost[source_id] = blocked
+                if extracted:
+                    read[source_id] = extracted
+        return lost, read
+
+    try:
+        return cache.get_or_set(
+            PAYWALL_COUNTS_CACHE_KEY, fetch, PAYWALL_COUNTS_CACHE_SECONDS
+        )
+    except DatabaseError:
+        # A cold cache is slow, not broken; an unreachable one must not
+        # take the page down with it.
+        return fetch()
+
+
 @requires(WRITE)
 def paywalls(request):
     """Publishers we cannot read, and what it would take to read them.
@@ -1019,7 +1074,6 @@ def paywalls(request):
     administrators -- and the page shows the rest to everybody else
     rather than hiding a list somebody can act on.
     """
-    from django.db import connections
 
     from accounts.access import is_application_admin
     from datasets.paywall import PERIODS
@@ -1105,28 +1159,7 @@ def paywalls(request):
         request.session["paywall_notice"] = notice or "Saved."
         return _back_to_paywalls(request)
 
-    # What the pipeline could not read, and what it did read. One query
-    # rather than one per publisher.
-    #
-    # The second half is the evidence for "verified": a sign-in that is
-    # configured is not a sign-in that works. Seven publishers carry
-    # credentials and six of them have never produced an article.
-    lost, read = {}, {}
-    with connections["crawler"].cursor() as cur:
-        cur.execute("""
-            SELECT cl.source_id,
-                   count(*) FILTER (WHERE e.skip_reason LIKE 'paywall%%'),
-                   count(*) FILTER (WHERE e.skip_reason IS NULL)
-            FROM article_enrichment e
-            JOIN articles a ON a.id = e.article_id
-            JOIN candidate_links cl ON cl.id = a.candidate_link_id
-            GROUP BY 1
-            """)
-        for source_id, blocked, extracted in cur.fetchall():
-            if blocked:
-                lost[source_id] = blocked
-            if extracted:
-                read[source_id] = extracted
+    lost, read = paywall_corpus_counts()
 
     # One directory at a time. Fifty-seven publishers across four states
     # is a list nobody works end to end, and whose paywalls are worth
