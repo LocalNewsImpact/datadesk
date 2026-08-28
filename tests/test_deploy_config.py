@@ -131,3 +131,33 @@ def test_every_variable_the_deploy_sets_has_a_name_and_a_value():
             name, _, value = entry.partition("=")
             assert name.strip(), f"an entry with no name: {entry!r}"
             assert value.strip(), f"{name} is set to nothing"
+
+
+def test_every_scheduled_job_is_re_pinned_by_the_release():
+    """A Cloud Run job pins its image when it is deployed and runs that one
+    for ever; nothing about it follows the service.
+
+    So a job deployed once goes on running that build however many times
+    its schedule fires. `datadesk-scan-sources` was created on 25 August
+    and was still pinned to that day's image while the console served a
+    later one -- a check added to the flag vocabulary would never have run,
+    and the schedule would have reported success every morning.
+
+    Anything with a schedule therefore has to be re-pinned here, beside the
+    deploy that builds the image.
+    """
+    pipeline = CONSOLE.read_text()
+    scheduled = {
+        # infra/keepwarm.sh, infra/scan_sources.sh: the jobs a Cloud
+        # Scheduler entry points at.
+        "${_SERVICE}-warm",
+        "${_SERVICE}-scan-sources",
+    }
+    for job in scheduled:
+        assert f'gcloud run jobs deploy "{job}"' in pipeline, (
+            f"{job} runs on a schedule and is not re-pinned by the release, "
+            "so it will go on running whatever image it was made with"
+        )
+        # ...to this build, not to a tag that floats or an older one.
+        deploy = pipeline.split(f'gcloud run jobs deploy "{job}"', 1)[1]
+        assert '--image "$$IMAGE"' in deploy.split("gcloud run jobs execute")[0]

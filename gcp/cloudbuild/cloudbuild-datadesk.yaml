@@ -269,6 +269,48 @@ steps:
         gcloud run jobs execute "${_SERVICE}-warm" \
           --region "${_REGION}" --project "$PROJECT_ID"
 
+  # The nightly scan of publisher records, re-pinned to this image.
+  #
+  # A Cloud Run job pins an image when it is deployed and runs that one
+  # forever; nothing about it follows the service. So the job created on
+  # 25 August went on running the build from 25 August, and a check added
+  # to the flag vocabulary after that would never have run however many
+  # times the schedule fired. The release job, the warm job and the
+  # directory's release job are all re-pinned here already -- this one was
+  # the omission.
+  #
+  # Executed as well as deployed, without --wait. `--if-changed` compares a
+  # stamp that hashes the flag keys before the records, so a release that
+  # changes neither does no work, and one that adds a check re-reads every
+  # record -- which is exactly when the queue needs filling and the only
+  # time this costs anything.
+  #
+  # Who may run it is granted in infra/scan_sources.sh, beside the schedule
+  # that needs it. Deploying a job grants nobody the right to run it, and
+  # asking the build to hand out IAM would give the release a permission it
+  # otherwise has no use for.
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'scan-job'
+    entrypoint: 'bash'
+    waitFor: ['migrate']
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        IMAGE="${_REGISTRY}/${_SERVICE}:${_SHORT_SHA}"
+        gcloud run jobs deploy "${_SERVICE}-scan-sources" \
+          --image "$$IMAGE" --region "${_REGION}" --project "$PROJECT_ID" \
+          --command python \
+          --args "manage.py,scan_sources,--if-changed" \
+          --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_DB_PASSWORD=crawler-ro-password:latest" \
+          --set-env-vars "^@^SERVICE_ROLE=datadesk@CLOUD_SQL_CONNECTION_NAME=${_SQL_INSTANCE}@DB_NAME=datadesk@DB_USER=datadesk@CRAWLER_DB_NAME=mizzou@CRAWLER_DB_USER=datadesk_ro" \
+          --set-cloudsql-instances "${_SQL_INSTANCE}" \
+          --task-timeout 30m \
+          --max-retries 1 \
+          --service-account "${_RUN_SA}"
+        gcloud run jobs execute "${_SERVICE}-scan-sources" \
+          --region "${_REGION}" --project "$PROJECT_ID"
+
   # --- The Source Directory front end ---------------------------------------
   #
   # One image, two front ends (ROADMAP item 14). Everything above serves
