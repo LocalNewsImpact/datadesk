@@ -242,6 +242,7 @@ def sources_stamp(dataset_slug):
     import hashlib
     import json
 
+    from datasets.models import VocabularyTerm
     from explorer.models import DatasetSource, Source
     from review.flags import FLAGS
 
@@ -256,6 +257,26 @@ def sources_stamp(dataset_slug):
     digest = hashlib.sha256()
     # The checks first, so adding one changes every dataset's stamp.
     digest.update(json.dumps([f.key for f in FLAGS]).encode())
+    # And the words those checks read, for the same reason and one this
+    # missed: a check that asks whether a value is in the vocabulary
+    # changes its mind when the vocabulary changes, and nothing about the
+    # records does.
+    #
+    # Without this, adding a word on the schema page left every dataset's
+    # stamp identical, so the nightly scan skipped them all and the edit
+    # reached the queue only when something else happened to move a
+    # record. Retiring a word and changing a kind's spelling were
+    # invisible the same way.
+    digest.update(
+        json.dumps(
+            list(
+                VocabularyTerm.objects.order_by("vocabulary", "value").values_list(
+                    "vocabulary", "value", "spelling", "retired"
+                )
+            ),
+            default=str,
+        ).encode()
+    )
     for row in rows.iterator(chunk_size=1000):
         digest.update(json.dumps(row, sort_keys=True, default=str).encode())
     return digest.hexdigest()
