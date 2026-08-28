@@ -561,6 +561,39 @@ def qualifying_values(spec, dim_key, scopes):
 ONLY_PREFIX = "_only_"
 
 
+#: What a typed date is read as when it is not already ISO. The calendar
+#: writes `yyyy-mm-dd` and the field says so, but it is a text box -- the
+#: native date input was swapped out to stop the browser's own picker
+#: appearing beside ours -- so anything can be typed into it. These are
+#: US order, month first, which is the order every newsroom in this
+#: corpus writes dates in.
+_TYPED_DATE = ("%m/%d/%Y", "%m-%d-%Y", "%m/%d/%y")
+
+
+def as_iso(value, what="date"):
+    """One typed date as `yyyy-mm-dd`, or a refusal naming it.
+
+    An unparseable date used to reach the query as-is, where Django
+    raised ValidationError -- not a CorpusSpecError, so it was not the
+    502 the feed answers a bad spec with but an unhandled 500, and the
+    builder said "500 from the feed" about a date somebody typed.
+    """
+    from datetime import datetime
+
+    text = str(value or "").strip()
+    if not text:
+        return text
+    for fmt in ("%Y-%m-%d", *_TYPED_DATE):
+        try:
+            return datetime.strptime(text, fmt).date().isoformat()
+        except ValueError:
+            continue
+    raise CorpusSpecError(
+        f"{text!r} is not a date this understands. Write the {what} date "
+        "as yyyy-mm-dd, or pick it from the calendar."
+    )
+
+
 def _base_queryset(spec, scopes):
     """Articles narrowed to `scopes`, then by the spec's filters.
 
@@ -620,9 +653,9 @@ def _base_queryset(spec, scopes):
     if cin := spec.get("cin"):
         qs = qs.filter(primary_label=cin)
     if date_from := spec.get("from"):
-        qs = qs.filter(publish_date__date__gte=date_from)
+        qs = qs.filter(publish_date__date__gte=as_iso(date_from, "from"))
     if date_to := spec.get("to"):
-        qs = qs.filter(publish_date__date__lte=date_to)
+        qs = qs.filter(publish_date__date__lte=as_iso(date_to, "to"))
     if spec.get("enriched_only"):
         qs = qs.filter(enrichment__isnull=False)
     if spec.get("news_only"):

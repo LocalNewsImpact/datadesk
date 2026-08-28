@@ -166,8 +166,18 @@
     input.addEventListener("keydown", function (e) {
       if (e.key === "Escape") close();
     });
-    document.addEventListener("click", function (e) {
-      if (!wrap.contains(e.target)) close();
+    // On mousedown, not click. Paging a month redraws the popup, which
+    // removes the very button that was pressed -- so by the time the
+    // click reaches the document its target is detached, `contains` is
+    // false, and the calendar closes. Pressing back or forward redrew
+    // the month and dismissed the picker in the same gesture, which
+    // reads as a calendar that will not page, and leaves typing the date
+    // by hand as the only way to reach another month.
+    //
+    // mousedown is dispatched before the redraw, while the target is
+    // still where it was pressed.
+    document.addEventListener("mousedown", function (e) {
+      if (!pop.hidden && !wrap.contains(e.target)) close();
     });
   }
 

@@ -309,7 +309,7 @@ def data_panel(visual, post=None, choices=(), files=None, actor=None):
             # A slug typed into a form must not reach past the author's
             # grants, the same rule the spec's single-dataset field follows.
             raise ValueError(f"Not yours to draw on: {sorted(outside)}")
-        from visuals.corpus import COMPLETE, SUBSETS
+        from visuals.corpus import COMPLETE, SUBSETS, as_iso
 
         subset = post.get("subset", COMPLETE)
         if subset not in SUBSETS:
@@ -326,8 +326,14 @@ def data_panel(visual, post=None, choices=(), files=None, actor=None):
                 # name none.
                 "dataset": picked[0] if len(picked) == 1 else "",
                 "subset": subset,
-                "from": post.get("from", "").strip(),
-                "to": post.get("to", "").strip(),
+                # Normalised here, where what somebody meant is still
+                # known. The field is a text box -- the native date input
+                # is swapped out so the browser's own picker does not
+                # appear beside ours -- so a date can be typed in any
+                # shape, and one typed as 03/01/2026 was stored as it
+                # was, reaching the query as a string Django refuses.
+                "from": as_iso(post.get("from", ""), "start"),
+                "to": as_iso(post.get("to", ""), "end"),
             }
         }
         return written

@@ -68,6 +68,22 @@ def visual(author):
     )
 
 
+def _fetched(body):
+    """Every URL the page's renderer would ask for, as the browser reads it.
+
+    The URL is written into a JS string with escapejs, so `&` between two
+    query parameters arrives as a unicode escape -- which JS resolves and
+    a regex does not. Reading the source literally is how `&amp;` went
+    unnoticed in it: the tests were requesting a URL no browser ever did.
+    """
+    import json
+    import re as _re
+
+    return [
+        json.loads(f'"{found}"') for found in _re.findall(r'fetch\("([^"]*)"\)', body)
+    ]
+
+
 def step(client, visual, name, **post):
     url = f"/visuals/builder/{visual.slug}/step/{name}/"
     return client.post(url, post) if post else client.get(url)
@@ -844,7 +860,7 @@ def test_the_preview_follows_the_data_rather_than_the_pin(client, author, visual
     """It is a preview of what the chart will become."""
     _complete_chord(visual)
     body = step(client, visual, "fields").content.decode()
-    assert "live=1" in body
+    assert any("live=1" in url for url in _fetched(body))
 
 
 # --- what the builder costs to walk through ----------------------------------
@@ -1274,7 +1290,9 @@ def test_a_draft_page_can_draw_for_whoever_may_change_it(client, author, visual)
     assert visual.snapshots.count() == 0
 
     body = client.get(f"/visuals/{visual.slug}/").content.decode()
-    assert "data.json?live=1" in body, "the draft's page must ask for live data"
+    asked = _fetched(body)
+    assert asked, "the draft's page asks for nothing"
+    assert "data.json?live=1" in asked[0], "the draft's page must ask for live data"
 
 
 def test_a_chart_with_no_fields_says_so(client, author, visual):
@@ -1327,7 +1345,6 @@ def test_every_view_that_draws_a_chart_can_load_its_feed(
     """A draft with no snapshot, which is what every visual is until it is
     published, and what a fresh copy is for as long as it takes to change
     something."""
-    import re
 
     Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
     client.force_login(author)
@@ -1359,7 +1376,7 @@ def test_every_view_that_draws_a_chart_can_load_its_feed(
 
         # Whatever it fetches must be a real URL, not the empty string --
         # `fetch("")` re-requests the page and the runtime parses HTML.
-        for fetched in re.findall(r'fetch\("([^"]*)"\)', body):
+        for fetched in _fetched(body):
             assert fetched, f"{kind} at {where} fetches nothing"
             feed = client.get(fetched)
             assert (
@@ -1997,9 +2014,8 @@ def test_a_visual_walked_from_nothing_reaches_a_working_embed(
     reader = Client()
     page = reader.get(f"/embed/{fresh.slug}/")
     assert page.status_code == 200
-    import re
 
-    for url in re.findall(r'fetch\("([^"]*)"\)', page.content.decode()):
+    for url in _fetched(page.content.decode()):
         assert url, "the embed fetches nothing"
         feed = reader.get(url)
         assert feed.status_code == 200, f"{url}: {feed.status_code}"
@@ -2473,9 +2489,8 @@ def test_a_chart_is_built_from_an_uploaded_file(client, author):
     reader = Client()
     page = reader.get(f"/embed/{v.slug}/")
     assert page.status_code == 200
-    import re
 
-    for url in re.findall(r'fetch\("([^"]*)"\)', page.content.decode()):
+    for url in _fetched(page.content.decode()):
         assert reader.get(url).status_code == 200
 
 
@@ -3927,10 +3942,87 @@ def test_the_data_step_loads_the_calendar(client, author, visual, corpus):
     assert page.index("calendar.js") < page.index("</body>")
 
 
+def test_paging_a_month_keeps_the_calendar_open():
+    """Paging redraws the popup, which removes the button that was
+    pressed. A close-on-outside-click that runs afterwards tests a node no
+    longer in the document, finds it outside the field and closes -- so
+    back and forward redrew the month and dismissed the picker in one
+    gesture, and typing the date by hand was the only way to another
+    month. mousedown runs before the redraw, while the target is still in
+    place."""
+    js = _calendar_js()
+    assert 'document.addEventListener("mousedown"' in js
+    assert 'document.addEventListener("click"' not in js, "closes on the click"
+    # And it does nothing while the calendar is already closed.
+    assert "!pop.hidden && !wrap.contains(e.target)" in js
+
+
 def test_the_calendar_is_styled():
     css = _console_css()
     for name in (".cal-pop{", ".cal-grid{", ".cal-date{", ".cal-step{"):
         assert name in css, f"{name} has no rule"
+
+
+def test_a_typed_date_is_stored_as_a_date(client, author, visual, corpus, dataset):
+    """The field is a text box, because the native date input is swapped
+    out to stop the browser's own picker appearing beside ours. So a date
+    can be typed in any shape, and one typed 03/01/2026 was stored exactly
+    that way -- reaching the query as a string Django refuses, which is
+    not the CorpusSpecError the feed answers with a 502 but an unhandled
+    500. The builder reported "500 from the feed" about a typed date.
+    """
+    from accounts.models import DATADESK, Grant
+
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": "bar", "theme": "datadesk"}
+    visual.save(update_fields=["config"])
+
+    step(
+        client,
+        visual,
+        "data",
+        datasets=[dataset.slug],
+        subset="complete",
+        **{"from": "03/01/2026", "to": "2026-03-31"},
+    )
+    visual.refresh_from_db()
+    assert visual.spec["from"] == "2026-03-01"
+    assert visual.spec["to"] == "2026-03-31"
+
+    # And what is not a date at all is refused where somebody can read it,
+    # rather than stored and raised at the feed.
+    page = step(
+        client,
+        visual,
+        "data",
+        datasets=[dataset.slug],
+        subset="complete",
+        **{"from": "last March", "to": ""},
+    )
+    assert "not a date this understands" in page.content.decode()
+    visual.refresh_from_db()
+    assert visual.spec["from"] == "2026-03-01", "the refusal saved anyway"
+
+
+def test_a_spec_carrying_a_typed_date_still_runs(corpus):
+    """Every spec already stored with one. Reading it the same way it is
+    written means an existing visual draws rather than 500s, and anything
+    unreadable is the 502 a bad spec gets."""
+    import pytest as _pytest
+
+    from visuals.corpus import CorpusSpecError, run_spec
+
+    spec = {
+        "dimensions": ["publisher_state"],
+        "measure": "articles",
+        "from": "03/01/2026",
+        "to": "03/31/2026",
+    }
+    run_spec(spec, None)  # no ValidationError
+
+    with _pytest.raises(CorpusSpecError):
+        run_spec({**spec, "from": "last March"}, None)
 
 
 # --- who is in the news ------------------------------------------------------
@@ -4217,6 +4309,37 @@ def test_a_column_ticked_twice_is_one_column(visual, corpus):
         ALL_SCOPES,
     )
     assert [d["key"] for d in meta["dimensions"]] == ["cin_primary", "cin_alternate"]
+
+
+def test_the_preview_fetches_the_url_it_was_given(client, author, visual, corpus):
+    """The feed URL is a JS string, so it needs escapejs and not the
+    default HTML escaping. Otherwise the `&` between two query parameters
+    is written `&amp;`, and what the browser actually requests carries a
+    parameter called `amp;q`. It went unseen while a live feed URL had one
+    parameter and so no ampersand in it."""
+    from accounts.models import DATADESK, Grant
+
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    visual.config = {"kind": "bar", "theme": "datadesk"}
+    visual.spec = {
+        "roles": {"x": "publisher_state", "y": "articles"},
+        "dimensions": ["publisher_state"],
+        "measure": "articles",
+    }
+    visual.save(update_fields=["config", "spec"])
+
+    import json
+
+    page = client.get(f"/visuals/builder/{visual.slug}/step/theme/").content.decode()
+    fetched = page[page.index('fetch("') + 6 :]
+    fetched = fetched[: fetched.index("\n")].rstrip(")")
+    # What the browser reads, not what the file holds: escapejs writes the
+    # `&` as a unicode escape, which is the same string once JS has parsed
+    # it. HTML escaping would leave a literal `&amp;` in the request.
+    url = json.loads(fetched)
+    assert "&amp;" not in url, url
+    assert "live=1" in url and "&q=" in url
 
 
 def test_the_preview_shows_what_the_feed_said():
