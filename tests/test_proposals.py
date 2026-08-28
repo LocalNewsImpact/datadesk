@@ -2291,3 +2291,66 @@ def test_a_record_spelt_with_an_underscore_is_offered_the_words(mo, editor):
     )
     flags = _scanned(mo, odd)
     assert flags["type_spelling"].proposed_value == "video broadcast"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_vocabulary_field_is_fixed_from_its_words(client, editor, publisher):
+    """Typing is how `digital_native` gets written beside `digital native`
+    in the first place. A queue whose fix box invites it is a queue
+    creating the defect it exists to clear."""
+    p = _proposal(publisher, "type", "video_broadcast", "video broadcast")
+    page = client.get(URL).content.decode()
+
+    # A menu of what the field may hold, not a box to type into.
+    assert f'<select class="fixval" name="v-{p.pk}"' in page
+    for word in ("video broadcast", "audio broadcast", "digital native"):
+        assert f'<option value="{word}">' in page
+    # And not the words that merely mean one: a fix writes what the record
+    # should say, and `tv` is what records say rather than what they
+    # should hold.
+    assert '<option value="tv">' not in page
+
+    client.post(URL, {f"d-{p.pk}": "fix", f"v-{p.pk}": "audio broadcast"})
+    publisher.refresh_from_db()
+    assert publisher.type == "audio broadcast"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_value_no_menu_could_produce_is_refused(client, editor, publisher):
+    """The page offers a menu, so this is a stale page, a second tab or a
+    posted form. Refused rather than written: the alternative is the queue
+    writing the defect it exists to clear.
+
+    Left pending rather than rejected, because nobody decided anything --
+    and the decisions beside it still go through.
+    """
+    bad = _proposal(publisher, "type", "video_broadcast", "video broadcast")
+    beside = _proposal(publisher, "city", "Columbia", "Colombia")
+
+    client.post(
+        URL,
+        {
+            f"d-{bad.pk}": "fix",
+            f"v-{bad.pk}": "televisual broadcasting",
+            f"d-{beside.pk}": "reject",
+        },
+    )
+    publisher.refresh_from_db()
+    assert publisher.type != "televisual broadcasting"
+    bad.refresh_from_db()
+    beside.refresh_from_db()
+    assert bad.state == ChangeProposal.PENDING
+    assert beside.state == ChangeProposal.REJECTED
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_free_text_field_still_takes_free_text(client, editor, publisher):
+    """Most fields have no vocabulary and a city is one of them: the
+    gazetteer knows far more names than any list here would."""
+    p = _proposal(publisher, "city", "Columbia", "Colombia")
+    page = client.get(URL).content.decode()
+    assert f'<input type="text" class="fixval" name="v-{p.pk}"' in page
+
+    client.post(URL, {f"d-{p.pk}": "fix", f"v-{p.pk}": "Columbia Heights"})
+    publisher.refresh_from_db()
+    assert publisher.city == "Columbia Heights"

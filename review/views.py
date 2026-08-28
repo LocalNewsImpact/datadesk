@@ -677,6 +677,15 @@ def _submit_proposals(request):
             # queue; the decisions around it still go through.
             incomplete += 1
             continue
+        # A field with a controlled vocabulary takes one of its words. The
+        # page offers them as a menu, so this refuses what no menu could
+        # have produced -- a stale page, a second tab, a posted form --
+        # rather than writing the defect the queue exists to clear.
+        if verb == "fix":
+            allowed = p.vocabulary_words
+            if allowed and value not in allowed:
+                incomplete += 1
+                continue
         if p.creates_a_record:
             creates.setdefault(p.submission, {})[p.field] = value
         else:
