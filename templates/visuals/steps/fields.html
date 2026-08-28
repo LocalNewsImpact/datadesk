@@ -86,7 +86,7 @@ the steps before this one.</p>
     {% endcomment %}
     {% if role.chosen %}
     <details class="values" data-role="{{ role.id }}"{% if role.kept %} open{% endif %}>
-      <summary>{% if role.kept %}{{ role.kept|length }} kept{% else %}Narrow the values{% endif %}</summary>
+      <summary>{% if role.kept %}{{ role.kept|length }} kept{% else %}Filter the values{% endif %}</summary>
       <div class="values-list" data-for="{{ role.chosen }}">
         {% comment %}
         What the visual already narrows to, which the spec knows and costs
@@ -120,7 +120,7 @@ the steps before this one.</p>
   {% endcomment %}
   {% if narrows %}
   <div class="narrows">
-    <p class="tree-head">Narrow by</p>
+    <p class="tree-head">Filter by</p>
     {% for n in narrows %}
     <details class="values" data-dim="{{ n.id }}"{% if n.kept %} open{% endif %}>
       <summary>{{ n.label }}{% if n.kept %} <em>{{ n.kept|length }} kept</em>{% endif %}</summary>

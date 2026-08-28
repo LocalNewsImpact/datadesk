@@ -440,9 +440,19 @@ def newsrooms_panel(visual, post=None, tree=None):
         # was ticked and no statement about what the visual is for.
         if tree is not None and len(picked) >= _newsroom_count(tree):
             picked = []
+        # What kind of newsroom, and how often it publishes. Kept as the
+        # kinds themselves rather than as the spellings they cover, so a
+        # record written tomorrow with a spelling nobody has used yet is
+        # inside a filter that asks for every radio station -- and so the
+        # inconsistent spelling stays visible as something to fix rather
+        # than being frozen into every spec that filtered around it.
+        kinds = [k for k in post.getlist("kind") if k]
+        frequencies = [f for f in post.getlist("frequency") if f]
         written = {
             "spec": {
                 "publishers": picked,
+                "publisher_kinds": kinds,
+                "publisher_frequencies": frequencies,
                 # Two older keys naming the same thing, from before this
                 # step existed. Nothing in the flow shows them, so nobody
                 # could see that a map filtered to Jackson's newsrooms
@@ -544,10 +554,23 @@ def newsrooms_panel(visual, post=None, tree=None):
         )
     total = sum(s["rooms"] for s in states)
     config = visual.config or {}
+    # Counted over the same sources the tree is built from, so what the
+    # filter offers is what this visual can actually reach. A kind nobody
+    # in scope is recorded as is not offered at all.
+    from visuals.corpus import publisher_facet
+    from visuals.services import scopes_of
+
+    scopes = scopes_of(visual)
     return {
         "states": states,
         "kept": len(kept) or total,
         "total": total,
+        "kinds": publisher_facet(
+            "publisher_type", scopes, spec.get("publisher_kinds") or ()
+        ),
+        "frequencies": publisher_facet(
+            "publisher_frequency", scopes, spec.get("publisher_frequencies") or ()
+        ),
         # The override, shown only where there is a map to frame.
         "is_map": config.get("kind") in _MAP_KINDS,
         "focus": config.get("focus_name") or config.get("focus", ""),

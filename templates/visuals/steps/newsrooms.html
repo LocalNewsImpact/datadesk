@@ -76,6 +76,61 @@ Sending nothing means every one of them -- storing exclusions would make
   </details>
   {% endif %}
 
+  {% comment %}
+  Narrower than the ladder above, and a different question. The tree asks
+  which newsrooms; these ask what kind of newsroom and how often it
+  publishes, which are properties of the record rather than a list of
+  names -- so they are kept as the kind, and a newsroom added tomorrow is
+  inside a filter that says "every radio station" without anybody
+  reopening this step.
+
+  Ticking none of a group is not a filter on that group, the same rule the
+  tree above follows.
+
+  A value the vocabulary does not recognise is offered under the name it
+  was recorded with and said to be. Both fields are free text in the
+  directory and neither is spelt consistently -- 'digital native' beside
+  'digital_native', 'weekly' beside 'Weekly' -- and hiding that here would
+  leave a filter that quietly drops records. It belongs in the sources
+  review queue, where a spelling can be fixed once for everything that
+  reads it.
+  {% endcomment %}
+  {% if kinds or frequencies %}
+  <div class="narrows">
+    <p class="tree-head">Filter by</p>
+    {% if kinds %}
+    <details class="values"{% for k in kinds %}{% if k.on %} open{% endif %}{% endfor %}>
+      <summary>Kind of newsroom</summary>
+      <div class="values-list">
+        {% for k in kinds %}
+        <label class="row">
+          <input type="checkbox" name="kind" value="{{ k.value }}"
+            {% if k.on %}checked{% endif %}>
+          <span class="label">{{ k.label }}</span><em>{{ k.count }}</em>
+        </label>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+    {% if frequencies %}
+    <details class="values"{% for f in frequencies %}{% if f.on %} open{% endif %}{% endfor %}>
+      <summary>How often it publishes</summary>
+      <div class="values-list">
+        {% for f in frequencies %}
+        <label class="row">
+          <input type="checkbox" name="frequency" value="{{ f.value }}"
+            {% if f.on %}checked{% endif %}>
+          <span class="label">{{ f.label }}</span><em>{{ f.count }}</em>
+        </label>
+        {% endfor %}
+        <p class="hint">Recorded for some newsrooms and not others, so this
+        narrows to the ones that carry it.</p>
+      </div>
+    </details>
+    {% endif %}
+  </div>
+  {% endif %}
+
   <div class="action-bar">
     <button type="submit" class="primary">Next</button>
     <button type="submit" name="stay" value="1"

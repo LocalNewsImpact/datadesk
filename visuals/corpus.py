@@ -85,6 +85,19 @@ DIMENSIONS = {
             "two."
         ),
     },
+    "publisher_frequency": {
+        "label": "How often it publishes",
+        # In `meta` beside the state, and read as text for the same
+        # reason: `meta` is `json` rather than `jsonb`, and Postgres has
+        # no equality operator for `json`, so grouping on it fails
+        # outright.
+        "expr": KeyTextTransform("frequency", "candidate_link__source__meta"),
+        "note": (
+            "Daily, weekly, bi-weekly, monthly, or continuous. Recorded "
+            "for 236 of the 1,149 publishers and blank on the rest, so a "
+            "filter on it is a filter on the ones that carry it."
+        ),
+    },
     "author": {
         "label": "Byline",
         "expr": F("author"),
@@ -684,7 +697,185 @@ def _base_queryset(spec, scopes):
         qs = qs.annotate(**{f"{ONLY_PREFIX}{key}": dimension["expr"]}).filter(
             **{f"{ONLY_PREFIX}{key}__in": list(values)}
         )
+    # What kind of newsroom, and how often it publishes. Stored as the
+    # kind rather than as the spellings it covers: a stored list of
+    # spellings is a snapshot, and the first record written with a new one
+    # would drop out of a filter that says it wants every radio station --
+    # the same staleness that made ticking every newsroom stop meaning
+    # "all of them".
+    for key, wanted in (
+        ("publisher_type", spec.get("publisher_kinds")),
+        ("publisher_frequency", spec.get("publisher_frequencies")),
+    ):
+        if not wanted:
+            continue
+        asked = set(wanted)
+        spellings = [
+            value
+            for value in _recorded_values(key, scopes)
+            if group_of(key, value) in asked
+        ]
+        # A kind nobody's records spell yet matches nothing, which is what
+        # it should: the alternative is a filter that quietly matches
+        # everything the moment its values go missing.
+        qs = qs.annotate(**{f"{ONLY_PREFIX}{key}": DIMENSIONS[key]["expr"]}).filter(
+            **{f"{ONLY_PREFIX}{key}__in": spellings}
+        )
     return qs
+
+
+# --- what a newsroom is, and how often it publishes -------------------------
+#
+# The directory records both as free text and does not spell either
+# consistently: 'digital native' beside 'digital_native', 'weekly' beside
+# 'Weekly'. Folding case and separators here makes one kind one filter;
+# it does not make the records agree, and it is not meant to. A spelling
+# that has to be folded is a defect in the record, and the sources review
+# queue is where that gets raised and fixed.
+#
+# Nothing is hidden. A value these do not recognise is offered under the
+# name it was recorded with, so a vocabulary that grows is visible in the
+# filter the day it grows rather than silently dropped from it.
+
+
+def fold_value(value):
+    """One recorded value, with case and separators taken out of it."""
+    text = str(value or "").replace("_", " ").replace("-", " ").replace("/", " / ")
+    return " ".join(text.split()).lower()
+
+
+#: (key, what a reader sees, the recorded values it covers -- folded).
+PUBLISHER_KINDS = (
+    ("digital", "Digital", ("digital native", "digital")),
+    ("print", "Print", ("print native", "newspaper", "print")),
+    ("tv", "Television", ("video broadcast", "television", "tv")),
+    ("radio", "Radio", ("audio broadcast", "radio")),
+    # Ten records say only "broadcast", which is not an answer to whether
+    # this is a television station or a radio one. Its own entry rather
+    # than a guess into either.
+    ("broadcast", "Broadcast, not said which", ("broadcast",)),
+)
+
+#: The same shape for how often a newsroom publishes.
+PUBLISHER_FREQUENCIES = (
+    ("daily", "Daily", ("daily",)),
+    ("weekly", "Weekly", ("weekly",)),
+    (
+        "semiweekly",
+        "More than weekly",
+        (
+            "bi weekly",
+            "semi weekly",
+            "tri weekly",
+            "weekly / daily",
+            "biweekly",
+            "semiweekly",
+        ),
+    ),
+    ("monthly", "Monthly", ("monthly",)),
+    ("continuous", "Continuous", ("continuous",)),
+)
+
+#: Which grouping belongs to which dimension.
+GROUPED_VALUES = {
+    "publisher_type": PUBLISHER_KINDS,
+    "publisher_frequency": PUBLISHER_FREQUENCIES,
+}
+
+
+def group_of(dimension, value):
+    """The key a recorded value groups under, or "" for one it does not.
+
+    A value nobody grouped is not an error and is not dropped: the caller
+    offers it under its own name.
+    """
+    folded = fold_value(value)
+    if not folded:
+        return ""
+    for key, _label, covered in GROUPED_VALUES.get(dimension, ()):
+        if folded in covered:
+            return key
+    return ""
+
+
+def _publisher_rows(scopes):
+    """(type, frequency) for every source the given scopes can see.
+
+    One query, held as long as the newsroom tree is: both answer the same
+    question about the same records, and the filter is drawn beside the
+    tree.
+    """
+    from django.core.cache import cache
+
+    from explorer.models import Source
+
+    key = _cache_key("visuals.publisher_rows", sorted(scopes) if scopes else [])
+    hit = cache.get(key)
+    if hit is not None:
+        return hit
+
+    members = DatasetSource.objects.all()
+    if scopes:
+        members = members.filter(dataset__slug__in=scopes)
+    ids = set(members.values_list("source_id", flat=True))
+    rows = [
+        (
+            (kind or "").strip(),
+            ((meta or {}).get("frequency") or "").strip(),
+        )
+        for kind, meta in Source.objects.filter(id__in=ids).values_list("type", "meta")
+    ]
+    cache.set(key, rows, CORPUS_CACHE_SECONDS)
+    return rows
+
+
+#: Which of the pair each dimension reads.
+_PUBLISHER_COLUMN = {"publisher_type": 0, "publisher_frequency": 1}
+
+
+def _recorded_values(key, scopes):
+    """Every spelling of one publisher attribute the sources in scope carry."""
+    at = _PUBLISHER_COLUMN[key]
+    return sorted({row[at] for row in _publisher_rows(scopes) if row[at]})
+
+
+def publisher_facet(key, scopes, kept=()):
+    """The filter for one publisher attribute: what to offer, and how many.
+
+    Grouped values first, in the order they are declared, then anything
+    recorded that no group covers -- under the name it was recorded with,
+    because a value this does not recognise is a record to fix rather than
+    a record to hide.
+    """
+    at = _PUBLISHER_COLUMN[key]
+    counts, loose = {}, {}
+    for row in _publisher_rows(scopes):
+        value = row[at]
+        if not value:
+            continue
+        group = group_of(key, value)
+        if group:
+            counts[group] = counts.get(group, 0) + 1
+        else:
+            loose[value] = loose.get(value, 0) + 1
+    kept = set(kept or ())
+    offered = [
+        {"value": group, "label": label, "count": counts[group], "on": group in kept}
+        for group, label, _covered in GROUPED_VALUES[key]
+        if counts.get(group)
+    ]
+    offered += [
+        {
+            "value": value,
+            # Named as it was recorded, and said to be: a reader choosing
+            # it should know they are choosing one spelling.
+            "label": f"{value} — as recorded",
+            "count": count,
+            "on": value in kept,
+        }
+        for value, count in sorted(loose.items())
+    ]
+    return offered
 
 
 class CorpusSpecError(ValueError):
@@ -788,6 +979,7 @@ GROUP_OF = {
     "publisher_county": "publisher",
     "publisher_state": "publisher",
     "publisher_type": "publisher",
+    "publisher_frequency": "publisher",
     "author": "story",
     "status": "pipeline",
     "wire": "story",
