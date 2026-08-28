@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Paywalls — Datadesk{% endblock %}
+{% block title %}Publisher paywalls — Datadesk{% endblock %}
 
 {% block content %}
 <section class="card card-wide">
   <header>
-    <h1>Publishers we cannot read</h1>
+    <h1>Publisher paywalls</h1>
     <p class="notice">The pipeline already knows which ones: an article it
     could not extract because a paywall stood in the way is skipped with a
     paywall reason. {{ total_lost }} articles have been lost that way.
@@ -13,6 +13,25 @@
   </header>
 
   {% if notice %}<p class="receipt-line">{{ notice }}</p>{% endif %}
+
+  {% comment %}
+  One directory at a time. Fifty-seven publishers across four states is a
+  list nobody works end to end, and whose paywalls are worth paying for is
+  a question somebody asks about one directory.
+  {% endcomment %}
+  {% if datasets %}
+  <form method="get" class="action-bar">
+    <label>Directory
+      <select name="dataset">
+        <option value="">all</option>
+        {% for d in datasets %}
+        <option value="{{ d.slug }}" {% if dataset == d.slug %}selected{% endif %}>{{ d.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Show</button>
+  </form>
+  {% endif %}
 
   {% comment %}
   Credentials are typed here and stored in Secret Manager, in the

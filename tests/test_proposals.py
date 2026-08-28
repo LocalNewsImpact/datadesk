@@ -2709,10 +2709,41 @@ def test_the_paywall_page_ranks_by_what_is_being_lost(client, admin_user, mo):
         made.append(source)
 
     page = client.get("/review/paywalls/").content.decode()
-    assert "Publishers we cannot read" in page
+    assert "Publisher paywalls" in page
     # Ranked: the one losing three articles is above the one losing one.
     assert page.index("Big.Example") < page.index("Small.Example")
     assert "4 articles have been lost" in page
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_paywalls_are_shown_one_directory_at_a_time(client, admin_user, mo):
+    """Fifty-seven publishers across four states is a list nobody works end
+    to end, and whose paywalls are worth paying for is a question somebody
+    asks about one directory."""
+    from accounts.models import DATADESK, Grant
+    from explorer.models import Dataset, DatasetSource
+
+    Grant.objects.get_or_create(user=admin_user, app=DATADESK, scope="", role="admin")
+    client.force_login(admin_user)
+
+    other = Dataset.objects.create(id="d-vt2", slug="vermont", label="Vermont")
+    for i, (dataset, host) in enumerate(((mo, "mo.example"), (other, "vt.example"))):
+        source = Source.objects.create(
+            id=f"s-dir{i}",
+            host=host,
+            host_norm=host,
+            canonical_name=host.split(".")[0].upper(),
+            has_paywall=True,
+        )
+        DatasetSource.objects.create(id=f"ds-dir{i}", dataset=dataset, source=source)
+
+    both = client.get("/review/paywalls/").content.decode()
+    assert "MO" in both and "VT" in both
+    assert 'value="vermont"' in both
+
+    one = client.get("/review/paywalls/?dataset=vermont").content.decode()
+    assert "VT" in one
+    assert "mo.example" not in one
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
