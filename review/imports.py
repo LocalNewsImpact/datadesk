@@ -50,8 +50,17 @@ TARGETS = {
 IMPORTABLE_FIELDS = WRITABLE[Article]
 
 
+#: Writable, and still not something a spreadsheet may set. The secret's
+#: name is derived from the host after Secret Manager has accepted the
+#: credentials; a column naming one would let an upload point a publisher
+#: at another publisher's credentials.
+_NOT_IMPORTABLE = {"auth_secret_name"}
+
+
 def importable_fields(target):
-    return WRITABLE[TARGETS[target]["model"]]
+    return tuple(
+        f for f in WRITABLE[TARGETS[target]["model"]] if f not in _NOT_IMPORTABLE
+    )
 
 
 class ImportError_(Exception):

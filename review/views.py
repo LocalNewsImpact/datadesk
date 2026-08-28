@@ -992,3 +992,106 @@ def schema(request):
             "vocabulary_rule": VOCABULARY,
         },
     )
+
+
+@requires_admin
+def paywalls(request):
+    """Publishers we cannot read, and what it would take to read them.
+
+    The pipeline already knows: an article it could not extract because a
+    paywall stood in the way is skipped with a paywall reason, and 57
+    publishers have those. None of them was marked as paywalled, because
+    until now there was nowhere to mark it and nothing showing who to
+    mark. So this ranks them by how many articles are being lost.
+
+    Admin, because credentials are entered here.
+    """
+    from django.db import connections
+
+    from explorer.models import Source
+    from explorer.scoping import narrow
+    from review.credentials import PROJECT, CredentialError, secret_name_for, store
+
+    reachable = narrow(Source.objects.all(), request.user, WRITE, source_path="id")
+
+    if request.method == "POST":
+        source = reachable.filter(id=request.POST.get("source_id", "")).first()
+        if source is None:
+            raise Http404("No such publisher")
+        notice = ""
+        changes = {}
+        # Ticking it here is the point of the page: the evidence is on
+        # this row, so the decision belongs on it too.
+        changes["has_paywall"] = bool(request.POST.get("has_paywall"))
+        username = (request.POST.get("username") or "").strip()
+        password = (request.POST.get("password") or "").strip()
+        if username or password:
+            try:
+                name = store(
+                    source.host_norm or source.host,
+                    {"username": username, "password": password},
+                )
+            except CredentialError as exc:
+                request.session["paywall_notice"] = str(exc)
+                return redirect("review:paywalls")
+            changes["auth_secret_name"] = name
+            notice = f"Credentials stored as {name}."
+        audited_update(
+            request.user,
+            [source],
+            changes,
+            action="source:paywall",
+            reason=request.POST.get("reason", "") or "reviewed the paywall",
+        )
+        request.session["paywall_notice"] = notice or "Saved."
+        return redirect("review:paywalls")
+
+    # What the pipeline could not read. One query rather than one per
+    # publisher: this counts every skipped article in the corpus.
+    lost = {}
+    with connections["crawler"].cursor() as cur:
+        cur.execute("""
+            SELECT cl.source_id, count(*)
+            FROM article_enrichment e
+            JOIN articles a ON a.id = e.article_id
+            JOIN candidate_links cl ON cl.id = a.candidate_link_id
+            WHERE e.skip_reason LIKE 'paywall%%'
+            GROUP BY 1
+            """)
+        lost = {row[0]: row[1] for row in cur.fetchall()}
+
+    rows = []
+    for source in reachable.filter(
+        Q(id__in=list(lost)) | Q(has_paywall=True) | Q(requires_login=True)
+    ):
+        rows.append(
+            {
+                "id": source.id,
+                "name": source.canonical_name or source.host,
+                "host": source.host_norm or source.host,
+                "lost": lost.get(source.id, 0),
+                "has_paywall": source.has_paywall,
+                "requires_login": source.requires_login,
+                "auth_type": source.auth_type or "",
+                # Whether one exists, never what is in it.
+                "secret": source.auth_secret_name or "",
+                "expected_secret": secret_name_for(source.host_norm or source.host),
+                "cost": source.subscription_cost,
+                "period": source.subscription_period or "",
+                "login_url": source.login_url
+                or (source.auth_config or {}).get("login_url", ""),
+            }
+        )
+    # The most articles first: that is the size of the hole each one
+    # leaves, and the order somebody would work them in.
+    rows.sort(key=lambda r: (-r["lost"], r["name"].lower()))
+    return render(
+        request,
+        "review/paywalls.html",
+        {
+            "rows": rows,
+            "total_lost": sum(r["lost"] for r in rows),
+            "project": PROJECT,
+            "notice": request.session.pop("paywall_notice", ""),
+        },
+    )

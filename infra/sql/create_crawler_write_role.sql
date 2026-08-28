@@ -59,8 +59,13 @@ GRANT UPDATE (skip_reason, geo_skip_reason, scope, scope_confidence)
 -- record. Not `auth_secret_name` and not `auth_config` -- those are the
 -- crawler's login automation, and the secret they name is the one thing
 -- here that must not be settable through the console.
+-- `auth_secret_name` is on it so the paywall page can record where a
+-- credential was stored. The name is derived from the host and never
+-- typed; the secret itself is in Secret Manager, in the crawler's
+-- project, and nothing in this database holds a password.
 GRANT UPDATE (canonical_name, city, county, owner, type, metadata,
-              has_paywall, subscription_cost, subscription_period, login_url)
+              has_paywall, subscription_cost, subscription_period, login_url,
+              auth_secret_name)
   ON sources TO datadesk_rw;
 
 -- Phase 4: dataset management (SCOPE.md §2.4). Creation columns include

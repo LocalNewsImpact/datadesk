@@ -167,6 +167,14 @@ SECTION_GROUPS = (
                 "note": "Role assignment: viewer, editor, admin.",
             },
             {
+                "url": "review:paywalls",
+                "label": "Paywalls",
+                "note": (
+                    "Publishers the pipeline cannot read, and the sign-in "
+                    "that would let it."
+                ),
+            },
+            {
                 "url": "review:schema",
                 "label": "Record schema",
                 "note": (
