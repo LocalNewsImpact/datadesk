@@ -30,13 +30,25 @@
         {% endfor %}
       </select>
     </label>
+    {% comment %}
+    Automated or not is the difference between work still to do and work
+    already done: one half needs a subscription bought and a credential
+    stored, the other is being read today.
+    {% endcomment %}
+    <label>Sign-in
+      <select name="sign_in">
+        <option value="">all</option>
+        <option value="manual" {% if sign_in == "manual" %}selected{% endif %}>not automated</option>
+        <option value="automated" {% if sign_in == "automated" %}selected{% endif %}>automated</option>
+      </select>
+    </label>
     <button type="submit">Show</button>
     {% comment %}
     The same list, filtered the same way. A report of one directory's
     paywalls is what somebody takes to whoever decides what to subscribe
     to, and the link carries the directory being looked at.
     {% endcomment %}
-    <a class="button" href="?format=csv{% if dataset %}&amp;dataset={{ dataset }}{% endif %}">Export CSV</a>
+    <a class="button" href="?format=csv{% if dataset %}&amp;dataset={{ dataset }}{% endif %}{% if sign_in %}&amp;sign_in={{ sign_in }}{% endif %}">Export CSV</a>
   </form>
   {% endif %}
 
@@ -169,6 +181,7 @@
           Replacing a password is a new version of the same secret, which
           is what the crawler asks for when it reads `versions/latest`.
           {% endcomment %}
+          {% if may_store %}
           <details class="values">
             <summary>{% if r.secret %}Replace{% else %}Add{% endif %} credentials</summary>
             <form method="post" class="add-term">
@@ -192,6 +205,14 @@
               <button type="submit" class="primary">Store</button>
             </form>
           </details>
+          {% elif not r.secret %}
+          {% comment %}
+          Shown rather than hidden: a reviewer who can see that a
+          publisher has no sign-in can say so, and hiding it would leave
+          them wondering why the column is empty.
+          {% endcomment %}
+          <p class="hint">no sign-in stored</p>
+          {% endif %}
         </td>
       </tr>
       {% empty %}

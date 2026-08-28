@@ -11,7 +11,7 @@ from django.utils import timezone
 from django.utils.http import urlencode
 from django.views.decorators.http import require_POST
 
-from accounts.decorators import requires, requires_admin, requires_import
+from accounts.decorators import APP, requires, requires_admin, requires_import
 from accounts.privileges import EXPORT_PRIVILEGE, WRITE
 from audit.models import AuditLogEntry
 from explorer.models import Article, ArticleEnrichment
@@ -994,7 +994,7 @@ def schema(request):
     )
 
 
-@requires_admin
+@requires(WRITE)
 def paywalls(request):
     """Publishers we cannot read, and what it would take to read them.
 
@@ -1004,10 +1004,19 @@ def paywalls(request):
     until now there was nowhere to mark it and nothing showing who to
     mark. So this ranks them by how many articles are being lost.
 
-    Admin, because credentials are entered here.
+    Whoever reviews a dataset can work its paywalls: which publishers are
+    behind one, what a subscription costs and where to sign in are the
+    same kind of judgement as the rest of the queue, made about the
+    datasets that person already reviews.
+
+    Storing a credential is not. It writes a secret into the crawler's
+    project, where the extractor reads it, so it stays with the
+    administrators -- and the page shows the rest to everybody else
+    rather than hiding a list somebody can act on.
     """
     from django.db import connections
 
+    from accounts.access import is_application_admin
     from datasets.paywall import PERIODS
     from explorer.models import DatasetSource, Source
     from explorer.scoping import datasets_for, narrow
@@ -1057,6 +1066,19 @@ def paywalls(request):
             PaywallDismissal.objects.filter(source_id=source.id).delete()
         username = (request.POST.get("username") or "").strip()
         password = (request.POST.get("password") or "").strip()
+        if (username or password) and not is_application_admin(request.user, APP):
+            # Refused rather than ignored: a credential somebody typed and
+            # believes is stored is worse than one they were told to hand
+            # to an administrator.
+            #
+            # Kept in `notice` rather than written to the session here:
+            # the save below writes its own, and a message written twice
+            # is the second one.
+            notice = (
+                "Credentials are stored by an administrator. The rest of "
+                "this row was saved."
+            )
+            username = password = ""
         if username or password:
             try:
                 name = store(
@@ -1120,6 +1142,18 @@ def paywalls(request):
     else:
         chosen = ""
 
+    # Whether the extractor already signs in. The two halves are
+    # different work: one needs a subscription bought and a credential
+    # stored, the other is being read today and is on the page because it
+    # was once not.
+    sign_in = (request.GET.get("sign_in") or "").strip()
+    if sign_in == "automated":
+        candidates = candidates.filter(requires_login=True)
+    elif sign_in == "manual":
+        candidates = candidates.filter(requires_login=False)
+    else:
+        sign_in = ""
+
     rows = []
     for source in candidates:
         rows.append(
@@ -1177,7 +1211,7 @@ def paywalls(request):
                     row["lost"],
                 ]
             )
-        stem = f"paywalls-{chosen}" if chosen else "paywalls"
+        stem = "-".join(part for part in ("paywalls", chosen, sign_in) if part)
         response = HttpResponse(
             buffer.getvalue(), content_type="text/csv; charset=utf-8"
         )
@@ -1193,6 +1227,10 @@ def paywalls(request):
             "datasets": choices,
             "dataset": chosen,
             "periods": PERIODS,
+            "sign_in": sign_in,
+            # Who may store one. The rest of the page is the same for
+            # everybody who reviews these datasets.
+            "may_store": is_application_admin(request.user, APP),
             "project": PROJECT,
             "notice": request.session.pop("paywall_notice", ""),
         },
