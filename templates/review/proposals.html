@@ -113,7 +113,24 @@ nothing has looked, and a reviewer cannot tell which.
     {% for group in groups %}
     <article class="rec" data-record="{{ group.record_id }}">
       <header class="rec-head">
-        <h2>{{ group.label }}</h2>
+        {% comment %}
+        The name opens the record. A reviewer looking at four questions
+        about a publisher can often answer them by editing it -- and had
+        to leave the queue, find it in the dataset admin, edit it, and
+        come back to a page that no longer knew what they had been doing.
+
+        An ordinary link to the ordinary edit page, so it works with no
+        JavaScript and for anybody who opens it in a tab. The dialog is
+        what the script adds.
+        {% endcomment %}
+        <h2>
+          {% if group.record_id %}
+          <a class="rec-edit" href="{% url 'datasets:source_edit' group.record_id %}"
+             data-record="{{ group.record_id }}">{{ group.label }}</a>
+          {% else %}
+          {{ group.label }}
+          {% endif %}
+        </h2>
         <span class="rec-src">{{ group.origin }}</span>
       </header>
         {% if group.creates_a_record %}
@@ -322,6 +339,68 @@ nothing has looked, and a reviewer cannot tell which.
     });
     recount();
   };
+  // Editing the publisher without leaving the queue.
+  //
+  // The dialog holds the same edit page the link points at, asked for
+  // bare. Saving it reloads the queue, because the questions on the card
+  // are about the values that were just changed -- and a card still
+  // asking about a value somebody has corrected is the thing that makes
+  // a queue untrustworthy.
+  const editor = document.createElement("dialog");
+  editor.className = "rec-editor";
+  document.body.appendChild(editor);
+
+  document.addEventListener("click", async (event) => {
+    const link = event.target.closest(".rec-edit");
+    if (!link || event.metaKey || event.ctrlKey || event.shiftKey) return;
+    // Only when a dialog is available. Where it is not, the link is a
+    // link and goes to the page it names.
+    if (typeof editor.showModal !== "function") return;
+    event.preventDefault();
+    editor.innerHTML = '<p class="notice">Opening the record…</p>';
+    editor.showModal();
+    try {
+      const response = await fetch(link.href + "?bare=1", {
+        credentials: "same-origin",
+      });
+      editor.innerHTML = await response.text();
+      wire(link.href);
+    } catch (err) {
+      editor.innerHTML =
+        '<p class="notice bad">The record could not be opened: ' + err + "</p>";
+    }
+  });
+
+  function wire(href) {
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "linklike rec-editor-close";
+    close.textContent = "Close";
+    close.onclick = () => editor.close();
+    editor.prepend(close);
+    const form = editor.querySelector("form");
+    if (!form) return;
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const response = await fetch(href + "?bare=1", {
+        method: "POST",
+        body: new FormData(form),
+        credentials: "same-origin",
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        // The form comes back with what it refused and why, which is the
+        // same answer the full page gives.
+        editor.innerHTML = text;
+        wire(href);
+        return;
+      }
+      // Saved. The queue is reloaded rather than patched, so what it
+      // asks and what the record says cannot disagree.
+      window.location.reload();
+    });
+  }
+
   // A refresh can restore the hidden decision fields, so a session that
   // looks new would carry decisions nobody made in it. Start clean.
   form.querySelectorAll(".prop").forEach((row) => {

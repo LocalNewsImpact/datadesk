@@ -622,3 +622,42 @@ def test_the_crawlers_sign_in_is_shown_and_not_edited(client, admin, member_sour
     )
     member_source.refresh_from_db()
     assert member_source.auth_secret_name == "publisher-auth-lexingtonnews-example"
+
+
+def test_the_record_opens_without_the_console_around_it(client, admin, member_source):
+    """`?bare=1` is the same form with the console taken off, for a dialog
+    to hold. A whole document rather than a fragment, so the same URL
+    works opened in a tab -- which is what the queue's link falls back to
+    with no JavaScript."""
+    page = client.get(f"/manage/sources/{member_source.id}/?bare=1").content.decode()
+    assert "<!doctype html>" in page.lower()
+    assert "Paywall and sign-in" in page
+    # The console is not around it.
+    assert "← Datasets" not in page
+    assert 'class="sidebar"' not in page
+
+    # And the ordinary page still has it.
+    full = client.get(f"/manage/sources/{member_source.id}/").content.decode()
+    assert "← Datasets" in full
+
+
+def test_a_bare_save_answers_where_it_was_asked(client, admin, member_source):
+    """Editing a publisher from the review queue is one question inside
+    another. Redirecting to the datasets list afterwards loses the queue
+    somebody was working."""
+    response = client.post(
+        f"/manage/sources/{member_source.id}/?bare=1",
+        {"state": "MO", "owner": "CherryRoad Media", "reason": "sold"},
+    )
+    assert response.status_code == 200, "a bare save redirected away"
+    member_source.refresh_from_db()
+    assert member_source.owner == "CherryRoad Media"
+    # Audited like any other write, and revertible with it.
+    # `audited_update` records the changes flat and the previous values
+    # per record, which is what revert reads back.
+    entry = AuditLogEntry.objects.filter(action="source:edit").latest("id")
+    assert entry.after["owner"] == "CherryRoad Media"
+    assert member_source.id in entry.before
+    revert(admin, entry)
+    member_source.refresh_from_db()
+    assert member_source.owner != "CherryRoad Media"

@@ -581,7 +581,16 @@ def source_edit(request, source_id):
             action="source:edit",
             reason=request.POST.get("reason", ""),
         )
+        # Answered where it was asked. Editing a publisher from the review
+        # queue is one question inside another, and sending somebody to
+        # the datasets list afterwards loses the queue they were working.
+        if request.GET.get("bare"):
+            return render(request, "datasets/source_form.html", context)
         return redirect("datasets:list")
+    # `?bare=1` is the same form with the console taken off, for a dialog
+    # to hold. The link works without it -- and without any JavaScript --
+    # because it is the ordinary edit page.
+    context["bare"] = bool(request.GET.get("bare"))
     return render(request, "datasets/source_form.html", context)
 
 
