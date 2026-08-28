@@ -1008,8 +1008,8 @@ def paywalls(request):
     """
     from django.db import connections
 
-    from explorer.models import Source
-    from explorer.scoping import narrow
+    from explorer.models import DatasetSource, Source
+    from explorer.scoping import datasets_for, narrow
     from review.credentials import PROJECT, CredentialError, secret_name_for, store
 
     reachable = narrow(Source.objects.all(), request.user, WRITE, source_path="id")
@@ -1060,10 +1060,29 @@ def paywalls(request):
             """)
         lost = {row[0]: row[1] for row in cur.fetchall()}
 
-    rows = []
-    for source in reachable.filter(
+    # One directory at a time. Fifty-seven publishers across four states
+    # is a list nobody works end to end, and whose paywalls are worth
+    # paying for is a question somebody asks about one directory.
+    #
+    # Offered from the datasets this person may write, because that is
+    # what the page acts on -- and `requires` has already refused a
+    # dataset in the query string they have no grant for.
+    choices = datasets_for(request.user, WRITE)
+    chosen = (request.GET.get("dataset") or "").strip()
+    candidates = reachable.filter(
         Q(id__in=list(lost)) | Q(has_paywall=True) | Q(requires_login=True)
-    ):
+    )
+    if chosen and choices.filter(slug=chosen).exists():
+        candidates = candidates.filter(
+            id__in=DatasetSource.objects.filter(dataset__slug=chosen).values_list(
+                "source_id", flat=True
+            )
+        )
+    else:
+        chosen = ""
+
+    rows = []
+    for source in candidates:
         rows.append(
             {
                 "id": source.id,
@@ -1091,6 +1110,8 @@ def paywalls(request):
         {
             "rows": rows,
             "total_lost": sum(r["lost"] for r in rows),
+            "datasets": choices,
+            "dataset": chosen,
             "project": PROJECT,
             "notice": request.session.pop("paywall_notice", ""),
         },
