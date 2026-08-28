@@ -717,3 +717,47 @@ def test_the_tip_options_survive_the_marks_defaults():
     than instead of it -- two numbers, one of them unexplained."""
     assert "{ ...common, ...enc, rx: 2 }" in JS
     assert "{ ...enc, ...common, rx: 2 }" not in JS
+
+
+def test_bars_side_by_side_are_drawn_at_all():
+    """ "Off puts them side by side" drew an empty chart: axes, a grid, a
+    baseline and no bars.
+
+    Grouped bars move the category onto a facet axis and put the series on
+    the band axis. The ordering was written onto the band axis either way,
+    so the x domain was a list of counties while every bar's x was a CIN
+    need -- no bar fell inside the domain and none drew. The line choosing
+    the axis read `horizontal ? x : x`, the same answer twice.
+    """
+    assert "const axis = horizontal ? x : x" not in JS, "the line that chose nothing"
+    assert "const grouped = !!series && config.stacked === false;" in JS
+    # The ordering reaches the axis the category is actually on...
+    assert "fyDomain = order;" in JS
+    assert "fxDomain = order;" in JS
+    # ...and the plot is told about those axes, which it never was.
+    assert "fx: { domain: fxDomain" in JS
+    assert "fy: { domain: fyDomain" in JS
+
+
+def test_a_group_keeps_one_order_and_room_for_its_names():
+    """Two things a facet changes and nothing had followed.
+
+    The bands repeat in every facet, so their order comes from the colour
+    domain -- ranked by value instead, the same series would sit in a
+    different place in each one.
+
+    And every margin is room for a name. Sized for the category either
+    way, the left of a grouped horizontal chart reserved seven characters
+    for "Boone" and cut "Emergencies" down to "nergencies", while the
+    facet names on the right had no width reserved at all and "Jackson"
+    arrived as "Jacksc".
+    """
+    assert "yDomain = domain;" in JS
+    assert "xScale = { domain, tickSize: 0 };" in JS
+    assert "const bandValues = grouped ? domain : order;" in JS
+    assert "marginLeft = room(bandValues);" in JS
+    assert "marginRight = room(order);" in JS
+    # `order` is a stack option and `sort` would rank the bands inside
+    # each facet separately; neither belongs on a group.
+    assert "delete enc.order;" in JS
+    assert "delete enc.sort;" in JS
