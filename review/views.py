@@ -1224,6 +1224,7 @@ def paywalls(request):
                 "id": source.id,
                 "name": source.canonical_name or source.host,
                 "host": source.host_norm or source.host,
+                "owner": (source.owner or "").strip(),
                 "lost": lost.get(source.id, 0),
                 "read": read.get(source.id, 0),
                 # What stage this publisher's sign-in has reached. Named

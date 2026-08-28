@@ -1206,6 +1206,9 @@ label.stacked .required {
   text-transform: uppercase;
   color: var(--text-3);
 }
+/* The owner is a fact, not a destination: same row shape as the links
+   above it so the labels line up, but not styled as one. */
+.publisher .owner { font-size: var(--fs-sm); color: var(--text-2); }
 .publisher .no-paywall { margin-top: var(--s-1); font-size: var(--fs-sm); }
 .publisher .site {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
