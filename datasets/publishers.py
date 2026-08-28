@@ -22,15 +22,23 @@ def fold_value(value):
 
 
 #: (key, what a reader sees, the spelling the corpus uses, folded values
-#: this covers). The spelling is the one most of the records already
-#: carry, which is what the queue proposes for the rest -- and it is
-#: written here rather than counted, so a run of new records spelt badly
-#: cannot make the bad spelling canonical.
+#: this covers). The spelling is written here rather than counted, so a
+#: run of new records spelt badly cannot make the bad spelling canonical.
+#:
+#: Words, separated by spaces. Taken from whichever spelling the most
+#: records happened to carry, these came out inconsistent with each other
+#: -- `digital native` beside `video_broadcast` -- so the queue proposed
+#: an underscore for one kind and a space for another and read as though
+#: the underscore were the correct form of that word.
+#:
+#: Nothing reads the underscore. The only code comparing against
+#: `video_broadcast` is the crawler's coverage-radius calculation, and it
+#: reads a legacy `sources/publinks.csv` rather than this column.
 PUBLISHER_KINDS = (
     ("digital", "Digital", "digital native", ("digital native", "digital")),
     ("print", "Print", "print native", ("print native", "newspaper", "print")),
-    ("tv", "Television", "video_broadcast", ("video broadcast", "television", "tv")),
-    ("radio", "Radio", "audio_broadcast", ("audio broadcast", "radio")),
+    ("tv", "Television", "video broadcast", ("video broadcast", "television", "tv")),
+    ("radio", "Radio", "audio broadcast", ("audio broadcast", "radio")),
     # Ten records say only "broadcast", which is not an answer to whether
     # this is a television station or a radio one. Its own entry rather
     # than a guess into either, and no spelling to propose: what is

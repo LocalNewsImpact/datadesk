@@ -2251,3 +2251,43 @@ def test_the_page_says_which_of_the_three(client, admin_user):
     page = client.get("/review/schema/").content.decode()
     assert "Required" in page and "Suggested" in page and "Optional" in page
     assert "the queue asks" in page
+
+
+def test_the_spellings_are_words_and_agree_with_each_other():
+    """Seeded from whichever spelling the most records happened to carry,
+    they came out inconsistent: `digital native` beside `video_broadcast`.
+    So the queue proposed an underscore for one kind and a space for
+    another, and read as though the underscore were the right form of that
+    word.
+
+    Nothing reads the underscore. The only code comparing against
+    `video_broadcast` is the crawler's coverage-radius calculation, which
+    reads a legacy `sources/publinks.csv` rather than this column.
+    """
+    from datasets.publishers import GROUPED_VALUES
+
+    for vocabulary, groups in GROUPED_VALUES.items():
+        for key, _label, spelling, _covered in groups:
+            assert "_" not in spelling, f"{vocabulary}:{key} proposes {spelling!r}"
+            assert spelling == spelling.lower(), f"{vocabulary}:{key}"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_record_spelt_with_an_underscore_is_offered_the_words(mo, editor):
+    """Which is the whole point of the flag: two spellings of one kind
+    count as two."""
+    from datasets.terms import forget
+
+    forget()
+    odd = Source.objects.create(
+        id="s-tv",
+        host="tv.example",
+        host_norm="tv.example",
+        canonical_name="A Station",
+        city="Columbia",
+        county="Boone",
+        type="video_broadcast",
+        meta={"state": "MO"},
+    )
+    flags = _scanned(mo, odd)
+    assert flags["type_spelling"].proposed_value == "video broadcast"
