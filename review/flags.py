@@ -253,6 +253,27 @@ def _frequency_of(source):
     return ((source.meta or {}).get("frequency") or "").strip()
 
 
+def _homepage_missing(source, context):
+    """No home page, and the host already says what it probably is.
+
+    Recorded on one publisher of 1,149, so asking about the rest as a bare
+    question would be eleven hundred questions with the same answer typed
+    eleven hundred times. The host is that answer in almost every case, so
+    it is offered rather than asked -- a reviewer accepts it or corrects
+    it, and either way reads it once.
+
+    Offered, not applied. A publisher whose home page is not its host --
+    a section of a larger site, a paper whose domain redirects -- is
+    exactly the case a person is here to catch.
+    """
+    if ((source.meta or {}).get("homepage") or "").strip():
+        return False, "", ""
+    host = (source.host_norm or source.host or "").strip().lower()
+    if not host:
+        return True, "no home page recorded", ""
+    return True, f"no home page recorded; the host is {host}", f"https://{host}"
+
+
 def _malformed(source, context):
     """A value that is not the shape its field is written in.
 
@@ -469,6 +490,16 @@ FLAGS = (
         ),
         field="type",
         check=_missing("type"),
+    ),
+    Flag(
+        key="homepage_missing",
+        label="No home page",
+        defect=(
+            "The record does not say where the publication lives, so "
+            "nothing can link to it and a reader cannot check it."
+        ),
+        field="meta.homepage",
+        check=_homepage_missing,
     ),
     Flag(
         key="value_malformed",

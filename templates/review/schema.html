@@ -51,51 +51,90 @@
           {% if f.note %}<p class="hint">{{ f.note }}</p>{% endif %}
 
           {% if f.vocabulary %}
-          <details class="values"{% if f.terms %} open{% endif %}>
-            <summary>{{ f.terms|length }} word{{ f.terms|length|pluralize }}</summary>
-            <ul class="terms">
-              {% for t in f.terms %}
-              <li{% if t.retired %} class="retired"{% endif %}>
-                <code>{{ t.value }}</code>
-                {% if t.label %}<span class="term-label">counts as {{ t.label }}</span>{% endif %}
-                {% if t.spelling %}<span class="hint">written <code>{{ t.spelling }}</code></span>{% endif %}
-                {% if t.retired %}
-                <span class="hint">no longer offered</span>
+          {% comment %}
+          The kinds first, then the words that mean each one. Listed as
+          words it read "digital counts as Digital written digital native"
+          -- three values in a row with nothing saying which was which.
+          What a reader needs is the other way round: these are the kinds
+          a publication can be, and these are the words that normalize to
+          each.
+          {% endcomment %}
+          <ul class="kinds">
+            {% for k in f.kinds %}
+            <li>
+              <p class="kind-head">
+                <strong>{{ k.kind }}</strong>
+                {% if k.spelling %}
+                <span class="hint">recorded as <code>{{ k.spelling }}</code></span>
                 {% else %}
-                <form method="post" class="inline-form">
-                  {% csrf_token %}
-                  <input type="hidden" name="vocabulary" value="{{ f.vocabulary }}">
-                  <input type="hidden" name="retire" value="{{ t.value }}">
-                  <button type="submit" class="link">Retire</button>
-                </form>
+                <span class="hint">no one spelling: nothing is proposed for it</span>
                 {% endif %}
-              </li>
-              {% endfor %}
-            </ul>
+              </p>
+              {% comment %}
+              A div, not a p: a paragraph takes phrasing content, so the
+              parser closed it before each chip's form and hoisted every
+              retire button out of the chip it belonged to.
+              {% endcomment %}
+              <div class="chips">
+                {% for t in k.words %}
+                {% comment %}
+                `word`, not `chip`: the chip component draws its own "×"
+                with a ::after and turns solid on hover, so a chip with a
+                retire button in it showed two crosses -- one of them
+                doing nothing.
+                {% endcomment %}
+                <span class="word{% if t.retired %} retired{% endif %}">
+                  <code>{{ t.value }}</code>
+                  {% if t.retired %}
+                  <span class="hint">retired</span>
+                  {% else %}
+                  <form method="post" class="inline-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="vocabulary" value="{{ f.vocabulary }}">
+                    <input type="hidden" name="retire" value="{{ t.value }}">
+                    <button type="submit" class="link" title="Stop matching this word">×</button>
+                  </form>
+                  {% endif %}
+                </span>
+                {% endfor %}
+              </div>
+              {% comment %}
+              A word added here means this kind, so it carries the kind's
+              name and the spelling records use for it. Nobody has to
+              retype either.
+              {% endcomment %}
+              <form method="post" class="add-word">
+                {% csrf_token %}
+                <input type="hidden" name="vocabulary" value="{{ f.vocabulary }}">
+                <input type="hidden" name="label" value="{{ k.kind }}">
+                <input type="hidden" name="spelling" value="{{ k.spelling }}">
+                <input type="text" name="value" placeholder="another word for {{ k.kind|lower }}">
+                <button type="submit">Add</button>
+              </form>
+            </li>
+            {% endfor %}
+          </ul>
+
+          <details class="values new-kind">
+            <summary>Add a kind</summary>
             {% comment %}
-            Retired rather than deleted, so a word that is no longer
-            offered still explains the records written while it was.
+            A kind nobody has: its name, what records should write, and
+            the first word that means it. The word is what a record
+            already says; the spelling is what the queue proposes for the
+            rest.
             {% endcomment %}
             <form method="post" class="add-term">
               {% csrf_token %}
               <input type="hidden" name="vocabulary" value="{{ f.vocabulary }}">
-              <label class="stacked">Add a word
-                <input type="text" name="value" placeholder="podcast" required>
-              </label>
               <label class="stacked">Called
-                <input type="text" name="label" placeholder="Podcast">
+                <input type="text" name="label" placeholder="Podcast" required>
               </label>
-              <label class="stacked">Written
+              <label class="stacked">Recorded as
                 <input type="text" name="spelling" placeholder="podcast">
               </label>
-              {% comment %}
-              Outside the label, which is uppercased and letter-spaced:
-              inside it, this sentence was set in the style meant for the
-              two words above it.
-              {% endcomment %}
-              <p class="hint">What the queue proposes when a record spells
-              it another way. Leave empty where there is no one right
-              spelling.</p>
+              <label class="stacked">A word that means it
+                <input type="text" name="value" placeholder="podcast" required>
+              </label>
               <button type="submit" class="primary">Add</button>
             </form>
           </details>

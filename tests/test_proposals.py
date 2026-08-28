@@ -401,8 +401,10 @@ def test_the_scan_does_not_queue_a_record_with_nothing_wrong(crawler_schema, edi
         # say nothing here, and they are questions now.
         type="digital native",
         # Its own state, not the dataset's. A record carrying none is a
-        # record with something wrong -- see the tests below.
-        meta={"state": "MO"},
+        # record with something wrong -- see the tests below. The home
+        # page is required too: a record that does not say where the
+        # publication lives cannot be linked to or checked.
+        meta={"state": "MO", "homepage": "https://ok.example"},
     )
     DatasetSource.objects.create(id="ds10", dataset=dataset, source=fine)
 
@@ -2114,3 +2116,72 @@ def test_the_schema_page_is_in_the_navigation():
         section.get("url") for group in SECTION_GROUPS for section in group["sections"]
     }
     assert "review:schema" in urls
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_missing_home_page_is_offered_rather_than_asked_about(mo, editor):
+    """Recorded on one publisher of 1,149. Asking about the rest as a bare
+    question would be eleven hundred questions with the same answer typed
+    eleven hundred times, so the host is offered as the answer -- accepted
+    or corrected, and either way read once.
+
+    Offered, not applied: a publication whose home page is not its host is
+    exactly the case a person is here to catch.
+    """
+    bare = Source.objects.create(
+        id="s-home",
+        host="Example.com",
+        host_norm="example.com",
+        canonical_name="An Example",
+        city="Columbia",
+        county="Boone",
+        type="digital native",
+        meta={"state": "MO"},
+    )
+    flags = _scanned(mo, bare)
+    assert "homepage_missing" in flags
+    assert flags["homepage_missing"].proposed_value == "https://example.com"
+    assert "example.com" in flags["homepage_missing"].detail
+
+    # And an owner is not asked for at all: the schema calls it optional.
+    assert flags["homepage_missing"].field == "meta.homepage"
+
+
+def test_what_a_record_needs_and_what_it_may_omit():
+    """Changed on purpose, so it is asserted rather than assumed: a
+    publication's home page is part of what it is, and who owns it is not
+    always known to the person writing the record down."""
+    from datasets.schema import BY_KEY
+
+    assert BY_KEY["meta.homepage"].required
+    assert not BY_KEY["owner"].required
+
+    # Reachable before the vocabularies, which are long enough on the page
+    # to push everything after them out of sight.
+    from datasets.schema import FIELDS
+
+    order = [f.key for f in FIELDS]
+    assert order.index("meta.homepage") < order.index("type")
+    assert order.index("owner") < order.index("meta.address1")
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_words_are_grouped_under_what_they_mean(client, admin_user):
+    """Listed flat, a row read "digital counts as Digital written digital
+    native" -- three values in a row with nothing saying which was which.
+    The kinds come first now, and under each the words that normalize to
+    it."""
+    from accounts.models import DATADESK, Grant
+
+    Grant.objects.get_or_create(user=admin_user, app=DATADESK, scope="", role="admin")
+    client.force_login(admin_user)
+    page = client.get("/review/schema/").content.decode()
+
+    # The kind, what records write for it, and the words that mean it.
+    assert "Digital" in page
+    assert "recorded as" in page
+    assert 'placeholder="another word for digital"' in page
+    # A kind with no one spelling says so rather than proposing one.
+    assert "no one spelling" in page
+    # And a kind nobody has yet can be added.
+    assert "Add a kind" in page

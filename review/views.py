@@ -850,6 +850,9 @@ def schema(request):
             value = fold_value(request.POST.get("value") or "")
             if not value:
                 raise ValueError("Type the word to add")
+            # A word is added to a kind, so it carries that kind's name and
+            # the spelling the kind is written as. Adding a kind is the
+            # same form with a new name typed into it.
             label = (request.POST.get("label") or "").strip()
             spelling = (request.POST.get("spelling") or "").strip()
             term, made = VocabularyTerm.objects.get_or_create(
@@ -882,11 +885,31 @@ def schema(request):
         request.session["schema_notice"] = notice
         return redirect("review:schema")
 
+    # Grouped by what a word means, not listed as words.
+    #
+    # A flat list read "digital counts as Digital written digital native"
+    # -- three values in a row with nothing saying which was which. What
+    # a reader needs to know is the other way round: these are the kinds a
+    # publication can be, and these are the words that mean each one.
     held = {}
     for term in VocabularyTerm.objects.all():
-        held.setdefault(term.vocabulary, []).append(term)
+        by_vocabulary = held.setdefault(term.vocabulary, {})
+        # The label is the kind; the spelling is what the kind is written
+        # as on a record. A kind with no one spelling -- "broadcast",
+        # which does not say television or radio -- groups under its own
+        # name and offers none.
+        kind = by_vocabulary.setdefault(
+            term.label or term.value,
+            {"kind": term.label or term.value, "spelling": term.spelling, "words": []},
+        )
+        if term.spelling and not kind["spelling"]:
+            kind["spelling"] = term.spelling
+        kind["words"].append(term)
     rows = []
     for field in FIELDS:
+        kinds = sorted(held.get(field.vocabulary, {}).values(), key=lambda k: k["kind"])
+        for kind in kinds:
+            kind["words"].sort(key=lambda t: (t.retired, t.value))
         rows.append(
             {
                 "key": field.key,
@@ -896,7 +919,7 @@ def schema(request):
                 "rule_name": field.rule_name,
                 "vocabulary": field.vocabulary,
                 "note": field.note,
-                "terms": held.get(field.vocabulary, []) if field.vocabulary else [],
+                "kinds": kinds,
                 "aliases": sorted(k for k, v in ALIASES.items() if v == field.key),
             }
         )
