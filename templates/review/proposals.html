@@ -10,7 +10,19 @@
     read; nothing is written until you submit.</p>
   </header>
 
-  {% if receipt %}
+  {% if receipt.refused_write %}
+  {% comment %}
+  A batch that did not go through, said as one. The flag vocabulary and the
+  write boundary are kept apart, so a check can name a field the boundary
+  does not include -- and applying it raised, which reached a reviewer as a
+  server error on submit with no clue which proposal caused it. Nothing was
+  decided; everything is still in the queue below.
+  {% endcomment %}
+  <p class="notice bad">
+    <strong>Nothing was saved.</strong>
+    {{ receipt.refused_write }}
+  </p>
+  {% elif receipt %}
   <p class="receipt-line">
     Submitted: {{ receipt.accepted }} accepted, {{ receipt.fixed }} fixed,
     {{ receipt.rejected }} rejected.

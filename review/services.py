@@ -37,7 +37,20 @@ WRITABLE = {
     # written at all: not by the source form, not by accepting a proposal
     # that named it. Naming the key rather than opening `meta` keeps the
     # boundary a boundary -- everything else in that blob stays unwritable.
-    Source: ("canonical_name", "city", "county", "owner", "type", "meta.state"),
+    Source: (
+        "canonical_name",
+        "city",
+        "county",
+        "owner",
+        "type",
+        "meta.state",
+        # Named one by one for the same reason `meta.state` is: the key,
+        # not the blob. A flag that proposes a fix to a field outside this
+        # list is a question nobody can answer -- the queue offers the
+        # change and applying it raises, which reached a reviewer as a
+        # server error on submit.
+        "meta.frequency",
+    ),
     Dataset: (
         "name",
         "description",
