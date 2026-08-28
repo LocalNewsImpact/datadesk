@@ -2119,15 +2119,21 @@ def test_the_schema_page_is_in_the_navigation():
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_a_missing_home_page_is_offered_rather_than_asked_about(mo, editor):
-    """Recorded on one publisher of 1,149. Asking about the rest as a bare
-    question would be eleven hundred questions with the same answer typed
-    eleven hundred times, so the host is offered as the answer -- accepted
-    or corrected, and either way read once.
+def test_a_record_is_not_asked_for_the_host_it_already_has(mo, editor):
+    """The home page and the host are the same record. The one publisher
+    carrying both reads https://krcgtv.com/ against a host of krcgtv.com:
+    the same fact twice, with a scheme and a slash.
 
-    Offered, not applied: a publication whose home page is not its host is
-    exactly the case a person is here to catch.
+    So a record without one is not incomplete, and the queue does not ask
+    about it. The field stays for the ones where the two differ -- a site
+    served over http, a publication on a path or a subdomain, a domain
+    that redirects -- which is a correction somebody makes, not a value
+    eleven hundred records are missing.
     """
+    from review.flags import BY_KEY
+
+    assert "homepage_missing" not in BY_KEY
+
     bare = Source.objects.create(
         id="s-home",
         host="Example.com",
@@ -2135,16 +2141,11 @@ def test_a_missing_home_page_is_offered_rather_than_asked_about(mo, editor):
         canonical_name="An Example",
         city="Columbia",
         county="Boone",
+        owner="Somebody",
         type="digital native",
         meta={"state": "MO"},
     )
-    flags = _scanned(mo, bare)
-    assert "homepage_missing" in flags
-    assert flags["homepage_missing"].proposed_value == "https://example.com"
-    assert "example.com" in flags["homepage_missing"].detail
-
-    # And an owner is not asked for at all: the schema calls it optional.
-    assert flags["homepage_missing"].field == "meta.homepage"
+    assert not _scanned(mo, bare), "asked for something the host answers"
 
 
 def test_what_a_record_needs_and_what_it_may_omit():
@@ -2153,8 +2154,17 @@ def test_what_a_record_needs_and_what_it_may_omit():
     always known to the person writing the record down."""
     from datasets.schema import BY_KEY
 
-    assert BY_KEY["meta.homepage"].required
+    # Neither is required, and for opposite reasons: an owner is not
+    # always known to the person writing the record down, and a home page
+    # is usually the host with https:// in front of it.
+    assert not BY_KEY["meta.homepage"].required
     assert not BY_KEY["owner"].required
+    # Still checked when it is given: an override that is not a web
+    # address overrides the host with something worse.
+    from datasets.schema import check
+
+    assert check(BY_KEY["meta.homepage"], "https://krcgtv.com/")[0]
+    assert not check(BY_KEY["meta.homepage"], "krcgtv.com")[0]
 
     # Reachable before the vocabularies, which are long enough on the page
     # to push everything after them out of sight.
