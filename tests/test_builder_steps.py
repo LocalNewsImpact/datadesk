@@ -2981,7 +2981,7 @@ def test_no_step_template_puts_anything_after_its_block():
     """Django discards content outside a block in a child template.
 
     The fields step's facet loader sat after `{% endblock %}`, so it was
-    never rendered and every "Narrow the values" list was empty --
+    never rendered and every "Filter the values" list was empty --
     owners, counties, cities, all of them, for as long as it had been
     there. A template renders happily either way, which is why this is a
     test and not a review.
@@ -3715,7 +3715,7 @@ def test_a_facet_only_field_is_offered_to_narrow_by(client, author, visual, corp
     visual.save(update_fields=["config", "spec"])
 
     page = client.get(f"/visuals/builder/{visual.slug}/step/fields/").content.decode()
-    assert "Narrow by" in page
+    assert "Filter by" in page
     assert 'data-dim="model"' in page
     # It loads from the route that needs no role.
     assert "/narrow/" in page
@@ -4023,6 +4023,122 @@ def test_a_spec_carrying_a_typed_date_still_runs(corpus):
 
     with _pytest.raises(CorpusSpecError):
         run_spec({**spec, "from": "last March"}, None)
+
+
+def _mixed_newsrooms(dataset):
+    """Four more newsrooms, spelt the way the directory spells them.
+
+    Two spellings of one kind and two cases of one frequency, because that
+    is what the records hold: 'digital native' beside 'digital_native',
+    'weekly' beside 'Weekly'.
+    """
+    made = []
+    for i, (name, kind, freq, county) in enumerate(
+        [
+            ("The Missourian", "print native", "daily", "Boone"),
+            ("Vox", "digital_native", "Weekly", "Boone"),
+            ("KBIA", "audio_broadcast", "continuous", "Boone"),
+            ("KRCG", "video_broadcast", "", "Cole"),
+        ],
+        start=2,
+    ):
+        source = Source.objects.create(
+            id=f"s{i}",
+            host=f"n{i}.example",
+            host_norm=f"n{i}.example",
+            canonical_name=name,
+            city="Columbia",
+            county=county,
+            owner="Somebody",
+            type=kind,
+            meta={"state": "MO", "frequency": freq},
+        )
+        DatasetSource.objects.create(id=f"ds{i}", dataset=dataset, source=source)
+        made.append(source)
+    return made
+
+
+def test_the_newsrooms_step_filters_by_kind_and_frequency(
+    client, author, visual, corpus, dataset, newsroom
+):
+    """Which newsrooms is a list of names; what kind of newsroom is a
+    property of the record. A list goes stale the moment one is added, so
+    these are kept as the kind and read through the vocabulary each time.
+    """
+    from accounts.models import DATADESK, Grant
+
+    Grant.objects.get_or_create(user=author, app=DATADESK, scope="", role="editor")
+    client.force_login(author)
+    _mixed_newsrooms(dataset)
+
+    page = client.get(
+        f"/visuals/builder/{visual.slug}/step/newsrooms/"
+    ).content.decode()
+    assert "Kind of newsroom" in page
+    assert "How often it publishes" in page
+    # Two spellings of one kind are one box, and the box says how many.
+    assert 'value="digital"' in page and 'value="radio"' in page
+    assert 'value="print"' in page and 'value="tv"' in page
+    assert 'value="weekly"' in page and 'value="daily"' in page
+
+    step(client, visual, "newsrooms", kind=["radio", "tv"], frequency=["weekly"])
+    visual.refresh_from_db()
+    assert visual.spec["publisher_kinds"] == ["radio", "tv"]
+    assert visual.spec["publisher_frequencies"] == ["weekly"]
+
+    # Ticking none is not a filter, the same rule the tree above follows.
+    # `stay` so this is a save with no boxes in it, rather than a GET.
+    step(client, visual, "newsrooms", stay="1")
+    visual.refresh_from_db()
+    assert visual.spec["publisher_kinds"] == []
+    assert visual.spec["publisher_frequencies"] == []
+
+
+def test_a_kind_filter_reaches_the_rows(corpus, dataset, newsroom):
+    """The filter is on the spec, so the pivot has to honour it -- a step
+    that says it is narrowing while the picture disagrees is the failure
+    the publishers filter already had once."""
+    from visuals.corpus import run_spec
+
+    _mixed_newsrooms(dataset)
+    spec = {"dimensions": ["publisher_name"], "measure": "articles"}
+    everything, _ = run_spec(spec, None)
+
+    # KOMU, the fixture newsroom, has no type recorded at all, so a filter
+    # by kind must not return it.
+    only_radio, _ = run_spec({**spec, "publisher_kinds": ["radio"]}, None)
+    assert len(only_radio) <= len(everything)
+    assert all("KOMU" not in str(row.values()) for row in only_radio)
+
+
+def test_a_spelling_the_vocabulary_misses_is_offered_not_hidden(dataset, newsroom):
+    """A value nobody grouped is a record to fix, not a record to hide. A
+    filter that quietly dropped it would leave the reader believing they
+    had seen everything."""
+    from visuals.corpus import fold_value, group_of, publisher_facet
+
+    odd = Source.objects.create(
+        id="s99",
+        host="odd.example",
+        host_norm="odd.example",
+        canonical_name="Something Else",
+        county="Boone",
+        owner="Somebody",
+        type="government",
+        meta={"state": "MO"},
+    )
+    DatasetSource.objects.create(id="ds99", dataset=dataset, source=odd)
+
+    assert group_of("publisher_type", "government") == ""
+    offered = publisher_facet("publisher_type", None)
+    labels = [o["label"] for o in offered]
+    assert any("government" in label for label in labels), labels
+    assert any("as recorded" in label for label in labels)
+
+    # Case and separators are folded; the record is not changed.
+    assert fold_value("Digital_Native") == "digital native"
+    assert group_of("publisher_type", "digital_native") == "digital"
+    assert group_of("publisher_type", "digital native") == "digital"
 
 
 # --- who is in the news ------------------------------------------------------
