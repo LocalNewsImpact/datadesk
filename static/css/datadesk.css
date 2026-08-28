@@ -311,13 +311,32 @@ input, select, textarea {
 
 input::placeholder { color: var(--text-3); }
 
+/* A hint is an aside about the field above it. Unstyled it was set in
+   body text and spaced like a paragraph, which put a sentence the same
+   weight as the record between one field and the next -- three pages
+   styled it themselves and every other one read as prose. */
+.hint {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  margin: var(--s-1) 0 0;
+}
+label.stacked + .hint { margin: calc(var(--s-1) * -1) 0 var(--s-3); }
+
 /* Checkboxes and radios must not inherit the text-input box: padding on a
    checkbox inflates it, and an inflated checkbox sets the row height for
-   the entire grid. */
+   the entire grid.
+
+   The colours go back to the browser's own. A checkbox drawn with a text
+   input's background and ink renders its frame in near-black, which is
+   heavy beside the words it belongs to and reads as a filled box rather
+   than an empty one. `accent-color` is the only colour worth setting: it
+   is what the tick is drawn in. */
 input[type="checkbox"], input[type="radio"] {
   padding: 0;
   border: none;
   margin: 0.2rem 0 0;
+  background: revert;
+  color: revert;
   accent-color: var(--accent);
 }
 
@@ -1130,6 +1149,16 @@ label.stacked input, label.stacked textarea, label.stacked select {
 /* A publisher on the paywalls page: the name opens the record, the host
    opens the publication. The host is a web address rather than a title,
    so it is not set like one. */
+/* The name of a field, then whether the record needs it. One line of
+   label text ran them together into "Owner worth having". */
+label.stacked .field-label { margin-right: var(--s-2); }
+label.stacked .required {
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
 .publisher .goes {
   display: flex;
   align-items: baseline;

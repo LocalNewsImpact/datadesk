@@ -36,9 +36,16 @@ all and for anybody who opens it in a tab.
     it, and an unlisted word is a question for the queue.
     {% endcomment %}
     {% for f in fields %}
-    <label class="stacked">{{ f.label }}
-      {% if f.required %}<span class="required">needed</span>
-      {% elif f.suggested %}<span class="hint">worth having</span>{% endif %}
+    {% comment %}
+    The name, then whether the record needs it. Run together in one line
+    of label text they read as one phrase -- "Owner worth having" -- so
+    the marker is a badge beside the name, and only where it says
+    something: required is a fact about the record, and the other two
+    levels are the queue's business rather than this form's.
+    {% endcomment %}
+    <label class="stacked">
+      <span class="field-label">{{ f.label }}</span>
+      {% if f.required %}<span class="required">required</span>{% endif %}
       <input type="text" name="{{ f.name }}" value="{{ f.value }}"
         {% if f.words %}list="words-{{ f.name }}"{% endif %}>
     </label>
@@ -47,7 +54,7 @@ all and for anybody who opens it in a tab.
       {% for word in f.words %}<option value="{{ word }}"></option>{% endfor %}
     </datalist>
     {% endif %}
-    <p class="hint">{{ f.rule }}</p>
+    {% if f.hint %}<p class="hint">{{ f.hint }}</p>{% endif %}
     {% endfor %}
     <p class="notice">The city is validated against the Census place
     gazetteer for the state — typos are refused with suggestions.</p>
@@ -72,7 +79,7 @@ all and for anybody who opens it in a tab.
       <div class="range">
         <label class="stacked">Subscription cost
           <input type="text" name="subscription_cost" inputmode="decimal"
-                 value="{{ paywall.subscription_cost }}" placeholder="12.99">
+                 value="{{ paywall.subscription_cost }}" placeholder="$">
         </label>
         <label class="stacked">Per
           <select name="subscription_period">
