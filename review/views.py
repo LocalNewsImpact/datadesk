@@ -4,7 +4,7 @@ import io
 
 from django.core.paginator import Paginator
 from django.db.models import Count, F, Q
-from django.http import Http404, HttpResponseBadRequest
+from django.http import Http404, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -1008,6 +1008,7 @@ def paywalls(request):
     """
     from django.db import connections
 
+    from datasets.paywall import PERIODS
     from explorer.models import DatasetSource, Source
     from explorer.scoping import datasets_for, narrow
     from review.credentials import PROJECT, CredentialError, secret_name_for, store
@@ -1019,10 +1020,41 @@ def paywalls(request):
         if source is None:
             raise Http404("No such publisher")
         notice = ""
-        changes = {}
-        # Ticking it here is the point of the page: the evidence is on
-        # this row, so the decision belongs on it too.
-        changes["has_paywall"] = bool(request.POST.get("has_paywall"))
+        # The same validator the record page uses, so the two cannot
+        # disagree about what an amount is -- and the price and the
+        # sign-in page are recorded here because this is where somebody
+        # decides them: they are looking at the site to answer whether it
+        # has a paywall at all.
+        from datasets.paywall import paywall_from_form
+
+        errors = []
+        changes = paywall_from_form(request.POST, errors)
+        if errors:
+            request.session["paywall_notice"] = " ".join(errors)
+            return redirect("review:paywalls")
+
+        # The box says "no paywall", so saving with it ticked is somebody
+        # ruling the publisher out and saving without it is confirming
+        # what the page already says: these are publishers the extractor
+        # could not read past a paywall.
+        from review.models import PaywallDismissal
+
+        ruled_out = bool(request.POST.get("no_paywall"))
+        changes["has_paywall"] = not ruled_out
+        if ruled_out:
+            # Kept here rather than on the record: `has_paywall` is false
+            # on every publisher nobody has looked at, so it cannot tell
+            # "decided against" from "not yet decided" and the page would
+            # ask again for ever.
+            PaywallDismissal.objects.update_or_create(
+                source_id=source.id,
+                defaults={
+                    "source_label": source.canonical_name or source.host,
+                    "decided_by": request.user,
+                },
+            )
+        else:
+            PaywallDismissal.objects.filter(source_id=source.id).delete()
         username = (request.POST.get("username") or "").strip()
         password = (request.POST.get("password") or "").strip()
         if username or password:
@@ -1069,9 +1101,16 @@ def paywalls(request):
     # dataset in the query string they have no grant for.
     choices = datasets_for(request.user, WRITE)
     chosen = (request.GET.get("dataset") or "").strip()
+    # What somebody has already ruled out, so the page does not ask again.
+    # A record that says it is paywalled is on the page whatever was
+    # ruled here: the record is the stronger statement, and ticking the
+    # box on it is how a publisher comes back.
+    from review.models import PaywallDismissal
+
+    ruled_out = set(PaywallDismissal.objects.values_list("source_id", flat=True))
     candidates = reachable.filter(
         Q(id__in=list(lost)) | Q(has_paywall=True) | Q(requires_login=True)
-    )
+    ).exclude(Q(id__in=ruled_out) & Q(has_paywall=False))
     if chosen and choices.filter(slug=chosen).exists():
         candidates = candidates.filter(
             id__in=DatasetSource.objects.filter(dataset__slug=chosen).values_list(
@@ -1104,6 +1143,47 @@ def paywalls(request):
     # The most articles first: that is the size of the hole each one
     # leaves, and the order somebody would work them in.
     rows.sort(key=lambda r: (-r["lost"], r["name"].lower()))
+
+    if request.GET.get("format") == "csv":
+        # The same list, in the same order, filtered the same way: a
+        # report of one directory's paywalls is what somebody takes to
+        # the person who decides what to subscribe to.
+        import csv as csv_module
+        import io
+
+        buffer = io.StringIO()
+        writer = csv_module.writer(buffer)
+        writer.writerow(
+            [
+                "publisher",
+                "url",
+                "login page",
+                "subscription cost",
+                "per",
+                "articles lost",
+            ]
+        )
+        for row in rows:
+            writer.writerow(
+                [
+                    row["name"],
+                    f"https://{row['host']}",
+                    row["login_url"],
+                    "" if row["cost"] is None else row["cost"],
+                    # The period travels with the amount. A cost without
+                    # it is a number nobody can read: $12 a month and $12
+                    # a year are different subscriptions.
+                    row["period"],
+                    row["lost"],
+                ]
+            )
+        stem = f"paywalls-{chosen}" if chosen else "paywalls"
+        response = HttpResponse(
+            buffer.getvalue(), content_type="text/csv; charset=utf-8"
+        )
+        response["Content-Disposition"] = f'attachment; filename="{stem}.csv"'
+        return response
+
     return render(
         request,
         "review/paywalls.html",
@@ -1112,6 +1192,7 @@ def paywalls(request):
             "total_lost": sum(r["lost"] for r in rows),
             "datasets": choices,
             "dataset": chosen,
+            "periods": PERIODS,
             "project": PROJECT,
             "notice": request.session.pop("paywall_notice", ""),
         },

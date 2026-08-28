@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}Publisher paywalls — Datadesk{% endblock %}
 
 {% block content %}
@@ -30,6 +31,12 @@
       </select>
     </label>
     <button type="submit">Show</button>
+    {% comment %}
+    The same list, filtered the same way. A report of one directory's
+    paywalls is what somebody takes to whoever decides what to subscribe
+    to, and the link carries the directory being looked at.
+    {% endcomment %}
+    <a class="button" href="?format=csv{% if dataset %}&amp;dataset={{ dataset }}{% endif %}">Export CSV</a>
   </form>
   {% endif %}
 
@@ -56,26 +63,96 @@
     <tbody>
       {% for r in rows %}
       <tr>
-        <th scope="row">
-          <span class="field-name">{{ r.name }}</span>
-          <code class="field-key">{{ r.host }}</code>
+        {% comment %}
+        The name opens the record, the same as the review queue's cards:
+        what a reviewer decides here is often decided by editing the
+        publisher, and leaving the page to do it loses the list.
+
+        The host opens the publication, because the question this page
+        asks -- is this behind a paywall, and what does a subscription
+        cost -- is answered by going and looking.
+
+        `td` rather than `th`: a row header is bold, and the host is a
+        web address rather than a title.
+        {% endcomment %}
+        <td class="publisher">
+          {% comment %}
+          Two links that go to different places: one into this console,
+          one out to the publication. Stacked and unlabelled they read as
+          one address repeated, so each says which it is.
+          {% endcomment %}
+          <p class="goes">
+            <span class="goes-to">Edit</span>
+            <a class="rec-edit" href="{% url 'datasets:source_edit' r.id %}"
+               data-record="{{ r.id }}">{{ r.name }}</a>
+          </p>
+          <p class="goes">
+            <span class="goes-to">Open</span>
+            <a class="site" href="https://{{ r.host }}"
+               rel="noreferrer noopener" target="_blank">{{ r.host }}&nbsp;↗</a>
+          </p>
           {% if r.login_url %}
-          <a href="{{ r.login_url }}" rel="noreferrer noopener" target="_blank">login page ↗</a>
+          <p class="goes">
+            <span class="goes-to">Sign in</span>
+            <a class="site" href="{{ r.login_url }}"
+               rel="noreferrer noopener" target="_blank">login&nbsp;page&nbsp;↗</a>
+          </p>
           {% endif %}
-        </th>
+          {% comment %}
+          Under the name and the address, because it is a statement about
+          this publisher rather than about the subscription beside it:
+          ticking it says the page is wrong about this one.
+
+          The input sits here and belongs to the row's form, the way the
+          queue's submit button belongs to the queue's, so what it says
+          is saved with the price and the sign-in page.
+          {% endcomment %}
+          <label class="inline no-paywall">
+            <input type="checkbox" name="no_paywall" value="1"
+                   form="row-{{ r.id }}">
+            no paywall
+          </label>
+        </td>
         <td class="count">{{ r.lost }}</td>
         <td>
-          <form method="post" class="inline-form">
+          {% comment %}
+          Named, because the "no paywall" box in the left column belongs
+          to it: the page already asserts these are paywalled, so ticking
+          it is the exception and it is saved with everything else.
+          {% endcomment %}
+          <form method="post" class="inline-form" id="row-{{ r.id }}">
             {% csrf_token %}
             <input type="hidden" name="source_id" value="{{ r.id }}">
-            <label class="inline">
-              <input type="checkbox" name="has_paywall" value="1"
-                {% if r.has_paywall %}checked{% endif %}>
-              behind a paywall
+            {% comment %}
+            The price and the sign-in page are recorded here because this
+            is where somebody decides them: they are looking at the site
+            to answer whether it has a paywall at all, and the answer to
+            "what does it cost" is on the same screen.
+            {% endcomment %}
+            <label class="stacked">Subscription
+              <input type="text" name="subscription_cost" inputmode="decimal"
+                     value="{{ r.cost|default_if_none:'' }}" placeholder="12.99">
+            </label>
+            <label class="stacked">Per
+              <select name="subscription_period">
+                <option value="">—</option>
+                {% for period in periods %}
+                <option value="{{ period }}"
+                  {% if r.period == period %}selected{% endif %}>{{ period }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="stacked">Login page
+              <input type="url" name="login_url" value="{{ r.login_url }}"
+                     placeholder="https://{{ r.host }}/login">
             </label>
             <button type="submit">Save</button>
           </form>
-          {% if r.cost %}<p class="hint">{{ r.cost }} {{ r.period }}</p>{% endif %}
+          {% if r.has_paywall %}
+          <p class="hint">recorded as paywalled</p>
+          {% else %}
+          <p class="hint">not recorded yet — saving confirms it</p>
+          {% endif %}
         </td>
         <td>
           {% if r.requires_login %}
@@ -97,7 +174,11 @@
             <form method="post" class="add-term">
               {% csrf_token %}
               <input type="hidden" name="source_id" value="{{ r.id }}">
-              <input type="hidden" name="has_paywall" value="1">
+              {% comment %}
+              Storing a credential says the publisher is paywalled, which
+              the view records: the box on this page is the exception, not
+              the assertion.
+              {% endcomment %}
               <label class="stacked">Username
                 <input type="text" name="username" autocomplete="off">
               </label>
@@ -119,4 +200,11 @@
     </tbody>
   </table>
 </section>
+
+{% comment %}
+The publisher's name opens its record in a dialog, the same as the review
+queue. Where the script has not run the link is a link and goes to the
+edit page.
+{% endcomment %}
+<script defer src="{% static 'js/record-editor.js' %}"></script>
 {% endblock %}

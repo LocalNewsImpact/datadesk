@@ -1127,6 +1127,29 @@ label.stacked input, label.stacked textarea, label.stacked select {
   font-size: var(--fs-xs);
   color: var(--text-3);
 }
+/* A publisher on the paywalls page: the name opens the record, the host
+   opens the publication. The host is a web address rather than a title,
+   so it is not set like one. */
+.publisher .goes {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-1);
+}
+.publisher .goes-to {
+  flex: 0 0 3.4rem;
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.publisher .no-paywall { margin-top: var(--s-1); font-size: var(--fs-sm); }
+.publisher .site {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+}
+
 /* The record, opened from the queue card that asks about it. A dialog
    rather than a page, so a reviewer answering four questions about one
    publisher does not lose the queue to edit it. */
