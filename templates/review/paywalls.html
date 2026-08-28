@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Paywalls — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <header>
+    <h1>Publishers we cannot read</h1>
+    <p class="notice">The pipeline already knows which ones: an article it
+    could not extract because a paywall stood in the way is skipped with a
+    paywall reason. {{ total_lost }} articles have been lost that way.
+    Ranked by how many, because that is the size of the hole each one
+    leaves.</p>
+  </header>
+
+  {% if notice %}<p class="receipt-line">{{ notice }}</p>{% endif %}
+
+  {% comment %}
+  Credentials are typed here and stored in Secret Manager, in the
+  crawler's project, under the name this page shows. They are never
+  written to the sources table: a password column would be readable by
+  every role holding SELECT on it, including the read-only role this
+  console connects as and every CSV anybody exports.
+
+  What is stored is never shown back. The page can say a secret exists and
+  what it is called, and that is all it can say.
+  {% endcomment %}
+  <table class="grid">
+    <thead>
+      <tr>
+        <th scope="col">Publisher</th>
+        <th scope="col" class="count">Articles lost</th>
+        <th scope="col">Paywalled</th>
+        <th scope="col">Sign-in</th>
+        <th scope="col">Credentials</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <th scope="row">
+          <span class="field-name">{{ r.name }}</span>
+          <code class="field-key">{{ r.host }}</code>
+          {% if r.login_url %}
+          <a href="{{ r.login_url }}" rel="noreferrer noopener" target="_blank">login page ↗</a>
+          {% endif %}
+        </th>
+        <td class="count">{{ r.lost }}</td>
+        <td>
+          <form method="post" class="inline-form">
+            {% csrf_token %}
+            <input type="hidden" name="source_id" value="{{ r.id }}">
+            <label class="inline">
+              <input type="checkbox" name="has_paywall" value="1"
+                {% if r.has_paywall %}checked{% endif %}>
+              behind a paywall
+            </label>
+            <button type="submit">Save</button>
+          </form>
+          {% if r.cost %}<p class="hint">{{ r.cost }} {{ r.period }}</p>{% endif %}
+        </td>
+        <td>
+          {% if r.requires_login %}
+          the extractor signs in{% if r.auth_type %} ({{ r.auth_type }}){% endif %}
+          {% else %}
+          <span class="hint">not automated</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.secret %}
+          <p class="hint">stored as <code>{{ r.secret }}</code></p>
+          {% endif %}
+          {% comment %}
+          Replacing a password is a new version of the same secret, which
+          is what the crawler asks for when it reads `versions/latest`.
+          {% endcomment %}
+          <details class="values">
+            <summary>{% if r.secret %}Replace{% else %}Add{% endif %} credentials</summary>
+            <form method="post" class="add-term">
+              {% csrf_token %}
+              <input type="hidden" name="source_id" value="{{ r.id }}">
+              <input type="hidden" name="has_paywall" value="1">
+              <label class="stacked">Username
+                <input type="text" name="username" autocomplete="off">
+              </label>
+              <label class="stacked">Password
+                <input type="password" name="password" autocomplete="new-password">
+              </label>
+              <p class="hint">Stored in Secret Manager in
+                <code>{{ project }}</code> as
+                <code>{{ r.expected_secret }}</code>, never in the sources
+                table. It cannot be read back from this page.</p>
+              <button type="submit" class="primary">Store</button>
+            </form>
+          </details>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5">No publisher in your datasets is behind a paywall.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

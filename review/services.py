@@ -27,10 +27,16 @@ class BoundaryViolation(Exception):
 #: panel, which is not schema fields: a checkbox, an amount and the
 #: period it covers are three shapes the schema's rules do not have.
 #:
-#: Not `auth_secret_name` and not `auth_config`. Those are the crawler's
-#: login automation, written by whoever configures a publisher's sign-in
-#: rather than by somebody editing a record, and the secret they name is
-#: the one thing here that must not be settable from a form field.
+#: `auth_secret_name` is here so the paywall page can record where a
+#: credential was stored, and it is never typed: it is derived from the
+#: host by `review.credentials.secret_name_for` after Secret Manager has
+#: accepted the write. The two paths where somebody could name one are
+#: closed separately -- the source form writes only the keys it builds
+#: itself, and `importable_fields` takes it back out, so no spreadsheet
+#: can point a publisher at another publisher's credentials.
+#:
+#: Not `auth_config`: those are the extractor's parameters, written by
+#: whoever automates a publisher's sign-in.
 WRITABLE_SOURCE_FIELDS = tuple(
     field.key for field in SCHEMA_FIELDS if field.key != "host"
 ) + (
@@ -38,6 +44,7 @@ WRITABLE_SOURCE_FIELDS = tuple(
     "subscription_cost",
     "subscription_period",
     "login_url",
+    "auth_secret_name",
 )
 
 WRITABLE = {

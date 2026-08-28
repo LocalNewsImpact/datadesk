@@ -2057,16 +2057,25 @@ def test_one_list_of_fields_and_not_five():
     # than allowed for, so a fifth thing cannot join them quietly.
     from datasets.views import PAYWALL_FIELDS
 
-    assert set(WRITABLE[Source]) == declared | set(PAYWALL_FIELDS)
-    # ...and never the two that name the crawler's login automation. The
-    # secret is the one thing here that must not be settable from a form.
-    assert "auth_secret_name" not in WRITABLE[Source]
+    # The secret's name is writable so the paywall page can record where
+    # a credential was stored, and it is never typed: it is derived from
+    # the host after Secret Manager has accepted the write.
+    assert set(WRITABLE[Source]) == declared | set(PAYWALL_FIELDS) | {
+        "auth_secret_name"
+    }
+    # The extractor's own parameters stay out.
     assert "auth_config" not in WRITABLE[Source]
+    # And a spreadsheet cannot name one, or an upload could point a
+    # publisher at another publisher's credentials.
+    assert "auth_secret_name" not in importable_fields("sources")
     # A file supplies what the schema declares. Whether a publication has
     # a paywall is a judgement somebody makes on the record.
     assert set(EVIDENCE_FIELDS) == declared
     # The import path reads the write boundary, so it follows too.
     assert set(importable_fields("sources")) == declared | set(PAYWALL_FIELDS)
+    # The source form writes only the keys it builds itself, so a posted
+    # secret name reaches nothing there either -- asserted where that form
+    # is tested.
 
     # And every field the schema says is asked about has something asking,
     # or the word on the page is the whole of it. Required and suggested
@@ -2573,3 +2582,184 @@ def test_changing_a_spelling_moves_the_stamp(mo, editor):
     ).update(spelling="video-broadcast")
     forget("publisher_type")
     assert sources_stamp(mo.slug) != before
+
+
+# --- paywalls ----------------------------------------------------------------
+
+
+def test_a_secret_is_named_after_the_publisher():
+    """Matched against the eight that already exist, because the crawler
+    reads them by that name: `www.` comes off and dots become dashes."""
+    from review.credentials import secret_name_for
+
+    assert secret_name_for("www.spokesman.com") == "publisher-auth-spokesman-com"
+    assert secret_name_for("ptleader.com") == "publisher-auth-ptleader-com"
+    assert (
+        secret_name_for("www.pendoreillerivervalley.com")
+        == "publisher-auth-pendoreillerivervalley-com"
+    )
+    assert (
+        secret_name_for("www.union-bulletin.com") == "publisher-auth-union-bulletin-com"
+    )
+
+
+def test_credentials_are_written_as_the_crawler_reads_them():
+    """A JSON object under `versions/latest`, which is what
+    `authenticated_login.py` fetches. Nothing here changes for it."""
+    import json
+
+    from review.credentials import store
+
+    class FakeClient:
+        def __init__(self):
+            self.created, self.versions = [], []
+
+        def create_secret(self, request):
+            self.created.append(request["secret_id"])
+
+        def add_secret_version(self, request):
+            self.versions.append(
+                (request["parent"], json.loads(request["payload"]["data"]))
+            )
+
+    client = FakeClient()
+    name = store(
+        "www.spokesman.com", {"username": "a@b.com", "password": "hunter2"}, client
+    )
+    assert name == "publisher-auth-spokesman-com"
+    assert client.created == ["publisher-auth-spokesman-com"]
+    parent, payload = client.versions[0]
+    assert parent.endswith("/secrets/publisher-auth-spokesman-com")
+    assert payload == {"username": "a@b.com", "password": "hunter2"}
+
+
+def test_a_secret_that_exists_gets_a_version_not_a_refusal():
+    """Replacing a password is a new version of the same secret, which is
+    what the crawler asks for when it reads `versions/latest`."""
+    from review.credentials import store
+
+    class Existing:
+        def __init__(self):
+            self.versions = []
+
+        def create_secret(self, request):
+            raise Exception("409 Secret already exists")
+
+        def add_secret_version(self, request):
+            self.versions.append(request["parent"])
+
+    client = Existing()
+    assert store("ptleader.com", {"username": "u", "password": "p"}, client)
+    assert client.versions, "the new password was not stored"
+
+
+def test_a_refusal_says_what_refused():
+    """A permission this account does not hold is the likeliest failure
+    and the one somebody can act on."""
+    import pytest as _pytest
+
+    from review.credentials import CredentialError, store
+
+    class Denied:
+        def create_secret(self, request):
+            raise Exception("403 Permission 'secretmanager.secrets.create' denied")
+
+        def add_secret_version(self, request):  # pragma: no cover
+            raise AssertionError("should not be reached")
+
+    with _pytest.raises(CredentialError) as raised:
+        store("x.example", {"username": "u"}, Denied())
+    assert "denied" in str(raised.value)
+
+    # And nothing to store is refused before any of that.
+    with _pytest.raises(CredentialError):
+        store("x.example", {"username": "", "password": ""}, Denied())
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_paywall_page_ranks_by_what_is_being_lost(client, admin_user, mo):
+    """The pipeline already knows which publishers it cannot read: an
+    article a paywall stopped is skipped with a paywall reason, and 57
+    publishers have those in production while none was marked. The page
+    ranks them by how many, because that is the size of the hole each one
+    leaves."""
+    from accounts.models import DATADESK, Grant
+    from explorer.models import Article, ArticleEnrichment, CandidateLink, DatasetSource
+
+    Grant.objects.get_or_create(user=admin_user, app=DATADESK, scope="", role="admin")
+    client.force_login(admin_user)
+
+    made = []
+    for i, (host, stubs) in enumerate((("big.example", 3), ("small.example", 1))):
+        source = Source.objects.create(
+            id=f"s-pw{i}", host=host, host_norm=host, canonical_name=host.title()
+        )
+        DatasetSource.objects.create(id=f"ds-pw{i}", dataset=mo, source=source)
+        link = CandidateLink.objects.create(
+            id=f"cl-pw{i}", url=f"https://{host}/a", source=source
+        )
+        for n in range(stubs):
+            article = Article.objects.create(
+                id=f"a-pw{i}-{n}", status="ok", candidate_link=link
+            )
+            # The enrichment is keyed by its article, not an id of its own.
+            ArticleEnrichment.objects.create(
+                article=article, skip_reason="paywall_stub"
+            )
+        made.append(source)
+
+    page = client.get("/review/paywalls/").content.decode()
+    assert "Publishers we cannot read" in page
+    # Ranked: the one losing three articles is above the one losing one.
+    assert page.index("Big.Example") < page.index("Small.Example")
+    assert "4 articles have been lost" in page
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_stored_credential_never_comes_back(client, admin_user, mo, monkeypatch):
+    """The page can say a secret exists and what it is called. That is all
+    it can say: a console that could read a password back is a console
+    that leaks one."""
+    from accounts.models import DATADESK, Grant
+    from explorer.models import DatasetSource
+
+    Grant.objects.get_or_create(user=admin_user, app=DATADESK, scope="", role="admin")
+    client.force_login(admin_user)
+    source = Source.objects.create(
+        id="s-cred",
+        host="paywalled.example",
+        host_norm="paywalled.example",
+        canonical_name="The Paywalled",
+        has_paywall=True,
+    )
+    DatasetSource.objects.create(id="ds-cred", dataset=mo, source=source)
+
+    stored = {}
+    monkeypatch.setattr(
+        "review.credentials.store",
+        lambda host, fields, client=None: stored.update(fields)
+        or "publisher-auth-paywalled-example",
+    )
+    client.post(
+        "/review/paywalls/",
+        {
+            "source_id": source.id,
+            "has_paywall": "1",
+            "username": "reporter@example.com",
+            "password": "hunter2",
+        },
+    )
+    source.refresh_from_db()
+    assert source.auth_secret_name == "publisher-auth-paywalled-example"
+    assert stored == {"username": "reporter@example.com", "password": "hunter2"}
+
+    page = client.get("/review/paywalls/").content.decode()
+    assert "publisher-auth-paywalled-example" in page
+    assert "hunter2" not in page, "the console read a password back"
+    assert "reporter@example.com" not in page
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_paywall_page_is_admins_only(client, editor):
+    """Credentials are entered here."""
+    assert client.get("/review/paywalls/").status_code == 403

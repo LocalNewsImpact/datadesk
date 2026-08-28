@@ -4,6 +4,10 @@ django-allauth[socialaccount]>=65.0
 psycopg[binary]>=3.2
 google-cloud-bigquery>=3.25
 google-cloud-storage>=2.18
+# Subscriber credentials for paywalled publishers. They live in the
+# crawler's project and the console stores only the secret's name;
+# see review/credentials.py.
+google-cloud-secret-manager>=2.20
 ftfy>=6.2
 gunicorn>=23.0
 whitenoise>=6.7
