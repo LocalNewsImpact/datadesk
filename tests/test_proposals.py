@@ -3191,3 +3191,41 @@ def test_the_paywalls_export_as_a_report(client, admin_user, mo):
     text = one.content.decode()
     assert "Washington Paper" in text
     assert "Missouri Paper" not in text
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_paywall_filter_survives_a_save(client, editor, mo):
+    """Saving redirected to the bare page, so somebody working one
+    directory was returned to every dataset -- with the record they had
+    just answered somewhere in it. That reads as a save that did not take,
+    and it means re-choosing the filter after every row."""
+    from explorer.models import DatasetSource
+
+    source = Source.objects.create(
+        id="s-keep",
+        host="keep.example",
+        host_norm="keep.example",
+        canonical_name="Kept",
+        has_paywall=True,
+    )
+    DatasetSource.objects.create(id="ds-keep", dataset=mo, source=source)
+
+    response = client.post(
+        f"/review/paywalls/?dataset={mo.slug}&sign_in=manual",
+        {
+            "source_id": source.id,
+            "subscription_cost": "7",
+            "subscription_period": "annual",
+        },
+    )
+    assert response.status_code == 302
+    assert f"dataset={mo.slug}" in response["Location"]
+    assert "sign_in=manual" in response["Location"]
+
+    # Including when the save is refused, or correcting the amount means
+    # finding the directory again first.
+    refused = client.post(
+        f"/review/paywalls/?dataset={mo.slug}&sign_in=manual",
+        {"source_id": source.id, "subscription_cost": "12"},
+    )
+    assert f"dataset={mo.slug}" in refused["Location"]

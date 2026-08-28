@@ -642,22 +642,27 @@ def _create_proposed_sources(user, creates, proposals_by_id):
     return made, refused
 
 
-def _back_to_queue(request):
-    """The queue as it was being worked, not the whole of it.
+def _back_to(request, route, keys):
+    """The page as it was being worked, not the whole of it.
 
-    Every decision redirected to the bare queue, so somebody working one
-    directory and one flag was returned to 3,645 questions across four
-    states -- and the record they had just answered was on that page
-    again, with the questions they had not answered yet. That reads as a
-    decision that did not take.
+    Saving redirected to the bare page, so somebody working one directory
+    was returned to every dataset -- with the record they had just
+    answered somewhere in it. That reads as a save that did not take, and
+    it means re-choosing the filter after every row.
     """
-    keep = {
-        key: value
-        for key, value in request.GET.items()
-        if key in ("dataset", "flag", "state") and value
-    }
-    url = reverse("review:proposals")
+    keep = {key: value for key, value in request.GET.items() if key in keys and value}
+    url = reverse(route)
     return redirect(f"{url}?{urlencode(keep)}" if keep else url)
+
+
+def _back_to_queue(request):
+    """The review queue, still filtered to what was being worked."""
+    return _back_to(request, "review:proposals", ("dataset", "flag", "state"))
+
+
+def _back_to_paywalls(request):
+    """The paywalls page, still filtered to what was being worked."""
+    return _back_to(request, "review:paywalls", ("dataset", "sign_in"))
 
 
 def _submit_proposals(request):
@@ -1040,7 +1045,7 @@ def paywalls(request):
         changes = paywall_from_form(request.POST, errors)
         if errors:
             request.session["paywall_notice"] = " ".join(errors)
-            return redirect("review:paywalls")
+            return _back_to_paywalls(request)
 
         # The box says "no paywall", so saving with it ticked is somebody
         # ruling the publisher out and saving without it is confirming
@@ -1087,7 +1092,7 @@ def paywalls(request):
                 )
             except CredentialError as exc:
                 request.session["paywall_notice"] = str(exc)
-                return redirect("review:paywalls")
+                return _back_to_paywalls(request)
             changes["auth_secret_name"] = name
             notice = f"Credentials stored as {name}."
         audited_update(
@@ -1098,7 +1103,7 @@ def paywalls(request):
             reason=request.POST.get("reason", "") or "reviewed the paywall",
         )
         request.session["paywall_notice"] = notice or "Saved."
-        return redirect("review:paywalls")
+        return _back_to_paywalls(request)
 
     # What the pipeline could not read. One query rather than one per
     # publisher: this counts every skipped article in the corpus.
