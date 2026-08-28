@@ -2354,3 +2354,90 @@ def test_a_free_text_field_still_takes_free_text(client, editor, publisher):
     client.post(URL, {f"d-{p.pk}": "fix", f"v-{p.pk}": "Columbia Heights"})
     publisher.refresh_from_db()
     assert publisher.city == "Columbia Heights"
+
+
+def test_keeping_a_value_inside_meta_settles_the_question(mo, editor, client):
+    """A decision only has to be remembered when the defect survives it.
+
+    Accepting a spelling fix rewrites the value, so nothing flags on the
+    next scan whether or not the decision was remembered. Keeping the
+    value is the case that matters: the record still reads the way it did,
+    the check still fires, and the only thing stopping the question coming
+    back is the record of somebody having answered it.
+
+    Two places check that, and both read the field with
+    `getattr(source, field)`. That is not an attribute for
+    `meta.frequency`, so both answered "" -- which never matches the value
+    somebody settled on. Every key inside `meta` was re-asked on every
+    scan, for as long as the record kept its value.
+    """
+    from django.core.management import call_command
+
+    source = Source.objects.create(
+        id="s-freq",
+        host="freq.example",
+        host_norm="freq.example",
+        canonical_name="A Weekly",
+        city="Columbia",
+        county="Boone",
+        type="print native",
+        # 'Broadcast' is not a frequency. The queue proposes nothing for
+        # it, so a reviewer either types a value or keeps what is there.
+        meta={"state": "MO", "frequency": "Broadcast"},
+    )
+    flags = _scanned(mo, source)
+    assert "frequency_indistinct" in flags
+
+    # Kept: the reviewer looked and left it alone.
+    client.post(URL, {f"d-{flags['frequency_indistinct'].pk}": "reject"})
+    source.refresh_from_db()
+    assert (source.meta or {}).get("frequency") == "Broadcast"
+
+    # The defect is still there and the check still fires. What must not
+    # happen is being asked about it again.
+    ChangeProposal.objects.filter(state=ChangeProposal.PENDING).delete()
+    call_command("scan_sources", dataset=mo.slug)
+    again = {
+        p.flag
+        for p in ChangeProposal.objects.filter(record_id=source.id, state="pending")
+    }
+    assert "frequency_indistinct" not in again, "the answered question came back"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_settled_question_inside_meta_is_swept_from_the_queue(mo, editor, client):
+    """The other half: a question already sitting in the queue when the
+    decision was made. `_retire_settled` read the field the same wrong
+    way, so it swept the columns and never the keys."""
+    from django.core.management import call_command
+
+    source = Source.objects.create(
+        id="s-freq2",
+        host="freq2.example",
+        host_norm="freq2.example",
+        canonical_name="Another One",
+        city="Columbia",
+        county="Boone",
+        type="print native",
+        meta={"state": "MO", "frequency": "Broadcast"},
+    )
+    flags = _scanned(mo, source)
+    client.post(URL, {f"d-{flags['frequency_indistinct'].pk}": "reject"})
+
+    # A second copy of the same question, as a scan running while somebody
+    # was deciding would leave behind.
+    ChangeProposal.objects.create(
+        target="sources",
+        record_id=source.id,
+        record_label=source.host_norm,
+        dataset=mo.slug,
+        field="meta.frequency",
+        flag="frequency_indistinct",
+        current_value="Broadcast",
+        proposed_value="",
+        state=ChangeProposal.PENDING,
+    )
+    call_command("scan_sources", dataset=mo.slug)
+    assert not ChangeProposal.objects.filter(
+        record_id=source.id, field="meta.frequency", state="pending"
+    ).exists(), "the queue kept a question that had been answered"

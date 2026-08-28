@@ -149,7 +149,13 @@ class Command(BaseCommand):
                 if key in existing:
                     refreshed += self._refresh(pending_rows[key], item, options)
                     continue
-                live = _settle(getattr(source, item["field"], "") or "")
+                # Through the schema, which knows a dotted field is a key
+                # inside a JSON column. `getattr(source, "meta.frequency")`
+                # is not an attribute, so it answered "" for every field in
+                # `meta` -- and "" never matches the value a person settled
+                # on, so their decision was re-asked on every scan for as
+                # long as the record kept it.
+                live = _settle(read_field(source, item["field"]))
                 ruled = settled.get((source.id, item["field"]), {})
                 # Settled while the field still reads as it did when the
                 # decision was made; a later change re-opens the question.
@@ -249,7 +255,10 @@ class Command(BaseCommand):
             ruled = settled.get((row.record_id, row.field))
             if not ruled:
                 continue
-            live = _settle(getattr(source, row.field, "") or "")
+            # The same read as above, and wrong here for the same reason:
+            # a settled question about a key inside `meta` was never swept
+            # out of the queue either.
+            live = _settle(read_field(source, row.field))
             if live in ruled.get(row.flag, ()) or live in ruled.get("", ()):
                 stale.append(row.pk)
                 existing.discard((row.record_id, row.flag, row.field))
