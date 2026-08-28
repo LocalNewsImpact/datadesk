@@ -2453,3 +2453,63 @@ def test_a_settled_question_inside_meta_is_swept_from_the_queue(mo, editor, clie
     assert not ChangeProposal.objects.filter(
         record_id=source.id, field="meta.frequency", state="pending"
     ).exists(), "the queue kept a question that had been answered"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_report_does_not_throw_away_the_decisions_beside_it(
+    client, editor, publisher
+):
+    """The mechanism worked until the fields changed under it.
+
+    `value_malformed` names several fields at once -- a ZIP that is not a
+    ZIP, a host that is not a host -- so it carries no single field, and
+    the empty name went into the batch as a field to write. The write
+    boundary refuses that, and refusing is all-or-nothing: one of these in
+    a submission threw away every decision beside it, which is why
+    answering anything in that queue appeared to do nothing.
+
+    Seven sit in one dataset's queue in production, which is the queue
+    somebody was working when this stopped sticking.
+    """
+    report = _proposal(publisher, "", "", "")
+    report.flag = "value_malformed"
+    report.detail = "zip code: '6404' is not a ZIP code"
+    report.save(update_fields=["flag", "detail"])
+    ordinary = _proposal(publisher, "owner", "", "CherryRoad Media")
+
+    client.post(URL, {f"d-{report.pk}": "accept", f"d-{ordinary.pk}": "accept"})
+
+    publisher.refresh_from_db()
+    assert publisher.owner == "CherryRoad Media", "the decision beside it was lost"
+    report.refresh_from_db()
+    ordinary.refresh_from_db()
+    assert ordinary.state == ChangeProposal.ACCEPTED
+    # Answered and closed, with nothing written: the value to put right is
+    # on the record, and this is the queue saying so.
+    assert report.state == ChangeProposal.ACCEPTED
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_submission_that_lands_as_nothing_says_so(client, editor, publisher):
+    """It redirected in silence, so "the page lost my decisions" and "it
+    worked" looked exactly the same -- and the queue coming back with the
+    same questions was the only evidence either way."""
+    page = client.post(URL, {"nothing": "here"}, follow=True).content.decode()
+    assert "Nothing was submitted" in page
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_queue_comes_back_as_it_was_being_worked(client, editor, publisher):
+    """Every decision redirected to the bare queue, so somebody working
+    one directory and one flag was returned to 3,645 questions across four
+    states -- with the record they had just answered on that page again,
+    carrying the questions they had not answered yet. That reads as a
+    decision that did not take."""
+    p = _proposal(publisher, "owner", "", "CherryRoad Media")
+    response = client.post(
+        f"{URL}?dataset=mo&flag=owner_missing&state=pending",
+        {f"d-{p.pk}": "accept"},
+    )
+    assert response.status_code == 302
+    assert "dataset=mo" in response["Location"]
+    assert "flag=owner_missing" in response["Location"]
