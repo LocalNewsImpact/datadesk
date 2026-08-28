@@ -2791,9 +2791,103 @@ def test_a_stored_credential_never_comes_back(client, admin_user, mo, monkeypatc
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_the_paywall_page_is_admins_only(client, editor):
-    """Credentials are entered here."""
-    assert client.get("/review/paywalls/").status_code == 403
+def test_a_reviewer_reaches_the_paywalls_of_their_datasets(client, editor, mo):
+    """Which publishers are behind a paywall, what a subscription costs
+    and where to sign in are the same kind of judgement as the rest of
+    the queue, made about the datasets that person already reviews."""
+    from explorer.models import DatasetSource
+
+    source = Source.objects.create(
+        id="s-rev",
+        host="rev.example",
+        host_norm="rev.example",
+        canonical_name="Reviewable",
+        has_paywall=True,
+    )
+    DatasetSource.objects.create(id="ds-rev", dataset=mo, source=source)
+
+    page = client.get("/review/paywalls/")
+    assert page.status_code == 200
+    body = page.content.decode()
+    assert "Reviewable" in body
+    # The rest of the page is theirs: the price, the sign-in page, the
+    # ruling-out and the report.
+    assert 'name="subscription_cost"' in body
+    assert 'name="no_paywall"' in body
+    assert "format=csv" in body
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_reviewer_does_not_store_credentials(client, editor, mo):
+    """Storing one writes a secret into the crawler's project, where the
+    extractor reads it. Refused rather than ignored: a credential
+    somebody typed and believes is stored is worse than one they were
+    told to hand to an administrator."""
+    from explorer.models import DatasetSource
+
+    source = Source.objects.create(
+        id="s-nocred",
+        host="nocred.example",
+        host_norm="nocred.example",
+        canonical_name="No Credentials Here",
+        has_paywall=True,
+    )
+    DatasetSource.objects.create(id="ds-nocred", dataset=mo, source=source)
+
+    body = client.get("/review/paywalls/").content.decode()
+    assert 'name="password"' not in body
+    assert "no sign-in stored" in body
+
+    response = client.post(
+        "/review/paywalls/",
+        {
+            "source_id": source.id,
+            "username": "reviewer",
+            "password": "hunter2",
+            "subscription_cost": "5",
+            "subscription_period": "monthly",
+        },
+        follow=True,
+    )
+    source.refresh_from_db()
+    assert not source.auth_secret_name, "a reviewer stored a credential"
+    # And is told, with the rest of the row saved rather than thrown away.
+    assert "stored by an administrator" in response.content.decode()
+    assert str(source.subscription_cost) == "5.00"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_paywalls_filter_by_whether_the_sign_in_is_automated(client, editor, mo):
+    """Two halves of different work: one needs a subscription bought and a
+    credential stored, the other is being read today."""
+    from explorer.models import DatasetSource
+
+    for i, (host, automated) in enumerate(
+        (("auto.example", True), ("manual.example", False))
+    ):
+        source = Source.objects.create(
+            id=f"s-si{i}",
+            host=host,
+            host_norm=host,
+            canonical_name=host.split(".")[0].title(),
+            has_paywall=True,
+            requires_login=automated,
+        )
+        DatasetSource.objects.create(id=f"ds-si{i}", dataset=mo, source=source)
+
+    # By host, because "Auto" is also the theme switcher's third button.
+    both = client.get("/review/paywalls/").content.decode()
+    assert "auto.example" in both and "manual.example" in both
+
+    waiting = client.get("/review/paywalls/?sign_in=manual").content.decode()
+    assert "manual.example" in waiting and "auto.example" not in waiting
+
+    working = client.get("/review/paywalls/?sign_in=automated").content.decode()
+    assert "auto.example" in working and "manual.example" not in working
+
+    # The report follows the page, and is named after what it holds.
+    report = client.get("/review/paywalls/?format=csv&sign_in=manual")
+    assert 'filename="paywalls-manual.csv"' in report["Content-Disposition"]
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])

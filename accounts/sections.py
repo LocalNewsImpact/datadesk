@@ -91,6 +91,18 @@ SECTION_GROUPS = (
                 "note": "Publisher records the scan flagged, awaiting a decision.",
             },
             {
+                # Beside the queue rather than under Admin: which
+                # publishers are behind a paywall, what a subscription
+                # costs and where to sign in are the same kind of
+                # judgement, about the same datasets.
+                "url": "review:paywalls",
+                "label": "Paywalls",
+                "note": (
+                    "Publishers the pipeline cannot read, and the sign-in "
+                    "that would let it."
+                ),
+            },
+            {
                 "url": "review:import_batches",
                 "requires": IMPORT,
                 "label": "Import",
@@ -165,14 +177,6 @@ SECTION_GROUPS = (
                 "url": "accounts:roles",
                 "label": "Roles",
                 "note": "Role assignment: viewer, editor, admin.",
-            },
-            {
-                "url": "review:paywalls",
-                "label": "Paywalls",
-                "note": (
-                    "Publishers the pipeline cannot read, and the sign-in "
-                    "that would let it."
-                ),
             },
             {
                 "url": "review:schema",
