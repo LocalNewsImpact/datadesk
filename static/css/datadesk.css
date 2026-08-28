@@ -1127,16 +1127,35 @@ label.stacked input, label.stacked textarea, label.stacked select {
   font-size: var(--fs-xs);
   color: var(--text-3);
 }
-.schema .terms { margin: var(--s-2) 0; padding-left: var(--s-3); }
-.schema .terms li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--s-2);
-  margin: var(--s-1) 0;
+/* The kinds a field can hold, and under each the words that mean it.
+   Listed as words instead, a row read "digital counts as Digital written
+   digital native" -- three values with nothing saying which was which. */
+.schema .kinds { margin: var(--s-2) 0; padding: 0; list-style: none; }
+.schema .kinds > li {
+  margin: 0 0 var(--s-3);
+  padding-bottom: var(--s-2);
+  border-bottom: 1px solid var(--border);
 }
-.schema .terms .term-label { font-size: var(--fs-sm); }
-.schema .terms .retired code { text-decoration: line-through; }
+.schema .kinds > li:last-child { border-bottom: 0; }
+.schema .kind-head { margin: 0 0 var(--s-1); }
+.schema .kind-head .hint { margin-left: var(--s-2); }
+.schema .chips { display: flex; flex-wrap: wrap; gap: var(--s-1); margin: 0; }
+/* `word`, not `chip`. The chip component draws its own "×" with a
+   ::after and turns solid on hover, which put two crosses on every one
+   of these -- one of them a button and the other decoration. */
+.schema .word {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 0.1rem var(--s-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+}
+.schema .word.retired code { text-decoration: line-through; color: var(--text-3); }
+.schema .word button { padding: 0; line-height: 1; }
+.schema .add-word { display: flex; gap: var(--s-1); margin-top: var(--s-2); }
+.schema .add-word input { flex: 1 1 12rem; }
+.schema .new-kind { margin-top: var(--s-2); }
 .schema .inline-form { display: inline; }
 .schema .add-term { margin-top: var(--s-3); }
 .schema .hint { font-size: var(--fs-xs); color: var(--text-3); margin: var(--s-1) 0; }

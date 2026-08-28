@@ -78,7 +78,11 @@ class FieldSpec:
         return self.key.partition(".")[0]
 
 
-#: The record, in the order somebody reads it.
+#: The record, in the order somebody reads it: what the publication is
+#: called and where it is, then how to reach it, then the two fields whose
+#: values come from a maintained vocabulary. The vocabularies are long
+#: enough on the page to push everything after them out of sight, which is
+#: where the address and the home page were.
 #:
 #: Required means a record without it is incomplete and the scan says so,
 #: not that the database refuses it -- the corpus is full of records that
@@ -103,9 +107,14 @@ FIELDS = (
     FieldSpec(
         "owner",
         "Owner",
-        required=True,
+        required=False,
         note="Written the way the corpus writes it, or one company counts as two.",
     ),
+    FieldSpec("meta.address1", "Street address", required=False, rule=ADDRESS),
+    FieldSpec("meta.address2", "Address, second line", required=False),
+    FieldSpec("meta.zip", "ZIP code", required=False, rule=ZIP),
+    FieldSpec("meta.phone", "Phone", required=False, rule=PHONE),
+    FieldSpec("meta.homepage", "Home page", required=True, rule=URL),
     FieldSpec(
         "type",
         "Kind of publication",
@@ -120,11 +129,6 @@ FIELDS = (
         rule=VOCABULARY,
         vocabulary="publisher_frequency",
     ),
-    FieldSpec("meta.address1", "Street address", required=False, rule=ADDRESS),
-    FieldSpec("meta.address2", "Address, second line", required=False),
-    FieldSpec("meta.zip", "ZIP code", required=False, rule=ZIP),
-    FieldSpec("meta.phone", "Phone", required=False, rule=PHONE),
-    FieldSpec("meta.homepage", "Home page", required=False, rule=URL),
 )
 
 BY_KEY = {field.key: field for field in FIELDS}
