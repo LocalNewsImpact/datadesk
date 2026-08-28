@@ -19,8 +19,16 @@
    =========================================================================== */
 
 
-/* Native controls, scrollbars and form widgets follow the scheme. */
+/* Native controls, scrollbars and form widgets follow the scheme.
+   `light dark` means "either, ask the OS", which is right only while the
+   theme IS the OS's. The toggle stamps data-theme on :root and the tokens
+   below follow it -- but color-scheme did not, so a person on a dark OS
+   who chose Light got light tokens and dark browser chrome: unchecked
+   checkboxes drawn as black boxes on a white card, and dark scrollbars.
+   The stamp has to move both. */
 html { color-scheme: light dark; }
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 
