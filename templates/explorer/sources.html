@@ -10,9 +10,30 @@
 
   <form method="get" class="action-bar">
     <label>Name <input type="text" name="q" value="{{ q }}" placeholder="The Higginsville Advance"></label>
+    {% comment %}
+    Offered from the datasets this person may read: a picker listing one
+    they cannot choose is an invitation to a 403 for picking what they
+    were shown.
+    {% endcomment %}
+    <label>Directory
+      <select name="dataset">
+        <option value="">all</option>
+        {% for d in datasets %}
+        <option value="{{ d.slug }}" {% if dataset == d.slug %}selected{% endif %}>{{ d.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <button type="submit">Search</button>
     <a class="button" href="{% url 'datasets:source_propose_new' %}">Report one we do not have</a>
   </form>
+
+  {% comment %}
+  The list is capped at two hundred. Saying so is the difference between
+  a window onto the records and an answer about how many there are.
+  {% endcomment %}
+  {% if total > sources|length %}
+  <p class="hint">{{ total }} match; showing the first {{ sources|length }}.</p>
+  {% endif %}
 
   <table class="rec-table">
     <thead>
