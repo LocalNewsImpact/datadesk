@@ -787,3 +787,105 @@ def rescan_sources(request):
     )
     request.session["proposal_receipt"] = {"scan": summary}
     return redirect("review:proposals")
+
+
+@requires_admin
+def schema(request):
+    """What a publisher record is, and the words its fields accept.
+
+    The schema itself is a declaration in `datasets/schema.py` and is read
+    here rather than edited: which fields are required, and what a value
+    has to look like, are decisions that belong in a change somebody
+    reviews.
+
+    The vocabularies are not. A new kind of publication is a Tuesday, and
+    making somebody ship a deploy for one word means the word waits for a
+    deploy -- so the words are rows, and this is where they are added.
+
+    Admin, because it decides what the whole console treats as correct: a
+    word added here stops the queue asking about every record that uses
+    it, and one retired starts it asking again.
+    """
+    from datasets.models import VocabularyTerm
+    from datasets.publishers import fold_value
+    from datasets.schema import ALIASES, FIELDS, VOCABULARY
+    from datasets.terms import forget
+
+    notice = ""
+    if request.method == "POST":
+        vocabulary = (request.POST.get("vocabulary") or "").strip()
+        names = {f.vocabulary for f in FIELDS if f.vocabulary}
+        if vocabulary not in names:
+            raise Http404("No such vocabulary")
+        retire = (request.POST.get("retire") or "").strip()
+        if retire:
+            # Retired, never deleted. A word no longer offered is still on
+            # the records written while it was, and deleting it turns a
+            # filter that matched them into one that matches nothing.
+            changed = VocabularyTerm.objects.filter(
+                vocabulary=vocabulary, value=retire
+            ).update(retired=True)
+            notice = f"{retire} is no longer offered." if changed else ""
+        else:
+            value = fold_value(request.POST.get("value") or "")
+            if not value:
+                raise ValueError("Type the word to add")
+            label = (request.POST.get("label") or "").strip()
+            spelling = (request.POST.get("spelling") or "").strip()
+            term, made = VocabularyTerm.objects.get_or_create(
+                vocabulary=vocabulary,
+                value=value,
+                defaults={
+                    "label": label,
+                    "spelling": spelling,
+                    "added_by": request.user,
+                },
+            )
+            if not made and term.retired:
+                # Adding a word that was retired brings it back rather
+                # than refusing it as already there, which is what
+                # somebody typing it again means.
+                term.retired = False
+                term.save(update_fields=["retired"])
+                notice = f"{value} is offered again."
+            else:
+                notice = f"{value} added." if made else f"{value} was already there."
+            AuditLogEntry.objects.create(
+                actor=request.user,
+                action="schema:term",
+                target_table="datasets_vocabularyterm",
+                target_ids=[f"{vocabulary}:{value}"],
+                after={"value": value, "label": label, "spelling": spelling},
+                reason=f"added {value} to {vocabulary}",
+            )
+        forget(vocabulary)
+        request.session["schema_notice"] = notice
+        return redirect("review:schema")
+
+    held = {}
+    for term in VocabularyTerm.objects.all():
+        held.setdefault(term.vocabulary, []).append(term)
+    rows = []
+    for field in FIELDS:
+        rows.append(
+            {
+                "key": field.key,
+                "label": field.label,
+                "required": field.required,
+                "rule": field.rule,
+                "rule_name": field.rule_name,
+                "vocabulary": field.vocabulary,
+                "note": field.note,
+                "terms": held.get(field.vocabulary, []) if field.vocabulary else [],
+                "aliases": sorted(k for k, v in ALIASES.items() if v == field.key),
+            }
+        )
+    return render(
+        request,
+        "review/schema.html",
+        {
+            "fields": rows,
+            "notice": request.session.pop("schema_notice", ""),
+            "vocabulary_rule": VOCABULARY,
+        },
+    )

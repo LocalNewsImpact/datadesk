@@ -1117,6 +1117,30 @@ label.stacked input, label.stacked textarea, label.stacked select {
 /* The walk's step form is #step-form, not .builder-form, so it never
    picked either of these up: two checkbox labels in a row ran together on
    one line, and a note under a control was set in body text. */
+/* The schema page: a field's name, the key it is stored under, and the
+   words a vocabulary holds. Each row is three facts about one thing, and
+   without these they ran together into "Host host". */
+.schema .field-name { display: block; font-weight: 600; }
+.schema .field-key,
+.schema .terms code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.schema .terms { margin: var(--s-2) 0; padding-left: var(--s-3); }
+.schema .terms li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-2);
+  margin: var(--s-1) 0;
+}
+.schema .terms .term-label { font-size: var(--fs-sm); }
+.schema .terms .retired code { text-decoration: line-through; }
+.schema .inline-form { display: inline; }
+.schema .add-term { margin-top: var(--s-3); }
+.schema .hint { font-size: var(--fs-xs); color: var(--text-3); margin: var(--s-1) 0; }
+
 #step-form .inline {
   display: flex;
   align-items: baseline;

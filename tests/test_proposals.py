@@ -395,6 +395,11 @@ def test_the_scan_does_not_queue_a_record_with_nothing_wrong(crawler_schema, edi
         city="Columbia",
         county="Boone",
         owner="CherryRoad Media",
+        # What kind of publication, which `datasets/schema.py` calls
+        # required: a record that does not say cannot be placed by
+        # anything organised by medium. Thirty-one records in production
+        # say nothing here, and they are questions now.
+        type="digital native",
         # Its own state, not the dataset's. A record carrying none is a
         # record with something wrong -- see the tests below.
         meta={"state": "MO"},
@@ -1884,3 +1889,144 @@ def test_every_flag_proposes_a_field_the_queue_can_write():
             f"{flag.key} is on {flag.field}, which the write boundary does "
             "not include, so accepting its proposal raises rather than saves"
         )
+
+
+# --- what a publisher record is (datasets/schema.py) -------------------------
+
+
+def test_the_rules_accept_what_a_record_actually_holds():
+    """Loose on purpose: these say "this is not a ZIP code" and never
+    "this is the wrong ZIP code". A rule that refuses a correct value is
+    worse than no rule, because the record it refuses is right."""
+    from datasets.schema import BY_KEY, check
+
+    good = {
+        "meta.zip": ["65201", "65201-1234"],
+        "meta.phone": [
+            "573-882-4713",
+            "(573) 882-4713",
+            "+1 573 882 4713",
+            "573.882.4713 x204",
+        ],
+        "meta.address1": ["120 Neff Hall", "1 N Main St"],
+        "meta.homepage": ["https://komu.com", "http://example.org/news"],
+        "host": ["komu.com", "news.example.co.uk"],
+        "meta.state": ["MO", "VT"],
+    }
+    for key, values in good.items():
+        for value in values:
+            ok, why = check(BY_KEY[key], value)
+            assert ok, f"{key} refused {value!r}: {why}"
+
+    bad = {
+        "meta.zip": ["652", "6520A", "65201-12"],
+        "meta.address1": ["Main Street", "1600"],
+        "meta.homepage": ["komu.com", "ftp://example.org"],
+        "meta.state": ["Missouri", "mo"],
+    }
+    for key, values in bad.items():
+        for value in values:
+            ok, why = check(BY_KEY[key], value)
+            assert not ok, f"{key} accepted {value!r}"
+            assert value in why, "the reason must name the value"
+
+    # Empty is not this function's business: whether a field may be empty
+    # is `required`, and checking both here reports one defect twice.
+    for field in BY_KEY.values():
+        assert check(field, "")[0]
+        assert check(field, None)[0]
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_word_added_to_the_vocabulary_stops_the_queue_asking(mo, editor):
+    """The point of the page. A kind of publication nobody listed is a
+    question about every record that uses it, and adding the word is the
+    answer -- without a deploy, and without the queue asking again."""
+    from datasets.models import VocabularyTerm
+    from datasets.terms import forget, known
+
+    odd = Source.objects.create(
+        id="s-podcast",
+        host="pod.example",
+        host_norm="pod.example",
+        canonical_name="A Podcast",
+        city="Columbia",
+        county="Boone",
+        owner="Somebody",
+        type="podcast",
+        meta={"state": "MO"},
+    )
+    assert "type_indistinct" in _scanned(mo, odd)
+
+    VocabularyTerm.objects.create(
+        vocabulary="publisher_type", value="podcast", label="Podcast"
+    )
+    forget("publisher_type")
+    assert known("publisher_type", "Podcast"), "case is folded, as everywhere"
+
+    # The scan again, not `_scanned`: the membership row it makes is
+    # already there, and making it twice is a unique-key error rather than
+    # a second scan.
+    from django.core.management import call_command
+
+    ChangeProposal.objects.filter(record_id=odd.id).delete()
+    call_command("scan_sources", dataset=mo.slug)
+    again = {p.flag for p in ChangeProposal.objects.filter(record_id=odd.id)}
+    assert "type_indistinct" not in again
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_vocabulary_falls_back_to_what_the_corpus_used(mo):
+    """With no rows at all a vocabulary would mean "every recorded value
+    is wrong", which on the morning of the migration is 1,149 records and
+    no way to tell which a person should look at."""
+    from datasets.models import VocabularyTerm
+    from datasets.terms import forget, known
+
+    VocabularyTerm.objects.all().delete()
+    forget()
+    assert known("publisher_type", "digital native")
+    assert known("publisher_frequency", "Weekly")
+    assert not known("publisher_type", "podcast")
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_schema_page_is_admins_only(client, editor):
+    """It decides what the whole console treats as correct: a word added
+    stops the queue asking about every record that uses it."""
+    assert client.get("/review/schema/").status_code == 403
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_an_admin_adds_and_retires_a_word(client, admin_user):
+    from accounts.models import DATADESK, Grant
+    from datasets.models import VocabularyTerm
+
+    Grant.objects.get_or_create(user=admin_user, app=DATADESK, scope="", role="admin")
+    client.force_login(admin_user)
+
+    page = client.get("/review/schema/").content.decode()
+    assert "What a publisher record is" in page
+    assert "Required" in page and "Optional" in page
+    # The rules are shown, not only the words, and said to a person: a
+    # page that read the keys out said a field held "a zip" and "a url".
+    assert "five digits, or five and four" in page
+    assert "a state&#x27;s two-letter postal code" in page or (
+        "a state's two-letter postal code" in page
+    )
+
+    client.post(
+        "/review/schema/",
+        {"vocabulary": "publisher_type", "value": "Podcast", "label": "Podcast"},
+    )
+    term = VocabularyTerm.objects.get(vocabulary="publisher_type", value="podcast")
+    assert term.label == "Podcast" and not term.retired
+
+    # Retired rather than deleted: the word is still on the records
+    # written while it was offered.
+    client.post(
+        "/review/schema/", {"vocabulary": "publisher_type", "retire": "podcast"}
+    )
+    term.refresh_from_db()
+    assert term.retired
+    assert VocabularyTerm.objects.filter(value="podcast").exists()
