@@ -2513,3 +2513,63 @@ def test_the_queue_comes_back_as_it_was_being_worked(client, editor, publisher):
     assert response.status_code == 302
     assert "dataset=mo" in response["Location"]
     assert "flag=owner_missing" in response["Location"]
+
+
+def test_a_word_added_reaches_the_queue_without_a_record_moving(mo, editor):
+    """The schema page exists so a vocabulary can change without a deploy.
+    A change nothing acts on is a page that lies about what it does.
+
+    `--if-changed` skips a dataset whose stamp has not moved, and the
+    stamp covered the checks and the records and not the words those
+    checks read. So adding a word left every dataset's stamp identical,
+    the nightly scan skipped them all, and the edit reached the queue only
+    when something else happened to move a record.
+    """
+    from datasets.models import VocabularyTerm
+    from datasets.terms import forget
+    from review.proposals import sources_stamp
+
+    source = Source.objects.create(
+        id="s-word",
+        host="word.example",
+        host_norm="word.example",
+        canonical_name="A Podcast",
+        city="Columbia",
+        county="Boone",
+        type="podcast",
+        meta={"state": "MO"},
+    )
+    from explorer.models import DatasetSource
+
+    DatasetSource.objects.create(id="ds-word", dataset=mo, source=source)
+
+    before = sources_stamp(mo.slug)
+    VocabularyTerm.objects.create(
+        vocabulary="publisher_type", value="podcast", label="Podcast"
+    )
+    forget("publisher_type")
+    assert sources_stamp(mo.slug) != before, "the word did not move the stamp"
+
+    # And retiring one moves it too, so the question comes back.
+    after_adding = sources_stamp(mo.slug)
+    VocabularyTerm.objects.filter(vocabulary="publisher_type", value="podcast").update(
+        retired=True
+    )
+    forget("publisher_type")
+    assert sources_stamp(mo.slug) != after_adding, "retiring did not move the stamp"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_changing_a_spelling_moves_the_stamp(mo, editor):
+    """The same for what a kind is recorded as: change it and every record
+    spelt the old way is a question, and none of them moved."""
+    from datasets.models import VocabularyTerm
+    from datasets.terms import forget
+    from review.proposals import sources_stamp
+
+    before = sources_stamp(mo.slug)
+    VocabularyTerm.objects.filter(
+        vocabulary="publisher_type", spelling="video broadcast"
+    ).update(spelling="video-broadcast")
+    forget("publisher_type")
+    assert sources_stamp(mo.slug) != before
