@@ -2857,37 +2857,66 @@ def test_a_reviewer_does_not_store_credentials(client, editor, mo):
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_the_paywalls_filter_by_whether_the_sign_in_is_automated(client, editor, mo):
-    """Two halves of different work: one needs a subscription bought and a
-    credential stored, the other is being read today."""
-    from explorer.models import DatasetSource
+def test_the_sign_in_has_three_states_and_credentials_is_the_first(client, editor, mo):
+    """Credentials alone are not enough. A subscription bought, an
+    extractor configured to use it, and a sign-in that has actually read
+    something are three different pieces of work -- and in production
+    seven publishers carry credentials while six have never produced an
+    article.
+    """
+    from explorer.models import (
+        Article,
+        ArticleEnrichment,
+        CandidateLink,
+        DatasetSource,
+    )
 
-    for i, (host, automated) in enumerate(
-        (("auto.example", True), ("manual.example", False))
+    made = {}
+    for host, secret, configured, reads in (
+        ("none.example", None, False, 0),
+        ("cred.example", "publisher-auth-cred-example", False, 0),
+        ("conf.example", "publisher-auth-conf-example", True, 0),
+        ("done.example", "publisher-auth-done-example", True, 2),
     ):
         source = Source.objects.create(
-            id=f"s-si{i}",
+            id=f"s-{host}",
             host=host,
             host_norm=host,
-            canonical_name=host.split(".")[0].title(),
+            canonical_name=host.split(".")[0],
             has_paywall=True,
-            requires_login=automated,
+            auth_secret_name=secret,
+            requires_login=configured,
         )
-        DatasetSource.objects.create(id=f"ds-si{i}", dataset=mo, source=source)
+        DatasetSource.objects.create(id=f"ds-{host}", dataset=mo, source=source)
+        link = CandidateLink.objects.create(
+            id=f"cl-{host}", url=f"https://{host}/a", source=source
+        )
+        for n in range(reads):
+            article = Article.objects.create(
+                id=f"a-{host}-{n}", status="ok", candidate_link=link
+            )
+            # Read: nothing skipped it.
+            ArticleEnrichment.objects.create(article=article, skip_reason=None)
+        made[host] = source
 
-    # By host, because "Auto" is also the theme switcher's third button.
-    both = client.get("/review/paywalls/").content.decode()
-    assert "auto.example" in both and "manual.example" in both
+    page = client.get("/review/paywalls/").content.decode()
+    assert "no credentials" in page
+    assert "credentialed" in page and "configured" in page and "verified" in page
 
-    waiting = client.get("/review/paywalls/?sign_in=manual").content.decode()
-    assert "manual.example" in waiting and "auto.example" not in waiting
+    def hosts(query):
+        body = client.get(f"/review/paywalls/?sign_in={query}").content.decode()
+        return {h for h in made if h in body}
 
-    working = client.get("/review/paywalls/?sign_in=automated").content.decode()
-    assert "auto.example" in working and "manual.example" not in working
-
-    # The report follows the page, and is named after what it holds.
-    report = client.get("/review/paywalls/?format=csv&sign_in=manual")
-    assert 'filename="paywalls-manual.csv"' in report["Content-Disposition"]
+    assert hosts("none") == {"none.example"}
+    # Credentialed is everything with a secret, whatever stage it reached.
+    assert hosts("credentialed") == {
+        "cred.example",
+        "conf.example",
+        "done.example",
+    }
+    assert hosts("configured") == {"conf.example", "done.example"}
+    # Verified is the one that has actually read something.
+    assert hosts("verified") == {"done.example"}
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
