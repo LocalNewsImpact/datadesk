@@ -53,7 +53,14 @@ GRANT UPDATE (skip_reason, geo_skip_reason, scope, scope_confidence)
 -- than the application allows -- review/services.py permits `meta.state`
 -- and nothing else in that blob. The narrower list is the one a reviewer
 -- can act through; this only has to stop being the thing that refuses.
-GRANT UPDATE (canonical_name, city, county, owner, type, metadata)
+--
+-- The paywall panel is on this list too: whether a publication has one,
+-- what a subscription costs and where a person signs in are edited on the
+-- record. Not `auth_secret_name` and not `auth_config` -- those are the
+-- crawler's login automation, and the secret they name is the one thing
+-- here that must not be settable through the console.
+GRANT UPDATE (canonical_name, city, county, owner, type, metadata,
+              has_paywall, subscription_cost, subscription_period, login_url)
   ON sources TO datadesk_rw;
 
 -- Phase 4: dataset management (SCOPE.md §2.4). Creation columns include
