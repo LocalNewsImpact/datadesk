@@ -84,6 +84,50 @@ def test_submitting_applies_accepted_and_leaves_rejected(client, editor, publish
     assert accept.audit_entry == entry
 
 
+def test_a_frequency_fix_is_written_into_the_record(client, editor, publisher):
+    """`meta.frequency` is a key inside a JSON column, like `meta.state`,
+    and had to be named before it could be written. Until it was, the
+    thirty-one proposals the scan raised for it could be seen and not
+    applied."""
+    p = _proposal(publisher, "meta.frequency", "Weekly", "weekly")
+    client.post(URL, {f"d-{p.pk}": "accept"})
+    publisher.refresh_from_db()
+    assert (publisher.meta or {}).get("frequency") == "weekly"
+    p.refresh_from_db()
+    assert p.state == ChangeProposal.ACCEPTED
+
+
+def test_a_write_the_boundary_refuses_is_said_rather_than_raised(
+    client, editor, publisher
+):
+    """The flag vocabulary and the write boundary are kept apart, so a
+    check can name a field the boundary does not include. Applying it
+    raises BoundaryViolation, which nothing caught: submitting a filtered
+    queue of thirty-one proposals answered with a server error and no clue
+    which of them caused it.
+
+    Nothing is decided, including the rejections in the same submission. A
+    half-applied batch is worse than one that did not go through, because
+    what was refused is the part nobody sees.
+    """
+    refused = _proposal(publisher, "meta.cohort", "", "anything")
+    alongside = _proposal(publisher, "owner", "Somebody", "Somebody Else")
+    response = client.post(
+        URL,
+        {f"d-{refused.pk}": "accept", f"d-{alongside.pk}": "reject"},
+        follow=True,
+    )
+    assert response.status_code == 200
+    page = response.content.decode()
+    assert "Nothing was saved" in page
+    assert "meta.cohort" in page, "which field was refused must be on the page"
+
+    refused.refresh_from_db()
+    alongside.refresh_from_db()
+    assert refused.state == ChangeProposal.PENDING
+    assert alongside.state == ChangeProposal.PENDING, "decided anyway"
+
+
 def test_a_fix_writes_the_reviewers_value(client, editor, publisher):
     p = _proposal(publisher, "city", "Columbia", "Colombia")
     client.post(URL, {f"d-{p.pk}": "fix", f"v-{p.pk}": "Columbia Heights"})
@@ -1812,3 +1856,31 @@ def test_a_dry_run_does_not_claim_the_records_were_scanned(mo, editor):
     out = io.StringIO()
     call_command("scan_sources", if_changed=True, stdout=out)
     assert "publishers scanned" in out.getvalue()
+
+
+def test_every_flag_proposes_a_field_the_queue_can_write():
+    """A flag names the field its defect is on, and accepting the proposal
+    writes that field. The two lists are maintained apart, so a check can
+    be added for a field the write boundary does not include -- which is
+    not a refusal a reviewer sees. `audited_update_rows` raises
+    BoundaryViolation, nothing catches it, and submitting the queue
+    answers with a server error.
+
+    `frequency_spelling` shipped that way: it proposed 'weekly' for
+    `meta.frequency`, which was not writable, so a filtered queue of 31
+    proposals 500d on submit.
+    """
+    from explorer.models import Source
+    from review.flags import FLAGS
+    from review.services import WRITABLE
+
+    writable = set(WRITABLE[Source])
+    for flag in FLAGS:
+        if not flag.field:
+            # Raised by evidence rather than by the record: value_disputed
+            # and no_match name no single field.
+            continue
+        assert flag.field in writable, (
+            f"{flag.key} is on {flag.field}, which the write boundary does "
+            "not include, so accepting its proposal raises rather than saves"
+        )

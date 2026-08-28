@@ -27,6 +27,7 @@ from review.imports import (
 )
 from review.models import ExportDefinition, ImportBatch
 from review.services import (
+    BoundaryViolation,
     audited_update,
     audited_update_rows,
     repair_text,
@@ -665,13 +666,27 @@ def _submit_proposals(request):
 
     entry = None
     if writes:
-        entry = audited_update_rows(
-            request.user,
-            Source,
-            writes,
-            action="proposal:apply",
-            reason=f"{len(accepted) + len(fixed)} reviewed changes",
-        )
+        try:
+            entry = audited_update_rows(
+                request.user,
+                Source,
+                writes,
+                action="proposal:apply",
+                reason=f"{len(accepted) + len(fixed)} reviewed changes",
+            )
+        except BoundaryViolation as exc:
+            # A proposal the queue can raise and cannot apply. The flag
+            # vocabulary and the write boundary are kept apart, so a check
+            # can name a field outside it -- `frequency_spelling` did, and
+            # submitting a filtered queue of thirty-one answered with a
+            # server error and no clue which of them caused it.
+            #
+            # Nothing is decided here. The proposals stay pending,
+            # including the rejections in the same submission: a
+            # half-applied batch is worse than one that did not go
+            # through, because what was refused is the part nobody sees.
+            request.session["proposal_receipt"] = {"refused_write": str(exc)}
+            return redirect("review:proposals")
 
     made, refused = _create_proposed_sources(request.user, creates, proposals_by_id)
 
