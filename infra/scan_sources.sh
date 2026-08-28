@@ -94,6 +94,16 @@ gcloud run jobs deploy "$JOB" \
   --command="python" \
   --args="manage.py,scan_sources,--if-changed"
 
+# The schedule calls the Run API as this account, so it needs to be
+# allowed to run this job. Deploying a job grants nobody anything: the
+# job's IAM policy came back empty, `datadesk-run` held only BigQuery,
+# Cloud SQL and Secret Manager at the project, and every firing since the
+# schedule was made returned PERMISSION_DENIED. The schedule was ENABLED
+# the whole time, so nothing looked wrong from the outside -- the scan had
+# simply not run since the day somebody ran it by hand.
+echo "invoker: $RUNTIME_SA"
+gcloud run jobs add-iam-policy-binding "$JOB"   --project="$PROJECT" --region="$REGION"   --member="serviceAccount:$RUNTIME_SA"   --role="roles/run.invoker" >/dev/null
+
 echo "schedule: $SCHEDULE_NAME ($SCHEDULE)"
 gcloud scheduler jobs create http "$SCHEDULE_NAME" \
   --project="$PROJECT" --location="$REGION" \
