@@ -128,6 +128,35 @@ class ChangeProposal(models.Model):
         return self.field.rpartition(".")[2] or self.field
 
     @property
+    def vocabulary_words(self):
+        """The values a fix to this field may take, or [] for free text.
+
+        A field with a controlled vocabulary has a right answer and a
+        list of them, so a reviewer picks one rather than typing --
+        typing is how `digital_native` gets written beside `digital
+        native` in the first place, and a queue whose fix box invites it
+        is a queue that creates the defect it exists to clear.
+
+        The kinds, not every word that means one: a fix writes what the
+        record should say, and `tv` is a word records say rather than
+        the value they should hold.
+        """
+        from datasets.schema import BY_KEY
+
+        field = BY_KEY.get(self.field)
+        if not field or not field.vocabulary:
+            return []
+        from datasets.terms import terms
+
+        return sorted(
+            {
+                spelling
+                for spelling, _label in terms(field.vocabulary).values()
+                if spelling
+            }
+        )
+
+    @property
     def flag_label(self):
         from review.flags import ALL_BY_KEY
 

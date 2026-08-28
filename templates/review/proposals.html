@@ -143,9 +143,29 @@ nothing has looked, and a reviewer cannot tell which.
                 <b>Keep</b><i>No Change</i></button>
             </td>
             <td class="option">
+              {% comment %}
+              A field with a controlled vocabulary has a right answer and
+              a list of them, so a reviewer picks one. Typing is how
+              `digital_native` gets written beside `digital native` in the
+              first place, and a queue whose fix box invites it is a queue
+              creating the defect it exists to clear.
+
+              A select fires `input` the same as a text box, so the script
+              below reads it without knowing which one it got.
+              {% endcomment %}
+              {% if p.vocabulary_words %}
+              <select class="fixval" name="v-{{ p.pk }}"
+                      aria-label="A different value for {{ p.field_label }}">
+                <option value="">choose a value</option>
+                {% for word in p.vocabulary_words %}
+                <option value="{{ word }}">{{ word }}</option>
+                {% endfor %}
+              </select>
+              {% else %}
               <input type="text" class="fixval" name="v-{{ p.pk }}"
                      placeholder="{{ p.useful_suggestion|default:'another value' }}"
                      value="" aria-label="A different value for {{ p.field_label }}">
+              {% endif %}
               <button type="button" class="verb fix" data-verb="fix">
                 <b>Fix</b><i>Use this</i></button>
               <input type="hidden" name="d-{{ p.pk }}" value="">
