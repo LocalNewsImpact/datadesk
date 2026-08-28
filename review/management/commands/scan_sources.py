@@ -18,11 +18,25 @@ import io
 from django.core.management.base import BaseCommand, CommandError
 
 from datasets.geo import state_code
+from datasets.schema import FIELDS as SCHEMA_FIELDS
+from datasets.schema import read as read_field
 from explorer.models import Dataset, DatasetSource, Source
 from review.flags import FLAGS
 from review.proposals import ChangeProposal, DatasetScan, sources_stamp
 
-EVIDENCE_FIELDS = ("canonical_name", "city", "county", "owner", "type")
+#: What a file may supply, from the schema rather than beside it. The
+#: host is excluded because it is how a row finds its record: a file
+#: proposing a different one is proposing a different publisher.
+#:
+#: A column may be headed by the key (`meta.zip`) or by the name inside
+#: `meta` (`zip`), because a spreadsheet exported from anywhere has the
+#: second and typing the first is nobody's instinct.
+EVIDENCE_FIELDS = tuple(field.key for field in SCHEMA_FIELDS if field.key != "host")
+
+
+def _headings(key):
+    """The column headings that mean this field."""
+    return (key, key.partition(".")[2]) if key.startswith("meta.") else (key,)
 
 
 def _settle(value):
@@ -338,7 +352,9 @@ class Command(BaseCommand):
             candidate = evidence.get((source.host_norm, field))
             if not candidate or field in flagged_fields:
                 continue
-            current = (getattr(source, field, "") or "").strip()
+            # Through the schema, so a key inside `meta` is read as the
+            # field it is rather than as a column that does not exist.
+            current = read_field(source, field)
             value = candidate.get("value", "").strip()
             if not value or value == current:
                 continue
@@ -442,7 +458,11 @@ class Command(BaseCommand):
             if not host:
                 continue
             for field in EVIDENCE_FIELDS:
-                value = (row.get(field) or "").strip()
+                value = ""
+                for heading in _headings(field):
+                    value = (row.get(heading) or "").strip()
+                    if value:
+                        break
                 if value and value not in values[(host, field)]:
                     values[(host, field)].append(value)
 

@@ -167,6 +167,14 @@ SECTION_GROUPS = (
                 "note": "Role assignment: viewer, editor, admin.",
             },
             {
+                "url": "review:schema",
+                "label": "Record schema",
+                "note": (
+                    "What a publisher record is: which fields are needed, "
+                    "and the words each accepts."
+                ),
+            },
+            {
                 "url": "review:audit_log",
                 "label": "Audit log",
                 "note": "Every mutating action, append-only, before and after.",

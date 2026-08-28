@@ -13,18 +13,34 @@
     <label class="stacked">Host <input type="text" name="host" required
       value="{{ values.host|default:'' }}" placeholder="columbiamissourian.com"></label>
     {% endif %}
-    <label class="stacked">Canonical name <input type="text" name="canonical_name" value="{{ values.canonical_name|default:'' }}"></label>
-    <div class="action-bar">
-      <label>City <input type="text" name="city" value="{{ values.city|default:'' }}"></label>
-      <label>State <input type="text" name="state" maxlength="2" value="{{ values.state|default:'' }}" placeholder="MO" style="width:4rem"></label>
-      <label>County <input type="text" name="county" value="{{ values.county|default:'' }}"></label>
-    </div>
+    {% comment %}
+    From `datasets/schema.py`, not listed again here. Five were listed and
+    the schema declares thirteen, so a publisher added through this page
+    could not be given a ZIP code, an address or a telephone number.
+
+    Required is marked, not enforced: a publisher somebody has just found
+    and half knows should be writable, and the queue is what chases the
+    rest. What is typed is checked for shape -- a ZIP that is not a ZIP is
+    refused here, where the person who typed it is still looking.
+
+    A vocabulary is suggested rather than imposed. A record already
+    holding a word nobody listed would lose it to a menu that cannot show
+    it, and an unlisted word is a question for the queue.
+    {% endcomment %}
+    {% for f in fields %}
+    <label class="stacked">{{ f.label }}{% if f.required %} <span class="required">needed</span>{% endif %}
+      <input type="text" name="{{ f.name }}" value="{{ f.value }}"
+        {% if f.words %}list="words-{{ f.name }}"{% endif %}>
+    </label>
+    {% if f.words %}
+    <datalist id="words-{{ f.name }}">
+      {% for word in f.words %}<option value="{{ word }}"></option>{% endfor %}
+    </datalist>
+    {% endif %}
+    <p class="hint">{{ f.rule }}</p>
+    {% endfor %}
     <p class="notice">The city is validated against the Census place
     gazetteer for the state — typos are refused with suggestions.</p>
-    <div class="action-bar">
-      <label>Owner <input type="text" name="owner" value="{{ values.owner|default:'' }}"></label>
-      <label>Type <input type="text" name="type" value="{{ values.type|default:'' }}"></label>
-    </div>
     {% if not source and datasets %}
     <label class="stacked">Add to dataset
       <select name="dataset">
