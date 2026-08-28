@@ -680,3 +680,40 @@ def test_the_sankey_isolates_a_flow_from_the_ones_crossing_it():
     assert "group: bands" in body
     assert "band.source === node || band.target === node" in body
     assert body.count("interactive(") == 3, "a mark stopped answering"
+
+
+def test_a_stacked_segment_says_what_it_is_a_share_of():
+    """A stack is a part-to-a-whole claim, and the hover said one half of
+    it.
+
+    On a percent stack it was worse than incomplete: `offset: "expand"`
+    replaces the value with a fraction of its column, so the tip read
+    "Articles (%) 42" and the 420 articles behind it appeared nowhere on
+    the chart. There is no way to tell a small share of a large county
+    from a large share of a small one.
+
+    The donut has always reported both -- `tipRow(ylabel, value)` beside
+    `tipRow("share", ...)` -- and this is the same claim drawn as
+    rectangles.
+    """
+    assert "function shareInTip(" in JS
+    # The count and the share in one line, not two: a bare fraction beside
+    # the number it came from reads as two numbers that disagree.
+    assert "toLocaleString()} (${share.toFixed(1)}%)" in JS
+    assert "format: { [axis]: false }" in JS
+
+    # Applied where marks compose a whole -- a stacked bar and a stacked
+    # area -- and nowhere else.
+    assert 'shareInTip(enc, rows, x, y, horizontal ? "x" : "y")' in JS
+    assert 'if (series) shareInTip(enc, rows, x, y, "y");' in JS
+    # One series is not a composition, so both are behind a series check.
+    assert "if (series && config.stacked !== false) {" in JS
+
+
+def test_the_tip_options_survive_the_marks_defaults():
+    """`common` carries `tip: true`. Spread after the encoding it replaced
+    the tip options a percent stack sets, so the line naming what the
+    share is a share of appeared beside the fraction it replaces rather
+    than instead of it -- two numbers, one of them unexplained."""
+    assert "{ ...common, ...enc, rx: 2 }" in JS
+    assert "{ ...enc, ...common, rx: 2 }" not in JS

@@ -378,7 +378,16 @@
       if (config.stack === "percent" && series) {
         enc.offset = "expand";
       }
-      marks.push((horizontal ? Plot.barX : Plot.barY)(rows, { ...enc, ...common, rx: 2 }));
+      // A stacked segment is part of a whole, so the hover says both what
+      // it is and what it is of.
+      if (series && config.stacked !== false) {
+        shareInTip(enc, rows, x, y, horizontal ? "x" : "y");
+      }
+      // `common` first: it carries `tip: true`, and spread last it
+      // overwrote the tip options a percent stack sets above -- so the
+      // line saying what the share is a share of appeared beside the
+      // fraction it replaces rather than instead of it.
+      marks.push((horizontal ? Plot.barX : Plot.barY)(rows, { ...common, ...enc, rx: 2 }));
       marks.push(horizontal ? Plot.ruleX([0], { stroke: t.boundary }) : Plot.ruleY([0], { stroke: t.boundary }));
     } else if (kind === "line" || kind === "area") {
       const enc = { x, y, ...common };
@@ -388,6 +397,10 @@
         if (series) { area.fill = series; area.order = domain; }
         else area.fill = stroke1;
         marks.push(Plot.areaY(rows, area));
+        // Stacked bands are parts of a whole, the same as a stacked bar's
+        // segments, so the hover says the value and its share of that
+        // date's total. One series is not a composition and gets neither.
+        if (series) shareInTip(enc, rows, x, y, "y");
       }
       marks.push(Plot.line(rows, { ...enc, strokeWidth: 2 }));
       // Selective direct labels: line-end names when few series.
@@ -897,6 +910,40 @@
   }
 
   // Parts of a whole. Aggregates y by x, folds past five slices, labels
+  // What a stacked segment is, and what it is of.
+  //
+  // A stack says "part of a whole" and the hover said only one of the
+  // two. On a percent stack it was worse than incomplete: `expand`
+  // replaces the value with a fraction of its column, so the tip read
+  // "Articles (%) 42" and the 420 articles behind it were nowhere on the
+  // chart -- no way to tell a small share of a large county from a large
+  // share of a small one.
+  //
+  // Both in one line, which is what the donut has always done: its slices
+  // report the value and the share together.
+  //
+  // The composed line replaces the value channel rather than sitting
+  // beside it. Two lines, one of them a bare fraction of the other, read
+  // as two numbers that disagree.
+  function shareInTip(enc, rows, keyColumn, valueColumn, axis) {
+    const whole = new Map();
+    for (const row of rows) {
+      const key = row[keyColumn];
+      whole.set(key, (whole.get(key) || 0) + (+row[valueColumn] || 0));
+    }
+    enc.channels = {
+      ...(enc.channels || {}),
+      [valueColumn]: (row) => {
+        const value = +row[valueColumn] || 0;
+        const of = whole.get(row[keyColumn]) || 0;
+        const share = of ? (100 * value) / of : 0;
+        return `${value.toLocaleString()} (${share.toFixed(1)}%)`;
+      },
+    };
+    enc.tip = { ...(enc.tip || {}), format: { [axis]: false } };
+    return enc;
+  }
+
   // the slices that have room and legends the rest; total in the hole.
   function renderDonut(el, config, rows, t, width) {
     const d3 = global.d3;
