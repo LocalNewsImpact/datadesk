@@ -114,7 +114,20 @@ FIELDS = (
     FieldSpec("meta.address2", "Address, second line", required=False),
     FieldSpec("meta.zip", "ZIP code", required=False, rule=ZIP),
     FieldSpec("meta.phone", "Phone", required=False, rule=PHONE),
-    FieldSpec("meta.homepage", "Home page", required=True, rule=URL),
+    FieldSpec(
+        "meta.homepage",
+        "Home page",
+        required=False,
+        rule=URL,
+        note=(
+            "Where the publication lives, when that is not simply the host "
+            "with https:// in front of it. The one record that carries this "
+            "reads https://krcgtv.com/ against a host of krcgtv.com -- the "
+            "same fact twice. It earns its place for the ones where the two "
+            "differ: a site served over http, a publication living on a path "
+            "or a subdomain, a domain that redirects somewhere else."
+        ),
+    ),
     FieldSpec(
         "type",
         "Kind of publication",
