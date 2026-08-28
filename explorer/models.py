@@ -84,6 +84,30 @@ class Source(CrawlerModel):
     rss_consecutive_failures = models.IntegerField(default=0)
     rss_transient_failures = DecodedJSONField(default=list)
 
+    # Paywalls, and getting through them.
+    #
+    # `requires_login` is the crawler's: the extractor performs a browser
+    # login for this publisher, which is true of the seven that are
+    # configured. `has_paywall` is the wider fact about the publication,
+    # ticked on a record long before anybody automates a login for it.
+    #
+    # The credentials are not here and are not going to be. They live in
+    # Secret Manager under `auth_secret_name`, which is why `auth_config`
+    # carries the crawler's comment that credentials are never stored in
+    # it: a password column would be readable by every role holding SELECT
+    # on this table, including the read-only analytics role and every CSV
+    # anybody exports.
+    has_paywall = models.BooleanField(default=False)
+    requires_login = models.BooleanField(default=False)
+    auth_type = models.TextField(null=True, blank=True)
+    auth_secret_name = models.TextField(null=True, blank=True)
+    auth_config = DecodedJSONField(null=True, blank=True)
+    subscription_cost = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    subscription_period = models.TextField(null=True, blank=True)
+    login_url = models.TextField(null=True, blank=True)
+
     class Meta(CrawlerModel.Meta):
         db_table = "sources"
 
