@@ -20,6 +20,14 @@
 # already queued is refreshed rather than duplicated, and a question a
 # person has answered is not asked again (REVIEW.md 4).
 #
+# The release re-pins the job to each new image
+# (gcp/cloudbuild/cloudbuild-datadesk.yaml). A job runs the image it was
+# deployed with and nothing about it follows the service, so without that
+# this one went on running the build it was made with -- and a check added
+# to the flag vocabulary afterwards never ran, however many mornings the
+# schedule fired. What is left here is what a release does not do: the
+# schedule, and who is allowed to run the job.
+#
 #     ./infra/scan_sources.sh          # create the job and its schedule
 #     ./infra/scan_sources.sh --run    # run it once, now
 set -euo pipefail
