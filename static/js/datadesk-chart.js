@@ -361,6 +361,10 @@
     if (kind === "bar") {
       // Ordering is set through the scale domain above, not per-mark, so
       // a percent stack can order by total rather than by segment.
+      // Off puts them side by side: the bars are grouped rather than
+      // stacked, which moves the category to a facet axis and every
+      // decision about scales below with it.
+      const grouped = !!series && config.stacked === false;
       const enc = horizontal
         ? { y: x, x: y, fill: series || stroke1, inset: 0.5 }
         : { x, y, fill: series || stroke1, sort, inset: 0.5 };
@@ -369,9 +373,18 @@
       // the order to the colour domain makes the stack readable across
       // columns: the same need is always the same band.
       if (series) enc.order = domain;
-      if (series && config.stacked === false) {
+      if (grouped) {
+        // Side by side: the category becomes the facet, and the series
+        // are the bands inside each one.
         enc[horizontal ? "fy" : "fx"] = enc[horizontal ? "y" : "x"];
         enc[horizontal ? "y" : "x"] = series;
+        // `order` is a stack option and there is no stack; `sort` would
+        // rank the bands by value inside each facet separately, so the
+        // same series would sit in a different place in every one. The
+        // colour domain orders them instead, which is what keeps a stack
+        // readable across columns for the same reason.
+        delete enc.order;
+        delete enc.sort;
       }
       // "percent" turns a stack into a composition: each column fills the
       // axis and the series read as shares.
@@ -428,36 +441,79 @@
     const percentStack = kind === "bar" && config.stack === "percent" && series;
     let xScale = { label: config.xlabel || undefined, tickSize: 0 };
     let yDomain;
+    let fxDomain;
+    let fyDomain;
     let marginLeft;
     let marginBottom;
     let height = 420;
     if (kind === "bar") {
-      // The category axis: y when horizontal, x otherwise.
-      const axis = horizontal ? x : x;
+      // Where the category ends up. Stacked, it is the band axis -- y
+      // when the bars run horizontally, x when they stand up. Side by
+      // side, it is the facet axis instead, and the series takes the band.
+      //
+      // This ordering was written onto the band axis either way, so a
+      // grouped chart set the x domain to a list of counties while every
+      // bar's x was a CIN need. No bar fell inside the domain and none
+      // drew: axes, a grid, a baseline and nothing else. The line that
+      // chose the axis read `horizontal ? x : x`, which is the same
+      // answer twice.
+      const grouped = !!series && config.stacked === false;
       const order = [];
-      for (const r of rows) if (!order.includes(r[axis])) order.push(r[axis]);
+      for (const r of rows) if (!order.includes(r[x])) order.push(r[x]);
       if (config.sort === "y") {
         // A percent stack is all 100% wide, so "by value" means by the
-        // category's total — otherwise the ordering says nothing.
+        // category's total — otherwise the ordering says nothing. The
+        // same is true of a group of bars, whose height says nothing
+        // about the category until the group is added up.
         const totals = new Map();
         for (const r of rows) {
-          totals.set(r[axis], (totals.get(r[axis]) || 0) + (+r[y] || 0));
+          totals.set(r[x], (totals.get(r[x]) || 0) + (+r[y] || 0));
         }
         order.sort((a, b) => (totals.get(b) || 0) - (totals.get(a) || 0));
       }
+      // Which names end up on which axis. Grouped, the bands are the
+      // series and the facets are the category; stacked, the bands are
+      // the category and there are no facets. Every margin below is room
+      // for a name, so each has to be measured against the names that
+      // will actually be there -- sized for the category either way, the
+      // left of a grouped horizontal chart reserved seven characters for
+      // "Boone" and cut "Emergencies" down to "nergencies".
+      const bandValues = grouped ? domain : order;
+      const room = (values) =>
+        Math.min(220, 16 + 6.6 * Math.max(...values.map((v) => String(v ?? "").length)));
       if (horizontal) {
-        yDomain = order;
-        // Room for the longest label, and a band tall enough to read.
-        const longest = Math.max(...order.map((v) => String(v ?? "").length));
-        marginLeft = Math.min(220, 16 + 6.6 * longest);
-        height = Math.max(320, Math.min(1600, order.length * 22 + 90));
+        if (grouped) {
+          fyDomain = order;
+          // In the colour order, so a series sits in the same place in
+          // every facet.
+          yDomain = domain;
+          // The facet names sit on the right, and nothing had reserved
+          // them any width: "Jackson" arrived as "Jacksc".
+          marginRight = room(order);
+        } else {
+          yDomain = order;
+        }
+        marginLeft = room(bandValues);
+        // A band tall enough to read -- and a group needs one per bar,
+        // not one per category.
+        const bands = order.length * (grouped ? domain.length : 1);
+        height = Math.max(320, Math.min(1600, bands * 22 + 90));
       } else {
-        xScale.domain = order;
-        if (order.length > 8) {
-          // Upright labels would collide; rotate and reserve the depth.
-          const longest = Math.max(...order.map((v) => String(v ?? "").length));
+        if (grouped) {
+          fxDomain = order;
+          // The label somebody wrote for the category goes with the
+          // category onto the facet axis.
+          xScale = { domain, tickSize: 0 };
+        } else {
+          xScale.domain = order;
+        }
+        // Upright labels would collide; rotate and reserve the depth.
+        // Counted across every facet, because that is how many labels
+        // are drawn.
+        const ticks = bandValues.length * (grouped ? order.length : 1);
+        if (ticks > 8) {
           xScale.tickRotate = -45;
-          marginBottom = Math.min(160, 40 + 5.2 * longest);
+          marginBottom = Math.min(160, 40 + 5.2 * (room(bandValues) - 16) / 6.6);
         }
       }
     }
@@ -477,6 +533,18 @@
       y: { label: config.ylabel || undefined, tickSize: 0, grid: false,
            ...(percentStack && !horizontal ? { percent: true } : {}),
            ...(yDomain ? { domain: yDomain } : {}) },
+      // The facet axes, which only a group of bars uses. Without a domain
+      // here the ordering computed above reached nothing, and the label
+      // somebody wrote for the category stayed on an axis now showing the
+      // series.
+      ...(fxDomain
+        ? { fx: { domain: fxDomain, label: config.xlabel || undefined,
+                  tickSize: 0 } }
+        : {}),
+      ...(fyDomain
+        ? { fy: { domain: fyDomain, label: config.xlabel || undefined,
+                  tickSize: 0 } }
+        : {}),
       marks,
     });
     el.appendChild(plot);
