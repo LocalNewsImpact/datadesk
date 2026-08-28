@@ -160,6 +160,33 @@ def test_a_broken_billed_query_says_so_instead_of_vanishing(monkeypatch):
     assert "Unrecognized name" in result["unavailable"]
 
 
+def test_a_refused_query_is_not_reported_as_no_connection(client, admin, costed_corpus):
+    """Two answers to one question, and the wrong one sounds like the
+    explanation.
+
+    The page printed what BigQuery had refused and, in the panel beneath
+    it, "BigQuery not connected". A 403 on the bucket behind the external
+    table is a permission to grant, not a connection to make -- and
+    somebody reading "not connected" goes looking for the wrong thing.
+    """
+    refused = {
+        "unavailable": (
+            "403 Access Denied: BigQuery: Permission denied while globbing "
+            "file pattern. datadesk-run@ does not have storage.objects.list "
+            "access to the Google Cloud Storage bucket."
+        )
+    }
+    with mock.patch("explorer.views.billed_costs", return_value=refused):
+        page = client.get(URL).content.decode()
+    assert "storage.objects.list" in page, "the reason must reach the page"
+    assert "BigQuery not connected" not in page
+
+    # With no BigQuery at all it still says that, which is true then.
+    with mock.patch("explorer.views.billed_costs", return_value=None):
+        page = client.get(URL).content.decode()
+    assert "BigQuery not connected" in page
+
+
 # --- what Google charges -----------------------------------------------------
 
 

@@ -34,6 +34,9 @@ REPO="${REPO:-app}"
 # Read-only sources Datadesk consumes (SCOPE.md §1).
 BQ_DATASET="${BQ_DATASET:-mizzou_analytics}"        # in ${SQL_PROJECT}
 MAPS_BUCKET="${MAPS_BUCKET:-mizzou-news-maps-data}" # optional visuals cache
+# What openrouter_traces is a view of. The table is external, so reading it
+# reads the bucket -- dataset viewer alone is not enough.
+TRACES_BUCKET="${TRACES_BUCKET:-mizzou-openrouter-logs}"
 
 # The GitHub repository allowed to deploy, via Workload Identity Federation.
 GITHUB_REPO="${GITHUB_REPO:-LocalNewsImpact/datadesk}"
@@ -244,6 +247,23 @@ stage_data() {
     fi
   else
     echo "  bq not on PATH — grant the dataset binding manually (see above form)"
+  fi
+
+  # `openrouter_traces` is an external table over gs://mizzou-openrouter-logs,
+  # so a query against it reads the bucket as well as the dataset. Dataset
+  # viewer above is not enough and does not look insufficient: BigQuery
+  # answers with a storage error about globbing a file pattern, which the
+  # cost page repeated verbatim while also reporting itself unconnected.
+  if have storage buckets describe "gs://${TRACES_BUCKET}"; then
+    gcloud storage buckets add-iam-policy-binding "gs://${TRACES_BUCKET}" \
+      --member="serviceAccount:${RUN_SA}" --role=roles/storage.objectViewer \
+      --condition=None >/dev/null
+    echo "  ${RUN_SA} may read gs://${TRACES_BUCKET}"
+  else
+    echo "  gs://${TRACES_BUCKET} not visible to this account — billed costs"
+    echo "  will report a 403 until it is granted:"
+    echo "    gcloud storage buckets add-iam-policy-binding gs://${TRACES_BUCKET} \\"
+    echo "      --member=serviceAccount:${RUN_SA} --role=roles/storage.objectViewer"
   fi
 
   # The visuals cache bucket (SCOPE.md §1): read/write, optional.

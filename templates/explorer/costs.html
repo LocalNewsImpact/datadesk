@@ -42,7 +42,15 @@
       <span class="stat-value">${{ billed.cache_discount|floatformat:2 }}</span>
       <span class="stat-detail">{% if billed.cache_hit_rate is not None %}{{ billed.cache_hit_rate|floatformat:2 }} hit rate{% endif %}</span>
     </div>
-    {% else %}
+    {% elif not billed_error %}
+    {% comment %}
+    Only where nothing was said above. With an error beside it this read
+    "BigQuery not connected" under a message reporting what BigQuery had
+    just refused -- two answers to one question, and the wrong one is the
+    one that sounds like an explanation. A 403 on the bucket behind the
+    external table is a permission to grant, not a connection to make, and
+    somebody reading "not connected" goes looking for the wrong thing.
+    {% endcomment %}
     <div class="stat">
       <span class="stat-label">Billed</span>
       <span class="stat-value">—</span>
