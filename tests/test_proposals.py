@@ -2940,11 +2940,13 @@ def test_the_card_opens_the_record_it_asks_about(client, editor, publisher):
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_a_paywall_with_no_sign_in_is_a_question(mo, editor):
-    """Marking a publisher as paywalled is only half the job: until a
-    credential is stored, every article behind it stays unread. The queue
-    asks, and proposes nothing -- a password is not a value it can hold,
-    and the detail says where to put one."""
+def test_a_paywall_with_no_sign_in_is_not_a_queue_question(mo, editor):
+    """It was one, and should not have been. Every other flag names a
+    field a reviewer can answer in "Something else"; a password is not a
+    value any column here can hold. The paywalls page carries the same
+    publisher, ranked by the articles its paywall costs, with the form
+    beside it -- so the queue was asking about a record it could do
+    nothing for."""
     locked = Source.objects.create(
         id="s-locked",
         host="locked.example",
@@ -2957,24 +2959,16 @@ def test_a_paywall_with_no_sign_in_is_a_question(mo, editor):
         meta={"state": "MO"},
     )
     flags = _scanned(mo, locked)
-    assert "credentials_missing" in flags
-    assert flags["credentials_missing"].proposed_value == ""
-    assert "paywall page" in flags["credentials_missing"].detail
+    assert "credentials_missing" not in flags
 
-    # Once a credential is stored the question is gone.
-    locked.auth_secret_name = "publisher-auth-locked-example"
-    locked.save(update_fields=["auth_secret_name"])
-    ChangeProposal.objects.filter(record_id=locked.id).delete()
-    assert "credentials_missing" not in _scanned_again(mo, locked)
+    # The paywalls page is where it is asked, and answered.
+    from django.test import Client
 
-
-def _scanned_again(dataset, source):
-    """Re-scan a record whose membership row already exists."""
-    from django.core.management import call_command
-
-    call_command("scan_sources", dataset=dataset.slug)
-    return {p.flag: p for p in ChangeProposal.objects.filter(record_id=source.id)}
-
+    client = Client()
+    client.force_login(editor)
+    body = client.get("/review/paywalls/").content.decode()
+    assert "The Locked Gazette" in body
+    assert "no sign-in stored" in body
 
 @pytest.mark.django_db(databases=["default", "crawler"])
 def test_a_publisher_nobody_marked_is_not_asked_about(mo, editor):
