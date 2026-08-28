@@ -2051,10 +2051,22 @@ def test_one_list_of_fields_and_not_five():
     from review.services import WRITABLE
 
     declared = {f.key for f in FIELDS} - {"host"}
-    assert set(WRITABLE[Source]) == declared
+    # The write boundary is the schema plus the paywall panel, which is
+    # not schema fields: a checkbox, an amount and the period it covers
+    # are three shapes the schema's rules do not have. Named here rather
+    # than allowed for, so a fifth thing cannot join them quietly.
+    from datasets.views import PAYWALL_FIELDS
+
+    assert set(WRITABLE[Source]) == declared | set(PAYWALL_FIELDS)
+    # ...and never the two that name the crawler's login automation. The
+    # secret is the one thing here that must not be settable from a form.
+    assert "auth_secret_name" not in WRITABLE[Source]
+    assert "auth_config" not in WRITABLE[Source]
+    # A file supplies what the schema declares. Whether a publication has
+    # a paywall is a judgement somebody makes on the record.
     assert set(EVIDENCE_FIELDS) == declared
     # The import path reads the write boundary, so it follows too.
-    assert set(importable_fields("sources")) == declared
+    assert set(importable_fields("sources")) == declared | set(PAYWALL_FIELDS)
 
     # And every field the schema says is asked about has something asking,
     # or the word on the page is the whole of it. Required and suggested

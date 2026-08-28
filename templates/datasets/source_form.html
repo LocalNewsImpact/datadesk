@@ -43,6 +43,61 @@
     {% endfor %}
     <p class="notice">The city is validated against the Census place
     gazetteer for the state — typos are refused with suggestions.</p>
+    {% comment %}
+    Is this behind a paywall, what does it cost, and where does a person
+    sign in. One question about the record, so one panel rather than four
+    fields scattered through the form.
+
+    No username or password. They live in GCP Secret Manager under the
+    name below, which is what the crawler reads and why the sources table
+    carries the comment that credentials are never stored in it: a
+    password column would be readable by every role holding SELECT on it.
+    {% endcomment %}
+    {% if source %}
+    <fieldset class="paywall">
+      <legend>Paywall and sign-in</legend>
+      <label class="inline">
+        <input type="checkbox" name="has_paywall" value="1"
+          {% if paywall.has_paywall %}checked{% endif %}>
+        This publication is behind a paywall
+      </label>
+      <div class="range">
+        <label class="stacked">Subscription cost
+          <input type="text" name="subscription_cost" inputmode="decimal"
+                 value="{{ paywall.subscription_cost }}" placeholder="12.99">
+        </label>
+        <label class="stacked">Per
+          <select name="subscription_period">
+            <option value="">—</option>
+            {% for period in paywall.periods %}
+            <option value="{{ period }}"
+              {% if paywall.subscription_period == period %}selected{% endif %}>{{ period }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <label class="stacked">Login page
+        <input type="url" name="login_url" value="{{ paywall.login_url }}"
+               placeholder="{{ paywall.configured_login_url|default:'https://example.com/login' }}">
+      </label>
+
+      {% comment %}
+      What the crawler can already do here, shown and not edited: it is
+      configured when somebody automates a publisher's sign-in, and the
+      secret it names is the one thing on this page that must not be
+      settable from a form field.
+      {% endcomment %}
+      {% if paywall.requires_login %}
+      <p class="notice">The extractor signs in to this publisher
+        {% if paywall.auth_type %}with a {{ paywall.auth_type }} login{% endif %}.
+        {% if paywall.secret_name %}Its credentials are in Secret Manager as
+        <code>{{ paywall.secret_name }}</code>.{% endif %}</p>
+      {% else %}
+      <p class="hint">No automated sign-in is configured for this publisher.</p>
+      {% endif %}
+    </fieldset>
+    {% endif %}
+
     {% if not source and datasets %}
     <label class="stacked">Add to dataset
       <select name="dataset">

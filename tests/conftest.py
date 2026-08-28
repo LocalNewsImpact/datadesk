@@ -58,7 +58,14 @@ _CRAWLER_TABLES = {
         "(id TEXT PRIMARY KEY, host TEXT, host_norm TEXT, canonical_name TEXT,"
         " city TEXT, county TEXT, owner TEXT, type TEXT, status TEXT,"
         " metadata TEXT, rss_consecutive_failures INTEGER,"
-        " rss_transient_failures TEXT)"
+        " rss_transient_failures TEXT,"
+        # Paywalls. `requires_login` and the auth columns are the
+        # crawler's, already in production; the rest arrive with
+        # p1q2r3s4t5u6. No credential column, here or there.
+        " requires_login INTEGER DEFAULT 0, auth_type TEXT,"
+        " auth_secret_name TEXT, auth_config TEXT,"
+        " has_paywall INTEGER DEFAULT 0, subscription_cost NUMERIC,"
+        " subscription_period TEXT, login_url TEXT)"
     ),
     "gazetteer": (
         "(id TEXT PRIMARY KEY, dataset_id TEXT, source_id TEXT,"

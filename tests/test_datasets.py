@@ -538,3 +538,87 @@ def test_the_publisher_list_shows_only_readable_datasets(client, viewer, member_
     body = client.get("/explorer/sources/").content.decode()
     assert "The Lexington News" in body
     assert "Not Yours" not in body
+
+
+# --- paywalls ----------------------------------------------------------------
+
+
+def test_the_record_carries_its_paywall(client, admin, member_source):
+    """Is this behind a paywall, what does it cost, and where does a
+    person sign in. One question about the record, so one panel."""
+    page = client.get(f"/manage/sources/{member_source.id}/").content.decode()
+    assert "Paywall and sign-in" in page
+    assert 'name="has_paywall"' in page
+    assert 'name="subscription_cost"' in page
+    assert 'name="login_url"' in page
+    # No credentials on the page, because none are in the table.
+    assert 'name="username"' not in page and 'name="password"' not in page
+
+    client.post(
+        f"/manage/sources/{member_source.id}/",
+        {
+            "state": "MO",
+            "has_paywall": "1",
+            "subscription_cost": "$12.99",
+            "subscription_period": "monthly",
+            "login_url": "https://lexingtonnews.example/login",
+            "reason": "read the site",
+        },
+    )
+    member_source.refresh_from_db()
+    assert member_source.has_paywall is True
+    assert str(member_source.subscription_cost) == "12.99"
+    assert member_source.subscription_period == "monthly"
+    assert member_source.login_url == "https://lexingtonnews.example/login"
+
+
+def test_an_amount_with_no_period_is_refused(client, admin, member_source):
+    """$12 a month and $12 a year are different subscriptions, and a
+    number with neither is one nobody can read."""
+    response = client.post(
+        f"/manage/sources/{member_source.id}/",
+        {"state": "MO", "subscription_cost": "12", "reason": "x"},
+    )
+    assert response.status_code == 400
+    assert "monthly or annual" in response.content.decode()
+    member_source.refresh_from_db()
+    assert member_source.subscription_cost is None
+
+
+def test_what_is_not_an_amount_is_refused(client, admin, member_source):
+    response = client.post(
+        f"/manage/sources/{member_source.id}/",
+        {"state": "MO", "subscription_cost": "twelve dollars", "reason": "x"},
+    )
+    assert response.status_code == 400
+    assert "is not an amount" in response.content.decode()
+
+
+def test_the_crawlers_sign_in_is_shown_and_not_edited(client, admin, member_source):
+    """It is configured when somebody automates a publisher's login, and
+    the secret it names is the one thing on this page that must not be
+    settable from a form field."""
+    member_source.requires_login = True
+    member_source.auth_type = "form"
+    member_source.auth_secret_name = "publisher-auth-lexingtonnews-example"
+    member_source.save(
+        update_fields=["requires_login", "auth_type", "auth_secret_name"]
+    )
+
+    page = client.get(f"/manage/sources/{member_source.id}/").content.decode()
+    assert "publisher-auth-lexingtonnews-example" in page
+    assert "form login" in page
+    # Shown, never as an input.
+    assert 'name="auth_secret_name"' not in page
+
+    # And a post naming it does not write it.
+    client.post(
+        f"/manage/sources/{member_source.id}/",
+        {
+            "state": "MO",
+            "auth_secret_name": "publisher-auth-somebody-else",
+            "reason": "x",
+        },
+    )
+    member_source.refresh_from_db()
+    assert member_source.auth_secret_name == "publisher-auth-lexingtonnews-example"

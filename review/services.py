@@ -23,9 +23,21 @@ class BoundaryViolation(Exception):
 
 # The app-side mirror of infra/sql/create_crawler_write_role.sql.
 #: What the schema says a publisher record holds, minus the one field
-#: that is its identity rather than a value on it.
+#: that is its identity rather than a value on it -- and the paywall
+#: panel, which is not schema fields: a checkbox, an amount and the
+#: period it covers are three shapes the schema's rules do not have.
+#:
+#: Not `auth_secret_name` and not `auth_config`. Those are the crawler's
+#: login automation, written by whoever configures a publisher's sign-in
+#: rather than by somebody editing a record, and the secret they name is
+#: the one thing here that must not be settable from a form field.
 WRITABLE_SOURCE_FIELDS = tuple(
     field.key for field in SCHEMA_FIELDS if field.key != "host"
+) + (
+    "has_paywall",
+    "subscription_cost",
+    "subscription_period",
+    "login_url",
 )
 
 WRITABLE = {
