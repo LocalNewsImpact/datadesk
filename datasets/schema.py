@@ -52,16 +52,47 @@ RULE_NAMES = {
 }
 
 
+#: How much a record needs a field.
+#:
+#: The middle one is the useful one, and it was missing. Owner sat in the
+#: queue on 894 records while the schema called it optional, which is two
+#: answers to one question: either the queue should stop asking or the
+#: schema should stop calling it optional.
+#:
+#: It is neither. A record with no owner is not incomplete -- the person
+#: writing it down does not always know who owns a paper -- and it is
+#: still worth asking, because somebody may.
+REQUIRED = "required"  # a record without it is incomplete
+SUGGESTED = "suggested"  # asked for, and empty is an answer
+OPTIONAL = "optional"  # nothing asks
+
+NEEDS = (REQUIRED, SUGGESTED, OPTIONAL)
+
+
 @dataclass(frozen=True)
 class FieldSpec:
     """One field of a publisher record."""
 
     key: str  # "county", or "meta.state" for a key inside the JSON column
     label: str  # what a reader sees
-    required: bool
+    need: str  # one of NEEDS
     rule: str = TEXT
     vocabulary: str = ""  # when rule is VOCABULARY
     note: str = ""
+
+    @property
+    def required(self):
+        return self.need == REQUIRED
+
+    @property
+    def asked(self):
+        """Does the queue ask about a record that lacks this?
+
+        Required and suggested both do. The difference is what the answer
+        means: a required field left empty is a record still to finish, a
+        suggested one is a record somebody has looked at.
+        """
+        return self.need in (REQUIRED, SUGGESTED)
 
     @property
     def rule_name(self):
@@ -92,7 +123,7 @@ FIELDS = (
     FieldSpec(
         "host",
         "Host",
-        required=True,
+        need=REQUIRED,
         rule=HOST,
         note=(
             "The record's only unique column. A publisher without one "
@@ -100,24 +131,29 @@ FIELDS = (
             "written."
         ),
     ),
-    FieldSpec("canonical_name", "Publication name", required=True),
-    FieldSpec("city", "City", required=True),
-    FieldSpec("county", "County", required=True),
-    FieldSpec("meta.state", "State", required=True, rule=STATE),
+    FieldSpec("canonical_name", "Publication name", need=REQUIRED),
+    FieldSpec("city", "City", need=REQUIRED),
+    FieldSpec("county", "County", need=REQUIRED),
+    FieldSpec("meta.state", "State", need=REQUIRED, rule=STATE),
     FieldSpec(
         "owner",
         "Owner",
-        required=False,
-        note="Written the way the corpus writes it, or one company counts as two.",
+        need=SUGGESTED,
+        note=(
+            "Asked for on every record that lacks one, and empty is an "
+            "answer: who owns a paper is not always known to the person "
+            "writing the record down. Written the way the corpus writes "
+            "it, or one company counts as two."
+        ),
     ),
-    FieldSpec("meta.address1", "Street address", required=False, rule=ADDRESS),
-    FieldSpec("meta.address2", "Address, second line", required=False),
-    FieldSpec("meta.zip", "ZIP code", required=False, rule=ZIP),
-    FieldSpec("meta.phone", "Phone", required=False, rule=PHONE),
+    FieldSpec("meta.address1", "Street address", need=OPTIONAL, rule=ADDRESS),
+    FieldSpec("meta.address2", "Address, second line", need=OPTIONAL),
+    FieldSpec("meta.zip", "ZIP code", need=OPTIONAL, rule=ZIP),
+    FieldSpec("meta.phone", "Phone", need=OPTIONAL, rule=PHONE),
     FieldSpec(
         "meta.homepage",
         "Home page",
-        required=False,
+        need=OPTIONAL,
         rule=URL,
         note=(
             "Where the publication lives, when that is not simply the host "
@@ -131,21 +167,23 @@ FIELDS = (
     FieldSpec(
         "type",
         "Kind of publication",
-        required=True,
+        need=REQUIRED,
         rule=VOCABULARY,
         vocabulary="publisher_type",
     ),
     FieldSpec(
         "meta.frequency",
         "How often it publishes",
-        required=False,
+        need=OPTIONAL,
         rule=VOCABULARY,
         vocabulary="publisher_frequency",
     ),
 )
 
 BY_KEY = {field.key: field for field in FIELDS}
-REQUIRED = tuple(field.key for field in FIELDS if field.required)
+REQUIRED_FIELDS = tuple(field.key for field in FIELDS if field.required)
+#: What the queue asks about: required and suggested alike.
+ASKED = tuple(field.key for field in FIELDS if field.asked)
 
 #: Keys that mean what a field above means and are written differently.
 #: Both spellings are in the column today -- `zip` on 1,090 records and

@@ -28,7 +28,9 @@
     it, and an unlisted word is a question for the queue.
     {% endcomment %}
     {% for f in fields %}
-    <label class="stacked">{{ f.label }}{% if f.required %} <span class="required">needed</span>{% endif %}
+    <label class="stacked">{{ f.label }}
+      {% if f.required %}<span class="required">needed</span>
+      {% elif f.suggested %}<span class="hint">worth having</span>{% endif %}
       <input type="text" name="{{ f.name }}" value="{{ f.value }}"
         {% if f.words %}list="words-{{ f.name }}"{% endif %}>
     </label>

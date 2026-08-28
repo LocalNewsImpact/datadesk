@@ -2056,14 +2056,20 @@ def test_one_list_of_fields_and_not_five():
     # The import path reads the write boundary, so it follows too.
     assert set(importable_fields("sources")) == declared
 
-    # And every required field has something asking about it, or
-    # "required" is a word on a page and nothing else.
+    # And every field the schema says is asked about has something asking,
+    # or the word on the page is the whole of it. Required and suggested
+    # both ask; what differs is whether empty is an answer.
     from review.flags import FLAGS
 
-    asked = {f.field for f in FLAGS}
+    asks = {f.field for f in FLAGS}
     for field in FIELDS:
-        if field.required and field.key != "host":
-            assert field.key in asked, f"{field.key} is required and nothing asks"
+        if field.asked and field.key != "host":
+            assert field.key in asks, f"{field.key} is asked for and nothing asks"
+        if field.need == "optional":
+            # Nothing chases an optional field. Owner sat in the queue on
+            # 894 records while the schema called it optional, which is
+            # two answers to one question.
+            assert f"{field.key}_missing" not in {f.key for f in FLAGS}
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
@@ -2195,3 +2201,53 @@ def test_the_words_are_grouped_under_what_they_mean(client, admin_user):
     assert "no one spelling" in page
     # And a kind nobody has yet can be added.
     assert "Add a kind" in page
+
+
+def test_three_levels_of_need_and_what_each_means():
+    """Two were not enough. Owner sat in the queue on 894 records while
+    the schema called it optional, which is two answers to one question:
+    either the queue should stop asking or the schema should stop calling
+    it optional. It is neither -- a record with no owner is not
+    incomplete, and it is still worth asking."""
+    from datasets.schema import ASKED, BY_KEY, OPTIONAL, REQUIRED, SUGGESTED
+
+    assert BY_KEY["county"].need == REQUIRED
+    assert BY_KEY["owner"].need == SUGGESTED
+    assert BY_KEY["meta.zip"].need == OPTIONAL
+
+    # Required and suggested both reach the queue; optional does not.
+    assert BY_KEY["county"].asked and BY_KEY["owner"].asked
+    assert not BY_KEY["meta.zip"].asked
+    assert "owner" in ASKED and "meta.zip" not in ASKED
+
+    # Only required means a record without it is incomplete.
+    assert BY_KEY["county"].required
+    assert not BY_KEY["owner"].required
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_suggested_field_is_still_asked_about(mo, editor):
+    """The 894 records with no owner keep their question. What changed is
+    that the schema now agrees they should have one."""
+    ownerless = Source.objects.create(
+        id="s-noowner",
+        host="noowner.example",
+        host_norm="noowner.example",
+        canonical_name="No Owner",
+        city="Columbia",
+        county="Boone",
+        type="digital native",
+        meta={"state": "MO"},
+    )
+    assert "owner_missing" in _scanned(mo, ownerless)
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_page_says_which_of_the_three(client, admin_user):
+    from accounts.models import DATADESK, Grant
+
+    Grant.objects.get_or_create(user=admin_user, app=DATADESK, scope="", role="admin")
+    client.force_login(admin_user)
+    page = client.get("/review/schema/").content.decode()
+    assert "Required" in page and "Suggested" in page and "Optional" in page
+    assert "the queue asks" in page
