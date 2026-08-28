@@ -1130,6 +1130,11 @@ label.stacked input, label.stacked textarea, label.stacked select {
 /* The kinds a field can hold, and under each the words that mean it.
    Listed as words instead, a row read "digital counts as Digital written
    digital native" -- three values with nothing saying which was which. */
+/* How much a record needs a field. The middle one is the one that was
+   missing: asked for, and empty is an answer. */
+.schema .need .hint { display: block; }
+.schema .need-optional { color: var(--text-3); }
+
 .schema .kinds { margin: var(--s-2) 0; padding: 0; list-style: none; }
 .schema .kinds > li {
   margin: 0 0 var(--s-3);

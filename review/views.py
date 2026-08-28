@@ -914,7 +914,9 @@ def schema(request):
             {
                 "key": field.key,
                 "label": field.label,
+                "need": field.need,
                 "required": field.required,
+                "asked": field.asked,
                 "rule": field.rule,
                 "rule_name": field.rule_name,
                 "vocabulary": field.vocabulary,

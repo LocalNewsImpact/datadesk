@@ -45,7 +45,17 @@
           </span>
           {% endif %}
         </th>
-        <td>{% if f.required %}<strong>Required</strong>{% else %}Optional{% endif %}</td>
+        {% comment %}
+        Three, not two. Owner sat in the queue on 894 records while the
+        schema called it optional -- two answers to one question. The
+        middle one is what was missing: asked for, and empty is an answer.
+        {% endcomment %}
+        <td class="need need-{{ f.need }}">
+          {% if f.required %}<strong>Required</strong>
+          {% elif f.need == "suggested" %}Suggested
+          {% else %}Optional{% endif %}
+          {% if f.asked %}<span class="hint">the queue asks</span>{% endif %}
+        </td>
         <td>
           {{ f.rule_name }}
           {% if f.note %}<p class="hint">{{ f.note }}</p>{% endif %}

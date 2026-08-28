@@ -283,6 +283,7 @@ def _source_form_fields(values):
                 "name": name,
                 "label": field.label,
                 "required": field.required,
+                "suggested": field.need == "suggested",
                 "rule": field.rule_name,
                 "value": values.get(name, "") if values else "",
                 "words": words,
