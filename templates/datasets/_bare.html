@@ -1,0 +1,19 @@
+{% comment %}
+A page with nothing around it: the form and the stylesheet, for a dialog
+to hold. Not a fragment -- it is a whole document, so the same URL works
+opened in a tab, which is what the link falls back to without JavaScript.
+{% endcomment %}
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Datadesk{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/fonts.css' %}">
+  <link rel="stylesheet" href="{% static 'css/tokens.css' %}">
+  <link rel="stylesheet" href="{% static 'css/datadesk.css' %}">
+</head>
+<body class="bare">
+{% block content %}{% endblock %}
+</body>
+</html>

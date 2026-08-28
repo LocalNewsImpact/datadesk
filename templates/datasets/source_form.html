@@ -1,9 +1,17 @@
-{% extends "base.html" %}
+{% extends bare|yesno:"datasets/_bare.html,base.html" %}
 {% block title %}{% if source %}Edit source{% else %}New source{% endif %} — Datadesk{% endblock %}
 
 {% block content %}
+{% comment %}
+The same form either way. `?bare=1` takes the console off so a dialog can
+hold it -- the queue edits a publisher without leaving the queue -- and
+the link is the ordinary edit page, so it works with no JavaScript at
+all and for anybody who opens it in a tab.
+{% endcomment %}
 <section class="card">
+  {% if not bare %}
   <p class="breadcrumb"><a href="{% url 'datasets:list' %}">← Datasets</a></p>
+  {% endif %}
   <h1>{% if source %}{{ source }}{% else %}New source{% endif %}</h1>
   {% for error in errors %}<p class="error">{{ error }}</p>{% endfor %}
 

@@ -1127,6 +1127,27 @@ label.stacked input, label.stacked textarea, label.stacked select {
   font-size: var(--fs-xs);
   color: var(--text-3);
 }
+/* The record, opened from the queue card that asks about it. A dialog
+   rather than a page, so a reviewer answering four questions about one
+   publisher does not lose the queue to edit it. */
+.rec-editor {
+  width: min(46rem, 92vw);
+  max-height: 88vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 0;
+  background: var(--surface);
+  color: var(--text);
+}
+.rec-editor::backdrop { background: rgb(0 0 0 / 0.45); }
+.rec-editor .card { box-shadow: none; margin: 0; }
+.rec-editor-close { float: right; margin: var(--s-2) var(--s-2) 0 0; }
+.rec-head h2 a { color: inherit; }
+/* Whole-document, for the same form served without the console around
+   it. The dialog inserts it as markup, so this is what styles it. */
+body.bare { margin: 0; background: transparent; }
+
 /* The kinds a field can hold, and under each the words that mean it.
    Listed as words instead, a row read "digital counts as Digital written
    digital native" -- three values with nothing saying which was which. */
