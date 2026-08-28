@@ -190,7 +190,11 @@ document.addEventListener("DOMContentLoaded", function () {
   if (already) {
     draw(already);
   } else {
-    fetch("{{ feed }}")
+    {# escapejs, not the default HTML escaping: this is a JS string, and #}
+    {# `&` between two query parameters became `&amp;` in the URL that was #}
+    {# actually fetched. It went unseen while a live feed URL had one #}
+    {# parameter and no ampersand in it. #}
+    fetch("{{ feed|escapejs }}")
       .then((r) => {
         // The server says what is wrong in the body; the status alone is
         // "502 from the feed", which sent somebody to read Cloud Run logs
