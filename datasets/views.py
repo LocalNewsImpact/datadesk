@@ -278,13 +278,18 @@ def _source_form_fields(values):
                     for value, (spelling, _label) in terms(field.vocabulary).items()
                 }
             )
+        # The rule is said only where it tells somebody something. "Any
+        # text" under a name box is noise, and read down a form of
+        # thirteen fields it is noise thirteen times; a ZIP code being
+        # five digits is worth the line.
+        from datasets.schema import TEXT, VOCABULARY
+
         out.append(
             {
                 "name": name,
                 "label": field.label,
                 "required": field.required,
-                "suggested": field.need == "suggested",
-                "rule": field.rule_name,
+                "hint": "" if field.rule in (TEXT, VOCABULARY) else field.rule_name,
                 "value": values.get(name, "") if values else "",
                 "words": words,
             }
