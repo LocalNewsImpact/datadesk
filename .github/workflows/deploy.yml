@@ -41,7 +41,17 @@ permissions:
 
 env:
   PROJECT_ID: lnic-datadesk
-  REGION: us-central1
+  # Where the build runs, which is not where the service runs -- Cloud Run,
+  # Artifact Registry and Cloud SQL are all us-central1, and that region is
+  # the build config's own _REGION substitution.
+  #
+  # The regional default pool in us-central1 stopped scheduling this
+  # project's builds on 2026-08-28: a build failed with INTERNAL_ERROR, and
+  # every build after it -- including a one-step probe asking for a single
+  # CPU -- sat QUEUED past its own hour-long queueTtl. The same probe in
+  # us-east1 finished in fifteen seconds. Only the machine doing the docker
+  # build moves.
+  BUILD_REGION: us-east1
   SERVICE: datadesk
   REPO: app
   # Cloud Run reaches Cloud SQL over a unix socket rather than a host and
@@ -123,6 +133,6 @@ jobs:
           gcloud builds submit \
             --config=gcp/cloudbuild/cloudbuild-datadesk.yaml \
             --project="$PROJECT_ID" \
-            --region="$REGION" \
+            --region="$BUILD_REGION" \
             --service-account="projects/$PROJECT_ID/serviceAccounts/github-deploy@$PROJECT_ID.iam.gserviceaccount.com" \
             --substitutions="_SHORT_SHA=${GITHUB_SHA::7},_DIRECTORY_VERSION=${{ steps.directory.outputs.version }}"
