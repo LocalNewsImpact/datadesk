@@ -1003,6 +1003,102 @@ def test_a_record_with_no_state_is_flagged_even_with_no_city(mo, editor):
     assert "city_missing" in flags
 
 
+def test_a_type_spelled_differently_is_queued_with_the_spelling_to_use(mo, editor):
+    """Four records say 'digital_native' where 902 say 'digital native'.
+    The chart folds them so one kind is one filter, which makes the filter
+    usable and leaves the record wrong. Fixing it once here fixes it for
+    everything that reads the field."""
+    odd = Source.objects.create(
+        id="s-type1",
+        host="t1.example",
+        host_norm="t1.example",
+        type="digital_native",
+    )
+    flags = _scanned(mo, odd)
+    assert "type_spelling" in flags
+    proposal = flags["type_spelling"]
+    assert proposal.proposed_value == "digital native"
+    assert "digital_native" in proposal.detail
+
+    # The spelling the corpus already uses is not a defect.
+    fine = Source.objects.create(
+        id="s-type2", host="t2.example", host_norm="t2.example", type="digital native"
+    )
+    assert "type_spelling" not in _scanned(mo, fine)
+
+
+def test_a_type_that_cannot_be_placed_is_queued_without_a_guess(mo, editor):
+    """Ten records say only 'broadcast', which does not answer whether this
+    is a television station or a radio one. What is missing is the answer,
+    so nothing is proposed: a queue that offered one would be guessing in
+    front of the person who came here to decide."""
+    vague = Source.objects.create(
+        id="s-type3", host="t3.example", host_norm="t3.example", type="broadcast"
+    )
+    flags = _scanned(mo, vague)
+    assert "type_indistinct" in flags
+    assert flags["type_indistinct"].proposed_value == ""
+    assert "television or radio" in flags["type_indistinct"].detail
+
+    # A word the vocabulary does not know at all is raised the same way,
+    # and read by a person rather than guessed at.
+    other = Source.objects.create(
+        id="s-type4", host="t4.example", host_norm="t4.example", type="government"
+    )
+    assert "type_indistinct" in _scanned(mo, other)
+
+
+def test_how_often_it_publishes_is_read_the_same_way(mo, editor):
+    """The same two defects on the frequency field: 29 records say 'Weekly'
+    where 85 say 'weekly', and nine record 'Broadcast', which is not a
+    frequency at all."""
+    cased = Source.objects.create(
+        id="s-freq1",
+        host="f1.example",
+        host_norm="f1.example",
+        meta={"frequency": "Weekly"},
+    )
+    flags = _scanned(mo, cased)
+    assert flags["frequency_spelling"].proposed_value == "weekly"
+
+    wrong = Source.objects.create(
+        id="s-freq2",
+        host="f2.example",
+        host_norm="f2.example",
+        meta={"frequency": "Broadcast"},
+    )
+    flags = _scanned(mo, wrong)
+    assert "frequency_indistinct" in flags
+    assert flags["frequency_indistinct"].proposed_value == ""
+
+
+def test_two_frequencies_that_differ_are_not_called_a_misspelling(mo, editor):
+    """Bi-weekly, tri-weekly and semi-weekly filter together and are three
+    different answers to how often something publishes. Proposing one as
+    the fix for another would put a wrong value in front of a reviewer as
+    the right one, so none of them is proposed at all."""
+    for i, value in enumerate(("bi-weekly", "Tri-weekly", "semi weekly"), start=5):
+        source = Source.objects.create(
+            id=f"s-freq{i}",
+            host=f"f{i}.example",
+            host_norm=f"f{i}.example",
+            meta={"frequency": value},
+        )
+        flags = _scanned(mo, source)
+        assert "frequency_spelling" not in flags, value
+
+    # Two answers in one field is a question, though, and asked as one.
+    both = Source.objects.create(
+        id="s-freq9",
+        host="f9.example",
+        host_norm="f9.example",
+        meta={"frequency": "weekly/daily"},
+    )
+    flags = _scanned(mo, both)
+    assert "frequency_indistinct" in flags
+    assert flags["frequency_indistinct"].proposed_value == ""
+
+
 def test_the_datasets_default_state_is_proposed_not_applied(mo, editor):
     """The likeliest answer, offered. A Missouri dataset can hold an outlet
     that is not in Missouri, and inheriting the default would write that in

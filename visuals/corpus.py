@@ -21,6 +21,13 @@ from django.db.models.functions import Substr, TruncMonth, TruncYear
 
 from accounts.access import ALL_SCOPES
 from datasets.geo import centroid, county_label
+from datasets.publishers import (  # noqa: F401  (re-exported)
+    GROUPED_VALUES,
+    PUBLISHER_FREQUENCIES,
+    PUBLISHER_KINDS,
+    fold_value,
+    group_of,
+)
 from explorer.models import Article, DatasetSource
 
 # --- dimensions -------------------------------------------------------------
@@ -726,76 +733,11 @@ def _base_queryset(spec, scopes):
 
 # --- what a newsroom is, and how often it publishes -------------------------
 #
-# The directory records both as free text and does not spell either
-# consistently: 'digital native' beside 'digital_native', 'weekly' beside
-# 'Weekly'. Folding case and separators here makes one kind one filter;
-# it does not make the records agree, and it is not meant to. A spelling
-# that has to be folded is a defect in the record, and the sources review
-# queue is where that gets raised and fixed.
-#
-# Nothing is hidden. A value these do not recognise is offered under the
-# name it was recorded with, so a vocabulary that grows is visible in the
-# filter the day it grows rather than silently dropped from it.
-
-
-def fold_value(value):
-    """One recorded value, with case and separators taken out of it."""
-    text = str(value or "").replace("_", " ").replace("-", " ").replace("/", " / ")
-    return " ".join(text.split()).lower()
-
-
-#: (key, what a reader sees, the recorded values it covers -- folded).
-PUBLISHER_KINDS = (
-    ("digital", "Digital", ("digital native", "digital")),
-    ("print", "Print", ("print native", "newspaper", "print")),
-    ("tv", "Television", ("video broadcast", "television", "tv")),
-    ("radio", "Radio", ("audio broadcast", "radio")),
-    # Ten records say only "broadcast", which is not an answer to whether
-    # this is a television station or a radio one. Its own entry rather
-    # than a guess into either.
-    ("broadcast", "Broadcast, not said which", ("broadcast",)),
-)
-
-#: The same shape for how often a newsroom publishes.
-PUBLISHER_FREQUENCIES = (
-    ("daily", "Daily", ("daily",)),
-    ("weekly", "Weekly", ("weekly",)),
-    (
-        "semiweekly",
-        "More than weekly",
-        (
-            "bi weekly",
-            "semi weekly",
-            "tri weekly",
-            "weekly / daily",
-            "biweekly",
-            "semiweekly",
-        ),
-    ),
-    ("monthly", "Monthly", ("monthly",)),
-    ("continuous", "Continuous", ("continuous",)),
-)
-
-#: Which grouping belongs to which dimension.
-GROUPED_VALUES = {
-    "publisher_type": PUBLISHER_KINDS,
-    "publisher_frequency": PUBLISHER_FREQUENCIES,
-}
-
-
-def group_of(dimension, value):
-    """The key a recorded value groups under, or "" for one it does not.
-
-    A value nobody grouped is not an error and is not dropped: the caller
-    offers it under its own name.
-    """
-    folded = fold_value(value)
-    if not folded:
-        return ""
-    for key, _label, covered in GROUPED_VALUES.get(dimension, ()):
-        if folded in covered:
-            return key
-    return ""
+# The vocabulary itself lives in `datasets/publishers.py`, beside the one
+# for owners, because the sources review queue reads it too: the builder
+# folds a spelling so one kind is one filter, and the queue raises that
+# same spelling as a record to fix. Two readers of one vocabulary, which
+# have to agree about what a value means.
 
 
 def _publisher_rows(scopes):
@@ -861,7 +803,7 @@ def publisher_facet(key, scopes, kept=()):
     kept = set(kept or ())
     offered = [
         {"value": group, "label": label, "count": counts[group], "on": group in kept}
-        for group, label, _covered in GROUPED_VALUES[key]
+        for group, label, _spelling, _covered in GROUPED_VALUES[key]
         if counts.get(group)
     ]
     offered += [

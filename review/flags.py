@@ -178,6 +178,75 @@ def _owner_unknown(source, context):
     return False, "", ""
 
 
+def _spelled_differently(field, read):
+    """One kind of newsroom, written a way the corpus does not use.
+
+    The same defect `_owner_unknown` raises on the owner, on the two
+    fields that say what a publication is: 902 records say 'digital
+    native' and four say 'digital_native', 85 say 'weekly' and 29 say
+    'Weekly'. The chart folds them so one kind is one filter, which makes
+    the filter usable and leaves the record wrong -- so the record is
+    raised here, where a spelling gets fixed once for everything that
+    reads it.
+    """
+
+    def check(source, context):
+        from datasets.publishers import spelling_of
+
+        value = read(source)
+        if not value:
+            return False, "", ""
+        spelling = spelling_of(field, value)
+        if not spelling:
+            return False, "", ""
+        return (
+            True,
+            f"recorded as {value}; elsewhere the corpus writes {spelling}",
+            spelling,
+        )
+
+    return check
+
+
+def _indistinct(field, read, question):
+    """A value that names a group without answering the question.
+
+    Ten records say their type is 'broadcast', which does not say whether
+    this is a television station or a radio one; two say they publish
+    'weekly/daily', which is two answers to one question. Nine more record
+    'Broadcast' as how often they publish, which is not a frequency at
+    all.
+
+    Nothing is proposed. What is missing is the answer, and a queue that
+    offered one would be guessing in front of a reviewer who came here to
+    decide.
+    """
+
+    def check(source, context):
+        from datasets.publishers import group_of, is_indistinct
+
+        value = read(source)
+        if not value:
+            return False, "", ""
+        if is_indistinct(field, value):
+            return True, f"recorded as {value}, which does not say {question}", ""
+        # A value nothing recognises at all. Left for a person to read
+        # rather than guessed at, the same as one that is merely vague.
+        if not group_of(field, value):
+            return True, f"{value} is not one this vocabulary knows", ""
+        return False, "", ""
+
+    return check
+
+
+def _type_of(source):
+    return (source.type or "").strip()
+
+
+def _frequency_of(source):
+    return ((source.meta or {}).get("frequency") or "").strip()
+
+
 def _state_missing(source, context):
     """A publisher record needs a state whether or not it has a city.
 
@@ -317,6 +386,49 @@ FLAGS = (
         ),
         field="owner",
         check=_owner_unknown,
+    ),
+    Flag(
+        key="type_spelling",
+        label="Type spelled differently",
+        defect=(
+            "The kind of publication is written a way the corpus does not use "
+            "elsewhere, so one kind counts as two."
+        ),
+        field="type",
+        check=_spelled_differently("publisher_type", _type_of),
+    ),
+    Flag(
+        key="type_indistinct",
+        label="Type cannot be placed",
+        defect=(
+            "The kind of publication names a family without answering the "
+            "question -- 'broadcast' does not say television or radio -- or "
+            "is a word this vocabulary does not know. Either way nothing "
+            "organised by medium can place it."
+        ),
+        field="type",
+        check=_indistinct("publisher_type", _type_of, "television or radio"),
+    ),
+    Flag(
+        key="frequency_spelling",
+        label="Publication frequency spelled differently",
+        defect=(
+            "How often the publication publishes is written a way the corpus "
+            "does not use elsewhere, so one frequency counts as two."
+        ),
+        field="meta.frequency",
+        check=_spelled_differently("publisher_frequency", _frequency_of),
+    ),
+    Flag(
+        key="frequency_indistinct",
+        label="Publication frequency cannot be read",
+        defect=(
+            "How often the publication publishes gives two answers at once, "
+            "or answers a different question -- 'Broadcast' is not a "
+            "frequency."
+        ),
+        field="meta.frequency",
+        check=_indistinct("publisher_frequency", _frequency_of, "how often"),
     ),
     Flag(
         key="name_missing",
