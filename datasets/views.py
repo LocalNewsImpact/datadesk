@@ -246,18 +246,100 @@ def dataset_detail(request, slug):
     )
 
 
+def _source_form_fields(values):
+    """The form's inputs, from the schema.
+
+    Five were listed here by hand and the schema declares thirteen, so a
+    publisher added through this page could not be given a ZIP code, an
+    address or a telephone number -- and the state it insisted on before
+    it would accept a city was thrown away by the save.
+
+    The host is not among them: it is the record's identity, asked for
+    once when the record is made and never edited.
+
+    A vocabulary field is a text box with its words suggested rather than
+    a menu of them. A record already holding a word nobody listed would
+    lose it to a menu that cannot show it, and what is not listed is a
+    question for the queue rather than something to silently drop.
+    """
+    from datasets.schema import FIELDS as SCHEMA_FIELDS
+    from datasets.terms import terms
+
+    out = []
+    for field in SCHEMA_FIELDS:
+        if field.key == "host":
+            continue
+        name = field.key.partition(".")[2] if field.in_meta else field.key
+        words = []
+        if field.vocabulary:
+            words = sorted(
+                {
+                    spelling or value
+                    for value, (spelling, _label) in terms(field.vocabulary).items()
+                }
+            )
+        out.append(
+            {
+                "name": name,
+                "label": field.label,
+                "required": field.required,
+                "rule": field.rule_name,
+                "value": values.get(name, "") if values else "",
+                "words": words,
+            }
+        )
+    return out
+
+
 def _validate_source_form(post):
-    """Shared validation for source create/edit. Returns (fields, errors,
-    suggestions)."""
-    fields = {
-        "canonical_name": post.get("canonical_name", "").strip() or None,
-        "city": post.get("city", "").strip() or None,
-        "county": post.get("county", "").strip() or None,
-        "owner": post.get("owner", "").strip() or None,
-        "type": post.get("type", "").strip() or None,
-    }
-    state = post.get("state", "").strip().upper()
+    """Shared validation for source create/edit.
+
+    Reads `datasets/schema.py` rather than listing the fields again. The
+    form knew five of them and the schema declares thirteen, so a record
+    made here could not be given a ZIP code, an address or a telephone
+    number at all -- and nothing it could be given was checked against
+    anything.
+
+    Returns (columns, meta, errors).
+    """
+    from datasets.schema import FIELDS as SCHEMA_FIELDS
+    from datasets.schema import check as check_value
+
+    columns, meta = {}, {}
     errors, suggestions = [], []
+    for field in SCHEMA_FIELDS:
+        if field.key == "host":
+            # Read by the caller: it is the record's identity, and what
+            # makes a second row for one host a different question.
+            continue
+        # `state` and `zip`, not `meta.state` and `meta.zip`. The form
+        # names a field the way somebody says it.
+        name = field.key.partition(".")[2] if field.in_meta else field.key
+        value = post.get(name, "").strip()
+        if field.key == "meta.state":
+            value = value.upper()
+        # A missing value is not refused here, even where the schema
+        # calls the field required. Required means the scan asks about a
+        # record that lacks it -- refusing it at the door would mean a
+        # publisher somebody has just found, and half knows, cannot be
+        # written down at all. The form marks which fields are needed;
+        # the queue is what chases them.
+        if not value:
+            continue
+        ok, why = check_value(field, value)
+        if not ok:
+            errors.append(f"{field.label}: {why}")
+            continue
+        if field.in_meta:
+            meta[field.key.partition(".")[2]] = value
+        else:
+            columns[field.key] = value
+
+    fields = {
+        key: columns.get(key) or None
+        for key in ("canonical_name", "city", "county", "owner", "type")
+    }
+    state = meta.get("state", "")
     if fields["city"]:
         if not state:
             errors.append("A state is required to validate the city.")
@@ -271,19 +353,20 @@ def _validate_source_form(post):
                 if suggestions:
                     message += f" Did you mean: {', '.join(suggestions)}?"
                 errors.append(message)
-    return fields, state, errors
+    return fields, state, errors, meta
 
 
 @requires_admin
 def source_create(request):
     context = {
         "values": {},
+        "fields": _source_form_fields({}),
         "errors": [],
         "datasets": Dataset.objects.order_by("label"),
     }
     if request.method == "POST":
         host = request.POST.get("host", "").strip().lower()
-        fields, state, errors = _validate_source_form(request.POST)
+        fields, state, errors, meta = _validate_source_form(request.POST)
         if not host:
             errors.append("A host is required.")
         elif Source.objects.filter(host_norm=host).exists():
@@ -291,12 +374,16 @@ def source_create(request):
         if errors:
             context["errors"] = errors
             context["values"] = request.POST
+            context["fields"] = _source_form_fields(request.POST)
             return render(request, "datasets/source_form.html", context, status=400)
         source = Source(
             id=str(uuid.uuid4()),
             host=host,
             host_norm=host,
-            meta={"state": state} if state else {},
+            # Everything the schema declares inside `meta`, not the state
+            # alone: a record made here could not be given a ZIP code, an
+            # address or a telephone number, because this named one key.
+            meta=meta,
             **fields,
         )
         audited_create(
@@ -331,28 +418,40 @@ def source_edit(request, source_id):
     source = _reachable(request.user, source_id, WRITE)
     if source is None:
         raise Http404("No such source")
+    # Every field the schema declares, read off the record. Six were
+    # listed here and the other seven arrived empty, so opening a record
+    # and saving it silently emptied whichever of them it had.
+    from datasets.schema import FIELDS as SCHEMA_FIELDS
+    from datasets.schema import read as read_field
+
+    values = {
+        (f.key.partition(".")[2] if f.in_meta else f.key): read_field(source, f.key)
+        for f in SCHEMA_FIELDS
+        if f.key != "host"
+    }
     context = {
         "source": source,
-        "values": {
-            "canonical_name": source.canonical_name or "",
-            "city": source.city or "",
-            "county": source.county or "",
-            "owner": source.owner or "",
-            "type": source.type or "",
-            "state": (source.meta or {}).get("state", ""),
-        },
+        "values": values,
+        "fields": _source_form_fields(values),
         "errors": [],
     }
     if request.method == "POST":
-        fields, state, errors = _validate_source_form(request.POST)
+        fields, state, errors, meta = _validate_source_form(request.POST)
         if errors:
             context["errors"] = errors
             context["values"] = request.POST
+            context["fields"] = _source_form_fields(request.POST)
             return render(request, "datasets/source_form.html", context, status=400)
+        # The keys inside `meta` as well as the columns. This wrote the
+        # columns alone, so the state a form insisted on before it would
+        # accept a city was then thrown away -- and every other key the
+        # schema declares had no way to be edited at all.
+        changes = dict(fields)
+        changes.update({f"meta.{name}": value for name, value in meta.items()})
         audited_update(
             request.user,
             [source],
-            fields,
+            changes,
             action="source:edit",
             reason=request.POST.get("reason", ""),
         )

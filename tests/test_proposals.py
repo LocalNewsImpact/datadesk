@@ -2030,3 +2030,87 @@ def test_an_admin_adds_and_retires_a_word(client, admin_user):
     term.refresh_from_db()
     assert term.retired
     assert VocabularyTerm.objects.filter(value="podcast").exists()
+
+
+def test_one_list_of_fields_and_not_five():
+    """Five places knew part of what a publisher record is and they
+    disagreed: `meta.state` could not be written at all for a while, and
+    `meta.frequency` was raised as a defect by a queue that then refused
+    to apply the fix.
+
+    Each reads the schema now. This asserts they still do — a field added
+    to the declaration has to arrive everywhere at once, which is the
+    whole point of there being one.
+    """
+    from datasets.schema import FIELDS
+    from explorer.models import Source
+    from review.imports import importable_fields
+    from review.management.commands.scan_sources import EVIDENCE_FIELDS
+    from review.services import WRITABLE
+
+    declared = {f.key for f in FIELDS} - {"host"}
+    assert set(WRITABLE[Source]) == declared
+    assert set(EVIDENCE_FIELDS) == declared
+    # The import path reads the write boundary, so it follows too.
+    assert set(importable_fields("sources")) == declared
+
+    # And every required field has something asking about it, or
+    # "required" is a word on a page and nothing else.
+    from review.flags import FLAGS
+
+    asked = {f.field for f in FLAGS}
+    for field in FIELDS:
+        if field.required and field.key != "host":
+            assert field.key in asked, f"{field.key} is required and nothing asks"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_reported_publisher_keeps_what_was_reported(client, editor, mo):
+    """The create path named five columns and one key, so an address, a
+    ZIP and a telephone number were accepted on the page and dropped
+    between the page and the row."""
+    import uuid as _uuid
+
+    submission = _uuid.uuid4()
+    for field, value in (
+        ("host", "reported.example"),
+        ("canonical_name", "The Reported"),
+        ("city", "Columbia"),
+        ("meta.state", "MO"),
+        ("meta.zip", "65201"),
+        ("meta.phone", "573-882-4713"),
+        ("meta.address1", "120 Neff Hall"),
+    ):
+        ChangeProposal.objects.create(
+            target="sources",
+            record_id="",
+            submission=submission,
+            field=field,
+            proposed_value=value,
+            state=ChangeProposal.PENDING,
+            origin="a reader",
+        )
+    decisions = {
+        f"d-{p.pk}": "accept"
+        for p in ChangeProposal.objects.filter(submission=submission)
+    }
+    client.post(URL, decisions)
+
+    made = Source.objects.get(host_norm="reported.example")
+    assert made.canonical_name == "The Reported"
+    assert made.meta["zip"] == "65201"
+    assert made.meta["phone"] == "573-882-4713"
+    assert made.meta["address1"] == "120 Neff Hall"
+    assert made.meta["state"] == "MO"
+
+
+def test_the_schema_page_is_in_the_navigation():
+    """A page nothing links to is a page nobody finds. This one shipped
+    that way: it was live at /review/schema/ and reachable only by typing
+    the path."""
+    from accounts.sections import SECTION_GROUPS
+
+    urls = {
+        section.get("url") for group in SECTION_GROUPS for section in group["sections"]
+    }
+    assert "review:schema" in urls

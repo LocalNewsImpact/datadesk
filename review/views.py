@@ -579,17 +579,37 @@ def _create_proposed_sources(user, creates, proposals_by_id):
             refused += 1
             continue
 
-        state = (fields.get("state") or "").strip().upper()
+        # From the schema rather than field by field. This named five
+        # columns and one key, so a reported publisher arrived without the
+        # address, ZIP or telephone number the person reporting it had
+        # taken the trouble to give -- accepted on the page, and dropped
+        # between the page and the row.
+        from datasets.schema import FIELDS as SCHEMA_FIELDS
+
+        columns, meta = {}, {}
+        for field in SCHEMA_FIELDS:
+            if field.key == "host":
+                continue
+            # A proposal names the field the schema does, and the older
+            # ones name the key inside `meta` on its own.
+            inner = field.key.partition(".")[2]
+            value = (
+                fields.get(field.key) or (inner and fields.get(inner)) or ""
+            ).strip()
+            if field.key == "meta.state":
+                value = value.upper()
+            if not value:
+                continue
+            if field.in_meta:
+                meta[inner] = value
+            else:
+                columns[field.key] = value
         source = Source(
             id=str(uuid.uuid4()),
             host=host,
             host_norm=host,
-            canonical_name=(fields.get("canonical_name") or "").strip() or None,
-            city=(fields.get("city") or "").strip() or None,
-            county=(fields.get("county") or "").strip() or None,
-            owner=(fields.get("owner") or "").strip() or None,
-            type=(fields.get("type") or "").strip() or None,
-            meta={"state": state} if state else {},
+            meta=meta,
+            **columns,
         )
         audited_create(
             user,

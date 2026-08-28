@@ -13,6 +13,7 @@ import ftfy
 from django.db import router, transaction
 
 from audit.models import AuditLogEntry
+from datasets.schema import FIELDS as SCHEMA_FIELDS
 from explorer.models import Article, ArticleEnrichment, Dataset, DatasetSource, Source
 
 
@@ -21,6 +22,12 @@ class BoundaryViolation(Exception):
 
 
 # The app-side mirror of infra/sql/create_crawler_write_role.sql.
+#: What the schema says a publisher record holds, minus the one field
+#: that is its identity rather than a value on it.
+WRITABLE_SOURCE_FIELDS = tuple(
+    field.key for field in SCHEMA_FIELDS if field.key != "host"
+)
+
 WRITABLE = {
     Article: ("author", "title", "content", "text", "status", "wire_check_status"),
     ArticleEnrichment: (
@@ -32,25 +39,20 @@ WRITABLE = {
         "scope",
         "scope_confidence",
     ),
-    # "meta.state" is a key inside a JSON column, not a column. The state
-    # is a required field of a publisher record and had no way to be
-    # written at all: not by the source form, not by accepting a proposal
-    # that named it. Naming the key rather than opening `meta` keeps the
-    # boundary a boundary -- everything else in that blob stays unwritable.
-    Source: (
-        "canonical_name",
-        "city",
-        "county",
-        "owner",
-        "type",
-        "meta.state",
-        # Named one by one for the same reason `meta.state` is: the key,
-        # not the blob. A flag that proposes a fix to a field outside this
-        # list is a question nobody can answer -- the queue offers the
-        # change and applying it raises, which reached a reviewer as a
-        # server error on submit.
-        "meta.frequency",
-    ),
+    # From the schema, which is the one place that says what a publisher
+    # record is. This list was maintained by hand beside four others and
+    # they disagreed: `meta.state` could not be written at all for a
+    # while, and `meta.frequency` was raised as a defect by a queue that
+    # then refused to apply the fix.
+    #
+    # Keys inside `meta` are named one at a time rather than opening the
+    # column, which is what keeps the boundary a boundary: everything in
+    # that blob the schema does not declare stays unwritable.
+    #
+    # The host is not here. It is the record's identity -- changing it
+    # makes a different publisher -- so it is written when a record is
+    # created and never edited afterwards.
+    Source: WRITABLE_SOURCE_FIELDS,
     Dataset: (
         "name",
         "description",
