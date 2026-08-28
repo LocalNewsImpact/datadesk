@@ -1152,12 +1152,38 @@ label.stacked input, label.stacked textarea, label.stacked select {
 /* The name of a field, then whether the record needs it. One line of
    label text ran them together into "Owner worth having". */
 label.stacked .field-label { margin-right: var(--s-2); }
+/* A status, not another word in the name. The label is already small,
+   uppercase and grey, so a marker in the same size and colour read as
+   part of it -- "Publication name required" as one phrase. This is
+   smaller, lighter in weight and tinted, and sits in its own pill. */
 label.stacked .required {
-  font-size: var(--fs-2xs);
-  letter-spacing: 0.05em;
+  display: inline-block;
+  padding: 0.02rem 0.35rem;
+  border-radius: var(--r-pill);
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--text-3);
+  color: var(--tone-warn);
+  background: var(--tone-warn-soft);
+  vertical-align: 0.08em;
 }
+
+/* How far a paywalled publisher's sign-in has got. Three states,
+   because credentials alone are not enough: bought, configured, and
+   proved to read. */
+.stage {
+  display: inline-block;
+  padding: 0.05rem var(--s-2);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.stage-verified { color: var(--tone-good); background: var(--tone-good-soft); }
+.stage-configured { color: var(--tone-warn); background: var(--tone-warn-soft); }
+.stage-credentialed { color: var(--tone-info); background: var(--tone-info-soft); }
 
 .publisher .goes {
   display: flex;

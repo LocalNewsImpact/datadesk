@@ -1105,19 +1105,28 @@ def paywalls(request):
         request.session["paywall_notice"] = notice or "Saved."
         return _back_to_paywalls(request)
 
-    # What the pipeline could not read. One query rather than one per
-    # publisher: this counts every skipped article in the corpus.
-    lost = {}
+    # What the pipeline could not read, and what it did read. One query
+    # rather than one per publisher.
+    #
+    # The second half is the evidence for "verified": a sign-in that is
+    # configured is not a sign-in that works. Seven publishers carry
+    # credentials and six of them have never produced an article.
+    lost, read = {}, {}
     with connections["crawler"].cursor() as cur:
         cur.execute("""
-            SELECT cl.source_id, count(*)
+            SELECT cl.source_id,
+                   count(*) FILTER (WHERE e.skip_reason LIKE 'paywall%%'),
+                   count(*) FILTER (WHERE e.skip_reason IS NULL)
             FROM article_enrichment e
             JOIN articles a ON a.id = e.article_id
             JOIN candidate_links cl ON cl.id = a.candidate_link_id
-            WHERE e.skip_reason LIKE 'paywall%%'
             GROUP BY 1
             """)
-        lost = {row[0]: row[1] for row in cur.fetchall()}
+        for source_id, blocked, extracted in cur.fetchall():
+            if blocked:
+                lost[source_id] = blocked
+            if extracted:
+                read[source_id] = extracted
 
     # One directory at a time. Fifty-seven publishers across four states
     # is a list nobody works end to end, and whose paywalls are worth
@@ -1151,11 +1160,27 @@ def paywalls(request):
     # different work: one needs a subscription bought and a credential
     # stored, the other is being read today and is on the page because it
     # was once not.
+    # Three states, because credentials alone are not enough:
+    #
+    #   credentialed  a subscription exists and its secret is stored
+    #   configured    the extractor is set to sign in with it
+    #   verified      it worked -- articles have been read since
+    #
+    # "Automated" was all three at once and true of seven publishers, six
+    # of which have never produced an article.
     sign_in = (request.GET.get("sign_in") or "").strip()
-    if sign_in == "automated":
-        candidates = candidates.filter(requires_login=True)
-    elif sign_in == "manual":
-        candidates = candidates.filter(requires_login=False)
+    if sign_in == "none":
+        candidates = candidates.filter(auth_secret_name__isnull=True)
+    elif sign_in == "credentialed":
+        candidates = candidates.filter(auth_secret_name__isnull=False)
+    elif sign_in == "configured":
+        candidates = candidates.filter(
+            auth_secret_name__isnull=False, requires_login=True
+        )
+    elif sign_in == "verified":
+        candidates = candidates.filter(
+            auth_secret_name__isnull=False, requires_login=True, id__in=list(read)
+        )
     else:
         sign_in = ""
 
@@ -1167,6 +1192,22 @@ def paywalls(request):
                 "name": source.canonical_name or source.host,
                 "host": source.host_norm or source.host,
                 "lost": lost.get(source.id, 0),
+                "read": read.get(source.id, 0),
+                # What stage this publisher's sign-in has reached. Named
+                # rather than counted, because each is a different piece
+                # of work: buy a subscription, configure the extractor,
+                # then prove it reads.
+                "stage": (
+                    "verified"
+                    if source.auth_secret_name
+                    and source.requires_login
+                    and read.get(source.id)
+                    else (
+                        "configured"
+                        if source.auth_secret_name and source.requires_login
+                        else "credentialed" if source.auth_secret_name else ""
+                    )
+                ),
                 "has_paywall": source.has_paywall,
                 "requires_login": source.requires_login,
                 "auth_type": source.auth_type or "",

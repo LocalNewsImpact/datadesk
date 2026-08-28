@@ -31,15 +31,18 @@
       </select>
     </label>
     {% comment %}
-    Automated or not is the difference between work still to do and work
-    already done: one half needs a subscription bought and a credential
-    stored, the other is being read today.
+    Three states, because credentials alone are not enough: a
+    subscription bought, an extractor configured to use it, and a sign-in
+    that has actually read something. Seven publishers carry credentials
+    and six have never produced an article.
     {% endcomment %}
     <label>Sign-in
       <select name="sign_in">
         <option value="">all</option>
-        <option value="manual" {% if sign_in == "manual" %}selected{% endif %}>not automated</option>
-        <option value="automated" {% if sign_in == "automated" %}selected{% endif %}>automated</option>
+        <option value="none" {% if sign_in == "none" %}selected{% endif %}>no credentials</option>
+        <option value="credentialed" {% if sign_in == "credentialed" %}selected{% endif %}>credentialed</option>
+        <option value="configured" {% if sign_in == "configured" %}selected{% endif %}>configured</option>
+        <option value="verified" {% if sign_in == "verified" %}selected{% endif %}>verified</option>
       </select>
     </label>
     <button type="submit">Show</button>
@@ -166,11 +169,24 @@
           <p class="hint">not recorded yet — saving confirms it</p>
           {% endif %}
         </td>
+        {% comment %}
+        Which of the three this has reached, and what is left. A sign-in
+        that is configured is not a sign-in that works, so "verified"
+        means articles have been read -- not that somebody set it up.
+        {% endcomment %}
         <td>
-          {% if r.requires_login %}
-          the extractor signs in{% if r.auth_type %} ({{ r.auth_type }}){% endif %}
+          {% if r.stage == "verified" %}
+          <span class="stage stage-verified">verified</span>
+          <p class="hint">{{ r.read }} articles read</p>
+          {% elif r.stage == "configured" %}
+          <span class="stage stage-configured">configured</span>
+          <p class="hint">signs in{% if r.auth_type %} with {{ r.auth_type }}{% endif %},
+            nothing read yet</p>
+          {% elif r.stage == "credentialed" %}
+          <span class="stage stage-credentialed">credentialed</span>
+          <p class="hint">a secret is stored; the extractor is not set to use it</p>
           {% else %}
-          <span class="hint">not automated</span>
+          <span class="hint">no credentials</span>
           {% endif %}
         </td>
         <td>
