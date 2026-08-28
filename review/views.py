@@ -6,7 +6,9 @@ from django.core.paginator import Paginator
 from django.db.models import Count, F, Q
 from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import urlencode
 from django.views.decorators.http import require_POST
 
 from accounts.decorators import requires, requires_admin, requires_import
@@ -640,6 +642,24 @@ def _create_proposed_sources(user, creates, proposals_by_id):
     return made, refused
 
 
+def _back_to_queue(request):
+    """The queue as it was being worked, not the whole of it.
+
+    Every decision redirected to the bare queue, so somebody working one
+    directory and one flag was returned to 3,645 questions across four
+    states -- and the record they had just answered was on that page
+    again, with the questions they had not answered yet. That reads as a
+    decision that did not take.
+    """
+    keep = {
+        key: value
+        for key, value in request.GET.items()
+        if key in ("dataset", "flag", "state") and value
+    }
+    url = reverse("review:proposals")
+    return redirect(f"{url}?{urlencode(keep)}" if keep else url)
+
+
 def _submit_proposals(request):
     """Apply a session of decisions as one audited batch per record set."""
     from django.utils import timezone
@@ -653,7 +673,12 @@ def _submit_proposals(request):
             continue
         decisions[int(key[2:])] = value
     if not decisions:
-        return redirect("review:proposals")
+        # Said, not swallowed. A submission carrying nothing redirected in
+        # silence, so "the page lost my decisions" and "it worked" looked
+        # exactly the same -- and the queue coming back with the same
+        # questions was the only evidence either way.
+        request.session["proposal_receipt"] = {"nothing": True}
+        return _back_to_queue(request)
 
     proposals_by_id = ChangeProposal.objects.in_bulk(list(decisions))
     writes = {}  # record pk -> {field: value}
@@ -686,6 +711,21 @@ def _submit_proposals(request):
             if allowed and value not in allowed:
                 incomplete += 1
                 continue
+        if not p.field:
+            # A report rather than a change. `value_malformed` names
+            # several fields at once -- a ZIP that is not a ZIP, a host
+            # that is not a host -- so it carries no single field to
+            # write, and the value to put right is on the record itself.
+            #
+            # Accepted as read: the question is answered and nothing is
+            # written. Adding it to `writes` put an empty field name in
+            # the batch, which the write boundary refuses -- and refusing
+            # is all-or-nothing, so one of these in a submission threw
+            # away every decision beside it. Seven of them sit in one
+            # dataset's queue, which is why answering anything there
+            # appeared to do nothing at all.
+            accepted.append(p)
+            continue
         if p.creates_a_record:
             creates.setdefault(p.submission, {})[p.field] = value
         else:
@@ -744,8 +784,17 @@ def _submit_proposals(request):
         "created": made,
         "refused": refused,
         "entry": entry.pk if entry else None,
+        # What was submitted and did not become a decision: a proposal
+        # somebody else had already answered, or one the page was showing
+        # from before it was. Counted, because a submission that lands as
+        # nothing is otherwise indistinguishable from one that worked.
+        "stale": len(decisions)
+        - len(accepted)
+        - len(fixed)
+        - len(rejected)
+        - incomplete,
     }
-    return redirect("review:proposals")
+    return _back_to_queue(request)
 
 
 @requires(WRITE)

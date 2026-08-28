@@ -22,11 +22,30 @@
     <strong>Nothing was saved.</strong>
     {{ receipt.refused_write }}
   </p>
+  {% elif receipt.nothing %}
+  {% comment %}
+  A submission that carried no decisions. It redirected in silence, so
+  "the page lost my decisions" and "it worked" looked the same -- and the
+  queue coming back with the same questions was the only evidence either
+  way.
+  {% endcomment %}
+  <p class="notice bad">
+    <strong>Nothing was submitted.</strong>
+    No decision reached the server. If you chose one and this says
+    otherwise, the page was probably reloaded after you chose it — the
+    queue starts every visit with nothing decided.
+  </p>
   {% elif receipt %}
   <p class="receipt-line">
     Submitted: {{ receipt.accepted }} accepted, {{ receipt.fixed }} fixed,
     {{ receipt.rejected }} rejected.
     {% if receipt.incomplete %}{{ receipt.incomplete }} left in the queue with nothing typed.{% endif %}
+    {% comment %}
+    Answered by somebody else, or shown from a page loaded before they
+    were. Counted, because a submission that lands as nothing is
+    otherwise indistinguishable from one that worked.
+    {% endcomment %}
+    {% if receipt.stale %}{{ receipt.stale }} had already been decided and were left alone.{% endif %}
     {% if receipt.entry %}<a href="{% url 'review:audit_log' %}">Audit entry {{ receipt.entry }}</a> reverts the batch.{% endif %}
   </p>
   {% endif %}
