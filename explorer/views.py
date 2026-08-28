@@ -716,16 +716,44 @@ def sources(request):
     grant can find a record and say what they know is wrong with it, which
     is the only action open to them here.
     """
-    from explorer.models import Source
-    from explorer.scoping import narrow
+    from explorer.models import DatasetSource, Source
+    from explorer.scoping import datasets_for, narrow
 
     query = (request.GET.get("q") or "").strip()
     qs = narrow(Source.objects.all(), request.user, READ, source_path="id")
     if query:
         qs = qs.filter(canonical_name__icontains=query)
-    qs = qs.order_by("canonical_name", "host")[:200]
+
+    # One directory at a time. The list is capped at two hundred records
+    # and the corpus holds 1,149 across four states, so a name somebody
+    # half remembers was findable only by typing enough of it -- and
+    # "every publisher in Vermont" could not be asked for at all.
+    #
+    # Offered from the datasets this person may read, so the picker cannot
+    # name one the guard would then refuse them for choosing -- `requires`
+    # already refuses a dataset in the query string that the reader has no
+    # grant on, which is why this only has to check that the slug exists.
+    choices = datasets_for(request.user, READ)
+    dataset = (request.GET.get("dataset") or "").strip()
+    if dataset and choices.filter(slug=dataset).exists():
+        qs = qs.filter(
+            id__in=DatasetSource.objects.filter(dataset__slug=dataset).values_list(
+                "source_id", flat=True
+            )
+        )
+    else:
+        dataset = ""
+    shown = qs.order_by("canonical_name", "host")[:200]
     return render(
         request,
         "explorer/sources.html",
-        {"sources": qs, "q": query},
+        {
+            "sources": shown,
+            "q": query,
+            "dataset": dataset,
+            "datasets": choices,
+            # What the cap is hiding, so a reader knows the list is a
+            # window rather than the answer.
+            "total": qs.count(),
+        },
     )

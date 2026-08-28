@@ -467,6 +467,66 @@ def test_a_viewer_reaches_the_form_from_the_publisher_list(
     assert f"/manage/sources/{member_source.id}/propose/" in body
 
 
+def test_the_publisher_list_filters_by_directory(client, viewer, member_source):
+    """The list is capped at two hundred and the corpus holds 1,149 across
+    four states, so a name somebody half remembers was findable only by
+    typing enough of it -- and "every publisher in Vermont" could not be
+    asked for at all."""
+    from accounts.models import DATADESK, Grant
+
+    other = Dataset.objects.create(id="d-vt", slug="vermont", label="Vermont")
+    Grant.objects.get_or_create(
+        user=viewer, app=DATADESK, scope="vermont", role="viewer"
+    )
+    green = Source.objects.create(
+        id="s-green",
+        host="greenmountain.example",
+        host_norm="greenmountain.example",
+        canonical_name="The Green Mountain Times",
+        meta={"state": "VT"},
+    )
+    DatasetSource.objects.create(id="ds-vt", dataset=other, source=green)
+
+    both = client.get("/explorer/sources/").content.decode()
+    assert "The Lexington News" in both and "The Green Mountain Times" in both
+
+    one = client.get("/explorer/sources/?dataset=vermont").content.decode()
+    assert "The Green Mountain Times" in one
+    assert "The Lexington News" not in one
+
+    # The picker offers the directories, so nobody has to know a slug.
+    assert 'value="vermont"' in both
+
+
+def test_the_directory_picker_offers_only_what_may_be_read(
+    client, viewer, member_source
+):
+    """A picker listing a dataset somebody cannot choose is an invitation
+    to a 403, and the guard would then refuse them for picking what they
+    were shown. Choosing one anyway filters to nothing of theirs rather
+    than reaching past the grant."""
+    Dataset.objects.create(id="d-hidden", slug="hidden", label="Not Yours")
+    hidden = Source.objects.create(
+        id="s-hidden2",
+        host="hidden2.example",
+        host_norm="hidden2.example",
+        canonical_name="Nobody Sees This",
+    )
+    DatasetSource.objects.create(
+        id="ds-hidden",
+        dataset=Dataset.objects.get(slug="hidden"),
+        source=hidden,
+    )
+
+    body = client.get("/explorer/sources/").content.decode()
+    assert 'value="hidden"' not in body
+
+    # And picking one anyway is refused by the guard every dataset-shaped
+    # page already goes through -- told, rather than shown a page that
+    # looks like the dataset is empty.
+    assert client.get("/explorer/sources/?dataset=hidden").status_code == 403
+
+
 def test_the_publisher_list_shows_only_readable_datasets(client, viewer, member_source):
     """The same scoping as everything else: no grant, no record."""
     Source.objects.create(
