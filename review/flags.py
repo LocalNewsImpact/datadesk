@@ -253,6 +253,28 @@ def _frequency_of(source):
     return ((source.meta or {}).get("frequency") or "").strip()
 
 
+def _needs_credentials(source, context):
+    """Behind a paywall, and nobody has given us a way in.
+
+    The evidence is already in the corpus -- an article the extractor
+    could not read because a paywall stood in the way is skipped with a
+    paywall reason -- and this is the record end of it: somebody has
+    marked the publisher, and no credential has been stored.
+
+    Nothing is proposed. A password is not a value this queue can hold,
+    and the place to put one is the paywall page, which the detail says.
+    """
+    if not getattr(source, "has_paywall", False):
+        return False, "", ""
+    if (source.auth_secret_name or "").strip():
+        return False, "", ""
+    return (
+        True,
+        "marked as paywalled with no sign-in stored; add it on the paywall page",
+        "",
+    )
+
+
 def _malformed(source, context):
     """A value that is not the shape its field is written in.
 
@@ -469,6 +491,18 @@ FLAGS = (
         ),
         field="type",
         check=_missing("type"),
+    ),
+    Flag(
+        key="credentials_missing",
+        label="Paywalled, with no sign-in",
+        defect=(
+            "The publisher is marked as behind a paywall and no credential "
+            "is stored, so every article behind it stays unread."
+        ),
+        # No field: a password is not a value this queue can hold, and the
+        # secret's name is derived when one is stored rather than typed.
+        field="",
+        check=_needs_credentials,
     ),
     Flag(
         key="value_malformed",

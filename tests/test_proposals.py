@@ -2763,3 +2763,77 @@ def test_a_stored_credential_never_comes_back(client, admin_user, mo, monkeypatc
 def test_the_paywall_page_is_admins_only(client, editor):
     """Credentials are entered here."""
     assert client.get("/review/paywalls/").status_code == 403
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_card_opens_the_record_it_asks_about(client, editor, publisher):
+    """A reviewer looking at four questions about a publisher can often
+    answer them by editing it, and had to leave the queue, find the record
+    in the dataset admin, edit it, and come back to a page that no longer
+    knew what they had been doing.
+
+    An ordinary link to the ordinary edit page, so it works with no
+    JavaScript and for anybody who opens it in a tab. The dialog is what
+    the script adds.
+    """
+    _proposal(publisher, "owner", "", "CherryRoad Media")
+    page = client.get(URL).content.decode()
+    assert f'href="/manage/sources/{publisher.id}/"' in page
+    assert 'class="rec-edit"' in page
+    # And the dialog is added rather than assumed: the link stands alone.
+    assert "showModal" in page
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_paywall_with_no_sign_in_is_a_question(mo, editor):
+    """Marking a publisher as paywalled is only half the job: until a
+    credential is stored, every article behind it stays unread. The queue
+    asks, and proposes nothing -- a password is not a value it can hold,
+    and the detail says where to put one."""
+    locked = Source.objects.create(
+        id="s-locked",
+        host="locked.example",
+        host_norm="locked.example",
+        canonical_name="The Locked Gazette",
+        city="Columbia",
+        county="Boone",
+        type="print native",
+        has_paywall=True,
+        meta={"state": "MO"},
+    )
+    flags = _scanned(mo, locked)
+    assert "credentials_missing" in flags
+    assert flags["credentials_missing"].proposed_value == ""
+    assert "paywall page" in flags["credentials_missing"].detail
+
+    # Once a credential is stored the question is gone.
+    locked.auth_secret_name = "publisher-auth-locked-example"
+    locked.save(update_fields=["auth_secret_name"])
+    ChangeProposal.objects.filter(record_id=locked.id).delete()
+    assert "credentials_missing" not in _scanned_again(mo, locked)
+
+
+def _scanned_again(dataset, source):
+    """Re-scan a record whose membership row already exists."""
+    from django.core.management import call_command
+
+    call_command("scan_sources", dataset=dataset.slug)
+    return {p.flag: p for p in ChangeProposal.objects.filter(record_id=source.id)}
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_publisher_nobody_marked_is_not_asked_about(mo, editor):
+    """The flag is about the record, not the evidence: a publisher whose
+    articles hit paywalls but which nobody has marked belongs on the
+    paywall page, where the evidence is, rather than in the queue."""
+    unmarked = Source.objects.create(
+        id="s-unmarked",
+        host="unmarked.example",
+        host_norm="unmarked.example",
+        canonical_name="Unmarked",
+        city="Columbia",
+        county="Boone",
+        type="print native",
+        meta={"state": "MO"},
+    )
+    assert "credentials_missing" not in _scanned(mo, unmarked)
