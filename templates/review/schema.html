@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}What a publisher record is — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <header>
+    <h1>What a publisher record is</h1>
+    <p class="notice">Every field of the sources table: whether a record
+    needs it, and what counts as a value. The queue reads this — a
+    required field left empty is a question, and so is a value the rules
+    do not recognise.</p>
+  </header>
+
+  {% if notice %}<p class="receipt-line">{{ notice }}</p>{% endif %}
+
+  {% comment %}
+  The fields are read, the words are written. Which fields a record needs
+  and what a value has to look like are decisions that belong in a change
+  somebody reviews; the words a field accepts are a list that grows on a
+  Tuesday, and making somebody ship a deploy for one means the word waits
+  for a deploy.
+  {% endcomment %}
+  <table class="grid schema">
+    <thead>
+      <tr>
+        <th scope="col">Field</th>
+        <th scope="col">Needed</th>
+        <th scope="col">A value is</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in fields %}
+      <tr>
+        <th scope="row">
+          <span class="field-name">{{ f.label }}</span>
+          <code class="field-key">{{ f.key }}</code>
+          {% if f.aliases %}
+          {% comment %}
+          The same field written another way, on records that predate the
+          name. Both spellings are in the column and a reader of either
+          finds nothing on the records using the other.
+          {% endcomment %}
+          <span class="hint">also written
+            {% for a in f.aliases %}<code>{{ a }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}
+          </span>
+          {% endif %}
+        </th>
+        <td>{% if f.required %}<strong>Required</strong>{% else %}Optional{% endif %}</td>
+        <td>
+          {{ f.rule_name }}
+          {% if f.note %}<p class="hint">{{ f.note }}</p>{% endif %}
+
+          {% if f.vocabulary %}
+          <details class="values"{% if f.terms %} open{% endif %}>
+            <summary>{{ f.terms|length }} word{{ f.terms|length|pluralize }}</summary>
+            <ul class="terms">
+              {% for t in f.terms %}
+              <li{% if t.retired %} class="retired"{% endif %}>
+                <code>{{ t.value }}</code>
+                {% if t.label %}<span class="term-label">counts as {{ t.label }}</span>{% endif %}
+                {% if t.spelling %}<span class="hint">written <code>{{ t.spelling }}</code></span>{% endif %}
+                {% if t.retired %}
+                <span class="hint">no longer offered</span>
+                {% else %}
+                <form method="post" class="inline-form">
+                  {% csrf_token %}
+                  <input type="hidden" name="vocabulary" value="{{ f.vocabulary }}">
+                  <input type="hidden" name="retire" value="{{ t.value }}">
+                  <button type="submit" class="link">Retire</button>
+                </form>
+                {% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+            {% comment %}
+            Retired rather than deleted, so a word that is no longer
+            offered still explains the records written while it was.
+            {% endcomment %}
+            <form method="post" class="add-term">
+              {% csrf_token %}
+              <input type="hidden" name="vocabulary" value="{{ f.vocabulary }}">
+              <label class="stacked">Add a word
+                <input type="text" name="value" placeholder="podcast" required>
+              </label>
+              <label class="stacked">Called
+                <input type="text" name="label" placeholder="Podcast">
+              </label>
+              <label class="stacked">Written
+                <input type="text" name="spelling" placeholder="podcast">
+              </label>
+              {% comment %}
+              Outside the label, which is uppercased and letter-spaced:
+              inside it, this sentence was set in the style meant for the
+              two words above it.
+              {% endcomment %}
+              <p class="hint">What the queue proposes when a record spells
+              it another way. Leave empty where there is no one right
+              spelling.</p>
+              <button type="submit" class="primary">Add</button>
+            </form>
+          </details>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

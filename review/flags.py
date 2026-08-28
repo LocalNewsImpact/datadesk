@@ -191,12 +191,15 @@ def _spelled_differently(field, read):
     """
 
     def check(source, context):
-        from datasets.publishers import spelling_of
+        from datasets.terms import spelling_for
 
         value = read(source)
         if not value:
             return False, "", ""
-        spelling = spelling_of(field, value)
+        # Through the maintained vocabulary, not the constant it was
+        # seeded from, or a word somebody adds on the schema page would go
+        # on being reported as a defect by the queue that sent them there.
+        spelling = spelling_for(field, value)
         if not spelling:
             return False, "", ""
         return (
@@ -223,7 +226,8 @@ def _indistinct(field, read, question):
     """
 
     def check(source, context):
-        from datasets.publishers import group_of, is_indistinct
+        from datasets.publishers import is_indistinct
+        from datasets.terms import known
 
         value = read(source)
         if not value:
@@ -231,8 +235,10 @@ def _indistinct(field, read, question):
         if is_indistinct(field, value):
             return True, f"recorded as {value}, which does not say {question}", ""
         # A value nothing recognises at all. Left for a person to read
-        # rather than guessed at, the same as one that is merely vague.
-        if not group_of(field, value):
+        # rather than guessed at, the same as one that is merely vague --
+        # and asked of the maintained vocabulary, so adding the word is
+        # the way to stop being asked.
+        if not known(field, value):
             return True, f"{value} is not one this vocabulary knows", ""
         return False, "", ""
 
@@ -245,6 +251,30 @@ def _type_of(source):
 
 def _frequency_of(source):
     return ((source.meta or {}).get("frequency") or "").strip()
+
+
+def _malformed(source, context):
+    """A value that is not the shape its field is written in.
+
+    The rules are in `datasets/schema.py` and are deliberately loose: they
+    say "this is not a ZIP code", never "this is the wrong ZIP code". The
+    first is a rule; the second is a fact about the world no pattern
+    knows, and a rule that refuses a correct value is worse than no rule.
+
+    Fields with a check of their own are left to it -- the state has
+    `state_unknown` and the vocabularies have their own pair -- so one
+    defect is reported once.
+    """
+    from datasets.schema import FIELDS, TEXT, VOCABULARY, check, read
+
+    own = {"meta.state"}
+    for field in FIELDS:
+        if field.rule in (TEXT, VOCABULARY) or field.key in own:
+            continue
+        ok, why = check(field, read(source, field.key))
+        if not ok:
+            return True, f"{field.label.lower()}: {why}", ""
+    return False, "", ""
 
 
 def _state_missing(source, context):
@@ -429,6 +459,30 @@ FLAGS = (
         ),
         field="meta.frequency",
         check=_indistinct("publisher_frequency", _frequency_of, "how often"),
+    ),
+    Flag(
+        key="type_missing",
+        label="No kind of publication",
+        defect=(
+            "The record does not say what kind of publication this is, so "
+            "nothing organised by medium can place it."
+        ),
+        field="type",
+        check=_missing("type"),
+    ),
+    Flag(
+        key="value_malformed",
+        label="A value is not the shape it should be",
+        defect=(
+            "A field holds something that is not what that field holds -- a "
+            "ZIP code that is not five digits, an address with no number, a "
+            "home page that is not a web address."
+        ),
+        # Several fields, and the detail names which. The write boundary
+        # takes one field per proposal, so this one proposes nothing and
+        # is read rather than applied.
+        field="",
+        check=_malformed,
     ),
     Flag(
         key="name_missing",
