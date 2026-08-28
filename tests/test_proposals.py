@@ -2811,8 +2811,9 @@ def test_the_card_opens_the_record_it_asks_about(client, editor, publisher):
     page = client.get(URL).content.decode()
     assert f'href="/manage/sources/{publisher.id}/"' in page
     assert 'class="rec-edit"' in page
-    # And the dialog is added rather than assumed: the link stands alone.
-    assert "showModal" in page
+    # And the dialog is added rather than assumed: the link stands alone,
+    # and the script that upgrades it is a file both review pages load.
+    assert "js/record-editor.js" in page
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
@@ -2868,3 +2869,231 @@ def test_a_publisher_nobody_marked_is_not_asked_about(mo, editor):
         meta={"state": "MO"},
     )
     assert "credentials_missing" not in _scanned(mo, unmarked)
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_paywall_row_opens_the_record_and_the_publication(client, admin_user, mo):
+    """The name opens the record, because what a reviewer decides here is
+    often decided by editing the publisher. The host opens the
+    publication, because "is this behind a paywall and what does it cost"
+    is answered by going and looking."""
+    from accounts.models import DATADESK, Grant
+    from explorer.models import DatasetSource
+
+    Grant.objects.get_or_create(user=admin_user, app=DATADESK, scope="", role="admin")
+    client.force_login(admin_user)
+    source = Source.objects.create(
+        id="s-row",
+        host="www.example-news.com",
+        host_norm="www.example-news.com",
+        canonical_name="Example News",
+        has_paywall=True,
+    )
+    DatasetSource.objects.create(id="ds-row", dataset=mo, source=source)
+
+    page = client.get("/review/paywalls/").content.decode()
+    assert f'href="/manage/sources/{source.id}/"' in page
+    assert 'class="rec-edit"' in page
+    assert 'href="https://www.example-news.com"' in page
+    assert 'target="_blank"' in page
+    # The host is a web address, not a row heading: a `th` would set it
+    # bold, and it is not a title.
+    assert '<th scope="row">' not in page.split("<tbody>")[1]
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_ruling_out_a_paywall_takes_it_off_the_page(client, admin_user, mo):
+    """The page already asserts these are paywalled -- the extractor could
+    not read them past one -- so the box is the exception. Ticking it says
+    this publisher is not paywalled after all, and saving takes it off the
+    page for good.
+
+    `has_paywall` cannot say that by itself: false is what all 1,149
+    records say before anybody has looked, so it means "nobody has
+    decided" and "there is no paywall" at once, and the page would ask
+    about the same publisher for ever.
+    """
+    from accounts.models import DATADESK, Grant
+    from explorer.models import (
+        Article,
+        ArticleEnrichment,
+        CandidateLink,
+        DatasetSource,
+    )
+
+    Grant.objects.get_or_create(user=admin_user, app=DATADESK, scope="", role="admin")
+    client.force_login(admin_user)
+    source = Source.objects.create(
+        id="s-ev", host="ev.example", host_norm="ev.example", canonical_name="Evidence"
+    )
+    DatasetSource.objects.create(id="ds-ev", dataset=mo, source=source)
+    link = CandidateLink.objects.create(
+        id="cl-ev", url="https://ev.example/a", source=source
+    )
+    article = Article.objects.create(id="a-ev", status="ok", candidate_link=link)
+    ArticleEnrichment.objects.create(article=article, skip_reason="paywall_stub")
+
+    assert "Evidence" in client.get("/review/paywalls/").content.decode()
+
+    client.post("/review/paywalls/", {"source_id": source.id, "no_paywall": "1"})
+    source.refresh_from_db()
+    assert source.has_paywall is False
+    assert "Evidence" not in client.get("/review/paywalls/").content.decode()
+
+    # And it comes back by saying so on the record, which is the stronger
+    # statement: the record says what a publisher is.
+    source.has_paywall = True
+    source.save(update_fields=["has_paywall"])
+    assert "Evidence" in client.get("/review/paywalls/").content.decode()
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_saving_without_ruling_it_out_confirms_the_paywall(client, admin_user, mo):
+    """Leaving the box alone and saving is confirming what the page says,
+    which is what recording a price or a login page means."""
+    from accounts.models import DATADESK, Grant
+    from explorer.models import DatasetSource
+
+    Grant.objects.get_or_create(user=admin_user, app=DATADESK, scope="", role="admin")
+    client.force_login(admin_user)
+    source = Source.objects.create(
+        id="s-confirm", host="c.example", host_norm="c.example", canonical_name="Conf"
+    )
+    DatasetSource.objects.create(id="ds-confirm", dataset=mo, source=source)
+
+    client.post(
+        "/review/paywalls/",
+        {
+            "source_id": source.id,
+            "subscription_cost": "5",
+            "subscription_period": "monthly",
+        },
+    )
+    source.refresh_from_db()
+    assert source.has_paywall is True
+    assert str(source.subscription_cost) == "5.00"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_price_is_recorded_where_it_is_decided(client, admin_user, mo):
+    """Somebody is looking at the site to answer whether it has a paywall
+    at all, and what a subscription costs is on the same screen. The same
+    validator as the record page, so the two cannot disagree about what an
+    amount is."""
+    from accounts.models import DATADESK, Grant
+    from explorer.models import DatasetSource
+
+    Grant.objects.get_or_create(user=admin_user, app=DATADESK, scope="", role="admin")
+    client.force_login(admin_user)
+    source = Source.objects.create(
+        id="s-price",
+        host="price.example",
+        host_norm="price.example",
+        canonical_name="Priced",
+    )
+    DatasetSource.objects.create(id="ds-price", dataset=mo, source=source)
+
+    client.post(
+        "/review/paywalls/",
+        {
+            "source_id": source.id,
+            "has_paywall": "1",
+            "subscription_cost": "$9.99",
+            "subscription_period": "monthly",
+            "login_url": "https://price.example/subscribe",
+        },
+    )
+    source.refresh_from_db()
+    assert source.has_paywall is True
+    assert str(source.subscription_cost) == "9.99"
+    assert source.subscription_period == "monthly"
+    assert source.login_url == "https://price.example/subscribe"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_an_amount_with_no_period_is_refused_here_too(client, admin_user, mo):
+    """$12 a month and $12 a year are different subscriptions, and the
+    page says so rather than writing a number nobody can read."""
+    from accounts.models import DATADESK, Grant
+    from explorer.models import DatasetSource
+
+    Grant.objects.get_or_create(user=admin_user, app=DATADESK, scope="", role="admin")
+    client.force_login(admin_user)
+    source = Source.objects.create(
+        id="s-noperiod",
+        host="np.example",
+        host_norm="np.example",
+        canonical_name="No Period",
+        has_paywall=True,
+    )
+    DatasetSource.objects.create(id="ds-np", dataset=mo, source=source)
+
+    client.post(
+        "/review/paywalls/",
+        {"source_id": source.id, "has_paywall": "1", "subscription_cost": "12"},
+    )
+    source.refresh_from_db()
+    assert source.subscription_cost is None
+    page = client.get("/review/paywalls/").content.decode()
+    assert "monthly or annual" in page
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_paywalls_export_as_a_report(client, admin_user, mo):
+    """A report of one directory's paywalls is what somebody takes to
+    whoever decides what to subscribe to, so it carries the directory
+    being looked at and the same order the page shows."""
+    import csv as csv_module
+    import io
+
+    from accounts.models import DATADESK, Grant
+    from explorer.models import Dataset, DatasetSource
+
+    Grant.objects.get_or_create(user=admin_user, app=DATADESK, scope="", role="admin")
+    client.force_login(admin_user)
+
+    other = Dataset.objects.create(id="d-wa", slug="washington", label="Washington")
+    for i, (dataset, host, name, cost) in enumerate(
+        (
+            (mo, "mo-paper.example", "Missouri Paper", "12.99"),
+            (other, "wa-paper.example", "Washington Paper", "9.99"),
+        )
+    ):
+        source = Source.objects.create(
+            id=f"s-csv{i}",
+            host=host,
+            host_norm=host,
+            canonical_name=name,
+            has_paywall=True,
+            subscription_cost=cost,
+            subscription_period="monthly",
+            login_url=f"https://{host}/login",
+        )
+        DatasetSource.objects.create(id=f"ds-csv{i}", dataset=dataset, source=source)
+
+    response = client.get("/review/paywalls/?format=csv")
+    assert response.status_code == 200
+    assert "text/csv" in response["Content-Type"]
+    assert 'filename="paywalls.csv"' in response["Content-Disposition"]
+    rows = list(csv_module.reader(io.StringIO(response.content.decode())))
+    assert rows[0] == [
+        "publisher",
+        "url",
+        "login page",
+        "subscription cost",
+        "per",
+        "articles lost",
+    ]
+    body = {r[0]: r for r in rows[1:]}
+    assert body["Missouri Paper"][1] == "https://mo-paper.example"
+    assert body["Missouri Paper"][2] == "https://mo-paper.example/login"
+    assert body["Missouri Paper"][3] == "12.99"
+    # The period travels with the amount, or the number cannot be read.
+    assert body["Missouri Paper"][4] == "monthly"
+
+    # Filtered the same way the page is, and named after the directory.
+    one = client.get("/review/paywalls/?format=csv&dataset=washington")
+    assert 'filename="paywalls-washington.csv"' in one["Content-Disposition"]
+    text = one.content.decode()
+    assert "Washington Paper" in text
+    assert "Missouri Paper" not in text

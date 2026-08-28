@@ -68,3 +68,35 @@ class ExportDefinition(models.Model):
 # The proposal queue lives in its own module; import it here so Django
 # discovers the model.
 from review.proposals import ChangeProposal  # noqa: E402,F401
+
+
+class PaywallDismissal(models.Model):
+    """Somebody looked at a publisher and said it is not behind a paywall.
+
+    The paywalls page lists publishers the extractor could not read past a
+    paywall. `has_paywall` on the record cannot say this by itself: false
+    is what all 1,149 records say before anybody has looked, so it means
+    "nobody has decided" and "there is no paywall" at once, and a page
+    keyed on it would ask about the same publisher for ever.
+
+    So the decision lives here, where review state belongs -- the crawler
+    owns the publisher record, and whether somebody has ruled on it is
+    this console's business.
+
+    Undone by ticking the paywall box on the record: a publisher whose
+    record says it is paywalled is on the page whatever was decided here,
+    because the record is the stronger statement.
+    """
+
+    source_id = models.TextField(unique=True)
+    source_label = models.TextField(blank=True, default="")
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    decided_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-decided_at"]
+
+    def __str__(self):
+        return f"{self.source_label or self.source_id}: no paywall"
