@@ -1533,6 +1533,16 @@ td.count.flagged-length { color: var(--tone-warn); font-weight: 600; }
 .facet-chip.done { opacity: .62; }
 .facet-chip.done span { font-variant-numeric: normal; font-style: italic; }
 .facet-chip.done.on { opacity: 1; }
+
+/* A row whose question has already been answered. It carries the answer
+   instead of the buttons: shown with live controls, "Including decided"
+   put 316 settled questions back on the page looking unsettled. */
+.decided-outcome { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
+.decided-verb { font-weight: 600; font-size: .82rem; letter-spacing: .02em;
+  padding: .1rem .45rem; border-radius: .25rem; border: 1px solid currentColor; }
+.decided-verb.accepted, .decided-verb.fixed { color: var(--tone-good); }
+.decided-verb.rejected { color: var(--text-2); }
+.decided-when { color: var(--text-2); font-size: .82rem; }
 .rec { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1rem; overflow: hidden; }
 .rec-head { display: flex; align-items: baseline; gap: .75rem; padding: .6rem .9rem;
   border-bottom: 1px solid var(--border); }

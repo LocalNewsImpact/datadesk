@@ -169,6 +169,28 @@ nothing has looked, and a reviewer cannot tell which.
               <span class="flag-label">{{ p.flag_label }}</span>
               {% if p.detail %}<span class="finding">{{ p.detail }}</span>{% endif %}
             </th>
+            {% if p.state != "pending" %}
+            {% comment %}
+            A decision already made, shown as one. Rendered with the same
+            controls as a pending row, "Including decided" put 316 answered
+            questions back on the page looking unanswered -- and the buttons
+            did nothing, because `_submit_proposals` skips anything that is
+            not pending. The record was never at risk; the page just could
+            not say so.
+            {% endcomment %}
+            <td class="option decided-outcome" colspan="3">
+              <span class="decided-verb {{ p.state }}">{{ p.state_label }}</span>
+              {% if p.final_value %}
+              <span class="val proposed">{{ p.final_value }}</span>
+              {% elif p.state == "rejected" %}
+              <span class="val">{% if p.current_value %}{{ p.current_value }}{% else %}<span class="none">empty</span>{% endif %} — kept</span>
+              {% endif %}
+              <span class="decided-when">
+                {% if p.decided_by %}{{ p.decided_by }}{% endif %}
+                {% if p.decided_at %}{{ p.decided_at|date:"j M Y" }}{% endif %}
+              </span>
+            </td>
+            {% else %}
             <td class="option">
               {% if p.proposed_value %}
               <span class="val proposed">{{ p.proposed_value }}</span>
@@ -211,6 +233,7 @@ nothing has looked, and a reviewer cannot tell which.
                 <b>Fix</b><i>Use this</i></button>
               <input type="hidden" name="d-{{ p.pk }}" value="">
             </td>
+            {% endif %}
           </tr>
           <tr class="prop-note" data-for="{{ p.pk }}">
             <td colspan="4"><span class="outcome-line">{{ p.suggestion }}</span></td>
