@@ -501,6 +501,9 @@ def proposals(request):
         qs = qs.filter(state=state)
     if flag:
         qs = qs.filter(flag=flag)
+    # Before the dataset filter: the chips have to count what the rest of
+    # this view holds, or selecting one contradicts the number on it.
+    in_view = qs
     if dataset:
         qs = qs.filter(dataset=dataset)
 
@@ -515,12 +518,39 @@ def proposals(request):
     counts = dict(
         scoped.values_list("flag").annotate(n=Count("id")).values_list("flag", "n")
     )
-    by_dataset = sorted(
-        pending.values_list("dataset")
+    # Every directory this reviewer may write, including the ones with
+    # nothing left in them.
+    #
+    # Built from `pending` alone, a directory left the page the moment its
+    # last question was answered: Missouri's queue was worked to zero on
+    # 28 August and Missouri disappeared, taking its 139 accepted and 140
+    # fixed proposals with it -- unreachable, because the only way to
+    # filter to them was a chip that was no longer drawn. With one
+    # directory left the template then hid the row entirely, so the
+    # control did not shrink, it vanished.
+    #
+    # Counted against the current view rather than against pending, so a
+    # chip promises what selecting it delivers.
+    counted = dict(
+        in_view.values_list("dataset")
         .annotate(n=Count("id"))
-        .values_list("dataset", "n"),
-        key=lambda row: -row[1],
+        .values_list("dataset", "n")
     )
+    from explorer.scoping import datasets_for as _datasets_for
+
+    reachable_datasets = list(
+        _datasets_for(request.user, WRITE).values_list("slug", "label")
+    )
+    by_dataset = [
+        (slug, label or slug, counted.get(slug, 0))
+        for slug, label in reachable_datasets
+    ]
+    # A proposal on a record in no dataset is still somebody's to answer,
+    # so that bucket appears when it holds anything.
+    if counted.get("", 0):
+        by_dataset.append(("", "In no dataset", counted[""]))
+    # Work first, then the finished ones in a stable order.
+    by_dataset.sort(key=lambda row: (-row[2], row[1].lower()))
     return render(
         request,
         "review/proposals.html",
@@ -537,7 +567,7 @@ def proposals(request):
             # Every directory with something pending in it, biggest
             # first, and what "" means said in words: a proposal on a
             # record in no dataset is still somebody's to answer.
-            "datasets": [(slug, slug or "In no dataset", n) for slug, n in by_dataset],
+            "datasets": by_dataset,
             "pending_total": pending.count(),
             "pending_here": scoped.count(),
             # An empty queue means nothing wrong or nothing looked, and a
