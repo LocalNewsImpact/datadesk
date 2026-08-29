@@ -113,6 +113,22 @@
                rel="noreferrer noopener" target="_blank">login&nbsp;page&nbsp;↗</a>
           </p>
           {% endif %}
+          {% if r.owner %}
+          {% comment %}
+          Who owns the publication, in the same column as its name and
+          address because it is the same kind of fact. It bears on the
+          question this page asks: a chain's paywall is one subscription
+          decision across many titles, and knowing the owner is how
+          somebody sees that before paying twice.
+
+          Shown only when the record carries one -- 254 of 1,149 sources
+          do -- rather than a labelled blank on the rest.
+          {% endcomment %}
+          <p class="goes">
+            <span class="goes-to">Owner</span>
+            <span class="owner">{{ r.owner }}</span>
+          </p>
+          {% endif %}
           {% comment %}
           Under the name and the address, because it is a statement about
           this publisher rather than about the subscription beside it:
