@@ -2970,6 +2970,7 @@ def test_a_paywall_with_no_sign_in_is_not_a_queue_question(mo, editor):
     assert "The Locked Gazette" in body
     assert "no sign-in stored" in body
 
+
 @pytest.mark.django_db(databases=["default", "crawler"])
 def test_a_publisher_nobody_marked_is_not_asked_about(mo, editor):
     """The flag is about the record, not the evidence: a publisher whose
