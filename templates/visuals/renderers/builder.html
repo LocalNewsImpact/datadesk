@@ -47,7 +47,7 @@
     <button type="button" class="dd-toggle" data-target="dd-chart-{{ visual.slug }}">View data</button>
   </figcaption>
 </figure>
-{{ visual.config|json_script:"dd-config" }}
+{{ visual.render_config|json_script:"dd-config" }}
 {% comment %}
 Only what this kind draws with. Plot reads globalThis.d3 rather than
 bundling it, so d3 comes with Plot and not instead of it; a table draws in

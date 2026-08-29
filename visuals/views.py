@@ -603,7 +603,7 @@ def page(request, slug):
                 visual, by_uuid=False, live=may_act_on(request.user, visual)
             ),
             "stamp": _question_stamp(visual, may_act_on(request.user, visual)),
-            "libs": libs_for((visual.config or {}).get("kind")),
+            "libs": libs_for(visual.render_config.get("kind")),
             "credit_name": _credit_line(visual)[0],
             "credit_email": _credit_line(visual)[1],
         },
@@ -650,7 +650,7 @@ def public_page(request, slug=None, uuid=None):
                 and (shown or visual.pinned_snapshot).version,
             ),
             "attribution": _attribution(visual),
-            "libs": libs_for((visual.config or {}).get("kind")),
+            "libs": libs_for(visual.render_config.get("kind")),
             "credit_name": _credit_line(visual)[0],
             "credit_email": _credit_line(visual)[1],
             # What the reader is looking at, whether they pinned it or
@@ -685,7 +685,7 @@ def embed(request, slug=None, uuid=None):
             "stamp": "",
             "theme_stamp": _theme_for(request, visual),
             "geo_preload": _geo_preload(visual),
-            "libs": libs_for((visual.config or {}).get("kind")),
+            "libs": libs_for(visual.render_config.get("kind")),
             "credit_name": _credit_line(visual)[0],
             "credit_email": _credit_line(visual)[1],
         },
@@ -1586,7 +1586,7 @@ def builder_step(request, slug, step):
             # Named, so walking between panels does not ask the corpus
             # the same question once per panel.
             "stamp": stamp,
-            "libs": libs_for((visual.config or {}).get("kind")),
+            "libs": libs_for(visual.render_config.get("kind")),
             "credit_name": _credit_line(visual)[0],
             "credit_email": _credit_line(visual)[1],
             # What the preview is still waiting for, so it can say so
