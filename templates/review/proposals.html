@@ -58,11 +58,15 @@
   publishers with no owner recorded would otherwise sit on top of the
   dozen questions somebody came here to answer.
 
-  Shown only where there is more than one to choose between: a single
-  directory needs no filter, and a chip that is always the only chip is a
-  control that never does anything.
+  Every directory the reviewer may write, including the finished ones.
+  Shown only where more than one had work in it, this row disappeared the
+  moment the second-to-last directory was cleared: Missouri's queue
+  reached zero on 28 August and Missouri left the page, taking with it
+  any way to filter to the 139 accepted and 140 fixed proposals decided
+  there. A directory with nothing outstanding is worth showing -- it is
+  the difference between "nothing wrong here" and "nobody has looked".
   {% endcomment %}
-  {% if datasets|length > 1 %}
+  {% if datasets %}
   <nav class="queue-facets" aria-label="Which directory">
     <a href="?flag={{ flag }}&state={{ state }}"
        class="facet-chip {% if not dataset %}on{% endif %}">
@@ -70,7 +74,7 @@
     </a>
     {% for slug, label, count in datasets %}
     <a href="?dataset={{ slug|urlencode }}&flag={{ flag }}&state={{ state }}"
-       class="facet-chip {% if dataset == slug %}on{% endif %}">{{ label }} <span>{{ count }}</span></a>
+       class="facet-chip {% if dataset == slug %}on{% endif %}{% if not count %} done{% endif %}">{{ label }} <span>{% if count %}{{ count }}{% else %}no work{% endif %}</span></a>
     {% endfor %}
   </nav>
   {% endif %}

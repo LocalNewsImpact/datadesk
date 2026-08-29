@@ -1527,6 +1527,12 @@ td.count.flagged-length { color: var(--tone-warn); font-weight: 600; }
   text-decoration: none; color: inherit; }
 .facet-chip span { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .facet-chip.on { border-color: currentColor; font-weight: 600; }
+/* A directory with nothing left in it. Still selectable -- the decided
+   proposals are still there to look at -- but it should not compete for
+   attention with the ones holding work. */
+.facet-chip.done { opacity: .62; }
+.facet-chip.done span { font-variant-numeric: normal; font-style: italic; }
+.facet-chip.done.on { opacity: 1; }
 .rec { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1rem; overflow: hidden; }
 .rec-head { display: flex; align-items: baseline; gap: .75rem; padding: .6rem .9rem;
   border-bottom: 1px solid var(--border); }
