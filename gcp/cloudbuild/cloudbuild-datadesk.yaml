@@ -22,7 +22,7 @@ substitutions:
   _REGISTRY: us-central1-docker.pkg.dev/lnic-datadesk/app
   _SERVICE: datadesk
   _RUN_SA: datadesk-run@lnic-datadesk.iam.gserviceaccount.com
-  _SQL_INSTANCE: mizzou-news-crawler:us-central1:mizzou-db-prod
+  _SQL_INSTANCE: mizzou-news-crawler:us-central1:mizzou-db-prod-ssd
   _ADMIN_HOST: datadesk.localnewsimpact.org
   # The second front end this image serves, in its own project.
   _SOURCES_PROJECT: lnic-source-directory

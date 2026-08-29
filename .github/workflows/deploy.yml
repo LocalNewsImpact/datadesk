@@ -58,7 +58,7 @@ env:
   # port, so the service is given the connection name and assembles the DSN
   # itself (datadesk/settings.py). A DATABASE_URL built here would point the
   # deployed service at its own localhost.
-  SQL_INSTANCE: mizzou-news-crawler:us-central1:mizzou-db-prod
+  SQL_INSTANCE: mizzou-news-crawler:us-central1:mizzou-db-prod-ssd
   ADMIN_HOST: datadesk.localnewsimpact.org
   # The second front end this image serves, in its own project. See the block
   # at the end of the deploy job.

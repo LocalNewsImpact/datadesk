@@ -18,7 +18,7 @@ it creates, so rerunning is safe and reading it tells you what exists.
 
 1. `./infra/bootstrap.sh` — creates `lnic-datadesk`, service accounts, WIF,
    secrets, the `datadesk` database and user on
-   `mizzou-news-crawler:us-central1:mizzou-db-prod`, and the read-only
+   `mizzou-news-crawler:us-central1:mizzou-db-prod-ssd`, and the read-only
    BigQuery/bucket grants.
 2. Set the repository variable it prints (`gh variable set WIF_PROVIDER …`) —
    the Deploy workflow skips quietly until this exists.
@@ -60,7 +60,7 @@ executing code that is not deployed.
 | External sign-in | invitation by address, plus the consent screen — `infra/oauth-external.md` |
 | Mail | Gmail API, not SMTP: `gmail-credentials` (service account with domain-wide delegation) sending as `chair@localnewsimpact.org` |
 | Secrets | `django-secret-key`, `db-password`, `crawler-ro-password`, `crawler-rw-password`, `google-oauth-client-id`, `google-oauth-client-secret` |
-| App database | `datadesk` on `mizzou-news-crawler:us-central1:mizzou-db-prod` |
+| App database | `datadesk` on `mizzou-news-crawler:us-central1:mizzou-db-prod-ssd` |
 | Crawler read | role `datadesk_ro`, SELECT-only on `mizzou` |
 | Crawler write | role `datadesk_rw`, column-level UPDATE per SCOPE.md §6.5 |
 | Console hostname | `datadesk.localnewsimpact.org` via Cloud Run domain mapping |
@@ -106,7 +106,7 @@ gcloud's exit code. Request the same project-level exception for
 
 ## The shared instance
 
-Three applications now share `mizzou-db-prod` and its connection cap. The
+Three applications now share `mizzou-db-prod-ssd` and its connection cap. The
 Django side holds `CONN_MAX_AGE = 60` and Cloud Run runs one gunicorn worker
 with 8 threads per instance; raise `--max-instances` deliberately, not by
 default, and revisit if the instance shows connection pressure.

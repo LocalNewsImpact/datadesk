@@ -13,7 +13,7 @@ systems that already exist:
 
 | System | Role for Datadesk | Access |
 |---|---|---|
-| Crawler Cloud SQL (Postgres, `mizzou-news-crawler:us-central1:mizzou-db-prod`) | System of record: articles, enrichment, datasets, sources, gazetteer | Read: dedicated read-only DB role. Write: narrow audited role used only by review/cleanup and dataset-management actions |
+| Crawler Cloud SQL (Postgres, `mizzou-news-crawler:us-central1:mizzou-db-prod-ssd`) | System of record: articles, enrichment, datasets, sources, gazetteer | Read: dedicated read-only DB role. Write: narrow audited role used only by review/cleanup and dataset-management actions |
 | BigQuery `mizzou_analytics` | Analytics mirror (nightly), OpenRouter cost traces (`openrouter_traces` external table over `gs://mizzou-openrouter-logs`) | Read-only service account |
 | `gs://mizzou-news-maps-data` (private) | Optional cache for pre-computed visual data | Read/write |
 | Datadesk's own Cloud SQL database | Application state only: users, roles, visual registry, review annotations, audit log, import batches | Owner |
@@ -165,7 +165,7 @@ designed around them.
 ## 3. Architecture
 
 - Django 5.x, Postgres — a `datadesk` database on the existing
-  `mizzou-db-prod` Cloud SQL instance (§6.2), `django-allauth`,
+  `mizzou-db-prod-ssd` Cloud SQL instance (§6.2), `django-allauth`,
   htmx for grid interactivity before reaching for a SPA
 - Read access to the crawler DB through the Cloud SQL connector with a
   read-only role created for the purpose (`--auto-iam-authn` alone fails on
@@ -217,7 +217,7 @@ Decided 2026-08-21:
    Run Job; the gazetteer build trigger dispatches to the crawler's
    existing offline state-extract path rather than running here.
 2. **Database: shared instance.** A `datadesk` database on
-   `mizzou-db-prod`, with the sources directory's role-isolation SQL
+   `mizzou-db-prod-ssd`, with the sources directory's role-isolation SQL
    ported (`isolate_directory_role.sql` — closes the PUBLIC CONNECT
    default and the `cloudsqlsuperuser` membership Cloud SQL grants every
    API-created user) plus its read-only-role pattern for the crawler
@@ -228,7 +228,7 @@ Decided 2026-08-21:
 
 4. **GCP project: dedicated** (proposed name `lnic-datadesk`), the
    sources-directory precedent. Own WIF binding, service accounts, and
-   registry; cross-project access to `mizzou-db-prod` and BigQuery is
+   registry; cross-project access to `mizzou-db-prod-ssd` and BigQuery is
    IAM grants, the pattern the directory already proved.
 
 5. **The write-role boundary** (decided 2026-08-21): a `datadesk_rw`

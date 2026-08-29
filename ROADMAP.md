@@ -1140,7 +1140,7 @@ independent of the third:**
 
    Nothing infrastructural is in the way. Both services already run
    against the same Cloud SQL instance,
-   `mizzou-news-crawler:us-central1:mizzou-db-prod` — Datadesk on the
+   `mizzou-news-crawler:us-central1:mizzou-db-prod-ssd` — Datadesk on the
    `datadesk` database, the directory on `directory`. Same socket, same
    failure domain. There is no network, IAM or connectivity work.
 
@@ -1675,7 +1675,7 @@ sequential one. A plan built from many small random reads therefore
 looks cheap and is not.
 
 **Why it is not fixed in Datadesk.** It is an instance-level flag on
-`mizzou-news-crawler:us-central1:mizzou-db-prod`, which the crawler,
+`mizzou-news-crawler:us-central1:mizzou-db-prod-ssd`, which the crawler,
 Datadesk and the Source Directory all share. Changing it changes plans
 for every query in every one of them — likely for the better, since the
 same storage economics apply to all, but that is a claim to test rather
