@@ -79,6 +79,21 @@ class ChangeProposal(models.Model):
         related_name="+",
     )
     decided_at = models.DateTimeField(null=True, blank=True)
+
+    #: What was decided, in the words the buttons use. `STATES` pairs each
+    #: value with itself, so `get_state_display` gives back "rejected" --
+    #: which is not what the reviewer pressed. They pressed Keep.
+    _STATE_LABELS = {
+        ACCEPTED: "Accepted",
+        REJECTED: "Kept",
+        FIXED: "Fixed",
+        PENDING: "Pending",
+    }
+
+    @property
+    def state_label(self):
+        return self._STATE_LABELS.get(self.state, self.state)
+
     # What the check believes the value should be, when it knows: the
     # gazetteer's spelling, the corpus's spelling of an owner. Offered as
     # its own option so the reviewer does not have to retype it.
