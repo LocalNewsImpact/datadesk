@@ -1,0 +1,32 @@
+.venv/bin/ruff check .
+All checks passed!
+.venv/bin/black --check .
+All done! ✨ 🍰 ✨
+172 files would be left unchanged.
+.venv/bin/isort --check-only .
+Skipped 3 files
+.venv/bin/mypy .
+datasets/places.py:39: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+datasets/places.py:40: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+explorer/costs.py:242: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+Success: no issues found in 135 source files
+.venv/bin/python manage.py makemigrations --check --dry-run
+No changes detected
+.venv/bin/python -m pytest
+........................................................................ [  6%]
+........................................................................ [ 13%]
+........................................................................ [ 19%]
+........................................................................ [ 26%]
+........................................................................ [ 33%]
+........................................................................ [ 39%]
+........................................................................ [ 46%]
+........................................................................ [ 53%]
+........................................................................ [ 59%]
+........................................................................ [ 66%]
+........................................................................ [ 73%]
+........................................................................ [ 79%]
+........................................................................ [ 86%]
+........................................................................ [ 92%]
+........................................................................ [ 99%]
+....                                                                     [100%]
+1084 passed in 78.21s (0:01:18)

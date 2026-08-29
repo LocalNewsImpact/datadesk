@@ -128,3 +128,30 @@ def test_the_ci_workflow_adds_no_step_the_makefile_lacks():
             token = command.split()[1] if head == "python" else head
             token = token.lstrip("-")
             assert token in makefile, f"CI runs `{command}`, the Makefile does not"
+
+
+def test_no_workflow_names_the_retired_database_instance():
+    """A runtime change to a Cloud Run service does not survive a deploy.
+
+    The instance was migrated from PD_HDD to PD_SSD, which Cloud SQL can
+    only do by building a new instance under a new name. Both services
+    were pointed at it with `gcloud run services update` -- and the very
+    next deploy put them back, because the connection name is written in
+    the workflow and in the Cloud Build substitutions. The old instance
+    picked up fresh connections minutes after it had supposedly been
+    retired.
+
+    The deployed configuration is the one in the repository. This asserts
+    it names no instance that is going away.
+    """
+    from pathlib import Path
+
+    retired = "mizzou-db-prod"
+    for pattern in (".github/workflows/*.yml", "gcp/cloudbuild/*.yaml"):
+        for path in Path(REPO).glob(pattern):
+            body = path.read_text()
+            for line in body.splitlines():
+                if retired in line and f"{retired}-ssd" not in line:
+                    raise AssertionError(
+                        f"{path.name} still names {retired}: {line.strip()}"
+                    )
