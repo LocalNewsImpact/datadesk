@@ -55,7 +55,8 @@ def test_resolution_does_not_mutate_the_stored_config():
     """Read, not written: nothing here should need a migration."""
     stored = {"kind": "table"}
     visual = _visual(config=stored, spec={"shape": "story_map"})
-    visual.render_config
+    resolved = visual.render_config
+    assert resolved["kind"] == STORY_MAP_KIND
     assert stored == {"kind": "table"}
 
 

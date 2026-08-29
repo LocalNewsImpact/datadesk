@@ -1,0 +1,130 @@
+"""The pre-push hook must run what CI runs, and must actually block.
+
+A lint failure reached GitHub on PR #204: black was run locally, ruff
+was not, and a bare expression statement went out as a red pull request.
+The hook exists so that cannot happen again -- which is only true if the
+hook works, so it is tested rather than assumed.
+
+The equivalent hook in the crawler repository shipped with a bug that
+made it refuse every push (a variable read one line above its
+assignment). These tests run the installed hook in a scratch repository
+rather than reading it.
+"""
+
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+REPO = Path(__file__).resolve().parent.parent
+INSTALLER = REPO / "scripts" / "setup-hooks.sh"
+
+
+def _run(command, cwd, env=None):
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        shell=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, **(env or {})},
+    )
+
+
+def test_the_installer_is_valid_shell():
+    assert _run(f"bash -n {INSTALLER}", REPO).returncode == 0
+
+
+def test_the_installed_hook_is_valid_shell(tmp_path):
+    hook = _install_into(tmp_path)
+    assert _run(f"bash -n {hook}", tmp_path).returncode == 0
+
+
+def _install_into(tmp_path):
+    """A scratch git repo with the hook installed, and a fake `make`."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _run("git init -q && git config user.email t@e && git config user.name t", repo)
+    (repo / "scripts").mkdir()
+    shutil.copy(INSTALLER, repo / "scripts" / "setup-hooks.sh")
+    os.chmod(repo / "scripts" / "setup-hooks.sh", 0o755)
+    result = _run("./scripts/setup-hooks.sh", repo)
+    assert result.returncode == 0, result.stderr
+    return repo / ".git" / "hooks" / "pre-push"
+
+
+def _fake_make(repo, exit_code):
+    """A `make` on PATH that records its arguments and exits as told."""
+    binn = repo / "fakebin"
+    binn.mkdir(exist_ok=True)
+    make = binn / "make"
+    make.write_text(
+        "#!/usr/bin/env bash\n"
+        f'echo "make called with: $*" >> "{repo}/make.log"\n'
+        f"exit {exit_code}\n"
+    )
+    os.chmod(make, 0o755)
+    return {"PATH": f"{binn}:{os.environ['PATH']}"}
+
+
+def test_the_hook_runs_make_check(tmp_path):
+    hook = _install_into(tmp_path)
+    repo = hook.parent.parent.parent
+    env = _fake_make(repo, 0)
+    result = _run(str(hook), repo, env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "make called with: check" in (repo / "make.log").read_text()
+
+
+def test_the_hook_blocks_the_push_when_checks_fail(tmp_path):
+    """The whole point. A hook that reports failure and exits 0 is worse
+    than no hook, because it is trusted."""
+    hook = _install_into(tmp_path)
+    repo = hook.parent.parent.parent
+    env = _fake_make(repo, 1)
+    result = _run(str(hook), repo, env)
+    assert result.returncode == 1
+    assert "push aborted" in (result.stdout + result.stderr).lower()
+
+
+def test_the_hook_does_not_read_a_variable_before_assigning_it():
+    """The exact defect that made the crawler's hook refuse every push."""
+    body = (REPO / "scripts" / "setup-hooks.sh").read_text()
+    start = body.index("HOOK_BODY'")
+    hook_body = body[start : body.index("\nHOOK_BODY\n", start)]
+    assigned = hook_body.index("REPO_ROOT=")
+    first_use = hook_body.index('"$REPO_ROOT"')
+    assert assigned < first_use
+
+
+@pytest.mark.parametrize(
+    "command", ["ruff", "black", "isort", "mypy", "makemigrations", "pytest"]
+)
+def test_make_check_still_covers_every_ci_step(command):
+    """The hook delegates to `make check`; this asserts what that means.
+
+    If a step is added to CI and not to the Makefile, the hook silently
+    stops matching CI and this fails.
+    """
+    makefile = (REPO / "Makefile").read_text()
+    assert command in makefile
+
+
+def test_the_ci_workflow_adds_no_step_the_makefile_lacks():
+    workflow = (REPO / ".github/workflows/ci.yml").read_text()
+    makefile = (REPO / "Makefile").read_text()
+    for line in workflow.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("run: "):
+            continue
+        command = stripped[len("run: ") :].strip()
+        if command.startswith("pip install") or command.startswith("python -m pip"):
+            continue
+        head = command.split()[0]
+        if head in {"python", "ruff", "black", "isort", "mypy"}:
+            # The distinguishing word, not the interpreter.
+            token = command.split()[1] if head == "python" else head
+            token = token.lstrip("-")
+            assert token in makefile, f"CI runs `{command}`, the Makefile does not"
