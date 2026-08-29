@@ -93,6 +93,34 @@ class Visual(models.Model):
     # corpus visual follows the data without re-uploading anything.
     spec = models.JSONField(default=dict, blank=True)
 
+    @property
+    def render_config(self):
+        """The config a renderer should draw from, with `kind` resolved.
+
+        Two keys say a visual is a story map and only one of them is
+        always written. `spec["shape"]` is set by the pivot form on the
+        settings page; `config["kind"]` is set by step one of the walk.
+        `services.fetch_source_data` already reads both, so a visual
+        carrying only the spec key still produces story map DATA -- two
+        layers of areas and points, not a row array.
+
+        The renderer did not read both. It dumped `config` verbatim, so
+        such a visual reached the browser declaring `kind: "table"` over
+        a payload with no `.length`, and `datadesk-chart` printed
+        "No data." over a perfectly good feed. Published, static, and
+        blank: boone-county-coverage on 2026-08-29.
+
+        Resolved here rather than in each of the four views that mount a
+        renderer, and read rather than written, so a visual saved before
+        the walk existed draws correctly without a migration.
+        """
+        from visuals.services import STORY_MAP_KIND
+
+        config = dict(self.config or {})
+        if (self.spec or {}).get("shape") == "story_map":
+            config["kind"] = STORY_MAP_KIND
+        return config
+
     # The embed stability rule: the pinned snapshot is what embeds serve.
     pinned_snapshot = models.ForeignKey(
         "VisualSnapshot",
