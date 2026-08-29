@@ -1002,7 +1002,13 @@ def schema(request):
 
 
 PAYWALL_COUNTS_CACHE_KEY = "review.paywall_corpus_counts"
-PAYWALL_COUNTS_CACHE_SECONDS = 300
+# An hour, because `warm_caches` runs every 45 minutes and a cache that
+# expires before the next warm is not warmed at all. At 300s this entry
+# was expired for 40 of every 45 minutes, so nearly every visit paid the
+# uncached cost -- 104 seconds on 2026-08-29, against a warm 1.7s. The
+# other warmed targets (costs, dashboard, crawler counts) were already
+# 3600 and did not have the symptom. Keep this above the warm interval.
+PAYWALL_COUNTS_CACHE_SECONDS = 3600
 
 
 def paywall_corpus_counts():
@@ -1015,10 +1021,16 @@ def paywall_corpus_counts():
     saves a price and comes straight back to it -- so it was paying that
     on every return.
 
-    Five minutes, matching the dashboard. These numbers move when the
-    pipeline runs, which is not while somebody is editing a record, and
-    `warm_caches` fills this from the deploy so the first reader after a
-    new revision does not pay for it either.
+    An hour, matching the other warmed caches and outliving the
+    45-minute `warm_caches` cycle. These numbers move when the pipeline
+    runs, which is not while somebody is editing a record.
+
+    The cost is not the 13s the first version measured. The production
+    database is db-g1-small on PD_HDD, whose sustained random reads are
+    about 0.75 IOPS per GB -- roughly 11 IOPS at 15GB -- against a join
+    over `articles` (1.4GB) and `candidate_links` (446MB) with 128MB of
+    shared buffers and a 54% buffer hit ratio. Cold, this query has been
+    measured at 104 seconds.
 
     The second half is the evidence for "verified": a sign-in that is
     configured is not a sign-in that works. Seven publishers carry
