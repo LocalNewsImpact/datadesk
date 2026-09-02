@@ -196,8 +196,10 @@
             {% if r.last_comment.0 %}
             <p class="hint last-comment">last: “{{ r.last_comment.0 }}”{% if r.last_comment.2 %} — {{ r.last_comment.2 }}{% endif %}{% if r.last_comment.1 %}, {{ r.last_comment.1|date:"j M Y" }}{% endif %}</p>
             {% endif %}
-            <button type="submit">Save</button>
-            <span class="unsaved-note" hidden>unsaved</span>
+            <div class="form-actions">
+              <span class="unsaved-note" hidden>unsaved</span>
+              <button type="submit">Save</button>
+            </div>
           </form>
           {% if r.has_paywall %}
           <p class="hint saved-state">recorded as paywalled</p>
