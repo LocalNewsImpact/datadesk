@@ -185,6 +185,10 @@ class Article(CrawlerModel):
     # is the current field and the one review edits will target.
     text = models.TextField(null=True)
     text_excerpt = models.TextField(null=True)
+    #: Where the page as captured is archived. The bucket has 30-day
+    #: retention, so a row older than that has none -- which is what
+    #: decides whether a body can be re-parsed or is simply gone.
+    raw_gcs_path = models.TextField(null=True)
     status = models.TextField()
     wire_check_status = models.TextField()
     # The wire check's own findings: a JSON array naming the syndication

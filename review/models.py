@@ -100,3 +100,63 @@ class PaywallDismissal(models.Model):
 
     def __str__(self):
         return f"{self.source_label or self.source_id}: no paywall"
+
+
+class ExtractionDecision(models.Model):
+    """What a person decided about a classification the pipeline made.
+
+    Automated triage removes an article from processing by writing a
+    status: `not_article`, `obituary`, `weather`, `opinion`, `wire`,
+    `paywall`. Each is a claim, and each can be wrong -- 1,517 obituary
+    verdicts were made at the detector's own confidence floor of 0.17, on
+    a single body phrase, and one of them was a feature about Jim
+    Morrison's grave.
+
+    Three decisions, and only one of them writes to the crawler.
+
+    ACCEPT: the classification stands. Nothing is written to the article,
+    because its status already excludes it from processing -- enrichment
+    selects `labeled` and nothing else. The decision lives here so the
+    queue stops asking, the same reason PaywallDismissal exists.
+
+    REJECT: the classification is wrong. The article's status is rewound
+    to the stage before the one that erred, and the pipeline carries on
+    with the fields it already captured. Re-extraction is not the remedy
+    and never was: the article HAS been extracted, and fetching the URL
+    again would produce the same result.
+
+    REEXTRACT: the fields themselves are missing, not the verdict wrong.
+    Extraction dropped the body on 788 rows, so there is nothing to rewind
+    to. The raw HTML in gs://mizzou-news-crawler-raw-html is re-parsed --
+    the page as captured, not re-crawled. It has 30-day retention, so this
+    is only offered while the archive still holds it.
+    """
+
+    ACCEPT = "accept"
+    REJECT = "reject"
+    REEXTRACT = "reextract"
+    DECISIONS = [(d, d) for d in (ACCEPT, REJECT, REEXTRACT)]
+
+    article_id = models.TextField(unique=True)
+    article_label = models.TextField(blank=True, default="")
+    #: The status the article carried when it was reviewed, so a decision
+    #: can be read back against the claim it answered.
+    classified_as = models.TextField()
+    #: Which stage made the claim: extraction, labeling or enrichment.
+    #: It decides where REJECT rewinds to.
+    stage = models.TextField(blank=True, default="")
+    decision = models.TextField(choices=DECISIONS)
+    #: Where REJECT put the status, recorded rather than recomputed: the
+    #: rewind map may change, and this says what was actually done.
+    rewound_to = models.TextField(blank=True, default="")
+    reason = models.TextField(blank=True, default="")
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    decided_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-decided_at"]
+
+    def __str__(self):
+        return f"{self.decision} {self.article_id} ({self.classified_as})"
