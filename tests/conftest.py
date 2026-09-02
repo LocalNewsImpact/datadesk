@@ -79,7 +79,7 @@ _CRAWLER_TABLES = {
     "articles": (
         "(id TEXT PRIMARY KEY, candidate_link_id TEXT, url TEXT, title TEXT,"
         " author TEXT, publish_date TIMESTAMP, content TEXT, text TEXT,"
-        " text_excerpt TEXT, status TEXT,"
+        " text_excerpt TEXT, raw_gcs_path TEXT, status TEXT,"
         " wire_check_status TEXT, wire TEXT, created_at TIMESTAMP,"
         " primary_label TEXT,"
         " primary_label_confidence REAL, alternate_label TEXT,"
