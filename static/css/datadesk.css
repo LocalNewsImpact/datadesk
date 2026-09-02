@@ -1215,10 +1215,15 @@ label.stacked .required {
    above: stacked, three fields and a button ran the column deeper than
    the row needed and pushed the table past a laptop's width. */
 label.side { display: grid; grid-template-columns: 7.5rem 1fr; align-items: center;
-  gap: var(--s-2); margin-bottom: var(--s-1); font-size: var(--fs-sm);
+  gap: var(--s-1); margin-bottom: var(--s-1); font-size: var(--fs-sm);
   color: var(--text-2); }
 label.side input, label.side select { width: 100%; min-width: 0; }
-.last-comment { margin: 0 0 var(--s-2) 7.5rem; font-style: italic; }
+.last-comment { margin: 0 0 var(--s-2) calc(7.5rem + var(--s-1)); font-style: italic; }
+
+/* Save sits under the comment box and hard right, where the eye already
+   is after typing into the last field. */
+.inline-form .form-actions { display: flex; justify-content: flex-end;
+  align-items: center; gap: var(--s-2); }
 
 /* A row with changes not yet saved. The page previously looked the same
    whether somebody had typed or not, so a half-filled row and a saved
