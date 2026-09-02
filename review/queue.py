@@ -94,6 +94,100 @@ DOUBT_THRESHOLD = 5
 ROT47_MARKERS = ("k^Am", "kE23=6", "lQA5C2?<Qm")
 
 
+# --- what the pipeline recorded about its own verdicts ----------------------
+#
+# The content type detector writes confidence_score, reason and evidence to
+# content_type_detection_telemetry for every row it decides -- 100% coverage,
+# joined on article_id. That is the detector's own stated uncertainty, and it
+# is a better signal than anything inferred here from the text afterwards.
+#
+# Coverage since telemetry began (2025-11-07): weather 100%, obituary 97.7%,
+# opinion 95.6%, wire 12.8%. Wire is the exception because several paths can
+# set it and only this one writes here; wire is judged on its detection
+# method instead, below.
+
+#: An obituary called on a phrase in the body with nothing else agreeing.
+#: 1,098 rows, average confidence 0.17 and never above 0.25 -- the
+#: detector's own floor. The evidence is usually a single phrase:
+#: {"content": ["passed away"]}, 542 of them. That is enough to catch
+#: "The grave of The Doors singer Jim Morrison has become a sh...",
+#: "BackStoppers" (a charity for families of fallen first responders) and
+#: two newspapers' own names. Where the URL path or the title agrees the
+#: average rises to 0.38 and the calls are right.
+#:
+#: Weather and opinion have no content-only cases at all, so this shape
+#: is specific to obituary.
+CORROBORATING_EVIDENCE_KEYS = ("url", "title_patterns", "title")
+
+#: Cross-domain canonical is 62% of all evidenced wire verdicts, and it is
+#: the method behind the misattribution where a canonical pointing at a
+#: same-site alias reads as syndication. Judged on the relationship rather
+#: than the method: of 15,220 rows decided this way only 155 point at a
+#: host sharing the publisher's own first label. Surfacing the method
+#: itself would be 113 a day, nearly all of them correct.
+WIRE_SUSPECT_METHOD = "canonical_cross_domain"
+
+
+def evidence_is_corroborated(evidence) -> bool:
+    """Did anything beyond a phrase in the body agree with the verdict?"""
+    if not isinstance(evidence, dict):
+        return False
+    return any(key in evidence for key in CORROBORATING_EVIDENCE_KEYS)
+
+
+def same_site_alias(publisher_host: str, canonical_host: str) -> bool:
+    """Two hosts that are the same newsroom under different names.
+
+    emissourian.com and missourian.com share no label and are not caught;
+    a subdomain alias like nwaonline.com does. Compared on the first label
+    rather than by substring, which matched kansascity.com against
+    kansas.com -- two different newsrooms.
+    """
+
+    def head(host):
+        host = (host or "").strip().lower().removeprefix("www.")
+        return host.split(".")[0] if host else ""
+
+    left, right = head(publisher_host), head(canonical_host)
+    return bool(left) and left == right
+
+
+def classification_doubt(
+    status,
+    confidence_score=None,
+    evidence=None,
+    wire_method=None,
+    publisher_host=None,
+    canonical_host=None,
+) -> int:
+    """How much reason there is to doubt a classification the pipeline made.
+
+    Scored from what the pipeline recorded, not from the text. A verdict
+    with no telemetry scores zero rather than a guess: absence of evidence
+    is not evidence the call was wrong.
+    """
+    score = 0
+    if status == "wire":
+        if wire_method == WIRE_SUSPECT_METHOD and same_site_alias(
+            publisher_host or "", canonical_host or ""
+        ):
+            score += 5
+        return score
+
+    if confidence_score is None:
+        return 0
+    # An obituary resting on a body phrase alone. Capped at 0.25 by the
+    # detector itself, so this and the score below are one signal seen twice
+    # -- the shape is the reason, the score is the symptom.
+    if status == "obituary" and not evidence_is_corroborated(evidence):
+        score += 4
+    if confidence_score < 0.30:
+        score += 2
+    elif confidence_score < 0.50:
+        score += 1
+    return score
+
+
 def prose_density(text):
     """Sentence enders per 1,000 characters.
 
