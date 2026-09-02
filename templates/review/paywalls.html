@@ -191,7 +191,7 @@
             {% endcomment %}
             <label class="side">Comment
               <input type="text" name="reason" value=""
-                     placeholder="{% if r.last_comment.0 %}{{ r.last_comment.0 }}{% else %}why, for whoever reads this next{% endif %}">
+                     placeholder="{% if r.last_comment.0 %}{{ r.last_comment.0 }}{% else %}Note any unusual details (print only, no digital etc){% endif %}">
             </label>
             {% if r.last_comment.0 %}
             <p class="hint last-comment">last: “{{ r.last_comment.0 }}”{% if r.last_comment.2 %} — {{ r.last_comment.2 }}{% endif %}{% if r.last_comment.1 %}, {{ r.last_comment.1|date:"j M Y" }}{% endif %}</p>
