@@ -244,6 +244,37 @@ class Article(CrawlerModel):
         return names
 
 
+class ContentTypeDetection(CrawlerModel):
+    """What the content type detector recorded about its own verdict.
+
+    Its confidence, the reason and the evidence are written here rather
+    than to articles.metadata, which is why an earlier reading concluded
+    the reasoning had been discarded. Coverage since 2025-11-07: weather
+    100%, obituary 97.7%, opinion 95.6%, wire 12.8% -- wire is set by
+    several paths and only this one writes here.
+    """
+
+    id = models.TextField(primary_key=True)
+    #: A log rather than a record: an article can have more than one row,
+    #: so queries over it are distinct.
+    article = models.ForeignKey(
+        "explorer.Article",
+        on_delete=models.DO_NOTHING,
+        db_column="article_id",
+        related_name="detections",
+        null=True,
+        db_constraint=False,
+    )
+    detected_type = models.TextField(null=True)
+    detection_method = models.TextField(null=True)
+    confidence_score = models.FloatField(null=True)
+    reason = models.TextField(null=True)
+    evidence = models.JSONField(null=True)
+
+    class Meta(CrawlerModel.Meta):
+        db_table = "content_type_detection_telemetry"
+
+
 class ArticleEnrichment(CrawlerModel):
     # One row per article (the crawler upserts ON CONFLICT (article_id)).
     article = models.OneToOneField(

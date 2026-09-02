@@ -118,6 +118,15 @@ _CRAWLER_TABLES = {
         " description TEXT, mention_text TEXT, is_point INTEGER, lat REAL,"
         " lon REAL, geocoder TEXT, geoid TEXT, geoid_level TEXT)"
     ),
+    # What the content type detector recorded about its own verdict. The
+    # confidence and evidence live here rather than on the article, which
+    # is what makes an obituary called on one body phrase distinguishable
+    # from one the URL and title agree with.
+    "content_type_detection_telemetry": (
+        "(id TEXT PRIMARY KEY, article_id TEXT, detected_type TEXT,"
+        " detection_method TEXT, confidence_score REAL, reason TEXT,"
+        " evidence TEXT)"
+    ),
 }
 
 
