@@ -58,6 +58,110 @@ PAYWALL_STUB_SKIP_REASONS = ("paywall_stub", "paywall_stub_exported_unenriched")
 SCOPE_SKIP_REASONS = ("scope_recorded_not_excluded",)
 SCOPE_SKIP_REASON_PREFIX = "scope_excluded_"
 
+
+# --- which phase raised the flag, and how much to doubt it ------------------
+#
+# `not_article` is written in two places, and they mean different things.
+#
+# EXTRACTION (src/cli/commands/extraction.py) judges a body "furniture,
+# not prose", sets the status and drops `text` while leaving `content`
+# as captured. Such a row has no article_enrichment row and was never
+# labelled.
+#
+# ENRICHMENT (src/enrichment/orchestrator.py, step 0) runs a content gate
+# on articles that already reached `labeled`. Such a row always has an
+# article_enrichment row, an enriched_at, and a CIN label.
+#
+# Discovery cannot produce either: its own `not_article_like` only
+# escalates a capture to a browser fetch, and writes no article row.
+#
+# The discriminator is the enrichment row. Measured over the corpus it
+# separates 1,051 extraction rows from 207 enrichment rows with no
+# overlap on any of enrichment row, enriched_at, labelled, or text.
+PHASE_EXTRACTION = "extraction"
+PHASE_ENRICHMENT = "enrichment"
+
+#: Surface a flag only when there is this much reason to doubt it. At
+#: 175 extraction rejections per active day against ~815 articles, a
+#: queue holding all of them is a backlog rather than a review.
+DOUBT_THRESHOLD = 5
+
+#: TownNews/BLOX serves paywalled bodies ROT47-encoded. `kE23=6 4=2DDlQ`
+#: is `<table class="p`. Where the decode did not run the body reaches
+#: extraction as ciphertext, reads as furniture, and is rejected -- so
+#: this signature is never a correct rejection. All 11 in the corpus are
+#: 102-108KB StatBot sports pages, 9 of them bylined.
+ROT47_MARKERS = ("k^Am", "kE23=6", "lQA5C2?<Qm")
+
+
+def prose_density(text):
+    """Sentence enders per 1,000 characters.
+
+    Length alone ranks the wrong rows first: the corpus band that reads
+    least like prose averages 11,404 characters, because a 108KB table of
+    box scores is long and a real 1,500-character story is not. Counting
+    sentence enders inverts that -- writing runs 4-8 per 1,000, furniture
+    and navigation under 1.
+    """
+    if not text:
+        return 0.0
+    per_thousand = len(text) / 1000.0
+    if not per_thousand:
+        return 0.0
+    enders = text.count(". ") + text.count(".\n")
+    return enders / per_thousand
+
+
+def looks_rot47(text):
+    """Undecoded TownNews premium body, rather than furniture."""
+    return bool(text) and any(marker in text for marker in ROT47_MARKERS)
+
+
+def doubt(article, enrichment=None):
+    """How much reason there is to think this rejection is wrong.
+
+    Two scales, because the phases leave different evidence. Both are
+    tuned so DOUBT_THRESHOLD selects rows that look like real articles
+    rather than a random slice.
+    """
+    text = article.text or ""
+    content = article.content or ""
+    bylined = bool((article.author or "").strip())
+
+    if enrichment is not None:
+        # The enrichment gate has two paths and only one records a
+        # reason: `boilerplate_score >= HEURISTIC_REJECT` returns with no
+        # explanation, and those 12 rows average 5,853 characters, 11 of
+        # 12 bylined -- including an 18,044-character bylined feature. A
+        # threshold with nothing to say for itself is the strongest
+        # single signal that the rejection is wrong.
+        score = 3 if not (enrichment.content_gate_reason or "").strip() else 0
+        if len(text) >= 2000:
+            score += 3
+        elif len(text) >= 1000:
+            score += 1
+        if bylined:
+            score += 2
+        if (article.primary_label_confidence or 0) >= 0.70:
+            score += 1
+        return score
+
+    # Extraction. `content` survives on 263 of 1,051 rows; the other 788
+    # went down the paywall branch, which empties both fields and leaves
+    # nothing on the row to judge -- only the raw HTML in GCS, for 30 days.
+    score = 5 if looks_rot47(content) else 0
+    density = prose_density(content)
+    if density >= 4:
+        score += 3
+    elif density >= 2:
+        score += 1
+    if bylined:
+        score += 2
+    if content:
+        score += 1
+    return score
+
+
 # Never in the queue, whatever the status: a human already decided.
 HUMAN_REMOVAL_SKIP_REASON = "removed_in_march_review"
 
