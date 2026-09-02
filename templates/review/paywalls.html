@@ -160,11 +160,16 @@
             to answer whether it has a paywall at all, and the answer to
             "what does it cost" is on the same screen.
             {% endcomment %}
-            <label class="stacked">Subscription
+            {% comment %}
+            Labels beside their fields rather than above them. Stacked,
+            three fields and a button ran the column deeper than the rest
+            of the row needed and pushed the table wider than a laptop.
+            {% endcomment %}
+            <label class="side">Subscription
               <input type="text" name="subscription_cost" inputmode="decimal"
                      value="{{ r.cost|default_if_none:'' }}" placeholder="$">
             </label>
-            <label class="stacked">Per
+            <label class="side">Per
               <select name="subscription_period">
                 <option value="">—</option>
                 {% for period in periods %}
@@ -173,16 +178,31 @@
                 {% endfor %}
               </select>
             </label>
-            <label class="stacked">Login page
+            <label class="side">Login page
               <input type="url" name="login_url" value="{{ r.login_url }}"
                      placeholder="https://{{ r.host }}/login">
             </label>
+            {% comment %}
+            Why this publisher was recorded the way it was. It posts as
+            `reason`, which the view already reads and `record` already
+            stores on the audit entry -- it simply had nowhere to be
+            typed. The last one is shown above it so the box is not
+            written into a void.
+            {% endcomment %}
+            <label class="side">Comment
+              <input type="text" name="reason" value=""
+                     placeholder="{% if r.last_comment.0 %}{{ r.last_comment.0 }}{% else %}why, for whoever reads this next{% endif %}">
+            </label>
+            {% if r.last_comment.0 %}
+            <p class="hint last-comment">last: “{{ r.last_comment.0 }}”{% if r.last_comment.2 %} — {{ r.last_comment.2 }}{% endif %}{% if r.last_comment.1 %}, {{ r.last_comment.1|date:"j M Y" }}{% endif %}</p>
+            {% endif %}
             <button type="submit">Save</button>
+            <span class="unsaved-note" hidden>unsaved</span>
           </form>
           {% if r.has_paywall %}
-          <p class="hint">recorded as paywalled</p>
+          <p class="hint saved-state">recorded as paywalled</p>
           {% else %}
-          <p class="hint">not recorded yet — saving confirms it</p>
+          <p class="hint saved-state not-saved">not recorded yet — saving confirms it</p>
           {% endif %}
         </td>
         {% comment %}
@@ -260,4 +280,50 @@ queue. Where the script has not run the link is a link and goes to the
 edit page.
 {% endcomment %}
 <script defer src="{% static 'js/record-editor.js' %}"></script>
+{% comment %}
+Which rows have been typed into and not saved.
+
+Every row looked identical whether somebody had touched it or not, and
+the hint underneath read "not recorded yet" in both cases -- so a row
+half-filled and abandoned was indistinguishable from one nobody had
+opened. Each form remembers what it was loaded with and compares, so
+typing a value and typing it back out again leaves the row clean rather
+than permanently marked.
+{% endcomment %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  document.querySelectorAll("form.inline-form").forEach(function (form) {
+    const fields = form.querySelectorAll("input, select");
+    const start = new Map();
+    fields.forEach(function (f) { start.set(f, f.value); });
+
+    // The "no paywall" box belongs to the row's form by `form=`, so it
+    // lives outside it in the DOM and is not found by querySelectorAll.
+    const box = document.querySelector(
+      'input[name="no_paywall"][form="' + form.id + '"]');
+    const boxWas = box ? box.checked : null;
+
+    function check() {
+      let dirty = false;
+      fields.forEach(function (f) { if (f.value !== start.get(f)) dirty = true; });
+      if (box && box.checked !== boxWas) dirty = true;
+      form.classList.toggle("dirty", dirty);
+    }
+    fields.forEach(function (f) {
+      f.addEventListener("input", check);
+      f.addEventListener("change", check);
+    });
+    if (box) box.addEventListener("change", check);
+
+    // Submitting is not abandoning. Without this the warning below fires
+    // on the way to saving, which is the one moment it should not.
+    form.addEventListener("submit", function () { form.dataset.saving = "1"; });
+  });
+
+  window.addEventListener("beforeunload", function (e) {
+    const leaving = document.querySelector("form.inline-form.dirty:not([data-saving])");
+    if (leaving) { e.preventDefault(); e.returnValue = ""; }
+  });
+});
+</script>
 {% endblock %}

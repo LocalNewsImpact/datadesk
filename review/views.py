@@ -1259,6 +1259,24 @@ def paywalls(request):
     else:
         sign_in = ""
 
+    # The last thing somebody wrote about each publisher, so the comment
+    # box is not written into a void. `reason` already reaches the audit
+    # entry -- the form posts it and `record` stores it -- it just had
+    # nowhere to be typed and nowhere to be read.
+    from audit.models import AuditLogEntry
+
+    last_comment = {}
+    for entry in (
+        AuditLogEntry.objects.filter(target_table="sources")
+        .exclude(reason="")
+        .exclude(reason="reviewed the paywall")
+        .order_by("-timestamp")[:400]
+    ):
+        for target in entry.target_ids or []:
+            last_comment.setdefault(
+                str(target), (entry.reason, entry.timestamp, entry.actor)
+            )
+
     rows = []
     for source in candidates:
         rows.append(
@@ -1294,6 +1312,7 @@ def paywalls(request):
                 "period": source.subscription_period or "",
                 "login_url": source.login_url
                 or (source.auth_config or {}).get("login_url", ""),
+                "last_comment": last_comment.get(str(source.id), ("", None, None)),
             }
         )
     # The most articles first: that is the size of the hole each one

@@ -1210,6 +1210,28 @@ label.stacked .required {
    above it so the labels line up, but not styled as one. */
 .publisher .owner { font-size: var(--fs-sm); color: var(--text-2); }
 .publisher .no-paywall { margin-top: var(--s-1); font-size: var(--fs-sm); }
+
+/* The paywall row's form. Labels sit beside their fields rather than
+   above: stacked, three fields and a button ran the column deeper than
+   the row needed and pushed the table past a laptop's width. */
+label.side { display: grid; grid-template-columns: 7.5rem 1fr; align-items: center;
+  gap: var(--s-2); margin-bottom: var(--s-1); font-size: var(--fs-sm);
+  color: var(--text-2); }
+label.side input, label.side select { width: 100%; min-width: 0; }
+.last-comment { margin: 0 0 var(--s-2) 7.5rem; font-style: italic; }
+
+/* A row with changes not yet saved. The page previously looked the same
+   whether somebody had typed or not, so a half-filled row and a saved
+   one were indistinguishable -- and the hint underneath said "not
+   recorded yet" either way. */
+.unsaved-note { display: none; margin-left: var(--s-2); font-size: var(--fs-sm);
+  font-weight: 600; color: var(--tone-warn); }
+.inline-form.dirty .unsaved-note { display: inline; }
+.inline-form.dirty { outline: 2px solid var(--tone-warn); outline-offset: .35rem;
+  border-radius: .25rem; }
+.inline-form.dirty button[type="submit"] { font-weight: 700; }
+.saved-state.not-saved { color: var(--text-2); }
+tr:has(.inline-form.dirty) .saved-state { visibility: hidden; }
 .publisher .site {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--fs-xs);
