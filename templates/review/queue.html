@@ -17,16 +17,21 @@
   </p>
   {% else %}
 
-  <div class="case-facets">
+  {% comment %}
+  The same chips as the sources queue. The note that used to sit inside
+  each one is its title: four paragraphs stacked in a row of facets is a
+  wall to read before the first decision, and the queue's own lede
+  already says what it holds.
+  {% endcomment %}
+  <nav class="queue-facets" aria-label="What was flagged">
     {% for case in cases %}
-    <a class="facet{% if case.selected %} selected{% endif %}"
+    <a class="facet-chip{% if case.selected %} on{% endif %}{% if not case.count %} done{% endif %}"
+       title="{{ case.note }}"
        href="?{{ case_params.urlencode }}{% if not case.selected %}&amp;case={{ case.key }}{% endif %}">
-      <span class="facet-count">{{ case.count }}</span>
-      <span class="facet-label">{{ case.label }}</span>
-      <span class="facet-note">{{ case.note }}</span>
+      {{ case.label }} <span>{% if case.count %}{{ case.count }}{% else %}no work{% endif %}</span>
     </a>
     {% endfor %}
-  </div>
+  </nav>
 
   <form method="get" action="{% url 'review:queue' %}" class="filter-bar"
         hx-get="{% url 'review:queue' %}" hx-target="#queue-results" hx-indicator="#queue-results"
@@ -73,8 +78,25 @@
   {% url 'review:queue' as filters_endpoint %}
   {% include "_active_filters.html" with endpoint=filters_endpoint target="#queue-results" %}
 
-  <div id="queue-results">
-    {% include "review/_queue_results.html" %}
+  <form method="post" id="queue-form" autocomplete="off">
+    {% csrf_token %}
+    <div id="queue-results">
+      {% include "review/_queue_results.html" %}
+    </div>
+  </form>
+
+  {% comment %}
+  Decisions are made in a session and submitted together, the way the
+  sources queue works: a reviewer reads down the page, marks what they
+  find, and sends the lot. The dock counts what is marked so the number
+  is visible before it is sent.
+  {% endcomment %}
+  <div class="queue-dock">
+    <span class="tally"><b id="t-accept">0</b> accept</span>
+    <span class="tally"><b id="t-reject">0</b> reject</span>
+    <span class="tally"><b id="t-reextract">0</b> re-extract</span>
+    <button type="button" class="linklike" id="q-clear">Clear</button>
+    <button type="submit" form="queue-form" class="q-submit" id="q-submit" disabled>Submit</button>
   </div>
 
   {% endif %}

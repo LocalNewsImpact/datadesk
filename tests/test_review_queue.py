@@ -371,17 +371,20 @@ def test_rows_show_length_reason_label_and_byline(client, viewer, flagged):
 # --- read-only, and what comes next ----------------------------------------
 
 
-def test_the_queue_writes_nothing(client, viewer, flagged):
-    """No disposition exists yet; the placeholder says so and its buttons
-    are inert."""
-    # The results fragment, so the layout's sign-out form is out of frame.
-    content = client.get(URL, HTTP_HX_REQUEST="true").content.decode()
-    assert "Dispositions arrive in Phase 2b" in content
-    assert content.count("disabled") >= 3
-    for disposition in ("Skip", "Export unenriched", "Send to enrichment"):
-        assert disposition in content
-    assert "<form" not in content
-    assert "csrfmiddlewaretoken" not in content
+def test_the_queue_offers_the_same_three_verbs_as_the_sources_queue(
+    client, viewer, flagged
+):
+    """It held three inert buttons and a note saying dispositions would
+    arrive later. The verbs are real now, and they are the shape the
+    sources queue uses: a button per row, marked on the way down the
+    page and submitted together."""
+    content = client.get(URL, {"all": "1"}, HTTP_HX_REQUEST="true").content.decode()
+    assert "Dispositions arrive in Phase 2b" not in content
+    assert 'class="verb accept"' in content
+    assert 'data-verb="accept"' in content
+    # One hidden field per row carries that row's decision, keyed the same
+    # way the proposal queue keys its own.
+    assert 'name="d-' in content
 
 
 def test_queue_module_exposes_no_write_path():
