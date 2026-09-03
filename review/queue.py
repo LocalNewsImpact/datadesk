@@ -394,6 +394,11 @@ def base_queryset(user):
             enr_gate_reason=F("enrichment__content_gate_reason"),
             enr_is_news=F("enrichment__is_news_content"),
             enr_scope=F("enrichment__scope"),
+            # Whether an enrichment row exists at all, which is what says
+            # WHICH STAGE decided this article's status. Inferring it from
+            # the nullable columns above fails on a row that exists with
+            # all of them null.
+            enr_present=F("enrichment__article_id"),
         )
         .filter(_flagged_q()),
         user,
