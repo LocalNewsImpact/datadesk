@@ -98,7 +98,9 @@ def hold_for_review(article, stage, user=None):
 
     was = getattr(article, "status", "")
     if was == IN_REVIEW:
-        return getattr(article, "status_before_review", "") or was
+        # Already held. Return what it was holding, from the note rather
+        # than from the status, which now says in_review.
+        return status_before_review(article) or was
 
     # Already answered? Then it is not a question any more, and holding it
     # would park a record on a decision somebody already made.
@@ -107,8 +109,24 @@ def hold_for_review(article, stage, user=None):
     ).exists():
         return was
 
+    meta = article.metadata or {}
+    if isinstance(meta, str):
+        import json
+
+        try:
+            meta = json.loads(meta)
+        except ValueError:
+            meta = {}
+    meta = dict(meta)
+    meta[REVIEW_META_KEY] = {
+        "status_before": was,
+        "claim": was,
+        "stage": stage,
+        "held_at": timezone.now().isoformat(),
+    }
+    article.metadata = meta
     article.status = IN_REVIEW
-    article.save(update_fields=["status"])
+    article.save(update_fields=["status", "metadata"])
     return was
 
 
@@ -125,6 +143,50 @@ def answered_questions(article_ids):
             "article_id", "question"
         )
     )
+
+
+#: Where the hold records what it held, so the article can be put back.
+#:
+#: `status` is overwritten by IN_REVIEW, so the claim being reviewed and
+#: the status to restore have to live somewhere else. metadata is where the
+#: crawler already keeps this kind of note -- housekeeping writes
+#: pause_reason there -- and it survives the round trip through a page load,
+#: which an attribute on the instance does not.
+REVIEW_META_KEY = "review"
+
+
+def review_note(article):
+    """What the hold recorded about this article, or {}."""
+    meta = getattr(article, "metadata", None) or {}
+    if isinstance(meta, str):
+        import json
+
+        try:
+            meta = json.loads(meta)
+        except ValueError:
+            return {}
+    note = meta.get(REVIEW_META_KEY) if isinstance(meta, dict) else None
+    return note if isinstance(note, dict) else {}
+
+
+def status_before_review(article):
+    """The status this article carried when review took it.
+
+    Read from metadata rather than from an attribute. Held on the instance
+    it survived exactly one function call: the status was overwritten by
+    IN_REVIEW, the original was lost on the next page load, and ACCEPT then
+    had nothing to put the article back to -- a one-way door.
+    """
+    return review_note(article).get("status_before", "")
+
+
+def claim_under_review(article):
+    """The claim being reviewed, which IN_REVIEW would otherwise hide.
+
+    Once held, `status` says `in_review` and no longer says what was
+    claimed -- so the question cannot be formed from it.
+    """
+    return review_note(article).get("claim", "")
 
 
 def question_for(status, stage):
@@ -221,7 +283,13 @@ def record(article, *, decision, stage, user, reason="", label="", article_statu
     # Where the article was before review held it. Only meaningful once a
     # record is parked in `in_review`; until then the claim IS the prior
     # status and the two agree.
-    before = getattr(article, "status_before_review", "") or claimed
+    # The claim, and the status to restore, from the note the hold left.
+    # Falls back to the current status for a record that was never held --
+    # nothing the queue surfaces today is, and the two then agree.
+    held_before = status_before_review(article)
+    before = held_before or claimed
+    if not article_status:
+        claimed = claim_under_review(article) or claimed
 
     rewound = ""
     target = None

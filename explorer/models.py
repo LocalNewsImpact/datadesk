@@ -190,6 +190,11 @@ class Article(CrawlerModel):
     #: a decision if this is under it too -- otherwise the article sits at
     #: `labeled` and is never picked up.
     enrichment_attempts = models.IntegerField(null=True)
+    #: The crawler's own notes on the row. The review hold writes what it
+    #: held here, because `status` is overwritten by `in_review` and the
+    #: claim being reviewed has nowhere else to live. housekeeping already
+    #: uses it the same way, for pause_reason.
+    metadata = models.JSONField(null=True)
     #: Where the page as captured is archived. The bucket has 30-day
     #: retention, so a row older than that has none -- which is what
     #: decides whether a body can be re-parsed or is simply gone.
