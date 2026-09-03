@@ -201,3 +201,30 @@ def test_answered_questions_reports_pairs_not_articles(reviewer, crawler_schema)
         article_status="obituary",
     )
     assert answered_questions(["h7"]) == {("h7", question_for("obituary", EXTRACTION))}
+
+
+# --- the shape is not defined here ---------------------------------------------
+
+
+def test_the_note_keys_come_from_the_shared_contract():
+    """Not a local copy. Two copies, one per repository, with a test each
+    that could not see the other, is what let a rename strand every held
+    article."""
+    from lnic_contracts import review_note as contract
+
+    from review.dispositions import IN_REVIEW, REQUIRED_NOTE_KEYS, REVIEW_META_KEY
+
+    assert REQUIRED_NOTE_KEYS is contract.REQUIRED_KEYS
+    assert REVIEW_META_KEY == contract.METADATA_KEY
+    assert IN_REVIEW == contract.IN_REVIEW
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_note_this_writes_is_readable_by_the_contract(reviewer, crawler_schema):
+    """The round trip, through the definition the crawler also uses."""
+    from lnic_contracts import review_note as contract
+
+    article = _article("h8", crawler_schema, status="labeled")
+    hold_for_review(article, LABELING)
+    article.refresh_from_db()
+    assert contract.is_readable(contract.from_metadata(article.metadata))

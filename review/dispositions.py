@@ -62,6 +62,12 @@ REWIND_TO = {
 #: empty.
 REEXTRACT_TO = "paused"
 
+#: The note's shape is not defined here. The crawler writes it and this
+#: reads it, and each repository having its own copy of the key names is
+#: what let a rename strand every held article -- two tests, neither able
+#: to see the other. lnic_contracts is the one definition both import.
+from lnic_contracts import review_note as _contract  # noqa: E402
+
 #: Where a record waits while somebody is deciding about it.
 #:
 #: A flagged record keeps a status the pipeline reads. Everything the queue
@@ -74,7 +80,7 @@ REEXTRACT_TO = "paused"
 #: pipeline. `status_before` on the decision is how it gets back: ACCEPT
 #: means the classification stands, which is not the same as leaving the
 #: article wherever review put it.
-IN_REVIEW = "in_review"
+IN_REVIEW = _contract.IN_REVIEW
 
 
 def hold_for_review(article, stage, user=None):
@@ -117,14 +123,13 @@ def hold_for_review(article, stage, user=None):
             meta = json.loads(meta)
         except ValueError:
             meta = {}
-    meta = dict(meta)
-    meta[REVIEW_META_KEY] = {
-        "status_before": was,
-        "claim": was,
-        "stage": stage,
-        "held_at": timezone.now().isoformat(),
-    }
-    article.metadata = meta
+    # Built by the contract, which refuses a status_before of `in_review`
+    # -- what a caller gets by reading `status` after applying the hold,
+    # and the defect that once made this a one-way door.
+    article.metadata = _contract.into_metadata(
+        meta,
+        _contract.build(claim=was, status_before=was, stage=stage),
+    )
     article.status = IN_REVIEW
     article.save(update_fields=["status", "metadata"])
     return was
@@ -152,28 +157,19 @@ def answered_questions(article_ids):
 #: crawler already keeps this kind of note -- housekeeping writes
 #: pause_reason there -- and it survives the round trip through a page load,
 #: which an attribute on the instance does not.
-REVIEW_META_KEY = "review"
+REVIEW_META_KEY = _contract.METADATA_KEY
 
 
 #: The keys the hold must record. The crawler writes them
 #: (src/pipeline/review_hold.py) and this reads them; a key renamed on
 #: either side strands every article held after the rename, because the
 #: status to restore and the claim being reviewed both live here.
-REQUIRED_NOTE_KEYS = ("status_before", "claim", "stage", "held_at")
+REQUIRED_NOTE_KEYS = _contract.REQUIRED_KEYS
 
 
 def review_note(article):
     """What the hold recorded about this article, or {}."""
-    meta = getattr(article, "metadata", None) or {}
-    if isinstance(meta, str):
-        import json
-
-        try:
-            meta = json.loads(meta)
-        except ValueError:
-            return {}
-    note = meta.get(REVIEW_META_KEY) if isinstance(meta, dict) else None
-    return note if isinstance(note, dict) else {}
+    return _contract.from_metadata(getattr(article, "metadata", None))
 
 
 def note_is_readable(article):
@@ -194,10 +190,7 @@ def note_is_readable(article):
     """
     if getattr(article, "status", "") != IN_REVIEW:
         return True
-    note = review_note(article)
-    if not note:
-        return False
-    return all(str(note.get(key, "")).strip() for key in REQUIRED_NOTE_KEYS)
+    return _contract.is_readable(review_note(article))
 
 
 def unreadable_note_reason(article):
@@ -211,7 +204,7 @@ def unreadable_note_reason(article):
             "from cannot be recovered from the article, so it cannot be "
             "released automatically."
         )
-    missing = [k for k in REQUIRED_NOTE_KEYS if not str(note.get(k, "")).strip()]
+    missing = _contract.missing_keys(note)
     return (
         "Held for review with an incomplete note — missing "
         f"{', '.join(missing)}. Written by the crawler and read here; a key "
