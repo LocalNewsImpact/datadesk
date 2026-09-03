@@ -212,7 +212,10 @@ def test_a_viewer_may_read_the_queue(client, viewer, flagged):
 
 
 def test_queue_selects_the_three_flagged_cases_only(client, viewer, flagged):
-    titles = _titles(client.get(URL))
+    # all=1: the landing view now narrows not_article to what there is
+    # recorded reason to doubt, and two of these fixtures are the ordinary
+    # case -- short, unbylined, with a reason from the gate.
+    titles = _titles(client.get(URL, {"all": "1"}))
     assert "Subscribers only: council votes" in titles
     assert "Photo gallery" in titles
     assert "County budget hearing draws a crowd" in titles
@@ -252,7 +255,8 @@ def test_unknown_case_is_ignored_rather_than_erroring(client, viewer, flagged):
 
 
 def test_longest_captures_come_first(client, viewer, flagged):
-    content = client.get(URL).content.decode()
+    # Ordering, over the whole fixture set rather than the narrowed view.
+    content = client.get(URL, {"all": "1"}).content.decode()
     positions = [
         content.index("Local firm wins a contract in Berlin"),
         content.index("County budget hearing draws a crowd"),
@@ -308,6 +312,7 @@ def test_case_facet_counts(client, viewer, flagged):
         "paywall_stub": 2,
         "minimal_capture": 2,
         "scope_mislabel": 2,
+        "doubted_content_type": 0,
     }
 
 
@@ -333,8 +338,10 @@ def test_publisher_filter(client, viewer, flagged):
 
 
 def test_byline_filter(client, viewer, flagged):
-    assert _titles(client.get(URL, {"byline": "no"})) == ["Photo gallery"]
-    assert "Photo gallery" not in _titles(client.get(URL, {"byline": "yes"}))
+    assert _titles(client.get(URL, {"byline": "no", "all": "1"})) == ["Photo gallery"]
+    assert "Photo gallery" not in _titles(
+        client.get(URL, {"byline": "yes", "all": "1"})
+    )
 
 
 def test_exact_skip_reason_filter(client, viewer, flagged):
@@ -358,7 +365,10 @@ def test_skip_reason_vocabulary_comes_from_the_data(client, viewer, flagged):
 
 
 def test_rows_show_length_reason_label_and_byline(client, viewer, flagged):
-    content = client.get(URL).content.decode()
+    # all=1: this exercises what a row displays, and the fixture's
+    # not_article rows are short and unbylined, which the default view
+    # now narrows out.
+    content = client.get(URL, {"all": "1"}).content.decode()
     assert "265" in content  # captured text length
     assert "paywall_stub" in content  # the reason triage gave
     assert "no_body_text" in content  # the gate's reason
@@ -406,7 +416,7 @@ def test_degrades_without_the_crawler_database(client, viewer):
 
 
 def test_htmx_request_gets_only_the_results_fragment(client, viewer, flagged):
-    response = client.get(URL, HTTP_HX_REQUEST="true")
+    response = client.get(URL, {"all": "1"}, HTTP_HX_REQUEST="true")
     content = response.content.decode()
     assert "Photo gallery" in content
     assert "<html" not in content

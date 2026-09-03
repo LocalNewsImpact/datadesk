@@ -42,6 +42,11 @@ from explorer.scoping import narrow
 PAYWALL_STUB = "paywall_stub"
 MINIMAL_CAPTURE = "minimal_capture"
 SCOPE_MISLABEL = "scope_mislabel"
+#: A content type the detector called with little confidence and nothing
+#: agreeing. Its own floor is 0.17 and 1,517 obituary verdicts were made
+#: there, on a single body phrase -- enough to catch a feature about Jim
+#: Morrison's grave and a charity for families of fallen first responders.
+DOUBTED_CONTENT_TYPE = "doubted_content_type"
 
 # article_enrichment.skip_reason, as production actually holds it. Two
 # spellings mean the same thing: the bulk March update wrote
@@ -265,12 +270,14 @@ CASE_STATUS = {
     PAYWALL_STUB: "enrichment_skipped",
     MINIMAL_CAPTURE: "not_article",
     SCOPE_MISLABEL: "enrichment_skipped",
+    DOUBTED_CONTENT_TYPE: "obituary",
 }
 
 CASE_LABELS = {
     PAYWALL_STUB: "Paywall stubs",
     MINIMAL_CAPTURE: "Minimal or empty captures",
     SCOPE_MISLABEL: "Scope mislabels",
+    DOUBTED_CONTENT_TYPE: "Barely-confident content types",
 }
 
 CASE_NOTES = {
@@ -281,6 +288,11 @@ CASE_NOTES = {
     MINIMAL_CAPTURE: (
         "Genuine boilerplate and real articles whose text never arrived, "
         "mixed together. Check the long bands first."
+    ),
+    DOUBTED_CONTENT_TYPE: (
+        "The detector recorded its own confidence and it is at the floor: "
+        "0.17, on one phrase in the body, with neither the URL nor the "
+        "title agreeing. Where they do agree the calls are right."
     ),
     SCOPE_MISLABEL: (
         "Scope-excluded but kept for export, scope recorded. In March "
@@ -332,6 +344,15 @@ def _case_q(case):
         )
     if case == MINIMAL_CAPTURE:
         return Q(status=CASE_STATUS[MINIMAL_CAPTURE])
+    if case == DOUBTED_CONTENT_TYPE:
+        # Selected on the recorded evidence rather than the status alone:
+        # 2,840 of 3,940 obituary verdicts ARE obituaries, and the URL or
+        # title agreeing is what separates them.
+        return (
+            Q(status=CASE_STATUS[DOUBTED_CONTENT_TYPE])
+            & Q(detections__confidence_score__lt=0.30)
+            & ~Q(detections__evidence__has_any_keys=list(CORROBORATING_EVIDENCE_KEYS))
+        )
     return Q()
 
 
@@ -432,6 +453,43 @@ def flagged_total():
     return Article.objects.filter(_flagged_q()).count()
 
 
+def doubtful_q():
+    """Rows there is recorded reason to doubt, as a Q.
+
+    Expressed in SQL rather than scored in Python so the queue can still
+    be paginated and counted in the database.
+
+    Paywall stubs and scope mislabels are carried whole: they are the
+    cases the queue was built for, they are already small, and nothing
+    here narrows them.
+
+    The two that need narrowing are narrowed:
+
+    - `not_article` at 175 a day is a backlog. Kept where the enrichment
+      gate gave no reason for itself (12 rows averaging 5,853 characters,
+      11 of 12 bylined, one an 18,044-character bylined feature), where
+      the capture is long, where a byline survived, or where the body is
+      undecoded ROT47 -- never a correct rejection.
+    - a content type called below 0.30 with neither URL nor title
+      agreeing.
+    """
+    reasonless_gate = Q(enrichment__isnull=False) & Q(
+        enrichment__content_gate_reason__isnull=True
+    )
+    doubted_not_article = _case_q(MINIMAL_CAPTURE) & (
+        reasonless_gate
+        | Q(text_length__gte=2000)
+        | ~Q(author__isnull=True) & ~Q(author="")
+        | Q(content__contains="k^Am")
+    )
+    return (
+        _case_q(PAYWALL_STUB)
+        | _case_q(SCOPE_MISLABEL)
+        | doubted_not_article
+        | _case_q(DOUBTED_CONTENT_TYPE)
+    )
+
+
 def queued(params, user):
     """The queue itself: longest captures first.
 
@@ -443,6 +501,29 @@ def queued(params, user):
     band = params.get("band")
     if band in BAND_BOUNDS:
         qs = _apply_band(qs, band)
+    # The landing view holds what there is recorded reason to doubt: at
+    # 175 extraction rejections per active day against roughly 815
+    # articles, the unfiltered queue is a backlog nobody works.
+    #
+    # Any explicit filter turns it off. Asking for the empty band, or a
+    # case, or one publisher, is asking to see what matches -- and the
+    # empty band exists precisely to show the captures this narrowing
+    # would otherwise hide.
+    asked_for_something = any(
+        params.get(key)
+        for key in (
+            "case",
+            "band",
+            "skip",
+            "label",
+            "byline",
+            "publisher",
+            "dataset",
+            "all",
+        )
+    )
+    if not asked_for_something:
+        qs = qs.filter(doubtful_q()).distinct()
     return qs.order_by("-text_length", "-created_at")
 
 
