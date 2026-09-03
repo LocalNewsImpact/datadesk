@@ -67,9 +67,11 @@ def test_holding_twice_does_not_lose_the_original_status(reviewer, crawler_schem
     """The second call must not record `in_review` as what it was before."""
     article = _article("h2", crawler_schema, status="labeled")
     hold_for_review(article, LABELING)
-    article.refresh_from_db()
-    article.status_before_review = "labeled"
-    assert hold_for_review(article, LABELING) == "labeled"
+    # Reloaded from the database, with nothing set by hand. Held on the
+    # instance the prior status survived one call and was gone by the next
+    # page load, which made the hold a one-way door.
+    reloaded = Article.objects.get(id="h2")
+    assert hold_for_review(reloaded, LABELING) == "labeled"
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
@@ -111,6 +113,7 @@ def test_accept_returns_a_held_article_to_what_it_was_flagged_with(
 
     entry = ExtractionDecision.objects.get(article_id="h4")
     assert entry.status_before == "obituary"
+    assert entry.question == question_for("obituary", EXTRACTION)
 
 
 # --- the question, not the article --------------------------------------------
