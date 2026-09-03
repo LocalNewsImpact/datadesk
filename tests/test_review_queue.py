@@ -313,6 +313,7 @@ def test_case_facet_counts(client, viewer, flagged):
         "minimal_capture": 2,
         "scope_mislabel": 2,
         "doubted_content_type": 0,
+        "held_for_review": 0,
     }
 
 

@@ -155,6 +155,13 @@ def answered_questions(article_ids):
 REVIEW_META_KEY = "review"
 
 
+#: The keys the hold must record. The crawler writes them
+#: (src/pipeline/review_hold.py) and this reads them; a key renamed on
+#: either side strands every article held after the rename, because the
+#: status to restore and the claim being reviewed both live here.
+REQUIRED_NOTE_KEYS = ("status_before", "claim", "stage", "held_at")
+
+
 def review_note(article):
     """What the hold recorded about this article, or {}."""
     meta = getattr(article, "metadata", None) or {}
@@ -167,6 +174,49 @@ def review_note(article):
             return {}
     note = meta.get(REVIEW_META_KEY) if isinstance(meta, dict) else None
     return note if isinstance(note, dict) else {}
+
+
+def note_is_readable(article):
+    """Can this article be put back where it came from?
+
+    An article on IN_REVIEW whose note cannot be read is stranded: the
+    status to restore is gone, so ACCEPT has nothing to restore it to and
+    it stays out of the pipeline for ever.
+
+    The failure this guards is a rename across two repositories. The
+    crawler writes the note and this reads it, and nothing enforces the
+    shape jointly, so a key renamed on one side is invisible until an
+    article is held and cannot be released.
+
+    Reported rather than assumed away. Silently treating such an article
+    as "never held" is how the data would go missing without anybody
+    seeing it -- the queue shows it instead, saying what is wrong.
+    """
+    if getattr(article, "status", "") != IN_REVIEW:
+        return True
+    note = review_note(article)
+    if not note:
+        return False
+    return all(str(note.get(key, "")).strip() for key in REQUIRED_NOTE_KEYS)
+
+
+def unreadable_note_reason(article):
+    """What is wrong with the note, for a reviewer to read."""
+    if note_is_readable(article):
+        return ""
+    note = review_note(article)
+    if not note:
+        return (
+            "Held for review with no note recorded. The status it was held "
+            "from cannot be recovered from the article, so it cannot be "
+            "released automatically."
+        )
+    missing = [k for k in REQUIRED_NOTE_KEYS if not str(note.get(k, "")).strip()]
+    return (
+        "Held for review with an incomplete note — missing "
+        f"{', '.join(missing)}. Written by the crawler and read here; a key "
+        "renamed on either side strands the article."
+    )
 
 
 def status_before_review(article):

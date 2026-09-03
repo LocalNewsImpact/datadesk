@@ -58,6 +58,15 @@
         offering a button that cannot act is worse than offering none.
         {% endcomment %}
         <td class="option decide">
+          {% if article.note_problem %}
+          {% comment %}
+          Held, and unable to be released. Said on the row rather than
+          hidden: an article whose note cannot be read has lost the status
+          it was held from, so no verb can put it back, and treating it as
+          never-held is how it would disappear without anybody noticing.
+          {% endcomment %}
+          <p class="hint stranded">{{ article.note_problem }}</p>
+          {% endif %}
           <button type="button" class="verb accept" data-verb="accept"
                   title="The classification stands. Nothing is written to the article — its status already excludes it.">
             <b>Accept</b><i>Leave it out</i></button>

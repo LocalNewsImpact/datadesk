@@ -47,6 +47,15 @@ SCOPE_MISLABEL = "scope_mislabel"
 #: there, on a single body phrase -- enough to catch a feature about Jim
 #: Morrison's grave and a charity for families of fallen first responders.
 DOUBTED_CONTENT_TYPE = "doubted_content_type"
+#: An article the pipeline stopped and parked because a FIELD was wrong --
+#: a byline that is not a name, a body still in ciphertext. Held on
+#: `in_review`, which is selected by no pipeline stage.
+#:
+#: This case has to exist or the hold is a black hole: `in_review` is not
+#: one of the statuses the other cases select, so holding an article took
+#: it out of the queue that is supposed to review it. Every field defect
+#: the crawler holds would have been invisible here.
+HELD_FOR_REVIEW = "held_for_review"
 
 # article_enrichment.skip_reason, as production actually holds it. Two
 # spellings mean the same thing: the bulk March update wrote
@@ -271,6 +280,7 @@ CASE_STATUS = {
     MINIMAL_CAPTURE: "not_article",
     SCOPE_MISLABEL: "enrichment_skipped",
     DOUBTED_CONTENT_TYPE: "obituary",
+    HELD_FOR_REVIEW: "in_review",
 }
 
 CASE_LABELS = {
@@ -278,6 +288,7 @@ CASE_LABELS = {
     MINIMAL_CAPTURE: "Minimal or empty captures",
     SCOPE_MISLABEL: "Scope mislabels",
     DOUBTED_CONTENT_TYPE: "Barely-confident content types",
+    HELD_FOR_REVIEW: "Held: a field is wrong",
 }
 
 CASE_NOTES = {
@@ -288,6 +299,12 @@ CASE_NOTES = {
     MINIMAL_CAPTURE: (
         "Genuine boilerplate and real articles whose text never arrived, "
         "mixed together. Check the long bands first."
+    ),
+    HELD_FOR_REVIEW: (
+        "The pipeline stopped these rather than export them: a byline that "
+        "is not a name, or a body still in ciphertext. They are out of the "
+        "pipeline until somebody decides, and nothing but a decision "
+        "releases them."
     ),
     DOUBTED_CONTENT_TYPE: (
         "The detector recorded its own confidence and it is at the floor: "
@@ -344,6 +361,8 @@ def _case_q(case):
         )
     if case == MINIMAL_CAPTURE:
         return Q(status=CASE_STATUS[MINIMAL_CAPTURE])
+    if case == HELD_FOR_REVIEW:
+        return Q(status=CASE_STATUS[HELD_FOR_REVIEW])
     if case == DOUBTED_CONTENT_TYPE:
         # Selected on the recorded evidence rather than the status alone:
         # 2,840 of 3,940 obituary verdicts ARE obituaries, and the URL or
@@ -487,6 +506,10 @@ def doubtful_q():
         | _case_q(SCOPE_MISLABEL)
         | doubted_not_article
         | _case_q(DOUBTED_CONTENT_TYPE)
+        # Never narrowed. A held article is stopped and waiting on a person;
+        # leaving it off the landing view is what holding it would mean if
+        # nobody were told.
+        | _case_q(HELD_FOR_REVIEW)
     )
 
 
