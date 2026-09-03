@@ -168,7 +168,7 @@ def test_re_extraction_needs_an_archived_page():
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_re_extraction_rewinds_the_status(reviewer, crawler_schema):
+def test_re_extraction_takes_the_article_out_of_the_pipeline(reviewer, crawler_schema):
     """One step further back than a rejection: the body has to be rebuilt
     before anything can read it, so the status goes to `extracted`.
 
@@ -193,8 +193,11 @@ def test_re_extraction_rewinds_the_status(reviewer, crawler_schema):
     )
 
     article.refresh_from_db()
-    assert article.status == "extracted"
-    assert ExtractionDecision.objects.get(article_id="a2").rewound_to == "extracted"
+    # Not `extracted`: that asserts extraction succeeded, queues a
+    # body-less row for labelling, and is the exact shape housekeeping
+    # pauses -- so the decision would be undone by the next run.
+    assert article.status == "paused"
+    assert ExtractionDecision.objects.get(article_id="a2").rewound_to == "paused"
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])

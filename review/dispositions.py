@@ -41,16 +41,30 @@ REWIND_TO = {
     ENRICHMENT: "labeled",
 }
 
-#: Where re-extraction rewinds to. Further back than a rejection, because
-#: the body has to be rebuilt before anything can read it: `extracted` is
-#: the status an article carries before cleaning has run.
+#: Where re-extraction puts the article.
 #:
-#: There is no separate request and no worker waiting on one. The article
-#: goes back in the queue with a status saying what it needs, and
-#: `raw_gcs_path` already says the capture is there to rebuild it from --
-#: non-null exactly when the page is in the archive. A decision recorded
-#: somewhere nothing reads is a decision that does not happen.
-REEXTRACT_TO = "extracted"
+#: NOT `extracted`. That status asserts extraction succeeded -- the
+#: extractor writes it only on success (utils/extraction_telemetry.py) --
+#: and `pipeline_status` counts it as eligible for classification, so a
+#: body-less row set to `extracted` would be queued for labelling with
+#: nothing to label. Worse, housekeeping hunts exactly that shape:
+#:
+#:     UPDATE articles SET status = 'paused',
+#:            metadata = jsonb_set(..., '{pause_reason}', '"null_text"')
+#:      WHERE status = 'extracted' AND text IS NULL
+#:
+#: so the decision would be reverted by the next housekeeping run.
+#:
+#: `paused` is where such a row belongs and where housekeeping already
+#: puts it. The article is out of the pipeline, `raw_gcs_path` says the
+#: capture is there to rebuild it from, and the reason distinguishes a
+#: body somebody asked to have rebuilt from one that merely arrived
+#: empty.
+REEXTRACT_TO = "paused"
+
+#: Written beside the status so the request is legible to whatever acts
+#: on it, and distinguishable from housekeeping's own "null_text".
+REEXTRACT_PAUSE_REASON = "reextract_requested"
 
 
 def stage_of(article, enrichment=None, labels_updated_at=None):
@@ -128,8 +142,10 @@ def record(article, *, decision, stage, user, reason="", label="", article_statu
     if decision == ExtractionDecision.REJECT:
         target = rewind_target(stage)
     elif decision == ExtractionDecision.REEXTRACT:
-        # One step further back than a rejection: the body has to be
-        # rebuilt from the archived capture before anything can read it.
+        # Out of the pipeline rather than back into it: there is no status
+        # meaning "re-parse me", and the one that looks like it --
+        # `extracted` -- asserts extraction succeeded and would be undone
+        # by housekeeping.
         target = REEXTRACT_TO
     if target:
         article.status = target
