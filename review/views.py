@@ -1,6 +1,7 @@
 """Review and cleanup views (SCOPE.md §2.2). Editor role throughout."""
 
 import io
+from collections import Counter
 
 from django.core.cache import cache
 from django.core.paginator import Paginator
@@ -365,6 +366,9 @@ def queue(request):
     """Articles automated triage flagged, with what a human needs to judge
     them: captured text length, the reason given, the CIN label, the
     byline (SCOPE.md §2.3)."""
+    if request.method == "POST":
+        return _submit_queue_decisions(request)
+
     vocabulary = review_queue.vocab(request.user)
     params = request.GET.copy()
     params.pop("page", None)
@@ -393,7 +397,22 @@ def queue(request):
         paginator = Paginator(
             review_queue.queued(request.GET, request.user), QUEUE_PAGE_SIZE
         )
-        context["page"] = paginator.get_page(page_number)
+        page = paginator.get_page(page_number)
+        # Which verbs each row can actually carry out, decided per row
+        # rather than in the template: a button that cannot act is worse
+        # than no button.
+        from review import dispositions
+
+        for article in page:
+            stage = dispositions.stage_of(
+                article,
+                enrichment=getattr(article, "enr_present", None),
+                labels_updated_at=getattr(article, "labels_updated_at", None),
+            )
+            article.stage = stage
+            article.verbs = dispositions.verbs_for(article, stage)
+            article.rewind_to = dispositions.rewind_target(stage) or ""
+        context["page"] = page
         context["bands"] = review_queue.band_facets(request.GET, request.user)
         context["cases"] = review_queue.case_facets(request.GET, request.user)
 
@@ -403,6 +422,54 @@ def queue(request):
         else "review/queue.html"
     )
     return render(request, template, context)
+
+
+def _submit_queue_decisions(request):
+    """Apply a session of extraction-queue decisions.
+
+    The same shape as the proposal queue's submit: a reviewer marks what
+    they find on the way down the page and sends the lot, so the audit
+    entry is the session rather than one row at a time.
+    """
+    from review import dispositions
+    from review.models import ExtractionDecision
+
+    decisions = {}
+    for key, value in request.POST.items():
+        if key.startswith("d-") and value:
+            decisions[key[2:]] = value
+    if not decisions:
+        request.session["queue_receipt"] = {"nothing": True}
+        return redirect(f"{reverse('review:queue')}?{request.GET.urlencode()}")
+
+    reachable = review_queue.base_queryset(request.user)
+    articles = {a.id: a for a in reachable.filter(id__in=list(decisions))}
+
+    applied = Counter()
+    for article_id, verb in decisions.items():
+        article = articles.get(article_id)
+        if article is None or verb not in dict(ExtractionDecision.DECISIONS):
+            continue
+        stage = dispositions.stage_of(
+            article,
+            enrichment=getattr(article, "enr_present", None),
+            labels_updated_at=getattr(article, "labels_updated_at", None),
+        )
+        # Refused rather than ignored: a verb this row cannot carry out
+        # reaching the write path would report success and do nothing.
+        if verb not in dispositions.verbs_for(article, stage):
+            continue
+        dispositions.record(
+            article,
+            decision=verb,
+            stage=stage,
+            user=request.user,
+            label=(article.title or "")[:300],
+        )
+        applied[verb] += 1
+
+    request.session["queue_receipt"] = dict(applied)
+    return redirect(f"{reverse('review:queue')}?{request.GET.urlencode()}")
 
 
 # --- the proposal queue (SCOPE.md §2.2) -------------------------------------
