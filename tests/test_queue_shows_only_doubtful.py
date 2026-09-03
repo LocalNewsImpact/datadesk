@@ -6,6 +6,8 @@ an unfiltered queue is a backlog nobody works. The filter is the same rule
 paginated and counted in the database.
 """
 
+import json
+
 import pytest
 from django.contrib.auth.models import User
 
@@ -61,7 +63,7 @@ def corpus(crawler_schema):
         article=sound,
         detected_type="obituary",
         confidence_score=0.38,
-        evidence={"url": ["obituaries"], "title_patterns": ["1931-2025"]},
+        evidence=json.dumps({"url": ["obituaries"], "title_patterns": ["1931-2025"]}),
     )
     article("na", "not_article", title="A rejected story")
     return dataset

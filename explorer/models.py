@@ -283,7 +283,22 @@ class ContentTypeDetection(CrawlerModel):
     detection_method = models.TextField(null=True)
     confidence_score = models.FloatField(null=True)
     reason = models.TextField(null=True)
-    evidence = models.JSONField(null=True)
+    #: TEXT in Postgres, not jsonb. Declaring it JSONField let the ORM
+    #: emit `?|` for a key lookup, which Postgres refuses on text -- and
+    #: the error surfaced as "crawler database not connected", because the
+    #: view catches DatabaseError and cannot tell a broken query from a
+    #: broken connection. SQLite accepted it, so the tests did too.
+    evidence = models.TextField(null=True)
+
+    def evidence_keys(self):
+        """The keys the detector recorded, or () if it recorded nothing."""
+        import json
+
+        try:
+            loaded = json.loads(self.evidence or "")
+        except (TypeError, ValueError):
+            return ()
+        return tuple(loaded) if isinstance(loaded, dict) else ()
 
     class Meta(CrawlerModel.Meta):
         db_table = "content_type_detection_telemetry"
