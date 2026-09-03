@@ -201,6 +201,27 @@ def geoid_name(geoid):
 
 
 @register.simple_tag(takes_context=True)
+def todo_count(context):
+    """How much is waiting for this person, for the sidebar.
+
+    Separate from `section_groups` so the navigation's own shape is not
+    bent around a number, and read from cache rather than counted: the
+    sidebar is on every page, and counting here would couple every page to
+    a second database.
+    """
+    request = context.get("request")
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
+        return 0
+    from review import todo
+
+    # Reads the cache the landing page fills; never counts. Counting here
+    # would make every page in the console -- including ones with nothing
+    # to do with review -- depend on the crawler database being reachable.
+    return todo.cached_total_for(user) or 0
+
+
+@register.simple_tag(takes_context=True)
 def section_groups(context):
     """The navigation groups the signed-in role sees, in order.
 
