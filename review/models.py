@@ -137,11 +137,33 @@ class ExtractionDecision(models.Model):
     REEXTRACT = "reextract"
     DECISIONS = [(d, d) for d in (ACCEPT, REJECT, REEXTRACT)]
 
-    article_id = models.TextField(unique=True)
+    article_id = models.TextField(db_index=True)
     article_label = models.TextField(blank=True, default="")
+    #: WHAT WAS ASKED, as a stable key. This is what a decision answers,
+    #: and keying on the article alone was wrong: it would have let the
+    #: first decision about an article silence every later question about
+    #: it. An article whose byline is later found to be garbage is a new
+    #: question, and must be askable even though its classification was
+    #: settled months ago.
+    #:
+    #: Built from the claim and the stage that made it -- "obituary:
+    #: extraction" -- so re-flagging the same claim is recognised as the
+    #: same question and stays answered.
+    #: Blank default for the migration only. `record` always sets it, and
+    #: the uniqueness constraint is on (article_id, question), so a blank
+    #: cannot collide with a real one on the same article.
+    question = models.TextField(default="")
     #: The status the article carried when it was reviewed, so a decision
     #: can be read back against the claim it answered.
     classified_as = models.TextField()
+    #: What the article was on before review held it, so ACCEPT can put it
+    #: back. Accept means the classification stands, which is a different
+    #: thing from leaving the article wherever review parked it.
+    status_before = models.TextField(blank=True, default="")
+    #: What the disposition required it to become. Recorded rather than
+    #: recomputed: the rewind map may change, and this says what was
+    #: actually asked for at the time.
+    status_after = models.TextField(blank=True, default="")
     #: Which stage made the claim: extraction, labeling or enrichment.
     #: It decides where REJECT rewinds to.
     stage = models.TextField(blank=True, default="")
@@ -157,6 +179,12 @@ class ExtractionDecision(models.Model):
 
     class Meta:
         ordering = ["-decided_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["article_id", "question"],
+                name="one_decision_per_question",
+            )
+        ]
 
     def __str__(self):
-        return f"{self.decision} {self.article_id} ({self.classified_as})"
+        return f"{self.decision} {self.article_id} ({self.question})"

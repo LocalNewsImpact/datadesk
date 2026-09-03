@@ -62,6 +62,87 @@ REWIND_TO = {
 #: empty.
 REEXTRACT_TO = "paused"
 
+#: Where a record waits while somebody is deciding about it.
+#:
+#: A flagged record keeps a status the pipeline reads. Everything the queue
+#: surfaces today is already held -- not_article, obituary and the rest are
+#: selected by no stage -- but every field-level defect sits on `labeled`
+#: articles, 85,246 of them, which enrichment picks up. Flag one of those
+#: and it is enriched and exported before anybody looks.
+#:
+#: No stage selects `in_review`, so a record parked here is out of the
+#: pipeline. `status_before` on the decision is how it gets back: ACCEPT
+#: means the classification stands, which is not the same as leaving the
+#: article wherever review put it.
+IN_REVIEW = "in_review"
+
+
+def hold_for_review(article, stage, user=None):
+    """Park a flagged article out of the pipeline until somebody decides.
+
+    A flagged record otherwise keeps a status the pipeline reads. Every
+    field-level defect sits on a `labeled` article -- 85,246 of them --
+    which enrichment picks up, so a flag raised there is enriched and
+    exported before anybody looks at it.
+
+    Nothing releases a held record but a decision. There is no timeout,
+    deliberately: what is a risk to the export is not knowable in advance,
+    so the safe default is to stop and ask. Reviews piling up is not a
+    failure of the queue, it is the pipeline telling you how often it is
+    wrong.
+
+    Returns the status the article was holding, which is what ACCEPT puts
+    back.
+    """
+    from review.models import ExtractionDecision
+
+    was = getattr(article, "status", "")
+    if was == IN_REVIEW:
+        return getattr(article, "status_before_review", "") or was
+
+    # Already answered? Then it is not a question any more, and holding it
+    # would park a record on a decision somebody already made.
+    if ExtractionDecision.objects.filter(
+        article_id=str(article.pk), question=question_for(was, stage)
+    ).exists():
+        return was
+
+    article.status = IN_REVIEW
+    article.save(update_fields=["status"])
+    return was
+
+
+def answered_questions(article_ids):
+    """Which (article, question) pairs already have a decision.
+
+    The queue asks this so a settled question is not asked twice, and so a
+    NEW question about the same article still is.
+    """
+    from review.models import ExtractionDecision
+
+    return set(
+        ExtractionDecision.objects.filter(article_id__in=list(article_ids)).values_list(
+            "article_id", "question"
+        )
+    )
+
+
+def question_for(status, stage):
+    """What is being asked, as a stable key.
+
+    A decision answers a question, not an article. Keyed on the article
+    alone, the first decision would silence every later question about it
+    -- and an article whose byline is later found to be garbage is a new
+    question, askable even though its classification was settled months
+    ago.
+
+    The claim and the stage that made it. Re-flagging the same claim
+    produces the same key and stays answered; a different claim is a
+    different question and surfaces.
+    """
+    return f"{status or 'unknown'}:{stage or 'unknown'}"
+
+
 #: Written beside the status so the request is legible to whatever acts
 #: on it, and distinguishable from housekeeping's own "null_text".
 REEXTRACT_PAUSE_REASON = "reextract_requested"
@@ -137,9 +218,21 @@ def record(article, *, decision, stage, user, reason="", label="", article_statu
     # rejected row said it had been classified as "labeled".
     claimed = article_status or getattr(article, "status", "")
 
+    # Where the article was before review held it. Only meaningful once a
+    # record is parked in `in_review`; until then the claim IS the prior
+    # status and the two agree.
+    before = getattr(article, "status_before_review", "") or claimed
+
     rewound = ""
     target = None
-    if decision == ExtractionDecision.REJECT:
+    if decision == ExtractionDecision.ACCEPT:
+        # The classification stands. If review parked the article, put it
+        # back on the status it was flagged with -- leaving it in
+        # `in_review` would hold it out of the pipeline for ever on the
+        # strength of a decision that said nothing was wrong.
+        if getattr(article, "status", "") == IN_REVIEW and before != IN_REVIEW:
+            target = before
+    elif decision == ExtractionDecision.REJECT:
         target = rewind_target(stage)
     elif decision == ExtractionDecision.REEXTRACT:
         # Out of the pipeline rather than back into it: there is no status
@@ -154,12 +247,15 @@ def record(article, *, decision, stage, user, reason="", label="", article_statu
 
     entry, _ = ExtractionDecision.objects.update_or_create(
         article_id=str(article.pk),
+        question=question_for(claimed, stage),
         defaults={
             "article_label": label or (getattr(article, "title", "") or "")[:300],
             "classified_as": claimed,
             "stage": stage,
             "decision": decision,
             "rewound_to": rewound,
+            "status_before": before,
+            "status_after": target or before,
             "reason": reason,
             "decided_by": user,
             "decided_at": timezone.now(),
