@@ -42,6 +42,13 @@ RUN pip install --prefix=/install -r requirements.txt
 # unfinished main cannot walk into this image. And the built image records
 # exactly which tag, while the deploy references the image by digest, so
 # what runs is reproducible even though the resolution is not pinned here.
+# The shared contracts, the same way and for the same reason: a shape one
+# service writes and another reads, defined once so a rename breaks the
+# build rather than stranding an article at runtime.
+ARG CONTRACTS_VERSION=v0.1.0
+RUN pip install --prefix=/install \
+      "lnic-contracts @ git+https://github.com/LocalNewsImpact/lnic-contracts@${CONTRACTS_VERSION}"
+
 ARG DIRECTORY_VERSION
 RUN test -n "$DIRECTORY_VERSION" \
  && pip install --prefix=/install \
