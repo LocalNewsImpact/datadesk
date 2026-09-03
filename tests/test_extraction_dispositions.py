@@ -107,11 +107,23 @@ def test_accept_writes_nothing_to_the_article(reviewer, article):
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_deciding_twice_replaces_the_first_decision(reviewer, article):
-    record(article, decision=ExtractionDecision.ACCEPT, stage=EXTRACTION, user=reviewer)
+def test_answering_the_same_question_twice_replaces_the_answer(reviewer, article):
+    """Same claim, same stage, so the same question -- the later decision
+    stands in place of the earlier one."""
+    record(article, decision=ExtractionDecision.ACCEPT, stage=ENRICHMENT, user=reviewer)
     record(article, decision=ExtractionDecision.REJECT, stage=ENRICHMENT, user=reviewer)
     assert ExtractionDecision.objects.filter(article_id="a1").count() == 1
     assert ExtractionDecision.objects.get(article_id="a1").decision == "reject"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_decision_at_another_stage_is_another_question(reviewer, article):
+    """not_article from extraction and from the enrichment gate are two
+    different claims that happen to share a status, so both are asked and
+    both are answered."""
+    record(article, decision=ExtractionDecision.ACCEPT, stage=EXTRACTION, user=reviewer)
+    record(article, decision=ExtractionDecision.REJECT, stage=ENRICHMENT, user=reviewer)
+    assert ExtractionDecision.objects.filter(article_id="a1").count() == 2
 
 
 # --- which verbs a row can actually carry out --------------------------------
