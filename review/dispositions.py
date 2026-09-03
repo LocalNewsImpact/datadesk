@@ -41,6 +41,17 @@ REWIND_TO = {
     ENRICHMENT: "labeled",
 }
 
+#: Where re-extraction rewinds to. Further back than a rejection, because
+#: the body has to be rebuilt before anything can read it: `extracted` is
+#: the status an article carries before cleaning has run.
+#:
+#: There is no separate request and no worker waiting on one. The article
+#: goes back in the queue with a status saying what it needs, and
+#: `raw_gcs_path` already says the capture is there to rebuild it from --
+#: non-null exactly when the page is in the archive. A decision recorded
+#: somewhere nothing reads is a decision that does not happen.
+REEXTRACT_TO = "extracted"
+
 
 def stage_of(article, enrichment=None, labels_updated_at=None):
     """Which stage decided this article's status.
@@ -102,8 +113,8 @@ def record(article, *, decision, stage, user, reason="", label="", article_statu
 
     ACCEPT writes nothing to the crawler: the article's status already
     excludes it, so the only thing needed is that the queue stops asking.
-    REJECT writes one field. REEXTRACT records the request; the re-parse
-    itself is a pipeline job, not something this console performs.
+    REJECT and REEXTRACT each write one field -- the status -- and differ
+    only in how far back it goes.
     """
     from review.models import ExtractionDecision
 
@@ -113,12 +124,17 @@ def record(article, *, decision, stage, user, reason="", label="", article_statu
     claimed = article_status or getattr(article, "status", "")
 
     rewound = ""
+    target = None
     if decision == ExtractionDecision.REJECT:
         target = rewind_target(stage)
-        if target:
-            article.status = target
-            article.save(update_fields=["status"])
-            rewound = target
+    elif decision == ExtractionDecision.REEXTRACT:
+        # One step further back than a rejection: the body has to be
+        # rebuilt from the archived capture before anything can read it.
+        target = REEXTRACT_TO
+    if target:
+        article.status = target
+        article.save(update_fields=["status"])
+        rewound = target
 
     entry, _ = ExtractionDecision.objects.update_or_create(
         article_id=str(article.pk),
