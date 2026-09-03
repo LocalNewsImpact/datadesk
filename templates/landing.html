@@ -46,6 +46,13 @@
         </li>
         {% endfor %}
       </ul>
+      {% comment %}
+      How old the number is. Counted on a schedule rather than per request,
+      because one of these joins takes 11 seconds against production -- so
+      a refresh that has stopped running shows here as a number that stops
+      moving, rather than as a queue that quietly looks empty.
+      {% endcomment %}
+      <span class="todo-age" title="{{ row.counted_at }}">counted {{ row.counted_at|timesince }} ago</span>
     </div>
     {% endfor %}
   </section>

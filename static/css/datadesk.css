@@ -1595,6 +1595,7 @@ td.count.flagged-length { color: var(--tone-warn); font-weight: 600; }
 .todo-tasks b { font-variant-numeric: tabular-nums; }
 .todo-note { color: var(--text-2); font-size: var(--fs-sm); }
 .todo-clear { margin-bottom: var(--s-4); }
+.todo-age { color: var(--text-3); font-size: var(--fs-2xs); margin-left: auto; }
 
 /* The same count in the sidebar, so it is visible from every page rather
    than only the one somebody lands on. */

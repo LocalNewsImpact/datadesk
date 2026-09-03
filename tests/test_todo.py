@@ -3,15 +3,24 @@
 Three review surfaces, each scoped to the datasets somebody may write, so
 what is waiting differs by who is asking. Without this a reviewer visits
 three pages to find out whether there is anything for them.
+
+Counted on a schedule, read from a table. One of these counts -- flagged
+articles in a single directory -- takes 11.2 seconds against production
+with every join column already indexed, because 164,570 articles against
+262,137 candidate links is fan-out rather than a missing index. Nine of
+those is a landing page nobody waits for, so the reader never runs them:
+`refresh_worklist` does, and the page reads one row per queue.
 """
 
 import pytest
 from django.contrib.auth.models import User
+from django.core.management import call_command
 from django.urls import reverse
 
 from accounts.models import DATADESK, Grant
 from explorer.models import Article, CandidateLink, Dataset, DatasetSource, Source
 from review import todo
+from review.models import WorklistCount
 from review.proposals import ChangeProposal
 
 
@@ -56,6 +65,10 @@ def work(crawler_schema):
         state=ChangeProposal.PENDING,
         flag="city_missing",
     )
+    # What the scheduled job does. Nothing is waiting until something has
+    # counted, which is the design rather than a gap: the reader never runs
+    # the joins that take 11 seconds.
+    call_command("refresh_worklist")
     return mo
 
 
@@ -105,6 +118,40 @@ def test_the_article_count_is_what_the_queue_would_show(editor, work):
     rows = todo.for_user(editor)
     task = next(t for row in rows for t in row["tasks"] if t.key == "extraction")
     assert task.count == review_queue.queued({"dataset": "mo"}, editor).count()
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_reader_does_not_run_the_expensive_joins(editor, work):
+    """The point of the table. Reading touches `datasets` -- four rows, to
+    know which directories this person may write -- and the worklist. It
+    must not touch `articles`, which is where the 11 seconds live."""
+    from django.db import connections
+
+    seen = []
+
+    def record(execute, sql, params, many, context):
+        seen.append(sql)
+        return execute(sql, params, many, context)
+
+    with connections["crawler"].execute_wrapper(record):
+        todo.for_user(editor)
+
+    joined_articles = [sql for sql in seen if '"articles"' in sql]
+    assert not joined_articles, f"the reader joined articles: {joined_articles[:1]}"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_count_says_how_old_it_is(editor, work):
+    """A number somebody plans a morning around should say when it was
+    taken, so a refresh that has stopped shows as a number that stops
+    moving rather than a queue that looks empty."""
+    assert all(row["counted_at"] for row in todo.for_user(editor))
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_nothing_is_waiting_until_something_has_counted(editor, work):
+    WorklistCount.objects.all().delete()
+    assert todo.for_user(editor) == []
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])

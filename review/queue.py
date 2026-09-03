@@ -388,6 +388,38 @@ def _flagged_q(cases=None):
     return query & ~Q(enrichment__skip_reason=HUMAN_REMOVAL_SKIP_REASON)
 
 
+def base_queryset_unscoped():
+    """The flagged rows, before anyone's access narrows them.
+
+    Split out for the scheduled worklist count, which asks what is IN a
+    directory rather than what one person may see -- the work is the same
+    whoever asks, and access decides which directories somebody is shown.
+
+    Not for use in a request. Every page goes through `base_queryset`,
+    which narrows.
+    """
+    return (
+        Article.objects.select_related("candidate_link__source")
+        .annotate(
+            text_length=Length(
+                Coalesce(
+                    "content",
+                    "text",
+                    "text_excerpt",
+                    Value(""),
+                    output_field=TextField(),
+                )
+            ),
+            enr_skip_reason=F("enrichment__skip_reason"),
+            enr_gate_reason=F("enrichment__content_gate_reason"),
+            enr_is_news=F("enrichment__is_news_content"),
+            enr_scope=F("enrichment__scope"),
+            enr_present=F("enrichment__article_id"),
+        )
+        .filter(_flagged_q())
+    )
+
+
 def base_queryset(user):
     """Flagged articles, annotated with what the operator has to judge:
     how much text was captured, the reason the gate gave, the CIN label

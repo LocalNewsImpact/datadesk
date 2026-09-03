@@ -34,110 +34,139 @@ class Task:
     note: str
 
 
-def _proposal_tasks(user, dataset):
-    from django.urls import reverse
-
+def _count_proposals(dataset):
     from review.proposals import ChangeProposal
-    from review.views import _within_reach
 
-    pending = _within_reach(
-        ChangeProposal.objects.filter(
-            target="sources", state=ChangeProposal.PENDING, dataset=dataset.slug
-        ),
-        user,
+    return ChangeProposal.objects.filter(
+        target="sources", state=ChangeProposal.PENDING, dataset=dataset.slug
     ).count()
-    if not pending:
-        return []
-    return [
-        Task(
-            key="proposals",
-            label="Publisher records",
-            count=pending,
-            url=f"{reverse('review:proposals')}?dataset={dataset.slug}",
-            note="fields the scan disputes",
-        )
-    ]
 
 
-def _extraction_tasks(user, dataset):
-    from django.urls import reverse
-
+def _count_extraction(dataset):
     from review import queue as review_queue
 
     # The queue's own selector, narrowing included, so the number is what
-    # the page will show.
-    waiting = review_queue.queued({"dataset": dataset.slug}, user).count()
-    if not waiting:
-        return []
-    return [
-        Task(
-            key="extraction",
-            label="Articles",
-            count=waiting,
-            url=f"{reverse('review:queue')}?dataset={dataset.slug}",
-            note="triage flagged, worth a second look",
-        )
-    ]
+    # the page will show. `_apply_common` and `doubtful_q` are the same
+    # ones `queued` uses; only the per-user narrowing is left off, because
+    # what is IN a directory does not depend on who asks.
+    qs = review_queue.base_queryset_unscoped()
+    qs = review_queue._apply_common(qs, {"dataset": dataset.slug})
+    return qs.filter(review_queue.doubtful_q()).distinct().count()
 
 
-def _paywall_tasks(user, dataset):
-    from django.urls import reverse
-
+def _count_paywalls(dataset):
     from explorer.models import DatasetSource, Source
-    from explorer.scoping import narrow
 
-    reachable = narrow(Source.objects.all(), user, WRITE, source_path="id")
     members = DatasetSource.objects.filter(dataset__slug=dataset.slug).values_list(
         "source_id", flat=True
     )
-    # A publisher recorded as paywalled that nobody has priced or signed
-    # into: the two things the paywalls page exists to collect.
-    undecided = (
-        reachable.filter(id__in=list(members), has_paywall=True)
+    # A publisher recorded as paywalled that nobody has priced: what the
+    # paywalls page exists to collect.
+    return (
+        Source.objects.filter(id__in=list(members), has_paywall=True)
         .filter(subscription_cost__isnull=True)
         .count()
     )
-    if not undecided:
-        return []
-    return [
-        Task(
-            key="paywalls",
-            label="Paywalls",
-            count=undecided,
-            url=f"{reverse('review:paywalls')}?dataset={dataset.slug}",
-            note="paywalled, no subscription recorded",
-        )
-    ]
+
+
+#: Every queue this counts. Named here so the refresh and the reader agree
+#: on what a directory can hold work in.
+QUEUES = ("proposals", "extraction", "paywalls")
+
+QUEUE_LABELS = {
+    "proposals": "Publisher records",
+    "extraction": "Articles",
+    "paywalls": "Paywalls",
+}
+
+QUEUE_NOTES = {
+    "proposals": "fields the scan disputes",
+    "extraction": "triage flagged, worth a second look",
+    "paywalls": "paywalled, no subscription recorded",
+}
+
+
+def count_for_dataset(dataset):
+    """What is waiting in one directory, by queue.
+
+    Counted for the directory rather than for a person: the work is the
+    same whoever asks, and access decides which directories somebody is
+    shown, not what is in them.
+
+    Called by the refresh command, never from a request. One of these
+    joins takes 11.2 seconds against production.
+    """
+    return {
+        "proposals": _count_proposals(dataset),
+        "extraction": _count_extraction(dataset),
+        "paywalls": _count_paywalls(dataset),
+    }
 
 
 def for_user(user):
-    """Every dataset with work in it, and what kind.
+    """Every directory this person may write that has work in it.
 
-    Datasets with nothing waiting are left out. A to-do listing zeroes is a
-    list somebody stops reading.
+    One select against the worklist table, joined in memory to the
+    directories they can reach. Nothing here queries the crawler: the
+    counts were taken on a schedule, because doing it per request made the
+    landing page wait on nine joins over the crawler's largest tables.
+
+    A directory with nothing waiting is left out. A to-do listing zeroes is
+    a list people stop reading.
     """
+    from review.models import WorklistCount
+
+    reachable = {d.slug: d for d in datasets_for(user, WRITE)}
+    if not reachable:
+        return []
+
+    counts = WorklistCount.objects.filter(dataset_slug__in=list(reachable), count__gt=0)
+    by_dataset = {}
+    for row in counts:
+        by_dataset.setdefault(row.dataset_slug, []).append(row)
+
     out = []
-    for dataset in datasets_for(user, WRITE):
-        tasks = (
-            _proposal_tasks(user, dataset)
-            + _extraction_tasks(user, dataset)
-            + _paywall_tasks(user, dataset)
-        )
-        if tasks:
-            out.append(
-                {
-                    "dataset": dataset.label or dataset.slug,
-                    "slug": dataset.slug,
-                    "tasks": tasks,
-                    "total": sum(task.count for task in tasks),
-                }
+    for slug, rows in by_dataset.items():
+        dataset = reachable[slug]
+        tasks = [
+            Task(
+                key=row.queue,
+                label=QUEUE_LABELS.get(row.queue, row.queue),
+                count=row.count,
+                url=_url_for(row.queue, slug),
+                note=QUEUE_NOTES.get(row.queue, ""),
             )
+            for row in sorted(rows, key=lambda r: -r.count)
+        ]
+        out.append(
+            {
+                "dataset": dataset.label or slug,
+                "slug": slug,
+                "tasks": tasks,
+                "total": sum(task.count for task in tasks),
+                # Shown, not hidden: a number somebody plans a morning
+                # around should say how old it is, and a refresh that has
+                # stopped is then visible as a number that stops moving.
+                "counted_at": max(row.updated_at for row in rows),
+            }
+        )
     return sorted(out, key=lambda row: -row["total"])
 
 
-#: How long the sidebar's copy of the number is trusted. It is a count of
-#: work, not a balance: five minutes stale is a number somebody acts on
-#: just as well, and it is refreshed every time the landing page is drawn.
+def _url_for(queue, slug):
+    from django.urls import reverse
+
+    page = {
+        "proposals": "review:proposals",
+        "extraction": "review:queue",
+        "paywalls": "review:paywalls",
+    }.get(queue)
+    return f"{reverse(page)}?dataset={slug}" if page else ""
+
+
+#: How long the sidebar's copy of the number is trusted, away from the
+#: page that computed it. It is a count of work, not a balance: minutes
+#: stale is a number somebody acts on just as well.
 COUNT_CACHE_SECONDS = 300
 
 

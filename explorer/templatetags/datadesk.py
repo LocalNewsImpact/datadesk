@@ -209,15 +209,23 @@ def todo_count(context):
     sidebar is on every page, and counting here would couple every page to
     a second database.
     """
+    # The page that just counted passes the number in. Reading it back out
+    # of a cache on that page would be a round trip to learn something the
+    # view already knows -- and would go silently wrong wherever the cache
+    # is unavailable.
+    rows = context.get("todo")
+    if rows:
+        return sum(row["total"] for row in rows)
+
     request = context.get("request")
     user = getattr(request, "user", None)
     if user is None or not user.is_authenticated:
         return 0
     from review import todo
 
-    # Reads the cache the landing page fills; never counts. Counting here
-    # would make every page in the console -- including ones with nothing
-    # to do with review -- depend on the crawler database being reachable.
+    # Everywhere else: the cache the landing page filled, never a count.
+    # Counting here would make every page in the console -- including ones
+    # with nothing to do with review -- wait on the crawler database.
     return todo.cached_total_for(user) or 0
 
 
