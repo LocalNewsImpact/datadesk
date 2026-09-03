@@ -185,6 +185,11 @@ class Article(CrawlerModel):
     # is the current field and the one review edits will target.
     text = models.TextField(null=True)
     text_excerpt = models.TextField(null=True)
+    #: How many times enrichment has tried. The selector requires it to be
+    #: under the limit (3), so a rejection that rewinds the status is only
+    #: a decision if this is under it too -- otherwise the article sits at
+    #: `labeled` and is never picked up.
+    enrichment_attempts = models.IntegerField(null=True)
     #: Where the page as captured is archived. The bucket has 30-day
     #: retention, so a row older than that has none -- which is what
     #: decides whether a body can be re-parsed or is simply gone.

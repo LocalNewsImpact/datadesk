@@ -162,3 +162,68 @@ def test_re_extraction_needs_an_archived_page():
         raw_gcs_path = ""
 
     assert can_reextract(Row()) is False
+
+
+# --- re-extraction is a rewind, not a request --------------------------------
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_re_extraction_takes_the_article_out_of_the_pipeline(reviewer, crawler_schema):
+    """One step further back than a rejection: the body has to be rebuilt
+    before anything can read it, so the status goes to `extracted`.
+
+    There is no separate request and no worker waiting on one. A decision
+    recorded somewhere nothing reads is a decision that does not happen.
+    """
+    source = Source.objects.create(id="s2", host="b.example", host_norm="b.example")
+    link = CandidateLink.objects.create(id="c2", source_id=source.id, url="u")
+    article = Article.objects.create(
+        id="a2",
+        candidate_link=link,
+        status="not_article",
+        title="Body was dropped",
+        content="",
+        text="",
+        raw_gcs_path="gs://bucket/page.html.gz",
+        wire_check_status="complete",
+    )
+
+    record(
+        article, decision=ExtractionDecision.REEXTRACT, stage=EXTRACTION, user=reviewer
+    )
+
+    article.refresh_from_db()
+    # Not `extracted`: that asserts extraction succeeded, queues a
+    # body-less row for labelling, and is the exact shape housekeeping
+    # pauses -- so the decision would be undone by the next run.
+    assert article.status == "paused"
+    assert ExtractionDecision.objects.get(article_id="a2").rewound_to == "paused"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_archived_capture_is_the_flag(reviewer, crawler_schema):
+    """`raw_gcs_path` is non-null exactly when the page is in the archive,
+    so nothing new has to be written to say a body can be rebuilt."""
+    source = Source.objects.create(id="s3", host="c.example", host_norm="c.example")
+    link = CandidateLink.objects.create(id="c3", source_id=source.id, url="u")
+    with_archive = Article.objects.create(
+        id="a3",
+        candidate_link=link,
+        status="not_article",
+        content="",
+        text="",
+        raw_gcs_path="gs://bucket/page.html.gz",
+        wire_check_status="complete",
+    )
+    assert can_reextract(with_archive)
+
+    link2 = CandidateLink.objects.create(id="c4", source_id=source.id, url="u")
+    without = Article.objects.create(
+        id="a4",
+        candidate_link=link2,
+        status="not_article",
+        content="",
+        text="",
+        wire_check_status="complete",
+    )
+    assert not can_reextract(without)

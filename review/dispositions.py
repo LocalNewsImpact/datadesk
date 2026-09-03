@@ -41,6 +41,31 @@ REWIND_TO = {
     ENRICHMENT: "labeled",
 }
 
+#: Where re-extraction puts the article.
+#:
+#: NOT `extracted`. That status asserts extraction succeeded -- the
+#: extractor writes it only on success (utils/extraction_telemetry.py) --
+#: and `pipeline_status` counts it as eligible for classification, so a
+#: body-less row set to `extracted` would be queued for labelling with
+#: nothing to label. Worse, housekeeping hunts exactly that shape:
+#:
+#:     UPDATE articles SET status = 'paused',
+#:            metadata = jsonb_set(..., '{pause_reason}', '"null_text"')
+#:      WHERE status = 'extracted' AND text IS NULL
+#:
+#: so the decision would be reverted by the next housekeeping run.
+#:
+#: `paused` is where such a row belongs and where housekeeping already
+#: puts it. The article is out of the pipeline, `raw_gcs_path` says the
+#: capture is there to rebuild it from, and the reason distinguishes a
+#: body somebody asked to have rebuilt from one that merely arrived
+#: empty.
+REEXTRACT_TO = "paused"
+
+#: Written beside the status so the request is legible to whatever acts
+#: on it, and distinguishable from housekeeping's own "null_text".
+REEXTRACT_PAUSE_REASON = "reextract_requested"
+
 
 def stage_of(article, enrichment=None, labels_updated_at=None):
     """Which stage decided this article's status.
@@ -102,8 +127,8 @@ def record(article, *, decision, stage, user, reason="", label="", article_statu
 
     ACCEPT writes nothing to the crawler: the article's status already
     excludes it, so the only thing needed is that the queue stops asking.
-    REJECT writes one field. REEXTRACT records the request; the re-parse
-    itself is a pipeline job, not something this console performs.
+    REJECT and REEXTRACT each write one field -- the status -- and differ
+    only in how far back it goes.
     """
     from review.models import ExtractionDecision
 
@@ -113,12 +138,19 @@ def record(article, *, decision, stage, user, reason="", label="", article_statu
     claimed = article_status or getattr(article, "status", "")
 
     rewound = ""
+    target = None
     if decision == ExtractionDecision.REJECT:
         target = rewind_target(stage)
-        if target:
-            article.status = target
-            article.save(update_fields=["status"])
-            rewound = target
+    elif decision == ExtractionDecision.REEXTRACT:
+        # Out of the pipeline rather than back into it: there is no status
+        # meaning "re-parse me", and the one that looks like it --
+        # `extracted` -- asserts extraction succeeded and would be undone
+        # by housekeeping.
+        target = REEXTRACT_TO
+    if target:
+        article.status = target
+        article.save(update_fields=["status"])
+        rewound = target
 
     entry, _ = ExtractionDecision.objects.update_or_create(
         article_id=str(article.pk),
