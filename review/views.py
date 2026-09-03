@@ -412,6 +412,11 @@ def queue(request):
             article.stage = stage
             article.verbs = dispositions.verbs_for(article, stage)
             article.rewind_to = dispositions.rewind_target(stage) or ""
+            # An article held for review whose note cannot be read is
+            # stranded: there is nothing to restore it to. Shown as a
+            # defect on the row rather than treated as never held, which
+            # is how it would go missing without anybody seeing it.
+            article.note_problem = dispositions.unreadable_note_reason(article)
         context["page"] = page
         context["bands"] = review_queue.band_facets(request.GET, request.user)
         context["cases"] = review_queue.case_facets(request.GET, request.user)
