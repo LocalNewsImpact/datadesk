@@ -408,3 +408,148 @@ def test_the_exported_statuses_are_the_crawler_s():
     from review.dispositions import EXPORTED_STATUSES
 
     assert EXPORTED_STATUSES == ("enriched", "enrichment_skipped")
+
+
+# --- an article whose body is unusable ----------------------------------------
+#
+# ROT47 that never decoded, JavaScript captured instead of prose, a list
+# of states or counties where the story should be. The article is not
+# miscategorised: the capture is broken, and exporting it would export the
+# garbage.
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_broken_capture_can_be_said(client, reviewer, flagged):
+    client.force_login(reviewer)
+    body = client.get(reverse("review:queue")).content.decode()
+    assert 'value="text_is_garbage"' in body
+    assert "the body is garbage" in body
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_broken_capture_is_not_written_as_a_content_type(reviewer, flagged):
+    """The article is what it always was. Writing `text_is_garbage` as a
+    status would invent one, and statuses are the pipeline's."""
+    from review.dispositions import REEXTRACT_TO
+
+    record(
+        flagged,
+        decision="accept",
+        stage=EXTRACTION,
+        user=reviewer,
+        content_type="text_is_garbage",
+    )
+    flagged.refresh_from_db()
+    assert flagged.status == REEXTRACT_TO
+    assert flagged.status != "text_is_garbage"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_broken_capture_is_recorded_and_not_only_acted_on(reviewer, flagged):
+    """The cleaning that produced it is the thing to fix. A row that only
+    disappears into `paused` says nothing about what was wrong with it."""
+    record(
+        flagged,
+        decision="accept",
+        stage=EXTRACTION,
+        user=reviewer,
+        content_type="text_is_garbage",
+    )
+    assert ReviewDecision.objects.get(subject_id=flagged.id).wrote["body"] == "garbage"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_broken_capture_leaves_the_export(reviewer, flagged):
+    from explorer.models import Article
+    from review.dispositions import EXPORTED_STATUSES
+
+    Article.objects.filter(id=flagged.id).update(status="enrichment_skipped")
+    flagged.refresh_from_db()
+    record(
+        flagged,
+        decision="accept",
+        stage=EXTRACTION,
+        user=reviewer,
+        content_type="text_is_garbage",
+    )
+    flagged.refresh_from_db()
+    assert flagged.status not in EXPORTED_STATUSES
+
+
+# --- a garbage body is a report about a site ----------------------------------
+#
+# ROT47 that never decoded, JavaScript captured instead of prose, a list
+# of counties -- these come from a parser meeting a page shape it does not
+# handle, and the shape belongs to the site. Acting on the row leaves no
+# trace of what was wrong or where it came from.
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_garbage_body_records_the_publisher(reviewer, flagged):
+    """The decisions are in this database and the articles in the
+    crawler's, which do not join. The host travels on the row or the
+    question cannot be asked."""
+    record(
+        flagged,
+        decision="accept",
+        stage=EXTRACTION,
+        user=reviewer,
+        content_type="text_is_garbage",
+    )
+    wrote = ReviewDecision.objects.get(subject_id=flagged.id).wrote
+    assert wrote["body"] == "garbage"
+    assert wrote["host"], "no publisher recorded, so it counts against nobody"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_publishers_are_counted(reviewer, flagged):
+    from review import extraction_problems
+
+    record(
+        flagged,
+        decision="accept",
+        stage=EXTRACTION,
+        user=reviewer,
+        content_type="text_is_garbage",
+    )
+    reported = extraction_problems.reported()
+    assert len(reported) == 1
+    assert reported[0]["reports"] == 1
+    assert reported[0]["examples"][0]["id"] == flagged.id
+    assert extraction_problems.total() == 1
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_only_garbage_bodies_are_counted(reviewer, flagged):
+    """An ordinary accept is not a report about the site."""
+    from review import extraction_problems
+
+    record(flagged, decision="accept", stage=EXTRACTION, user=reviewer)
+    assert extraction_problems.reported() == []
+    assert extraction_problems.total() == 0
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_page_lists_them(client, reviewer, flagged):
+    record(
+        flagged,
+        decision="accept",
+        stage=EXTRACTION,
+        user=reviewer,
+        content_type="text_is_garbage",
+    )
+    client.force_login(reviewer)
+    body = client.get(reverse("review:extraction_problems")).content.decode()
+    assert "a.example" in body
+    # The count line wraps across markup; assert the numbers, not the
+    # whitespace between them.
+    counts = " ".join(body.split())
+    assert "<strong>1</strong> report across 1 publisher" in counts
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_page_says_what_puts_a_publisher_on_it(client, reviewer):
+    client.force_login(reviewer)
+    body = client.get(reverse("review:extraction_problems")).content.decode()
+    assert "Nothing reported yet" in body
+    assert "the body is garbage" in body

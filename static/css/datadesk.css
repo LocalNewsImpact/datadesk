@@ -1627,6 +1627,20 @@ table.rec-table tbody th { white-space: nowrap; color: var(--text-2); }
 .rec-facts .sub { display: block; font-size: .75rem; color: var(--text-2); }
 .rec-facts .finding { display: inline; margin-left: .4rem; }
 .rec-facts .flagged-length .val { font-weight: 600; }
+/* "Actually it is" is a different question from the verbs, and sat flush
+   against Reject as though it were part of it. Separated, labelled, and
+   pushed to its own end of the row. */
+/* Its own line, always. It wrapped onto one at this column width anyway,
+   and a select sitting flush under Reject reads as part of Reject --
+   which is the opposite of what it is: a different question, answered
+   alongside the verb rather than instead of it. */
+.qualifier { display: flex; align-items: center; gap: .5rem;
+  flex-basis: 100%; margin-top: .6rem; padding-top: .6rem;
+  border-top: 1px solid var(--border); }
+.qualifier > span { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--text-2); white-space: nowrap; }
+.qualifier .qualval { font-size: .82rem; padding: .25rem .4rem; max-width: 16rem; }
+
 .rec-decide { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap;
   padding: .6rem .9rem; border-top: 1px solid var(--border);
   background: rgba(127,127,127,.04); }

@@ -133,6 +133,14 @@ SECTION_GROUPS = (
                 "label": "Review queue",
                 "note": "Articles automated triage could not use, awaiting a decision.",
             },
+            {
+                "url": "review:extraction_problems",
+                "label": "Extraction problems",
+                "note": (
+                    "Publishers whose parser is producing unusable bodies, "
+                    "reported from the queue."
+                ),
+            },
         ),
     },
     # Cost sits on its own rather than under Admin. ROADMAP item 1 put
