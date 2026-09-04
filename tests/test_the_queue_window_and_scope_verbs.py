@@ -21,7 +21,7 @@ from django.utils import timezone
 
 from explorer.models import Article, CandidateLink, Dataset, DatasetSource, Source
 from review import queue as review_queue
-from review.dispositions import _what_accept_leaves, _what_reject_does
+from review.dispositions import _what_accept_does, _what_reject_does
 
 
 @pytest.fixture
@@ -124,7 +124,7 @@ def test_reject_says_something_different_where_the_row_is_finished():
     class Excluded:
         status = "not_article"
 
-    assert _what_reject_does(Scope()) == "The call was wrong — enrich it again"
+    assert _what_reject_does(Scope()) == "Wrong — say what it is below"
     assert _what_reject_does(Excluded()) == "It is a real story, put it back"
 
 
@@ -135,10 +135,12 @@ def test_accept_and_reject_do_not_read_as_the_same_answer():
     class Scope:
         status = "enrichment_skipped"
 
-    accept = _what_accept_leaves(Scope())
+    accept = _what_accept_does(Scope())
     reject = _what_reject_does(Scope())
     assert accept != reject
-    assert "export" in accept
+    # Accept says it changes nothing, which is the fact a reviewer needs;
+    # it used to describe the state and leave them to work that out.
+    assert accept.startswith("Nothing changes")
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
@@ -147,8 +149,8 @@ def test_the_page_points_at_the_type_for_an_exported_row(
 ):
     client.force_login(reviewer)
     body = client.get(reverse("review:queue")).content.decode()
-    assert "that is what takes it out" in body
-    assert "Accept and Reject both keep it" in body
+    assert "Accept leaves this exactly as it is" in body
+    assert "say what it actually is below" in body
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
@@ -173,3 +175,95 @@ def test_an_empty_everything_does_not_blame_the_window(
     client.force_login(reviewer)
     body = client.get(reverse("review:queue"), {"days": "all"}).content.decode()
     assert "Look at everything" not in body
+
+
+# --- rejecting a finished row needs the type ----------------------------------
+
+
+def test_reject_needs_the_type_where_enrichment_has_finished():
+    """ "The call was wrong" is not an instruction on a row that already
+    went through. Wrong how? The only useful next word is which type."""
+    from review import kernel
+
+    class Finished:
+        status = "enrichment_skipped"
+        content = "A body."
+        text = "A body."
+
+    reject = next(
+        verb
+        for verb in kernel.get("extraction").offered(Finished())
+        if verb.name == "reject"
+    )
+    assert reject.takes_value is True
+    assert reject.sublabel == "Wrong — say what it is below"
+
+
+def test_reject_does_not_need_the_type_where_there_is_a_pipeline_to_return_to():
+    """An article excluded as not-an-article has somewhere to go back to,
+    so "it is a real story, put it back" is complete on its own."""
+    from review import kernel
+
+    class Excluded:
+        status = "not_article"
+        content = "A body."
+        text = "A body."
+
+    reject = next(
+        verb
+        for verb in kernel.get("extraction").offered(Excluded())
+        if verb.name == "reject"
+    )
+    assert reject.takes_value is False
+    assert reject.sublabel == "It is a real story, put it back"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_reject_without_the_type_is_not_applied(reviewer, two_articles):
+    """Left in the queue and counted, not applied as a blank. The buttons
+    say the same thing; this is the server holding to it."""
+    from review import kernel
+    from review import submit as review_submit
+
+    article = two_articles["recent"]
+    Article.objects.filter(id=article.id).update(status="enrichment_skipped")
+    article.refresh_from_db()
+
+    receipt = review_submit.submit(
+        kernel.get("extraction"),
+        {article.id: ("reject", "")},
+        {article.id: article},
+        reviewer,
+    )
+    assert receipt["incomplete"] == 1
+    assert receipt["decided"] == 0
+    article.refresh_from_db()
+    assert article.status == "enrichment_skipped"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_reject_with_the_type_is_applied(reviewer, two_articles):
+    from review import kernel
+    from review import submit as review_submit
+
+    article = two_articles["recent"]
+    Article.objects.filter(id=article.id).update(status="enrichment_skipped")
+    article.refresh_from_db()
+
+    receipt = review_submit.submit(
+        kernel.get("extraction"),
+        {article.id: ("reject", "out_of_scope")},
+        {article.id: article},
+        reviewer,
+    )
+    assert receipt["decided"] == 1
+    article.refresh_from_db()
+    assert article.status == "out_of_scope"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_page_says_the_type_is_required(client, reviewer, two_articles):
+    Article.objects.filter(id="recent").update(status="enrichment_skipped")
+    client.force_login(reviewer)
+    body = client.get(reverse("review:queue"), {"days": "all"}).content.decode()
+    assert "nothing is submitted until you do" in body

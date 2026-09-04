@@ -64,6 +64,15 @@
       // Only the verb that writes one. Every proposal row carries a fix
       // box, so testing the box alone would call an `accept` incomplete
       // and refuse to submit it.
+      // A verb that cannot be carried out without the queue's qualifier
+      // is not a decision until the qualifier is answered. On a row
+      // enrichment has finished with, Reject means "the type is wrong"
+      // and says nothing about which type -- so it waits.
+      const chosen = row.querySelector(`.verb[data-verb="${field.value}"]`);
+      const qualifier = row.querySelector(".qualval");
+      if (chosen && chosen.dataset.needsValue === "1") {
+        if (!qualifier || !qualifier.value) incomplete += 1;
+      }
       const value = fixval(row);
       if (value && field.value === (row.dataset.fixVerb || "fix") && !value.value.trim()) {
         incomplete += 1;
@@ -129,7 +138,16 @@
     // been decided. Setting a verb here would submit rows nobody judged.
     if (event.target.classList.contains("qualval")) {
       const row = event.target.closest(".prop");
-      if (row) describe(row);
+      if (row) {
+        // Answering the qualifier can complete a verb that was waiting
+        // for it, so the dock and the outcome line both have to look
+        // again.
+        row.classList.toggle(
+          "decided",
+          Boolean(store(row) && store(row).value)
+        );
+        describe(row);
+      }
       recount();
       return;
     }

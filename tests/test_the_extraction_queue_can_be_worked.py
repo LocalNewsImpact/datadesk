@@ -367,14 +367,18 @@ def test_a_type_the_queue_does_not_offer_is_refused(reviewer, flagged):
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_accept_says_what_it_leaves_on_an_excluded_row(client, reviewer, flagged):
+def test_accept_says_that_it_changes_nothing(client, reviewer, flagged):
+    """It described the state -- "Stays out of the export" -- and left a
+    reviewer working out for themselves whether the button would change
+    it. Accepting a flag never changes anything."""
     client.force_login(reviewer)
     body = client.get(reverse("review:queue")).content.decode()
-    assert "Stays out of the export" in body
+    assert "Nothing changes" in body
+    assert "it stays out of the export" in body
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_accept_says_what_it_leaves_on_an_exported_row(reviewer, flagged):
+def test_accept_says_what_it_leaves_alone_on_an_exported_row(reviewer, flagged):
     """`enrichment_skipped` IS exported -- unenriched, but exported. The
     button said "Leave it out" on every row, which is the opposite of
     what it does here, and a reviewer read it as true.
@@ -391,7 +395,7 @@ def test_accept_says_what_it_leaves_on_an_exported_row(reviewer, flagged):
         for verb in kernel.get("extraction").offered(flagged)
         if verb.name == "accept"
     )
-    assert accept.sublabel == "Stays in the export, unenriched"
+    assert accept.sublabel == "Nothing changes — it stays exported, unenriched"
 
     flagged.status = "obituary"
     accept = next(
@@ -399,7 +403,7 @@ def test_accept_says_what_it_leaves_on_an_exported_row(reviewer, flagged):
         for verb in kernel.get("extraction").offered(flagged)
         if verb.name == "accept"
     )
-    assert accept.sublabel == "Stays out of the export"
+    assert accept.sublabel == "Nothing changes — it stays out of the export"
 
 
 def test_the_exported_statuses_are_the_crawler_s():
