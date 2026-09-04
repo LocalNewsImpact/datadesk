@@ -83,6 +83,43 @@ def _checks():
     return checks
 
 
+#: Modules a view imports inside the request, where a dependency missing
+#: from the image is a 500 on that page and nothing anywhere else. This is
+#: not hypothetical: review.dispositions imports lnic_contracts at module
+#: scope, the package was in requirements-dev.txt and not requirements.txt,
+#: and /review/queue/ raised ModuleNotFoundError in production while every
+#: test and every local reproduction passed.
+DEFERRED_IMPORTS = (
+    "review.dispositions",
+    "review.queue",
+    "review.todo",
+    "review.views",
+    "explorer.views",
+    "explorer.dashboard",
+    "explorer.costs",
+    "explorer.crawler",
+    "datasets.views",
+    "visuals.views",
+    "visuals.builder",
+    "visuals.panels",
+    "accounts.access",
+    "audit.models",
+)
+
+
+def _unimportable():
+    """Every module in DEFERRED_IMPORTS this image cannot import."""
+    import importlib
+
+    failures = []
+    for name in DEFERRED_IMPORTS:
+        try:
+            importlib.import_module(name)
+        except Exception as exc:
+            failures.append((name, exc))
+    return failures
+
+
 class Command(BaseCommand):
     help = "Run the console's read paths against the real databases."
 
@@ -101,6 +138,18 @@ class Command(BaseCommand):
                 "production; point CRAWLER_DB_USER at the real database "
                 "(Cloud SQL Auth Proxy locally) or pass --allow-sqlite."
             )
+
+        missing = _unimportable()
+        if missing:
+            for where, exc in missing:
+                self.stderr.write(self.style.ERROR(f"FAIL  import {where}: {exc}"))
+            self.stderr.write(
+                self.style.ERROR(
+                    f"{len(missing)} modules the views import cannot be "
+                    "imported in this image"
+                )
+            )
+            raise SystemExit(1)
 
         try:
             checks = _checks()

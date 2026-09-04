@@ -14,6 +14,3 @@ PyYAML>=6.0
 # the readings are committed, so nothing at runtime parses HTML.
 beautifulsoup4>=4.12
 
-# The shared contracts. Pinned to a tag, never a branch: the shape a
-# service writes and another reads must not change under a test run.
-lnic-contracts @ git+https://github.com/LocalNewsImpact/lnic-contracts@v0.1.0
