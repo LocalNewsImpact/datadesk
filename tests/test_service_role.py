@@ -140,13 +140,14 @@ def test_the_deploy_resolves_the_directory_to_a_release_tag():
 
     # Carried into the build and into the cache key.
     assert "--build-arg" in build and "DIRECTORY_VERSION" in build
-    # The inputs, not the exact command: the hash gained Dockerfile.base
-    # (which decides what is in the image and was not hashed, so editing
-    # it rebuilt nothing), and asserting the literal string froze a line
-    # rather than the property it is there for.
-    hashed = build[build.index('HASH="$$(cat') :].split("\n\n")[0]
-    assert "requirements.txt" in hashed
-    assert "_DIRECTORY_VERSION" in hashed
+    # The tag is computed by the shared action and passed in, so what
+    # this asserts is that the build refuses to run without it rather
+    # than computing one of its own -- a second implementation of the
+    # hash is what moving it out was for.
+    assert '_BASE_TAG: ""' in build, "the substitution is not declared"
+    assert 'HASH="${_BASE_TAG}"' in build
+    assert 'if [ -z "${_BASE_TAG}" ]; then' in build
+    assert "sha256sum" not in build, "the build computes a hash of its own"
 
     # Installed from that argument, and refused if it is empty.
     assert "ARG DIRECTORY_VERSION" in dockerfile

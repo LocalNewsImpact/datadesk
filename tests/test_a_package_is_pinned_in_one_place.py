@@ -85,16 +85,18 @@ def test_the_base_image_does_not_install_the_contract():
     assert not any("lnic-contracts" in line for line in installs)
 
 
-def test_the_base_image_hash_covers_what_builds_it():
-    """The base image is reused when its hash is unchanged, so everything
-    that decides what is in it has to be in the hash.
+def test_the_base_tag_comes_from_the_shared_action():
+    """One definition of "what should this image be tagged", used by every
+    repository in the suite.
 
-    Dockerfile.base was not, which meant editing it produced no new image
-    -- the hash matched, the old image was found, and the change was
-    reused away. Removing a bad `pip install` from it would have had no
-    effect on anything deployed.
+    It was computed inside the Cloud Build config -- a file no other
+    repository reads -- and it was missing Dockerfile.base, so editing the
+    file that builds the image rebuilt nothing.
     """
-    config = (ROOT / "gcp/cloudbuild/cloudbuild-datadesk.yaml").read_text()
-    hashed = config[config.index('HASH="$$(cat') :].split("\n\n")[0]
-    for part in ("requirements.txt", "Dockerfile.base", "_DIRECTORY_VERSION"):
+    deploy = (ROOT / ".github/workflows/deploy.yml").read_text()
+    assert "lnic-contracts/.github/actions/image-tag@" in deploy
+    assert "_BASE_TAG=" in deploy, "the computed tag is not passed to the build"
+
+    hashed = deploy[deploy.index("image-tag@") :]
+    for part in ("Dockerfile.base", "requirements.txt", "DIRECTORY_VERSION"):
         assert part in hashed, f"{part} decides what is in the base and is not hashed"
