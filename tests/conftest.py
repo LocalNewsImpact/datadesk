@@ -1,6 +1,40 @@
 """Shared test fixtures."""
 
+import os
+
 import pytest
+
+
+def pytest_report_header(config):
+    """Say which database the run is against, at the top of the output.
+
+    A run without one falls back to sqlite, which accepts SQL Postgres
+    refuses -- that is how a `?|` on a text column and a DISTINCT over a
+    `json` column both shipped green. `make test` and CI configure
+    Postgres; a bare `pytest` does not, and should say so rather than
+    pass quietly.
+    """
+    host = os.environ["DATADESK_TEST_DB_HOST"]
+    port = os.environ.get("DATADESK_TEST_DB_PORT", "5432")
+    return f"database: postgres at {host}:{port}"
+
+
+NO_DATABASE = (
+    "No test database. This suite runs on Postgres, because production "
+    "does -- sqlite accepts SQL Postgres refuses, and three defects "
+    "reached production through a green sqlite run.\n\n"
+    "    make test        starts the database and runs this\n"
+    "    make test-db     starts it on its own\n\n"
+    "Set DATADESK_TEST_DB_HOST/PORT/USER/PASSWORD to point somewhere else."
+)
+
+
+def pytest_configure(config):
+    # Refused rather than warned. Without a database the run falls back to
+    # sqlite, where the crawler fixtures fail on DDL sqlite cannot parse --
+    # a wall of "near AS: syntax error" that says nothing about the cause.
+    if "DATADESK_TEST_DB_HOST" not in os.environ:
+        raise pytest.UsageError(NO_DATABASE)
 
 
 @pytest.fixture(autouse=True)
@@ -43,91 +77,98 @@ def fresh_cache(settings):
 
 # Just enough of the crawler's real schema (MizzouNewsCrawler
 # src/models/__init__.py) for the unmanaged explorer models and the raw
-# row-count SQL. The crawler alias in tests is an empty sqlite database —
-# CrawlerRouter keeps migrations out — so tables exist only where a test
-# asks for them, and their absence proves the degraded paths.
+# row-count SQL.
+#
+# The column types are production's, read from information_schema on the
+# live database rather than guessed, because the types are what the
+# suite is for. `articles.metadata` is `json`, not text: a `json` column
+# has no equality operator, so DISTINCT over a row containing one fails
+# on Postgres and passes on sqlite. `evidence` is text, not json, so a
+# JSON key operator applied to it fails the same way. Declaring these
+# TEXT would let both defects through again.
+#
+# The crawler alias in tests is an empty Postgres database — CrawlerRouter
+# keeps migrations out — so tables exist only where a test asks for them,
+# and their absence proves the degraded paths.
 _CRAWLER_TABLES = {
     "datasets": (
-        "(id TEXT PRIMARY KEY, slug TEXT, label TEXT, name TEXT,"
-        " description TEXT, metadata TEXT, cron_enabled INTEGER,"
-        # Who to credit and who to ask, for anything published from this
-        # dataset. Added to the crawler by d86ffabfebe9.
-        " owner_name TEXT, owner_email TEXT)"
+        "(id VARCHAR PRIMARY KEY, slug VARCHAR, label VARCHAR, name "
+        "VARCHAR, description TEXT, metadata JSON, cron_enabled BOOLEAN, "
+        "owner_name TEXT, owner_email TEXT)"
     ),
     "sources": (
-        "(id TEXT PRIMARY KEY, host TEXT, host_norm TEXT, canonical_name TEXT,"
-        " city TEXT, county TEXT, owner TEXT, type TEXT, status TEXT,"
-        " metadata TEXT, rss_consecutive_failures INTEGER,"
-        " rss_transient_failures TEXT,"
-        # Paywalls. `requires_login` and the auth columns are the
-        # crawler's, already in production; the rest arrive with
-        # p1q2r3s4t5u6. No credential column, here or there.
-        " requires_login INTEGER DEFAULT 0, auth_type TEXT,"
-        " auth_secret_name TEXT, auth_config TEXT,"
-        " has_paywall INTEGER DEFAULT 0, subscription_cost NUMERIC,"
-        " subscription_period TEXT, login_url TEXT)"
+        "(id VARCHAR PRIMARY KEY, host VARCHAR, host_norm VARCHAR, "
+        "canonical_name VARCHAR, city VARCHAR, county VARCHAR, owner "
+        "VARCHAR, type VARCHAR, status VARCHAR, metadata JSON, "
+        "rss_consecutive_failures INTEGER, rss_transient_failures JSONB, "
+        "requires_login BOOLEAN DEFAULT FALSE, auth_type VARCHAR(32), "
+        "auth_secret_name VARCHAR(128), auth_config JSON, has_paywall "
+        "BOOLEAN DEFAULT FALSE, subscription_cost NUMERIC(10, 2), "
+        "subscription_period VARCHAR(16), login_url TEXT)"
     ),
     "gazetteer": (
-        "(id TEXT PRIMARY KEY, dataset_id TEXT, source_id TEXT,"
-        " category TEXT, created_at TIMESTAMP)"
+        "(id VARCHAR PRIMARY KEY, dataset_id VARCHAR, source_id VARCHAR, "
+        "category VARCHAR, created_at TIMESTAMP)"
     ),
-    "dataset_sources": "(id TEXT PRIMARY KEY, dataset_id TEXT, source_id TEXT)",
+    "dataset_sources": (
+        "(id VARCHAR PRIMARY KEY, dataset_id VARCHAR, source_id VARCHAR)"
+    ),
     "candidate_links": (
-        "(id TEXT PRIMARY KEY, url TEXT, source TEXT, source_id TEXT,"
-        " dataset_id TEXT)"
+        "(id VARCHAR PRIMARY KEY, url VARCHAR, source VARCHAR, source_id "
+        "VARCHAR, dataset_id VARCHAR)"
     ),
     "articles": (
-        "(id TEXT PRIMARY KEY, candidate_link_id TEXT, url TEXT, title TEXT,"
-        " author TEXT, publish_date TIMESTAMP, content TEXT, text TEXT,"
-        " text_excerpt TEXT, raw_gcs_path TEXT, enrichment_attempts INTEGER,"
-        " metadata TEXT,"
-        " status TEXT,"
-        " wire_check_status TEXT, wire TEXT, created_at TIMESTAMP,"
-        " primary_label TEXT,"
-        " primary_label_confidence REAL, alternate_label TEXT,"
-        " alternate_label_confidence REAL)"
+        "(id VARCHAR PRIMARY KEY, candidate_link_id VARCHAR, url VARCHAR, "
+        "title TEXT, author VARCHAR, publish_date TIMESTAMP, content TEXT, "
+        "text TEXT, text_excerpt VARCHAR(500), raw_gcs_path VARCHAR, "
+        "enrichment_attempts SMALLINT, metadata JSON, status VARCHAR, "
+        "wire_check_status VARCHAR, wire JSON, created_at TIMESTAMP, "
+        "primary_label VARCHAR, primary_label_confidence DOUBLE PRECISION, "
+        "alternate_label VARCHAR, alternate_label_confidence DOUBLE "
+        "PRECISION)"
     ),
     "article_enrichment": (
-        "(article_id TEXT PRIMARY KEY, profile_version TEXT, skip_reason TEXT,"
-        " model TEXT, cost_usd REAL, enriched_at TIMESTAMP,"
-        " is_news_content INTEGER, content_gate_reason TEXT,"
-        " scope TEXT, scope_confidence REAL, subject TEXT,"
-        " subject_confidence REAL, topic TEXT, topic_confidence REAL,"
-        " format TEXT, format_confidence REAL, timeframe TEXT,"
-        " timeframe_confidence REAL, user_need TEXT, user_need_confidence REAL,"
-        " rationales TEXT, point_place TEXT, point_method TEXT,"
-        " point_geoid TEXT, point_geoid_level TEXT, point_lat REAL,"
-        " point_lon REAL, point_zcta TEXT, geoids TEXT, geo_skip_reason TEXT)"
+        "(article_id TEXT PRIMARY KEY, profile_version INTEGER, skip_reason "
+        "TEXT, model TEXT, cost_usd NUMERIC(10, 6), enriched_at TIMESTAMPTZ, "
+        "is_news_content BOOLEAN, content_gate_reason TEXT, scope TEXT, "
+        "scope_confidence DOUBLE PRECISION, subject TEXT, "
+        "subject_confidence DOUBLE PRECISION, topic TEXT, topic_confidence "
+        "DOUBLE PRECISION, format TEXT, format_confidence DOUBLE PRECISION, "
+        "timeframe TEXT, timeframe_confidence DOUBLE PRECISION, user_need "
+        "TEXT, user_need_confidence DOUBLE PRECISION, rationales JSON, "
+        "point_place TEXT, point_method TEXT, point_geoid TEXT, "
+        "point_geoid_level TEXT, point_lat DOUBLE PRECISION, point_lon "
+        "DOUBLE PRECISION, point_zcta VARCHAR(5), geoids TEXT, "
+        "geo_skip_reason TEXT)"
     ),
     "article_geoids": (
-        "(id INTEGER PRIMARY KEY AUTOINCREMENT, article_id TEXT, geoid TEXT,"
-        " geoid_level TEXT, is_primary INTEGER, source TEXT)"
+        "(id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, "
+        "article_id TEXT, geoid TEXT, geoid_level TEXT, is_primary BOOLEAN, "
+        "source TEXT)"
     ),
     "article_people": (
-        "(id INTEGER PRIMARY KEY AUTOINCREMENT, article_id TEXT, name TEXT,"
-        " sort_key TEXT, title TEXT, affiliation TEXT, person_type TEXT,"
-        " role_in_story TEXT, nature TEXT, public_figure INTEGER,"
-        " mention_count INTEGER, quotes TEXT)"
+        "(id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, "
+        "article_id TEXT, name TEXT, sort_key TEXT, title TEXT, affiliation "
+        "TEXT, person_type TEXT, role_in_story TEXT, nature TEXT, "
+        "public_figure BOOLEAN, mention_count INTEGER, quotes JSON)"
     ),
     "article_organizations": (
-        "(id INTEGER PRIMARY KEY AUTOINCREMENT, article_id TEXT, name TEXT,"
-        " org_type TEXT, boundary TEXT, role_in_story TEXT, nature TEXT,"
-        " mention_count INTEGER)"
+        "(id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, "
+        "article_id TEXT, name TEXT, org_type TEXT, boundary TEXT, "
+        "role_in_story TEXT, nature TEXT, mention_count INTEGER)"
     ),
     "article_places": (
-        "(id INTEGER PRIMARY KEY AUTOINCREMENT, article_id TEXT, full_name TEXT,"
-        " place_type TEXT, city TEXT, county TEXT, state TEXT, address TEXT,"
-        " description TEXT, mention_text TEXT, is_point INTEGER, lat REAL,"
-        " lon REAL, geocoder TEXT, geoid TEXT, geoid_level TEXT)"
+        "(id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, "
+        "article_id TEXT, full_name TEXT, place_type TEXT, city TEXT, "
+        "county TEXT, state TEXT, address TEXT, description TEXT, "
+        "mention_text TEXT, is_point BOOLEAN, lat DOUBLE PRECISION, lon "
+        "DOUBLE PRECISION, geocoder TEXT, geoid TEXT, geoid_level TEXT)"
     ),
-    # What the content type detector recorded about its own verdict. The
-    # confidence and evidence live here rather than on the article, which
-    # is what makes an obituary called on one body phrase distinguishable
-    # from one the URL and title agree with.
     "content_type_detection_telemetry": (
-        "(id TEXT PRIMARY KEY, article_id TEXT, detected_type TEXT,"
-        " detection_method TEXT, confidence_score REAL, reason TEXT,"
-        " evidence TEXT)"
+        "(id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, "
+        "article_id VARCHAR, detected_type VARCHAR, detection_method "
+        "VARCHAR, confidence_score DOUBLE PRECISION, reason VARCHAR, "
+        "evidence TEXT)"
     ),
 }
 

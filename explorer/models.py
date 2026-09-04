@@ -194,7 +194,13 @@ class Article(CrawlerModel):
     #: held here, because `status` is overwritten by `in_review` and the
     #: claim being reviewed has nowhere else to live. housekeeping already
     #: uses it the same way, for pause_reason.
-    metadata = models.JSONField(null=True)
+    #:
+    #: DecodedJSONField, like every other JSON column here: this is
+    #: Postgres `json`, which psycopg3 hands back already parsed. A plain
+    #: JSONField calls json.loads on the dict and raises, which was a 500
+    #: on /review/queue/ for any held article. sqlite returned text and
+    #: the suite never saw it.
+    metadata = DecodedJSONField(null=True)
     #: Where the page as captured is archived. The bucket has 30-day
     #: retention, so a row older than that has none -- which is what
     #: decides whether a body can be re-parsed or is simply gone.
@@ -268,9 +274,12 @@ class ContentTypeDetection(CrawlerModel):
     several paths and only this one writes here.
     """
 
-    id = models.TextField(primary_key=True)
+    #: `integer` with a sequence in the crawler, not text. The suite ran
+    #: on sqlite, which stores whatever it is given, so a TextField over
+    #: an integer column went unnoticed here.
+    id = models.AutoField(primary_key=True)
     #: A log rather than a record: an article can have more than one row,
-    #: so queries over it are distinct.
+    #: so a query that joins it must not multiply the article.
     article = models.ForeignKey(
         "explorer.Article",
         on_delete=models.DO_NOTHING,
@@ -283,7 +292,22 @@ class ContentTypeDetection(CrawlerModel):
     detection_method = models.TextField(null=True)
     confidence_score = models.FloatField(null=True)
     reason = models.TextField(null=True)
-    evidence = models.JSONField(null=True)
+    #: TEXT in Postgres, not jsonb. Declaring it JSONField let the ORM
+    #: emit `?|` for a key lookup, which Postgres refuses on text -- and
+    #: the error surfaced as "crawler database not connected", because the
+    #: view catches DatabaseError and cannot tell a broken query from a
+    #: broken connection. SQLite accepted it, so the tests did too.
+    evidence = models.TextField(null=True)
+
+    def evidence_keys(self):
+        """The keys the detector recorded, or () if it recorded nothing."""
+        import json
+
+        try:
+            loaded = json.loads(self.evidence or "")
+        except (TypeError, ValueError):
+            return ()
+        return tuple(loaded) if isinstance(loaded, dict) else ()
 
     class Meta(CrawlerModel.Meta):
         db_table = "content_type_detection_telemetry"
@@ -299,10 +323,16 @@ class ArticleEnrichment(CrawlerModel):
         primary_key=True,
         related_name="enrichment",
     )
-    profile_version = models.TextField(null=True)
+    #: `integer` in the crawler. Declared TextField, a comparison against
+    #: a version number would have been str against int and quietly
+    #: false. Found by check_crawler_schema, not by a test.
+    profile_version = models.IntegerField(null=True)
     skip_reason = models.TextField(null=True)
     model = models.TextField(null=True)
-    cost_usd = models.FloatField(null=True)
+    #: `numeric(10, 6)`, so psycopg hands back a Decimal whatever this
+    #: says. Declared FloatField it was a lie that happened not to break:
+    #: the rollups sum with a leading int, and Decimal + int is fine.
+    cost_usd = models.DecimalField(max_digits=10, decimal_places=6, null=True)
     enriched_at = models.DateTimeField(null=True)
     is_news_content = models.BooleanField(null=True)
     content_gate_reason = models.TextField(null=True)

@@ -51,7 +51,11 @@ def _count_extraction(dataset):
     # what is IN a directory does not depend on who asks.
     qs = review_queue.base_queryset_unscoped()
     qs = review_queue._apply_common(qs, {"dataset": dataset.slug})
-    return qs.filter(review_queue.doubtful_q()).distinct().count()
+    # `.values("id").distinct()`, not `.distinct()`: DISTINCT over a
+    # selected row fails on Postgres because `articles` carries `json`
+    # columns, which have no equality operator. Only the id needs to be
+    # distinct. Same reason `queued` matches on `id__in`.
+    return qs.filter(review_queue.doubtful_q()).values("id").distinct().count()
 
 
 def _count_paywalls(dataset):

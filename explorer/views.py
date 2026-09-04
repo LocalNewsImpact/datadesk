@@ -22,6 +22,7 @@ from accounts.decorators import APP, requires
 from accounts.privileges import COST_PRIVILEGE, READ
 from datasets.geo import level_for_geoid, name_for_geoid
 from explorer.costs import billed_costs, gcp_costs, recorded_costs
+from explorer.dberrors import absent_or_raise
 from explorer.models import (
     Article,
     ArticleEnrichment,
@@ -75,7 +76,8 @@ def _filter_vocab(user=None):
 
     try:
         vocab = cache.get_or_set(_VOCAB_CACHE_KEY, fetch, _VOCAB_CACHE_SECONDS)
-    except DatabaseError:
+    except DatabaseError as exc:
+        absent_or_raise(exc, "explorer.views.article_vocab")
         return None
 
     if user is not None:
@@ -319,7 +321,8 @@ def _rows(queryset):
     """
     try:
         return list(queryset)
-    except DatabaseError:
+    except DatabaseError as exc:
+        absent_or_raise(exc, "explorer.views.rows_or_empty")
         return []
 
 
@@ -450,14 +453,17 @@ def article_detail(request, article_id):
             .first()
         )
     except DatabaseError as exc:
-        # No crawler connection: nothing at this URL, honestly.
+        # No crawler connection: nothing at this URL, honestly. A query
+        # this repository got wrong is a different thing and is raised.
+        absent_or_raise(exc, "explorer.views.article_detail")
         raise Http404("Crawler database not connected") from exc
     if article is None:
         raise Http404("No such article")
 
     try:
         enrichment = ArticleEnrichment.objects.filter(article_id=article_id).first()
-    except DatabaseError:
+    except DatabaseError as exc:
+        absent_or_raise(exc, "explorer.views.article_detail enrichment")
         enrichment = None
 
     dimensions = (
@@ -541,7 +547,8 @@ def _enrichment_vocab(user=None):
         vocab = cache.get_or_set(
             _ENRICHMENT_VOCAB_CACHE_KEY, fetch, _VOCAB_CACHE_SECONDS
         )
-    except DatabaseError:
+    except DatabaseError as exc:
+        absent_or_raise(exc, "explorer.views.enrichment_vocab")
         return None
 
     # Cached corpus-wide; only the dataset list differs per reader.

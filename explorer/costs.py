@@ -16,6 +16,7 @@ from django.db import DatabaseError
 from django.db.models import Avg, Count, Sum
 from django.db.models.functions import TruncDate
 
+from explorer.dberrors import absent_or_raise
 from explorer.models import ArticleEnrichment, Dataset, DatasetSource
 
 _CACHE_SECONDS = 3600
@@ -88,7 +89,8 @@ def recorded_costs():
 
     try:
         return cache.get_or_set("explorer.recorded_costs", fetch, _CACHE_SECONDS)
-    except DatabaseError:
+    except DatabaseError as exc:
+        absent_or_raise(exc, "explorer.costs.recorded_costs")
         return None
 
 

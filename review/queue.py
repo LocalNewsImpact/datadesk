@@ -142,8 +142,61 @@ CORROBORATING_EVIDENCE_KEYS = ("url", "title_patterns", "title")
 WIRE_SUSPECT_METHOD = "canonical_cross_domain"
 
 
+def _doubted_detection_ids():
+    """Articles whose detector recorded low confidence and no corroboration.
+
+    A subquery on ids rather than a join, so the row query never multiplies
+    an article by its telemetry -- the table is a log and an article can
+    have several rows. De-duplicating afterwards with `.distinct()` is not
+    an option: `articles` carries json columns, and DISTINCT over a row
+    containing one fails in Postgres with "could not identify an equality
+    operator for type json".
+    """
+    from explorer.models import ContentTypeDetection
+
+    corroborated = Q()
+    for key in CORROBORATING_EVIDENCE_KEYS:
+        # Containment, not a JSON operator: `evidence` is TEXT in Postgres
+        # and `has_any_keys` emits `?|`, which it has no operator for.
+        corroborated |= Q(evidence__contains=f'"{key}"')
+
+    return (
+        ContentTypeDetection.objects.filter(confidence_score__lt=0.30)
+        .exclude(corroborated)
+        .values("article_id")
+    )
+
+
+def _evidence_mentions(keys):
+    """A Q matching telemetry whose evidence names any of these keys.
+
+    Containment, not a JSON operator. `evidence` is TEXT in Postgres, so
+    `has_any_keys` emitted `?|` and Postgres refused it -- which reached
+    the page as "crawler database not connected", because the view catches
+    DatabaseError and cannot tell a broken query from a broken connection.
+
+    SQLite accepted the operator, so every test passed.
+    """
+    query = Q(pk__in=[])  # matches nothing, so an empty key list is empty
+    for key in keys:
+        query |= Q(detections__evidence__contains=f'"{key}"')
+    return query
+
+
 def evidence_is_corroborated(evidence) -> bool:
-    """Did anything beyond a phrase in the body agree with the verdict?"""
+    """Did anything beyond a phrase in the body agree with the verdict?
+
+    Accepts the JSON text the column actually holds as well as a decoded
+    dict. `evidence` is TEXT in Postgres, not jsonb, and the two callers
+    reach it through different layers.
+    """
+    if isinstance(evidence, str):
+        import json
+
+        try:
+            evidence = json.loads(evidence)
+        except ValueError:
+            return False
     if not isinstance(evidence, dict):
         return False
     return any(key in evidence for key in CORROBORATING_EVIDENCE_KEYS)
@@ -367,10 +420,8 @@ def _case_q(case):
         # Selected on the recorded evidence rather than the status alone:
         # 2,840 of 3,940 obituary verdicts ARE obituaries, and the URL or
         # title agreeing is what separates them.
-        return (
-            Q(status=CASE_STATUS[DOUBTED_CONTENT_TYPE])
-            & Q(detections__confidence_score__lt=0.30)
-            & ~Q(detections__evidence__has_any_keys=list(CORROBORATING_EVIDENCE_KEYS))
+        return Q(status=CASE_STATUS[DOUBTED_CONTENT_TYPE]) & Q(
+            id__in=_doubted_detection_ids()
         )
     return Q()
 
@@ -578,7 +629,17 @@ def queued(params, user):
         )
     )
     if not asked_for_something:
-        qs = qs.filter(doubtful_q()).distinct()
+        # Matched by id rather than by filtering the rows and calling
+        # `.distinct()`. The telemetry join can repeat a row, and DISTINCT
+        # over a selected row fails in Postgres -- "could not identify an
+        # equality operator for type json" -- because `articles` carries
+        # json columns. `IN` de-duplicates without comparing them.
+        #
+        # SQLite compares json as text and accepted it, so every test
+        # passed while the page returned an error the view reported as
+        # "crawler database not connected".
+        doubtful_ids = qs.filter(doubtful_q()).values("id")
+        qs = qs.filter(id__in=doubtful_ids)
     return qs.order_by("-text_length", "-created_at")
 
 
@@ -653,6 +714,7 @@ def vocab(user):
     database is not reachable."""
     from django.db import DatabaseError
 
+    from explorer.dberrors import absent_or_raise
     from explorer.models import Dataset
 
     try:
@@ -674,5 +736,8 @@ def vocab(user):
                 if value
             ),
         }
-    except DatabaseError:
+    except DatabaseError as exc:
+        # A missing crawler database is "not connected"; a query this
+        # repository got wrong is not, and used to be reported as one.
+        absent_or_raise(exc, "review.queue.vocab")
         return None
