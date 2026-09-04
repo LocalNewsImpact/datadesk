@@ -363,6 +363,40 @@ steps:
         gcloud run jobs execute "${_SERVICE}-scan-sources" \
           --region "${_REGION}" --project "$PROJECT_ID"
 
+  # The console's daily work: the To Do counts every landing page reads,
+  # and the scan for publishers whose parser returns the same string for
+  # every article.
+  #
+  # Both had no schedule. `refresh_worklist` had never run on one since it
+  # was built, so the counts were whatever the last manual run left, and
+  # `find_repeated_bodies` would have said nothing until somebody
+  # remembered it existed. One job for the set rather than one each: a
+  # second job and a second scheduler entry per task is how a task comes
+  # to have neither.
+  #
+  # Deployed with every release so the job runs this image rather than
+  # whichever one it was created with -- a Cloud Run job pins its image
+  # forever, which is how the scan job went on running an old build.
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'daily-job'
+    entrypoint: 'bash'
+    waitFor: ['migrate']
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        IMAGE="${_REGISTRY}/${_SERVICE}:${_SHORT_SHA}"
+        gcloud run jobs deploy "${_SERVICE}-daily" \
+          --image "$$IMAGE" --region "${_REGION}" --project "$PROJECT_ID" \
+          --command python \
+          --args "manage.py,daily_housekeeping" \
+          --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_DB_PASSWORD=crawler-ro-password:latest" \
+          --set-env-vars "^@^SERVICE_ROLE=datadesk@CLOUD_SQL_CONNECTION_NAME=${_SQL_INSTANCE}@DB_NAME=datadesk@DB_USER=datadesk@CRAWLER_DB_NAME=mizzou@CRAWLER_DB_USER=datadesk_ro" \
+          --set-cloudsql-instances "${_SQL_INSTANCE}" \
+          --task-timeout 30m \
+          --max-retries 1 \
+          --service-account "${_RUN_SA}"
+
   # --- The Source Directory front end ---------------------------------------
   #
   # One image, two front ends (ROADMAP item 14). Everything above serves
