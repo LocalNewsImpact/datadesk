@@ -35,6 +35,19 @@
         presentation, not access control: every view behind these links
         enforces its own role (accounts.decorators).
         {% endcomment %}
+        {% comment %}
+        What is waiting, at the top of the sidebar rather than only on the
+        landing page: somebody three pages deep should not have to go home
+        to find out something arrived.
+        {% endcomment %}
+        {% todo_count as waiting %}
+        {% if waiting %}
+        <div class="nav-group">
+          <a class="nav-item {% nav_active 'landing' %}" href="{% url 'landing' %}">
+            To do <span class="nav-count">{{ waiting }}</span>
+          </a>
+        </div>
+        {% endif %}
         {% section_groups as nav_groups %}
         {% for group in nav_groups %}
         <div class="nav-group">
