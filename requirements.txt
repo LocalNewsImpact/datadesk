@@ -20,3 +20,17 @@ brotli>=1.1
 # to a tag rather than a branch: a moving dependency makes a build
 # unreproducible, and the tag is what `version` in that repository's
 # pyproject declares. Public, so no credential is involved.
+
+# The shared review-note contract (lnic-contracts). review/dispositions.py
+# imports it at module scope, so the queue view cannot render without it.
+#
+# It was in requirements-dev.txt only, which is what a local checkout and
+# CI install -- so every test passed, and the deployed image, which
+# installs this file, did not have it. /review/queue/ 500'd on
+# ModuleNotFoundError while a reproduction against the same databases
+# returned 200.
+#
+# The release tarball rather than git+https, for the same reason the
+# crawler uses it: no build stage needs git to install a tarball, and one
+# of these two images does not have git.
+lnic-contracts @ https://github.com/LocalNewsImpact/lnic-contracts/archive/refs/tags/v0.1.0.tar.gz
