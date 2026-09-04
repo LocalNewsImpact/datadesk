@@ -25,7 +25,7 @@ from review.dispositions import (
     question_for,
     record,
 )
-from review.models import ExtractionDecision
+from review.models import ReviewDecision
 
 
 @pytest.fixture
@@ -79,7 +79,7 @@ def test_an_answered_question_is_not_held_again(reviewer, crawler_schema):
     """Holding a record on a question somebody already answered parks it
     for a decision that has been made."""
     article = _article("h3", crawler_schema, status="obituary")
-    record(article, decision=ExtractionDecision.ACCEPT, stage=EXTRACTION, user=reviewer)
+    record(article, decision="accept", stage=EXTRACTION, user=reviewer)
     article.refresh_from_db()
     assert hold_for_review(article, EXTRACTION) == "obituary"
     article.refresh_from_db()
@@ -99,11 +99,11 @@ def test_accept_returns_a_held_article_to_what_it_was_flagged_with(
     article = _article("h4", crawler_schema, status="obituary")
     was = hold_for_review(article, EXTRACTION)
     article.refresh_from_db()
-    article.status_before_review = was
+    article.before_review = was
 
     record(
         article,
-        decision=ExtractionDecision.ACCEPT,
+        decision="accept",
         stage=EXTRACTION,
         user=reviewer,
         article_status=was,
@@ -111,8 +111,8 @@ def test_accept_returns_a_held_article_to_what_it_was_flagged_with(
     article.refresh_from_db()
     assert article.status == "obituary"
 
-    entry = ExtractionDecision.objects.get(article_id="h4")
-    assert entry.status_before == "obituary"
+    entry = ReviewDecision.objects.get(subject_id="h4")
+    assert entry.before == "obituary"
     assert entry.question == question_for("obituary", EXTRACTION)
 
 
@@ -146,7 +146,7 @@ def test_a_second_question_about_the_same_article_can_be_asked(
     article = _article("h5", crawler_schema, status="obituary")
     record(
         article,
-        decision=ExtractionDecision.ACCEPT,
+        decision="accept",
         stage=EXTRACTION,
         user=reviewer,
         article_status="obituary",
@@ -157,14 +157,14 @@ def test_a_second_question_about_the_same_article_can_be_asked(
     article.save(update_fields=["status"])
     record(
         article,
-        decision=ExtractionDecision.REJECT,
+        decision="reject",
         stage=LABELING,
         user=reviewer,
         article_status="wire",
     )
 
-    assert ExtractionDecision.objects.filter(article_id="h5").count() == 2
-    assert {e.question for e in ExtractionDecision.objects.filter(article_id="h5")} == {
+    assert ReviewDecision.objects.filter(subject_id="h5").count() == 2
+    assert {e.question for e in ReviewDecision.objects.filter(subject_id="h5")} == {
         question_for("obituary", EXTRACTION),
         question_for("wire", LABELING),
     }
@@ -175,19 +175,19 @@ def test_deciding_the_same_question_twice_replaces_the_answer(reviewer, crawler_
     article = _article("h6", crawler_schema, status="obituary")
     record(
         article,
-        decision=ExtractionDecision.ACCEPT,
+        decision="accept",
         stage=EXTRACTION,
         user=reviewer,
         article_status="obituary",
     )
     record(
         article,
-        decision=ExtractionDecision.REJECT,
+        decision="reject",
         stage=EXTRACTION,
         user=reviewer,
         article_status="obituary",
     )
-    assert ExtractionDecision.objects.filter(article_id="h6").count() == 1
+    assert ReviewDecision.objects.filter(subject_id="h6").count() == 1
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
@@ -195,7 +195,7 @@ def test_answered_questions_reports_pairs_not_articles(reviewer, crawler_schema)
     article = _article("h7", crawler_schema, status="obituary")
     record(
         article,
-        decision=ExtractionDecision.ACCEPT,
+        decision="accept",
         stage=EXTRACTION,
         user=reviewer,
         article_status="obituary",

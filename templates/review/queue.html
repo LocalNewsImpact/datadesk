@@ -113,6 +113,13 @@
   Shared with the proposals queue rather than copied, so a change to how a
   decision is recorded cannot reach one queue and not the other.
   {% endcomment %}
+  {% comment %}
+  The story opens in a dialog rather than a new page: deciding whether a
+  classification is wrong means reading the text, and leaving the page to
+  do it loses every decision marked on the way down. Shared with the
+  proposals queue, which opens a publisher record the same way.
+  {% endcomment %}
+  <script defer src="{% static 'js/record-editor.js' %}"></script>
   <script defer src="{% static 'js/review-queue.js' %}"></script>
 
   {% endif %}

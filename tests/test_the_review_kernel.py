@@ -122,7 +122,12 @@ def test_a_row_offers_only_what_it_can_carry_out():
 def test_the_extraction_queue_is_registered():
     queue = kernel.get("extraction")
     assert queue.subject_type == "article"
-    assert {verb.name for verb in queue.verbs} == {"accept", "reject", "reextract"}
+    assert {verb.name for verb in queue.verbs} == {
+        "accept",
+        "reject",
+        "reclassify",
+        "reextract",
+    }
 
 
 def test_an_unknown_queue_says_which_ones_exist():

@@ -102,7 +102,7 @@ def hold_for_review(article, stage, user=None):
     Returns the status the article was holding, which is what ACCEPT puts
     back.
     """
-    from review.models import ExtractionDecision
+    from review.models import ReviewDecision
 
     was = getattr(article, "status", "")
     if was == IN_REVIEW:
@@ -112,8 +112,10 @@ def hold_for_review(article, stage, user=None):
 
     # Already answered? Then it is not a question any more, and holding it
     # would park a record on a decision somebody already made.
-    if ExtractionDecision.objects.filter(
-        article_id=str(article.pk), question=question_for(was, stage)
+    if ReviewDecision.objects.filter(
+        subject_type="article",
+        subject_id=str(article.pk),
+        question=question_for(was, stage),
     ).exists():
         return was
 
@@ -143,12 +145,12 @@ def answered_questions(article_ids):
     The queue asks this so a settled question is not asked twice, and so a
     NEW question about the same article still is.
     """
-    from review.models import ExtractionDecision
+    from review.models import ReviewDecision
 
     return set(
-        ExtractionDecision.objects.filter(article_id__in=list(article_ids)).values_list(
-            "article_id", "question"
-        )
+        ReviewDecision.objects.filter(
+            subject_type="article", subject_id__in=list(article_ids)
+        ).values_list("subject_id", "question")
     )
 
 
@@ -161,14 +163,55 @@ def decisions_for(article_ids):
     with live buttons is how somebody comes to believe they changed
     something they did not.
     """
-    from review.models import ExtractionDecision
+    from review.models import ReviewDecision
 
     latest = {}
-    for decision in ExtractionDecision.objects.filter(
-        article_id__in=[str(i) for i in article_ids]
+    for decision in ReviewDecision.objects.filter(
+        queue=EXTRACTION_QUEUE_KEY,
+        subject_type="article",
+        subject_id__in=[str(i) for i in article_ids],
     ).order_by("decided_at"):
-        latest[decision.article_id] = decision
+        latest[decision.subject_id] = decision
     return latest
+
+
+#: The verbs, as names. They used to be class attributes on
+#: ExtractionDecision, which made a vocabulary look like a property of a
+#: table -- and the table is no longer where a decision is written. They
+#: belong to the queue, and the queue declares them at the end of this
+#: module.
+ACCEPT = "accept"
+REJECT = "reject"
+REEXTRACT = "reextract"
+RECLASSIFY = "reclassify"
+
+#: What a person can say an article actually is.
+#:
+#: Every one of these is a status the pipeline already writes (production,
+#: 2026-09-04: obituary 4,475, weather 2,369, paywall 2,161, opinion
+#: 2,061, not_article 1,258, out_of_scope 3,769). Nothing here invents a
+#: vocabulary; it offers the one the crawler uses.
+#:
+#: Reject answers "the classification is wrong" when what the article
+#: really is happens to be a news story. It does not answer "this is not
+#: an obituary, it is a weather report", and a reviewer looking at a
+#: 53,926-character bylined sports feature filed as an obituary needs to
+#: be able to say which of the two they mean.
+CONTENT_TYPES = (
+    {"value": "not_article", "label": "Not an article"},
+    {"value": "obituary", "label": "Obituary"},
+    {"value": "weather", "label": "Weather"},
+    {"value": "opinion", "label": "Opinion"},
+    {"value": "wire", "label": "Wire"},
+    {"value": "paywall", "label": "Paywalled stub"},
+    {"value": "out_of_scope", "label": "Out of scope"},
+)
+
+
+#: The queue this module declares. Named before the declaration so the
+#: reader above can use it; the queue itself is built at the end of the
+#: module, once its verbs and their apply function exist.
+EXTRACTION_QUEUE_KEY = "extraction"
 
 
 #: Where the hold records what it held, so the article can be put back.
@@ -316,11 +359,16 @@ def verbs_for(article, stage):
     A verb that cannot be performed is not offered. Reject needs a body to
     return to the pipeline; re-extract needs the archived page.
     """
-    verbs = ["accept"]
+    verbs = [ACCEPT]
     if has_body_to_rewind_to(article):
-        verbs.append("reject")
+        # Both are available together: "this is a real story" and "this is
+        # a weather report" are different answers, and a reviewer looking
+        # at a bylined sports feature filed as an obituary has to be able
+        # to say which one they mean.
+        verbs.append(REJECT)
+        verbs.append(RECLASSIFY)
     elif can_reextract(article):
-        verbs.append("reextract")
+        verbs.append(REEXTRACT)
     return verbs
 
 
@@ -355,7 +403,7 @@ def record(article, *, decision, stage, user, reason="", label="", article_statu
     REJECT and REEXTRACT each write one field -- the status -- and differ
     only in how far back it goes.
     """
-    from review.models import ExtractionDecision
+    from review.models import ReviewDecision
 
     # Read before the rewind. Taken afterwards this recorded the status
     # the decision PRODUCED rather than the claim it answered, so every
@@ -375,16 +423,30 @@ def record(article, *, decision, stage, user, reason="", label="", article_statu
 
     rewound = ""
     target = None
-    if decision == ExtractionDecision.ACCEPT:
+    if decision == ACCEPT:
         # The classification stands. If review parked the article, put it
         # back on the status it was flagged with -- leaving it in
         # `in_review` would hold it out of the pipeline for ever on the
         # strength of a decision that said nothing was wrong.
         if getattr(article, "status", "") == IN_REVIEW and before != IN_REVIEW:
             target = before
-    elif decision == ExtractionDecision.REJECT:
+    elif decision == REJECT:
         target = rewind_target(stage)
-    elif decision == ExtractionDecision.REEXTRACT:
+    elif decision == RECLASSIFY:
+        # The classification is wrong AND what it should be is known. The
+        # article takes the status the reviewer chose, which is what every
+        # later stage reads: a corrected type is not a note about the
+        # article, it is the article's status.
+        #
+        # Refused rather than guessed at if the value is not one of the
+        # types offered: `reason` carries what a person picked from a
+        # list, and a status this does not recognise would be written
+        # straight through to the pipeline.
+        chosen = (reason or "").strip()
+        if chosen not in {t["value"] for t in CONTENT_TYPES}:
+            raise ValueError(f"{chosen!r} is not a content type this queue offers")
+        target = chosen
+    elif decision == REEXTRACT:
         # Out of the pipeline rather than back into it: there is no status
         # meaning "re-parse me", and the one that looks like it --
         # `extracted` -- asserts extraction succeeded and would be undone
@@ -414,17 +476,26 @@ def record(article, *, decision, stage, user, reason="", label="", article_statu
         rewound = target
     article.save(update_fields=written)
 
-    entry, _ = ExtractionDecision.objects.update_or_create(
-        article_id=str(article.pk),
+    # One record for every queue in the console (review/models.py
+    # ReviewDecision). ExtractionDecision is left with the rows migration
+    # 0015 carried across and is written to no longer: two records for one
+    # decision meant the read paths could disagree about what had been
+    # decided, which they did -- a decided row rendered blank because the
+    # writer and the reader had come apart.
+    entry, _ = ReviewDecision.objects.update_or_create(
+        subject_type="article",
+        subject_id=str(article.pk),
+        field="",
         question=question_for(claimed, stage),
         defaults={
-            "article_label": label or (getattr(article, "title", "") or "")[:300],
-            "classified_as": claimed,
+            "queue": EXTRACTION_QUEUE_KEY,
+            "subject_label": label or (getattr(article, "title", "") or "")[:300],
+            "claim": claimed,
             "stage": stage,
-            "decision": decision,
-            "rewound_to": rewound,
-            "status_before": before,
-            "status_after": target or before,
+            "verb": decision,
+            "before": before,
+            "after": target or before,
+            "wrote": {"rewound_to": rewound} if rewound else {},
             "reason": reason,
             "decided_by": user,
             "decided_at": timezone.now(),
@@ -457,35 +528,48 @@ def _apply_extraction(article, verb, value, user):
         label=(getattr(article, "title", "") or "")[:300],
     )
     return {
-        "label": entry.article_label,
-        "before": entry.status_before,
-        "after": entry.status_after,
-        "wrote": {"rewound_to": entry.rewound_to} if entry.rewound_to else {},
+        "label": entry.subject_label,
+        "before": entry.before,
+        "after": entry.after,
+        "wrote": entry.wrote,
         "reason": entry.reason,
     }
 
 
 EXTRACTION_QUEUE = kernel.register(
     kernel.Queue(
-        key="extraction",
+        key=EXTRACTION_QUEUE_KEY,
         subject_type="article",
         verbs=(
             kernel.Verb(
-                name="accept",
+                name=ACCEPT,
                 label="Accept",
                 sublabel="Leave it out",
                 past="accepted",
                 tone="accept",
             ),
             kernel.Verb(
-                name="reject",
+                name=REJECT,
                 label="Reject",
-                sublabel="Back to the pipeline",
+                # What rejecting asserts, not where it sends the row. A
+                # reviewer reading "Back to the pipeline" on a sports
+                # feature filed as an obituary cannot tell whether it says
+                # "this is a real story" or "put it back and re-decide".
+                sublabel="It is a real story",
                 past="rejected",
                 tone="reject",
             ),
             kernel.Verb(
-                name="reextract",
+                name=RECLASSIFY,
+                label="Reclassify",
+                sublabel="It is something else",
+                past="reclassified",
+                takes_value=True,
+                values=CONTENT_TYPES,
+                tone="fix",
+            ),
+            kernel.Verb(
+                name=REEXTRACT,
                 label="Re-extract",
                 sublabel="Re-parse the capture",
                 past="sent for re-extraction",

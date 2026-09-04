@@ -23,7 +23,7 @@ from review.dispositions import (
     stage_of,
     verbs_for,
 )
-from review.models import ExtractionDecision
+from review.models import ReviewDecision
 
 
 @pytest.fixture
@@ -84,36 +84,36 @@ def test_an_unknown_stage_rewinds_nowhere():
 def test_reject_writes_the_status_and_nothing_else(reviewer, article):
     record(
         article,
-        decision=ExtractionDecision.REJECT,
+        decision="reject",
         stage=ENRICHMENT,
         user=reviewer,
         reason="a real story",
     )
     article.refresh_from_db()
     assert article.status == "labeled"
-    entry = ExtractionDecision.objects.get(article_id="a1")
-    assert entry.rewound_to == "labeled"
-    assert entry.classified_as == "not_article"
+    entry = ReviewDecision.objects.get(subject_id="a1")
+    assert entry.wrote.get("rewound_to", "") == "labeled"
+    assert entry.claim == "not_article"
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
 def test_accept_writes_nothing_to_the_article(reviewer, article):
     """Its status already excludes it -- enrichment selects `labeled` and
     nothing else. The only thing needed is that the queue stops asking."""
-    record(article, decision=ExtractionDecision.ACCEPT, stage=EXTRACTION, user=reviewer)
+    record(article, decision="accept", stage=EXTRACTION, user=reviewer)
     article.refresh_from_db()
     assert article.status == "not_article"
-    assert ExtractionDecision.objects.get(article_id="a1").rewound_to == ""
+    assert ReviewDecision.objects.get(subject_id="a1").wrote.get("rewound_to", "") == ""
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
 def test_answering_the_same_question_twice_replaces_the_answer(reviewer, article):
     """Same claim, same stage, so the same question -- the later decision
     stands in place of the earlier one."""
-    record(article, decision=ExtractionDecision.ACCEPT, stage=ENRICHMENT, user=reviewer)
-    record(article, decision=ExtractionDecision.REJECT, stage=ENRICHMENT, user=reviewer)
-    assert ExtractionDecision.objects.filter(article_id="a1").count() == 1
-    assert ExtractionDecision.objects.get(article_id="a1").decision == "reject"
+    record(article, decision="accept", stage=ENRICHMENT, user=reviewer)
+    record(article, decision="reject", stage=ENRICHMENT, user=reviewer)
+    assert ReviewDecision.objects.filter(subject_id="a1").count() == 1
+    assert ReviewDecision.objects.get(subject_id="a1").verb == "reject"
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
@@ -121,9 +121,9 @@ def test_a_decision_at_another_stage_is_another_question(reviewer, article):
     """not_article from extraction and from the enrichment gate are two
     different claims that happen to share a status, so both are asked and
     both are answered."""
-    record(article, decision=ExtractionDecision.ACCEPT, stage=EXTRACTION, user=reviewer)
-    record(article, decision=ExtractionDecision.REJECT, stage=ENRICHMENT, user=reviewer)
-    assert ExtractionDecision.objects.filter(article_id="a1").count() == 2
+    record(article, decision="accept", stage=EXTRACTION, user=reviewer)
+    record(article, decision="reject", stage=ENRICHMENT, user=reviewer)
+    assert ReviewDecision.objects.filter(subject_id="a1").count() == 2
 
 
 # --- which verbs a row can actually carry out --------------------------------
@@ -200,16 +200,15 @@ def test_re_extraction_takes_the_article_out_of_the_pipeline(reviewer, crawler_s
         wire_check_status="complete",
     )
 
-    record(
-        article, decision=ExtractionDecision.REEXTRACT, stage=EXTRACTION, user=reviewer
-    )
+    record(article, decision="reextract", stage=EXTRACTION, user=reviewer)
 
     article.refresh_from_db()
     # Not `extracted`: that asserts extraction succeeded, queues a
     # body-less row for labelling, and is the exact shape housekeeping
     # pauses -- so the decision would be undone by the next run.
     assert article.status == "paused"
-    assert ExtractionDecision.objects.get(article_id="a2").rewound_to == "paused"
+    decision = ReviewDecision.objects.get(subject_id="a2")
+    assert decision.wrote.get("rewound_to", "") == "paused"
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])

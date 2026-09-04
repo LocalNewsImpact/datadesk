@@ -22,14 +22,21 @@ const editor = document.createElement("dialog");
 editor.className = "rec-editor";
 document.body.appendChild(editor);
 
+// `.rec-edit` opens a record to change it; `.rec-read` opens a page to
+// read it. The extraction queue needs the second: deciding whether a
+// classification is wrong means reading the text, and leaving the page
+// to do it loses every decision marked on the way down.
+//
+// One dialog and one fetch for both. The difference is that a read has
+// no form to wire, which `wire` already handles by returning.
 document.addEventListener("click", async (event) => {
-  const link = event.target.closest(".rec-edit");
+  const link = event.target.closest(".rec-edit, .rec-read");
   if (!link || event.metaKey || event.ctrlKey || event.shiftKey) return;
   // Only when a dialog is available. Where it is not, the link is a
   // link and goes to the page it names.
   if (typeof editor.showModal !== "function") return;
   event.preventDefault();
-  editor.innerHTML = '<p class="notice">Opening the record…</p>';
+  editor.innerHTML = '<p class="notice">Opening…</p>';
   editor.showModal();
   try {
     const response = await fetch(link.href + "?bare=1", {
@@ -39,7 +46,7 @@ document.addEventListener("click", async (event) => {
     wire(link.href);
   } catch (err) {
     editor.innerHTML =
-      '<p class="notice bad">The record could not be opened: ' + err + "</p>";
+      '<p class="notice bad">It could not be opened: ' + err + "</p>";
   }
 });
 

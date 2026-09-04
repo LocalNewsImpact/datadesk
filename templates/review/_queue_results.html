@@ -28,105 +28,92 @@
 </p>
 
 {% comment %}
-One card per article, the shape the proposals queue uses. This was an
-eleven-column grid with the verbs squeezed into the last cell: the
-evidence a person needs in order to decide -- how much text was captured,
-what the detector said and how sure it was, whether a byline survived --
-was spread across ten columns of a row that scrolled sideways, and the
-decision sat where it could not be read beside any of it.
+Clustered by publisher, the shape the proposals queue uses: one header,
+then the rows under it. Every article used to be its own card repeating
+the same publisher name, which is fifty headings to read past -- and the
+publisher is exactly what a reviewer uses to judge a run of them at once,
+because a whole site extracting badly is one problem and not fifty.
+
+Within a publisher, one row per story: what was claimed, what the article
+actually has, and the decision. The title opens the story in a dialog
+rather than a new page, because deciding whether a classification is
+wrong means reading the text, and leaving the page loses every decision
+marked on the way down.
 {% endcomment %}
-{% for article in page %}
-<article class="rec" data-record="{{ article.id }}">
+{% for group in publishers %}
+<article class="rec" data-publisher="{{ group.key }}">
   <header class="rec-head">
     <h2>
-      <a href="{% url 'explorer:article_detail' article.id %}"
-         title="{{ article.title|default:article.url }}">{{ article.title|default:article.url }}</a>
+      {% if group.source %}
+      <a class="rec-edit" href="{% url 'datasets:source_edit' group.source.id %}"
+         data-record="{{ group.source.id }}">{{ group.label }}</a>
+      {% else %}{{ group.label }}{% endif %}
     </h2>
-    <span class="rec-src">
-      {{ article.candidate_link.source|default:"unknown publisher" }}
-      {% if article.publish_date %} · {{ article.publish_date|date:"j M Y" }}{% endif %}
-      · {{ article.text_length }} character{{ article.text_length|pluralize }}
-    </span>
+    <span class="rec-src">{{ group.articles|length }} flagged</span>
   </header>
 
-  {% if article.note_problem %}
-  {% comment %}
-  Held, and unable to be released. Said on the card rather than hidden: an
-  article whose note cannot be read has lost the status it was held from,
-  so no verb can put it back, and treating it as never-held is how it
-  would disappear without anybody noticing.
-  {% endcomment %}
-  <p class="notice bad"><strong>Stranded.</strong> {{ article.note_problem }}</p>
-  {% endif %}
-
-  <table class="rec-table rec-facts">
-    <tbody>
+  <table class="rec-table queue-rows">
+    <thead>
       <tr>
-        <th scope="row">Flagged as</th>
+        <th scope="col">Story</th>
+        <th scope="col">Flagged as</th>
+        <th scope="col">What the article has</th>
+        <th scope="col" class="decide">Decision</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for article in group.articles %}
+      <tr class="queue-row" data-record="{{ article.id }}">
+        <th scope="row">
+          <a class="rec-read" href="{% url 'explorer:article_detail' article.id %}"
+             title="{{ article.title|default:article.url }}">{{ article.title|default:article.url }}</a>
+          <span class="sub">
+            {% if article.publish_date %}{{ article.publish_date|date:"j M Y" }} · {% endif %}
+            {{ article.text_length }} character{{ article.text_length|pluralize }}
+          </span>
+          {% if article.note_problem %}
+          {% comment %}
+          Held, and unable to be released: the note has lost the status it
+          was held from, so no verb can put it back. Said on the row rather
+          than hidden, which is how it would go missing.
+          {% endcomment %}
+          <span class="finding stranded">{{ article.note_problem }}</span>
+          {% endif %}
+        </th>
         <td>
           <span class="chip" data-status="{{ article.status }}" title="{{ article.status }}">{{ article.status|status_label }}</span>
-          {% if article.enr_skip_reason %}<span class="finding">{{ article.enr_skip_reason }}</span>{% endif %}
+          {% if article.enr_skip_reason %}<span class="sub">{{ article.enr_skip_reason }}</span>{% endif %}
           {% if article.enr_gate_reason %}<span class="sub">gate: {{ article.enr_gate_reason }}</span>{% endif %}
         </td>
-      </tr>
-      <tr>
-        <th scope="row">Captured</th>
-        <td class="{% if article.text_length >= 2000 %}flagged-length{% endif %}">
-          <span class="val">{{ article.text_length }} character{{ article.text_length|pluralize }}</span>
-          {% if article.text_length >= 2000 %}<span class="sub">long enough that the flag is worth doubting</span>{% endif %}
-        </td>
-      </tr>
-      <tr>
-        <th scope="row">CIN label</th>
         <td>
           {% if article.primary_label %}
           <span class="val">{{ article.primary_label }}</span>
           {% include "_confidence.html" with value=article.primary_label_confidence %}
-          {% else %}<span class="none">none</span>{% endif %}
+          {% else %}<span class="none">no CIN label</span>{% endif %}
+          <span class="sub">
+            {% if article.author %}by {{ article.author }}{% else %}no byline{% endif %}
+            · <span class="chip" data-wire="{{ article.wire_check_status|wire_tone }}" title="{{ article.wire_check_status }}">{{ article.wire_check_status|wire_label }}{% if article.wire_services %}: {{ article.wire_services|join:", " }}{% endif %}</span>
+          </span>
+        </td>
+        <td class="option decide">
+          {% if article.decision %}
+          {% comment %}
+          Already answered, shown as answered. With live buttons it would
+          look undecided and the click would be dropped: the submit path
+          refuses a verb the row cannot carry out.
+          {% endcomment %}
+          <span class="decided-verb {{ article.decision.verb }}">{{ article.decision.verb }}</span>
+          <span class="decided-when">{{ article.decision.decided_by }} · {{ article.decision.decided_at|date:"j M Y" }}</span>
+          {% else %}
+          <div class="prop" data-id="{{ article.id }}" data-stage="{{ article.stage }}">
+            {% include "review/_verbs.html" with subject_id=article.id verbs=article.offered_verbs %}
+          </div>
+          {% endif %}
         </td>
       </tr>
-      <tr>
-        <th scope="row">Byline</th>
-        <td>{% if article.author %}<span class="val">{{ article.author }}</span>{% else %}<span class="none">absent</span>{% endif %}</td>
-      </tr>
-      <tr>
-        <th scope="row">Wire</th>
-        <td>
-          <span class="chip" data-wire="{{ article.wire_check_status|wire_tone }}" title="{{ article.wire_check_status }}">{{ article.wire_check_status|wire_label }}{% if article.wire_services %}: {{ article.wire_services|join:", " }}{% endif %}</span>
-        </td>
-      </tr>
+      {% endfor %}
     </tbody>
   </table>
-
-  {% if article.decision %}
-  {% comment %}
-  Already answered, shown as answered. Rendering it with live buttons is
-  how somebody comes to believe they changed something they did not:
-  `_submit_queue_decisions` refuses a verb the row cannot carry out, so
-  the click would be dropped without saying so.
-  {% endcomment %}
-  <div class="rec-decide decided-outcome">
-    <span class="decided-verb {{ article.decision.decision }}">{{ article.decision.decision }}</span>
-    {% if article.decision.rewound_to %}
-    <span class="val">status put back to {{ article.decision.rewound_to }}</span>
-    {% else %}
-    <span class="val">{{ article.decision.classified_as }} stands</span>
-    {% endif %}
-    <span class="decided-when">
-      {{ article.decision.decided_by }} · {{ article.decision.decided_at|date:"j M Y" }}
-    </span>
-  </div>
-  {% else %}
-  {% comment %}
-  The verbs the queue declares, and only the ones this row can carry out.
-  They used to be written here -- button text, tooltip and dock tally,
-  three times over -- which is how the two queues' buttons drifted with
-  the difference living in HTML.
-  {% endcomment %}
-  <div class="rec-decide prop" data-id="{{ article.id }}" data-stage="{{ article.stage }}">
-    {% include "review/_verbs.html" with subject_id=article.id verbs=article.offered_verbs %}
-  </div>
-  {% endif %}
 </article>
 {% empty %}
 <p class="notice empty-queue">

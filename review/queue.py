@@ -339,7 +339,7 @@ CASE_STATUS = {
 CASE_LABELS = {
     PAYWALL_STUB: "Paywall stubs",
     MINIMAL_CAPTURE: "Minimal or empty captures",
-    SCOPE_MISLABEL: "Scope mislabels",
+    SCOPE_MISLABEL: "Wrong geographic scope",
     DOUBTED_CONTENT_TYPE: "Barely-confident content types",
     HELD_FOR_REVIEW: "Held: a field is wrong",
 }
@@ -365,9 +365,9 @@ CASE_NOTES = {
         "title agreeing. Where they do agree the calls are right."
     ),
     SCOPE_MISLABEL: (
-        "Scope-excluded but kept for export, scope recorded. In March "
-        "roughly 70% were locally bylined stories that merely referenced "
-        "a foreign subject."
+        "Excluded for being about somewhere else, and kept for export "
+        "with the scope recorded. In March roughly 70% were locally "
+        "bylined stories that merely referenced a foreign subject."
     ),
 }
 
@@ -676,12 +676,13 @@ def _without_answered(qs):
     from collections import defaultdict
 
     from review.dispositions import IN_REVIEW
-    from review.models import ExtractionDecision
+    from review.models import ReviewDecision
 
     settled = defaultdict(list)
-    pairs = ExtractionDecision.objects.filter(
-        classified_as__in=set(CASE_STATUS.values()) | {IN_REVIEW}
-    ).values_list("article_id", "classified_as")
+    pairs = ReviewDecision.objects.filter(
+        subject_type="article",
+        claim__in=set(CASE_STATUS.values()) | {IN_REVIEW},
+    ).values_list("subject_id", "claim")
     for article_id, claim in pairs:
         settled[claim].append(article_id)
     if not settled:

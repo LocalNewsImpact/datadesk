@@ -7,7 +7,7 @@
   <a class="filter-chip" href="?{{ chip.without }}"
      hx-get="{{ endpoint }}?{{ chip.without }}" hx-target="{{ target }}"
      hx-indicator="{{ target }}" hx-push-url="true"
-     title="Remove the {{ chip.label }} filter">
+     title="Remove the {{ chip.label }} filter{% if chip.raw %} ({{ chip.raw }}){% endif %}">
     <span class="k">{{ chip.label }}</span><span class="v">{{ chip.value }}</span><span class="x">×</span>
   </a>
   {% endfor %}

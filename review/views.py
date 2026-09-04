@@ -360,6 +360,30 @@ def export_run(request, definition_id):
 # placeholder the template already marks.
 
 
+def _by_publisher(page):
+    """The page's articles grouped by publisher, in the page's own order.
+
+    Order is preserved rather than sorted by name: the queue is ordered
+    longest-capture-first for a reason, and regrouping must not quietly
+    reorder what a reviewer is being shown.
+    """
+    groups = []
+    index = {}
+    for article in page:
+        source = getattr(article.candidate_link, "source", None)
+        key = str(getattr(source, "id", "")) or "—"
+        if key not in index:
+            index[key] = {
+                "key": key,
+                "source": source,
+                "label": str(source) if source else "Unknown publisher",
+                "articles": [],
+            }
+            groups.append(index[key])
+        index[key]["articles"].append(article)
+    return groups
+
+
 def _receipt_counts(receipt):
     """A receipt with its counts in the order the queue declares its verbs.
 
@@ -457,7 +481,13 @@ def queue(request):
         decided = dispositions.decisions_for([a.id for a in page])
         for article in page:
             article.decision = decided.get(str(article.id))
+        # Clustered by publisher, the way the proposals queue clusters by
+        # record: one header, then the rows under it. Fifty separate cards
+        # each repeating the same publisher is fifty headings to read past,
+        # and the publisher is exactly the thing a reviewer uses to judge
+        # a run of them at once.
         context["page"] = page
+        context["publishers"] = _by_publisher(page)
         context["bands"] = review_queue.band_facets(request.GET, request.user)
         context["cases"] = review_queue.case_facets(request.GET, request.user)
 
