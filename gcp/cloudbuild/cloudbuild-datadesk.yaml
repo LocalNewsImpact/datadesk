@@ -74,8 +74,13 @@ steps:
           echo "  --substitutions=_DIRECTORY_VERSION=vX.Y.Z"
           exit 1
         fi
-        HASH="$$(cat requirements.txt <(echo "${_DIRECTORY_VERSION}") \
-          | sha256sum | cut -c1-12)"
+        # Dockerfile.base is in the hash because it defines the image.
+        # Without it, editing the base Dockerfile never rebuilt the base:
+        # the hash was unchanged, `docker manifest inspect` found the old
+        # image, and the change was reused away. Removing a bad `pip
+        # install` from it would have had no effect at all.
+        HASH="$$(cat requirements.txt Dockerfile.base \
+          <(echo "${_DIRECTORY_VERSION}") | sha256sum | cut -c1-12)"
         BASE="${_REGISTRY}/${_SERVICE}-base:$$HASH"
         echo "$$BASE" > /workspace/base-image
 

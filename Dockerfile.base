@@ -42,12 +42,17 @@ RUN pip install --prefix=/install -r requirements.txt
 # unfinished main cannot walk into this image. And the built image records
 # exactly which tag, while the deploy references the image by digest, so
 # what runs is reproducible even though the resolution is not pinned here.
-# The shared contracts, the same way and for the same reason: a shape one
-# service writes and another reads, defined once so a rename breaks the
-# build rather than stranding an article at runtime.
-ARG CONTRACTS_VERSION=v0.1.0
-RUN pip install --prefix=/install \
-      "lnic-contracts @ git+https://github.com/LocalNewsImpact/lnic-contracts@${CONTRACTS_VERSION}"
+#
+# lnic-contracts is NOT installed here. It was, from an ARG defaulting to
+# v0.1.0, while requirements.txt pinned it too -- two pins for one
+# package, in two files, and this one ran second. Bumping the pin in
+# requirements.txt changed the base image's hash, so the base rebuilt,
+# installed v0.2.0, and then overwrote it with v0.1.0 from the default
+# ARG. The image reported version 0.2.0 and carried v0.1.0's code, and
+# /review/queue/ raised AttributeError on submit for a function that was
+# in the version the metadata claimed.
+#
+# One pin, in requirements.txt, where every other dependency is.
 
 ARG DIRECTORY_VERSION
 RUN test -n "$DIRECTORY_VERSION" \

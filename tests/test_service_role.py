@@ -140,7 +140,13 @@ def test_the_deploy_resolves_the_directory_to_a_release_tag():
 
     # Carried into the build and into the cache key.
     assert "--build-arg" in build and "DIRECTORY_VERSION" in build
-    assert 'cat requirements.txt <(echo "${_DIRECTORY_VERSION}")' in build
+    # The inputs, not the exact command: the hash gained Dockerfile.base
+    # (which decides what is in the image and was not hashed, so editing
+    # it rebuilt nothing), and asserting the literal string froze a line
+    # rather than the property it is there for.
+    hashed = build[build.index('HASH="$$(cat') :].split("\n\n")[0]
+    assert "requirements.txt" in hashed
+    assert "_DIRECTORY_VERSION" in hashed
 
     # Installed from that argument, and refused if it is empty.
     assert "ARG DIRECTORY_VERSION" in dockerfile
