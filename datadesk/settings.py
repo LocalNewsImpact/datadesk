@@ -86,6 +86,49 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 
+# Tracebacks reach the log.
+#
+# Django's default configuration sends `django.request` errors to
+# mail_admins, whose handler is filtered by require_debug_false, and to a
+# console handler filtered by require_debug_true. In production DEBUG is
+# off and no mail backend for admins is configured, so both filters
+# closed and every 500 was discarded: Cloud Logging recorded an ERROR
+# entry with an empty payload, and the only evidence a page had failed
+# was the 500 in the access log.
+#
+# That is how each of these took a person opening a page to find. A
+# console handler on stdout is all Cloud Run needs -- it collects stdout
+# into Cloud Logging -- and it must not be conditional on DEBUG, because
+# production is exactly where the traceback is the only thing there is.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "plain": {"format": "%(levelname)s %(name)s %(message)s"},
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "plain"},
+    },
+    "root": {"handlers": ["console"], "level": "INFO"},
+    "loggers": {
+        # The traceback for an unhandled exception in a view. Not
+        # propagated, so it is logged here once rather than also by root.
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+        # Every query at DEBUG is noise in a log that is charged by volume.
+        "django.db.backends": {"level": "INFO"},
+        # The access log Cloud Run already records.
+        "django.server": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+    },
+}
+
 # One sign-in across the suite (ROADMAP.md item 12).
 #
 # Datadesk owns identity; the Source Directory reads the same user and
