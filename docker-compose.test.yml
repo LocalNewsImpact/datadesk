@@ -1,0 +1,31 @@
+# The database the test suite runs against.
+#
+# Production is Postgres and the suite used to be sqlite, which accepts
+# SQL Postgres refuses — a `?|` operator on a text column and DISTINCT
+# over a `json` column both shipped green. Tests now run here.
+#
+# Port 5434 is deliberate: 5432 is the crawler's own test database and
+# 5433 is the scratch instance, and none of the three should be able to
+# take another's place by accident.
+#
+#   make test          starts this, waits for it, runs the suite
+#   make test-db-down  stops it
+services:
+  postgres:
+    image: postgres:16
+    container_name: datadesk-test-postgres
+    environment:
+      POSTGRES_USER: datadesk
+      POSTGRES_PASSWORD: datadesk
+      POSTGRES_DB: datadesk
+    ports:
+      - "5434:5432"
+    # No volume. The suite creates and drops its own test databases, and
+    # nothing here is worth keeping between runs.
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U datadesk"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

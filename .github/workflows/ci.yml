@@ -40,6 +40,29 @@ jobs:
   tests:
     name: Tests
     runs-on: ubuntu-latest
+    # Production is Postgres, so the suite is. On sqlite it accepted a
+    # `?|` operator against a text column and a DISTINCT over a `json`
+    # column, neither of which Postgres will run, and both reached
+    # production green.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: datadesk
+          POSTGRES_PASSWORD: datadesk
+          POSTGRES_DB: datadesk
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U datadesk"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATADESK_TEST_DB_HOST: 127.0.0.1
+      DATADESK_TEST_DB_PORT: "5432"
+      DATADESK_TEST_DB_USER: datadesk
+      DATADESK_TEST_DB_PASSWORD: datadesk
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

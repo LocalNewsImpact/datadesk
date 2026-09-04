@@ -1,7 +1,8 @@
 """The articles grid: filters, pagination, access, degraded mode.
 
 Fixture data goes through the unmanaged ORM models — in tests the crawler
-alias is writable sqlite, which also exercises CrawlerRouter's routing;
+alias is a writable Postgres database, which also exercises
+CrawlerRouter's routing;
 in production the same write would be refused by Postgres (datadesk_ro).
 """
 

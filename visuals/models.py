@@ -8,12 +8,18 @@ serve the pinned version by default with an explicit opt-in to live data
 readers).
 """
 
+import functools
+import json
 import uuid as uuid_lib
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.template.loader import TemplateDoesNotExist, get_template
+
+# psycopg3 (requirements.txt pins psycopg[binary]>=3.2). Django's own
+# adapter wraps every JSONField value as Jsonb; this one does not.
+from psycopg.types.json import Json
 
 BIGQUERY = "bigquery"
 GCS = "gcs"
@@ -29,6 +35,48 @@ def _validate_renderer(name):
             f"No renderer template at visuals/renderers/{name}.html — "
             "visuals are authored as code; add the template first."
         ) from exc
+
+
+class OrderedJSONField(models.JSONField):
+    """A JSON column that keeps the author's column order.
+
+    Django's JSONField is `jsonb` on Postgres, and jsonb does not store a
+    document -- it stores a parsed value with the keys reordered. A
+    snapshot's rows are dicts built in the upload's own column order
+    (builder.parse_upload walks reader.fieldnames deliberately), and
+    jsonb threw that order away: a CSV uploaded as `geoid,name`
+    downloaded again as `name,geoid`. `json` stores the document as
+    written, which is what a snapshot is.
+
+    Nothing filters into this column, so none of jsonb's operators or
+    indexes are given up. psycopg3 hands a `json` column back already
+    parsed, so from_db_value has to tolerate that -- the same
+    accommodation explorer.models.DecodedJSONField makes for the
+    crawler's `json` columns.
+    """
+
+    def db_type(self, connection):
+        if connection.vendor == "postgresql":
+            return "json"
+        return super().db_type(connection)
+
+    def from_db_value(self, value, expression, connection):
+        if isinstance(value, (dict, list)):
+            return value
+        return super().from_db_value(value, expression, connection)
+
+    def get_db_prep_value(self, value, connection, prepared=False):
+        # Declaring the column `json` is not enough. Django adapts every
+        # JSONField parameter as jsonb, and Postgres casting jsonb to json
+        # on the way in reorders the keys exactly as storing jsonb would --
+        # the column type changes and nothing else does. Send json.
+        if connection.vendor != "postgresql":
+            return super().get_db_prep_value(value, connection, prepared)
+        if not prepared:
+            value = self.get_prep_value(value)
+        if value is None or hasattr(value, "as_sql"):
+            return value
+        return Json(value, dumps=functools.partial(json.dumps, cls=self.encoder))
 
 
 class Visual(models.Model):
@@ -224,7 +272,7 @@ class VisualSnapshot(models.Model):
         Visual, on_delete=models.CASCADE, related_name="snapshots"
     )
     version = models.PositiveIntegerField()
-    data = models.JSONField()
+    data = OrderedJSONField()
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
     )

@@ -69,13 +69,26 @@ fmt: $(VENV) ## Apply formatting and safe fixes
 	$(VENV)/bin/black .
 	$(VENV)/bin/isort .
 
+# Postgres for the test suite, on 5434 so it cannot be confused with the
+# crawler's test database (5432) or the scratch instance (5433).
+TEST_DB_ENV = DATADESK_TEST_DB_HOST=127.0.0.1 DATADESK_TEST_DB_PORT=5434 \
+	DATADESK_TEST_DB_USER=datadesk DATADESK_TEST_DB_PASSWORD=datadesk
+
+.PHONY: test-db
+test-db: ## Start the test database and wait for it
+	docker compose -f docker-compose.test.yml up -d --wait
+
+.PHONY: test-db-down
+test-db-down: ## Stop the test database
+	docker compose -f docker-compose.test.yml down
+
 .PHONY: test
-test: $(VENV) ## Run the test suite (sqlite, no services needed)
+test: $(VENV) test-db ## Run the test suite (Postgres, as production is)
 # The same two steps CI's `tests` job runs, in the same order. A model
 # changed without its migration passes pytest and fails the build, so
 # the check belongs here rather than being discovered on a pull request.
-	$(PY) manage.py makemigrations --check --dry-run
-	$(PY) -m pytest
+	$(TEST_DB_ENV) $(PY) manage.py makemigrations --check --dry-run
+	$(TEST_DB_ENV) $(PY) -m pytest
 
 .PHONY: check
 # Run this before pushing. `lint` is CI's lint job (ruff, black, isort,

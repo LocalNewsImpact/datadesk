@@ -1,7 +1,7 @@
 """The read-only crawler connection and the dataset row counts.
 
-The crawler alias in tests is an empty sqlite database (no migrations may
-land there — explorer.routers.CrawlerRouter). The fixture builds just
+The crawler alias in tests is an empty Postgres database (no migrations
+may land there — explorer.routers.CrawlerRouter). The fixture builds just
 enough of the crawler's real schema (articles → candidate_links →
 dataset_sources → datasets, the join path its own enrichment repository
 uses) to prove the query, and its absence proves the degraded path.
@@ -51,7 +51,7 @@ def test_connected_but_empty_is_a_list(crawler_schema):
 
 
 def test_missing_tables_reads_as_not_connected():
-    """The local fallback alias is an empty sqlite file: None, not a crash."""
+    """An alias whose tables are not there: None, not a crash."""
     assert dataset_row_counts() is None
 
 
@@ -162,8 +162,9 @@ def test_id_columns_are_strings_not_uuids():
 def test_json_fields_accept_driver_decoded_values():
     """The crawler's JSON columns are Postgres `json`, not `jsonb`, so
     psycopg3 hands Django a parsed dict and plain JSONField would call
-    json.loads on it (production 500s, 2026-08-22). sqlite tests cannot
-    reproduce the driver behaviour, so exercise from_db_value directly.
+    json.loads on it (production 500s, 2026-08-22). Exercised directly
+    here as well as through the queries, because from_db_value is where
+    the accommodation lives.
     """
     from django.db import connections
 

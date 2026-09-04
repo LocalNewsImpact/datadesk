@@ -50,16 +50,14 @@ def corpus(crawler_schema):
     # An obituary called on one body phrase: 0.17, no corroboration.
     doubted = article("obit-doubted", "obituary", title="Jim Morrison's grave")
     ContentTypeDetection.objects.create(
-        id="t1",
         article=doubted,
         detected_type="obituary",
         confidence_score=0.17,
-        evidence={"content": ["passed away"]},
+        evidence=json.dumps({"content": ["passed away"]}),
     )
     # An obituary the URL and title agree with.
     sound = article("obit-sound", "obituary", title="Charles Morton 1931-2025")
     ContentTypeDetection.objects.create(
-        id="t2",
         article=sound,
         detected_type="obituary",
         confidence_score=0.38,
@@ -113,11 +111,10 @@ def test_a_row_is_not_repeated_by_its_telemetry(reviewer, corpus):
     join would otherwise multiply it."""
     doubted = Article.objects.get(id="obit-doubted")
     ContentTypeDetection.objects.create(
-        id="t3",
         article=doubted,
         detected_type="obituary",
         confidence_score=0.17,
-        evidence={"content": ["survived by"]},
+        evidence=json.dumps({"content": ["survived by"]}),
     )
     ids = [a.id for a in queued({}, reviewer)]
     assert ids.count("obit-doubted") == 1

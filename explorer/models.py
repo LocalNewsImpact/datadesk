@@ -194,7 +194,13 @@ class Article(CrawlerModel):
     #: held here, because `status` is overwritten by `in_review` and the
     #: claim being reviewed has nowhere else to live. housekeeping already
     #: uses it the same way, for pause_reason.
-    metadata = models.JSONField(null=True)
+    #:
+    #: DecodedJSONField, like every other JSON column here: this is
+    #: Postgres `json`, which psycopg3 hands back already parsed. A plain
+    #: JSONField calls json.loads on the dict and raises, which was a 500
+    #: on /review/queue/ for any held article. sqlite returned text and
+    #: the suite never saw it.
+    metadata = DecodedJSONField(null=True)
     #: Where the page as captured is archived. The bucket has 30-day
     #: retention, so a row older than that has none -- which is what
     #: decides whether a body can be re-parsed or is simply gone.
@@ -268,9 +274,12 @@ class ContentTypeDetection(CrawlerModel):
     several paths and only this one writes here.
     """
 
-    id = models.TextField(primary_key=True)
+    #: `integer` with a sequence in the crawler, not text. The suite ran
+    #: on sqlite, which stores whatever it is given, so a TextField over
+    #: an integer column went unnoticed here.
+    id = models.AutoField(primary_key=True)
     #: A log rather than a record: an article can have more than one row,
-    #: so queries over it are distinct.
+    #: so a query that joins it must not multiply the article.
     article = models.ForeignKey(
         "explorer.Article",
         on_delete=models.DO_NOTHING,

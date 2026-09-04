@@ -84,6 +84,16 @@ make check    # everything CI runs (ruff, black, isort, mypy, pytest)
 `make superuser` creates an admin login for local development. `make help`
 lists all targets.
 
+The test suite runs on Postgres, because production does — `make check`
+and `make test` start it (`docker-compose.test.yml`, port 5434) and stop
+nothing, so a second run reuses it; `make test-db-down` stops it. Running
+`pytest` with no database is refused rather than allowed to fall back:
+sqlite accepts SQL Postgres refuses, and defects have reached production
+through a green sqlite run.
+
+The development *server* still uses sqlite. Only the suite requires
+Postgres.
+
 ## Configuration
 
 All deployment-specific values come from environment variables
@@ -99,7 +109,8 @@ All deployment-specific values come from environment variables
 | `ALLOWED_AUTH_DOMAINS` | Comma-separated Google hosted domains allowed to sign in; empty disables the restriction (development only) | empty |
 | `DATADESK_SQLITE_PATH` | Development sqlite location | `./db.sqlite3` |
 
-The development database is sqlite. Production is a `datadesk` database
+The development database is sqlite (the test suite is not — see
+Quickstart). Production is a `datadesk` database
 on the shared Cloud SQL instance, reached over the Cloud Run unix socket
 with credentials from Secret Manager (the sources-directory pattern —
 SCOPE.md §6.2). The seam is a commented block in `datadesk/settings.py`,

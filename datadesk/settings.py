@@ -298,6 +298,42 @@ if "CRAWLER_RW_DB_USER" in os.environ:
         "PASSWORD": os.environ.get("CRAWLER_RW_DB_PASSWORD", ""),
     }
 
+# The test suite runs on Postgres, because production does.
+#
+# It used to run on sqlite, and sqlite accepts things Postgres refuses.
+# Two queries shipped that could not execute against the real database:
+# a JSON key operator (`?|`) applied to a text column, and DISTINCT over
+# a row carrying a `json` column, which has no equality operator. Both
+# passed a green suite and failed in production, where the view reported
+# them as "crawler database not connected" — the connection was fine.
+#
+# Both aliases move, not just the crawler's: `default` on Postgres also
+# proves the migrations apply to the engine production runs.
+#
+# `make test` starts the server (docker-compose.test.yml) and sets these;
+# CI uses a service container. With them unset, everything above still
+# applies and a plain checkout still runs on sqlite.
+# `CLOUD_SQL_CONNECTION_NAME` wins: a deployed configuration is never
+# rewritten by a variable left in the environment, and the tests that
+# assert the production shape reload this module with it set.
+_testing = "DATADESK_TEST_DB_HOST" in os.environ
+if _testing and "CLOUD_SQL_CONNECTION_NAME" not in os.environ:
+    _test_db = {
+        "ENGINE": "django.db.backends.postgresql",
+        "USER": os.environ.get("DATADESK_TEST_DB_USER", "postgres"),
+        "PASSWORD": os.environ.get("DATADESK_TEST_DB_PASSWORD", "postgres"),
+        "HOST": os.environ["DATADESK_TEST_DB_HOST"],
+        "PORT": os.environ.get("DATADESK_TEST_DB_PORT", "5432"),
+    }
+    # Django prefixes each with `test_`, so the names only have to differ
+    # from one another. The crawler alias gets a database of its own and
+    # CrawlerRouter leaves it empty: the `crawler_schema` fixture creates
+    # the few tables a test needs, and their absence elsewhere is what
+    # exercises the degraded "not connected" paths.
+    DATABASES["default"] = {**_test_db, "NAME": "datadesk"}
+    DATABASES["crawler"] = {**_test_db, "NAME": "datadesk_crawler"}
+    DATABASES.pop("crawler_rw", None)
+
 DATABASE_ROUTERS = ["explorer.routers.CrawlerRouter"]
 
 # A cache the whole service shares, not one per process.
