@@ -64,14 +64,14 @@ FILTER_LABELS = {
     "wire": "wire",
     "label": "CIN label",
     "publisher": "publisher",
-    "scope": "scope",
+    "scope": "geographic scope",
     "fips": "FIPS",
     "geo_skip": "geo skip",
     "skip": "skip reason",
     "level": "rung",
     "no_point": "no claim",
     "byline": "byline",
-    "case": "case",
+    "case": "flagged as",
     "band": "length",
     "from": "from",
     "to": "to",
@@ -81,6 +81,25 @@ FILTER_LABELS = {
 }
 
 _NOT_A_FILTER = {"page", "sort", "dir"}
+
+
+def _filter_value_label(key, value):
+    """A filter's value as a person would say it.
+
+    The chip showed the query string's own word, so filtering the review
+    queue read "Filtered by case scope_mislabel" -- which does not say
+    that the scope in question is geographic. Raw enum values are the
+    pipeline's vocabulary, not a reader's; every other surface here shows
+    a label and keeps the raw value in a title attribute.
+
+    The case labels live with the cases (review/queue.py) rather than
+    being restated here, so renaming one renames it everywhere.
+    """
+    if key == "case":
+        from review.queue import CASE_LABELS
+
+        return CASE_LABELS.get(value, value)
+    return value
 
 
 @register.simple_tag
@@ -123,7 +142,12 @@ def active_filters(params):
                 # One chip for the facet, named by how many were chosen --
                 # eleven publishers do not fit on a chip and are not worth
                 # eleven of them.
-                "value": (values[0] if len(values) == 1 else f"{len(values)} selected"),
+                "value": (
+                    _filter_value_label(key, values[0])
+                    if len(values) == 1
+                    else f"{len(values)} selected"
+                ),
+                "raw": values[0] if len(values) == 1 else "",
                 "without": urlencode(remaining),
             }
         )

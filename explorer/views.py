@@ -466,6 +466,12 @@ def article_detail(request, article_id):
         absent_or_raise(exc, "explorer.views.article_detail enrichment")
         enrichment = None
 
+    # `?bare=1` is the same page with the console taken off, for a dialog
+    # to hold (templates/datasets/_bare.html). The extraction queue opens
+    # a story this way to read its text without losing the decisions
+    # marked on the page behind it.
+    bare = bool(request.GET.get("bare"))
+
     dimensions = (
         [
             (
@@ -503,6 +509,7 @@ def article_detail(request, article_id):
         request,
         "explorer/article_detail.html",
         {
+            "bare": bare,
             "article": article,
             "enrichment": enrichment,
             "dimensions": dimensions,

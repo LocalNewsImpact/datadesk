@@ -55,6 +55,11 @@ class Verb:
     takes_value  whether the verb writes something typed. A verb that
                takes a value and has none is not a decision yet, and the
                dock says so rather than submitting it as nothing.
+    values     a controlled vocabulary for that value, rendered as a list
+               to pick from rather than a box to type in. A field with a
+               right answer and a list of them should not invite typing:
+               typing is how `digital_native` comes to sit beside
+               `digital native` in the first place. Empty means free text.
     tone       accept | reject | fix. Styling only, and named for what the
                verb means rather than for a colour.
     """
@@ -64,6 +69,7 @@ class Verb:
     sublabel: str = ""
     past: str = ""
     takes_value: bool = False
+    values: tuple = ()
     tone: str = "accept"
 
     def __post_init__(self):
@@ -71,6 +77,8 @@ class Verb:
             raise ValueError("a verb needs a name; it is what gets recorded")
         if not self.past:
             object.__setattr__(self, "past", self.name + "ed")
+        if self.values and not self.takes_value:
+            raise ValueError(f"verb {self.name!r} offers values but does not take one")
 
 
 @dataclass(frozen=True)

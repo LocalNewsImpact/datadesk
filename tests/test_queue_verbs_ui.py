@@ -12,7 +12,7 @@ from django.urls import reverse
 
 from accounts.models import DATADESK, Grant
 from explorer.models import Article, CandidateLink, Dataset, DatasetSource, Source
-from review.models import ExtractionDecision
+from review.models import ReviewDecision
 
 URL = reverse("review:queue")
 
@@ -93,9 +93,9 @@ def test_the_page_uses_the_shared_chips_and_dock(client, reviewer, rows):
 @pytest.mark.django_db(databases=["default", "crawler"])
 def test_submitting_a_decision_records_it(client, reviewer, rows):
     client.post(URL, {"d-with-body": "accept"})
-    entry = ExtractionDecision.objects.get(article_id="with-body")
-    assert entry.decision == "accept"
-    assert entry.classified_as == "not_article"
+    entry = ReviewDecision.objects.get(subject_id="with-body")
+    assert entry.verb == "accept"
+    assert entry.claim == "not_article"
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
@@ -109,7 +109,7 @@ def test_a_verb_the_row_cannot_carry_out_is_refused(client, reviewer, rows):
     """Refused rather than ignored. Reaching the write path it would have
     reported success and done nothing: there is no body to hand back."""
     client.post(URL, {"d-nothing-left": "reject"})
-    assert not ExtractionDecision.objects.filter(article_id="nothing-left").exists()
+    assert not ReviewDecision.objects.filter(subject_id="nothing-left").exists()
     assert Article.objects.get(id="nothing-left").status == "not_article"
 
 

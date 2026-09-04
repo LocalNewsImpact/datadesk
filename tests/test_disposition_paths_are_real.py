@@ -35,7 +35,6 @@ from review.dispositions import (
     record,
     rewind_target,
 )
-from review.models import ExtractionDecision
 
 #: What each downstream stage selects. Copied from the crawler, not guessed.
 ENRICHMENT_SELECTS = "labeled"
@@ -73,7 +72,7 @@ def test_reject_at_enrichment_lands_on_the_status_enrichment_selects(
     reviewer, crawler_schema
 ):
     article = _article("e1", crawler_schema)
-    record(article, decision=ExtractionDecision.REJECT, stage=ENRICHMENT, user=reviewer)
+    record(article, decision="reject", stage=ENRICHMENT, user=reviewer)
     article.refresh_from_db()
     assert article.status == ENRICHMENT_SELECTS
 
@@ -86,7 +85,7 @@ def test_a_rejected_row_still_satisfies_the_rest_of_the_enrichment_selector(
     wire check and attempts under the limit -- in production the highest
     attempt count on these rows is 1, against a limit of 3."""
     article = _article("e2", crawler_schema, enrichment_attempts=1)
-    record(article, decision=ExtractionDecision.REJECT, stage=ENRICHMENT, user=reviewer)
+    record(article, decision="reject", stage=ENRICHMENT, user=reviewer)
     article.refresh_from_db()
     assert article.status == ENRICHMENT_SELECTS
     assert article.wire_check_status in ("complete", "local")
@@ -99,7 +98,7 @@ def test_a_row_at_the_attempt_limit_would_not_be_re_enriched(reviewer, crawler_s
     the highest is 1 -- but a rewind is not a promise if the selector
     still excludes it, and this says so rather than assuming."""
     article = _article("e3", crawler_schema, enrichment_attempts=3)
-    record(article, decision=ExtractionDecision.REJECT, stage=ENRICHMENT, user=reviewer)
+    record(article, decision="reject", stage=ENRICHMENT, user=reviewer)
     article.refresh_from_db()
     assert article.status == ENRICHMENT_SELECTS
     assert not article.enrichment_attempts < ENRICHMENT_MAX_ATTEMPTS
@@ -112,7 +111,7 @@ def test_a_row_at_the_attempt_limit_would_not_be_re_enriched(reviewer, crawler_s
 @pytest.mark.parametrize("stage", [EXTRACTION, LABELING])
 def test_reject_lands_on_a_status_the_labeler_selects(reviewer, crawler_schema, stage):
     article = _article(f"l-{stage}", crawler_schema)
-    record(article, decision=ExtractionDecision.REJECT, stage=stage, user=reviewer)
+    record(article, decision="reject", stage=stage, user=reviewer)
     article.refresh_from_db()
     assert article.status in LABELING_SELECTS
 
@@ -125,7 +124,7 @@ def test_the_labeler_then_promotes_it_to_what_enrichment_selects(
     and what it writes on success is `labeled`, which is what enrichment
     reads. So a rejection at extraction reaches enrichment in two steps."""
     article = _article("l2", crawler_schema)
-    record(article, decision=ExtractionDecision.REJECT, stage=EXTRACTION, user=reviewer)
+    record(article, decision="reject", stage=EXTRACTION, user=reviewer)
     article.refresh_from_db()
     assert article.status in LABELING_SELECTS
     # models/database.py promotes exactly these to `labeled`.
@@ -144,9 +143,7 @@ def test_re_extraction_does_not_claim_extraction_succeeded(reviewer, crawler_sch
     article = _article(
         "r1", crawler_schema, content="", text="", raw_gcs_path="gs://bucket/p.html.gz"
     )
-    record(
-        article, decision=ExtractionDecision.REEXTRACT, stage=EXTRACTION, user=reviewer
-    )
+    record(article, decision="reextract", stage=EXTRACTION, user=reviewer)
     article.refresh_from_db()
     assert article.status != "extracted"
     assert article.status == REEXTRACT_TO
@@ -159,9 +156,7 @@ def test_a_re_extracted_row_is_not_the_shape_housekeeping_pauses(
     article = _article(
         "r2", crawler_schema, content="", text="", raw_gcs_path="gs://bucket/p.html.gz"
     )
-    record(
-        article, decision=ExtractionDecision.REEXTRACT, stage=EXTRACTION, user=reviewer
-    )
+    record(article, decision="reextract", stage=EXTRACTION, user=reviewer)
     article.refresh_from_db()
     status, text = HOUSEKEEPING_PAUSES
     assert not (article.status == status and not article.text)
@@ -174,9 +169,7 @@ def test_re_extraction_keeps_the_path_to_the_capture(reviewer, crawler_schema):
     article = _article(
         "r3", crawler_schema, content="", text="", raw_gcs_path="gs://bucket/p.html.gz"
     )
-    record(
-        article, decision=ExtractionDecision.REEXTRACT, stage=EXTRACTION, user=reviewer
-    )
+    record(article, decision="reextract", stage=EXTRACTION, user=reviewer)
     article.refresh_from_db()
     assert article.raw_gcs_path == "gs://bucket/p.html.gz"
 
@@ -192,7 +185,7 @@ def test_accept_leaves_a_status_no_downstream_stage_selects(
     """Accept is correct precisely because the status already excludes the
     article: none of these is what the labeler or enrichment reads."""
     article = _article(f"a-{status}", crawler_schema, status=status)
-    record(article, decision=ExtractionDecision.ACCEPT, stage=EXTRACTION, user=reviewer)
+    record(article, decision="accept", stage=EXTRACTION, user=reviewer)
     article.refresh_from_db()
     assert article.status == status
     assert article.status != ENRICHMENT_SELECTS

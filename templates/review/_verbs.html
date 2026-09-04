@@ -17,8 +17,24 @@ that takes a typed value.
   <b>{{ verb.label }}</b>{% if verb.sublabel %}<i>{{ verb.sublabel }}</i>{% endif %}
 </button>
 {% if verb.takes_value %}
+{% comment %}
+A verb with a right answer and a list of them offers the list. Typing is
+how one spelling of a category comes to sit beside another, and a queue
+whose fix box invites it is a queue creating the defect it exists to
+clear. Free text only where there is no vocabulary to offer.
+{% endcomment %}
+{% if verb.values %}
+<select class="fixval" name="v-{{ subject_id }}"
+        aria-label="{{ verb.sublabel|default:verb.label }}">
+  <option value="">{{ verb.label|lower }}…</option>
+  {% for choice in verb.values %}
+  <option value="{{ choice.value }}">{{ choice.label }}</option>
+  {% endfor %}
+</select>
+{% else %}
 <input type="text" class="fixval" name="v-{{ subject_id }}"
        value="" aria-label="A value for {{ verb.label|lower }}">
+{% endif %}
 {% endif %}
 {% endfor %}
 <input type="hidden" name="d-{{ subject_id }}" value="">

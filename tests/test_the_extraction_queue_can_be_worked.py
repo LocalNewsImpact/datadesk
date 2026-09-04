@@ -34,7 +34,7 @@ from explorer.models import (
 )
 from review import queue as review_queue
 from review.dispositions import EXTRACTION, record
-from review.models import ExtractionDecision
+from review.models import ReviewDecision
 
 
 @pytest.fixture
@@ -104,18 +104,42 @@ def test_the_dock_names_the_verbs_the_script_counts(client, reviewer, flagged):
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_an_article_is_a_card_with_its_evidence(client, reviewer, flagged):
-    """The proposals queue's shape: the thing being judged is a record
-    with a heading, and the evidence is beside the decision rather than
-    ten columns away in a row that scrolls sideways."""
+def test_the_queue_is_clustered_by_publisher(client, reviewer, flagged):
+    """The proposals queue's shape: one header for the record, then the
+    rows under it. A card per article repeated the publisher's name on
+    every one -- fifty headings to read past -- and the publisher is what
+    a reviewer uses to judge a run of them at once, because a whole site
+    extracting badly is one problem and not fifty."""
     client.force_login(reviewer)
     body = client.get(reverse("review:queue")).content.decode()
-    assert 'class="rec"' in body
+    assert 'data-publisher="s1"' in body, "the queue is not grouped by publisher"
     assert 'data-record="a1"' in body
     assert "A story flagged as not an article" in body
-    for fact in ("Flagged as", "Captured", "CIN label", "Byline", "Wire"):
-        assert fact in body, f"the card does not show {fact}"
+    for column in ("Story", "Flagged as", "What the article has", "Decision"):
+        assert column in body, f"the row does not show {column}"
     assert 'data-verb="accept"' in body
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_story_opens_in_a_dialog_rather_than_a_new_page(client, reviewer, flagged):
+    """Deciding whether a classification is wrong means reading the text,
+    and leaving the page to do it loses every decision marked on the way
+    down. `rec-read` is what static/js/record-editor.js opens in the
+    dialog; the link still works without it."""
+    client.force_login(reviewer)
+    body = client.get(reverse("review:queue")).content.decode()
+    assert 'class="rec-read"' in body
+    assert "js/record-editor.js" in body
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_story_can_be_read_without_the_console_around_it(client, reviewer, flagged):
+    """What the dialog fetches: the same page, asked for bare."""
+    client.force_login(reviewer)
+    page = client.get(reverse("explorer:article_detail", args=["a1"]))
+    bare = client.get(reverse("explorer:article_detail", args=["a1"]), {"bare": "1"})
+    assert page.status_code == bare.status_code == 200
+    assert len(bare.content) < len(page.content), "the console is still around it"
 
 
 # --- a settled question is not asked again -----------------------------------
@@ -164,7 +188,7 @@ def test_a_decided_article_is_shown_decided_not_offered_again(
     record(flagged, decision="accept", stage=EXTRACTION, user=reviewer)
     client.force_login(reviewer)
     body = client.get(reverse("review:queue"), {"state": "all"}).content.decode()
-    assert "decided-outcome" in body
+    assert "decided-verb" in body
     assert 'name="d-a1"' not in body, "a decided row still offers a decision"
 
 
@@ -178,7 +202,7 @@ def test_a_submitted_session_says_what_it_did(client, reviewer, flagged):
     body = response.content.decode()
     assert "Submitted:" in body
     assert "1 accepted" in body
-    assert ExtractionDecision.objects.filter(article_id="a1").count() == 1
+    assert ReviewDecision.objects.filter(subject_id="a1").count() == 1
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
@@ -275,3 +299,64 @@ def test_the_write_path_is_granted_the_column_it_writes():
         "record() writes articles.metadata; datadesk_rw is not granted it, "
         "so the write fails in production and passes here"
     )
+
+
+# --- saying what the article actually is --------------------------------------
+#
+# Reject answers "the classification is wrong" when what the article
+# really is happens to be a news story. It does not answer "this is not an
+# obituary, it is a weather report", and a reviewer looking at a
+# 53,926-character bylined sports feature filed as an obituary has to be
+# able to say which of the two they mean.
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_row_can_say_what_the_article_actually_is(client, reviewer, flagged):
+    """A list to pick from, not a box to type in: typing is how one
+    spelling of a category comes to sit beside another."""
+    client.force_login(reviewer)
+    body = client.get(reverse("review:queue")).content.decode()
+    assert 'data-verb="reclassify"' in body
+    assert '<select class="fixval"' in body
+    for value in ("weather", "opinion", "out_of_scope"):
+        assert f'value="{value}"' in body
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_reclassifying_writes_the_status_the_reviewer_chose(reviewer, flagged):
+    """A corrected type is not a note about the article. It is the
+    article's status, which is what every later stage reads."""
+    record(
+        flagged,
+        decision="reclassify",
+        stage=EXTRACTION,
+        user=reviewer,
+        reason="weather",
+    )
+    flagged.refresh_from_db()
+    assert flagged.status == "weather"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_type_the_queue_does_not_offer_is_refused(reviewer, flagged):
+    """The value comes from a form. One this does not recognise would be
+    written straight through to the pipeline as a status."""
+    with pytest.raises(ValueError):
+        record(
+            flagged,
+            decision="reclassify",
+            stage=EXTRACTION,
+            user=reviewer,
+            reason="something_invented",
+        )
+    flagged.refresh_from_db()
+    assert flagged.status == "not_article"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_reject_says_what_it_asserts(client, reviewer, flagged):
+    """`Back to the pipeline` said where the row goes, not what the
+    reviewer is claiming about it."""
+    client.force_login(reviewer)
+    body = client.get(reverse("review:queue")).content.decode()
+    assert "It is a real story" in body

@@ -1,4 +1,10 @@
-{% extends "base.html" %}
+{% extends bare|yesno:"datasets/_bare.html,base.html" %}
+{% comment %}
+The same page either way. `?bare=1` takes the console off so a dialog can
+hold it -- the extraction queue opens a story to read its text without
+losing the decisions marked on the page behind it. The link works without
+the dialog, and without any JavaScript, because it is the ordinary page.
+{% endcomment %}
 {% load datadesk %}
 {% block title %}{{ article.title|default:"Article" }} — Datadesk{% endblock %}
 
