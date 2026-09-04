@@ -1634,6 +1634,11 @@ table.rec-table tbody th { white-space: nowrap; color: var(--text-2); }
    and a select sitting flush under Reject reads as part of Reject --
    which is the opposite of what it is: a different question, answered
    alongside the verb rather than instead of it. */
+/* What the marked decision will do, said before it is submitted. */
+.rec-decide .outcome-line { flex-basis: 100%; margin: .5rem 0 0; font-size: .8rem;
+  color: var(--text-2); line-height: 1.4; }
+.rec-decide .outcome-line:empty { margin: 0; }
+
 .qualifier { display: flex; align-items: center; gap: .5rem;
   flex-basis: 100%; margin-top: .6rem; padding-top: .6rem;
   border-top: 1px solid var(--border); }

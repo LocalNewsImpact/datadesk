@@ -105,8 +105,20 @@ marked on the way down.
           <span class="decided-verb {{ article.decision.verb }}">{{ article.decision.verb }}</span>
           <span class="decided-when">{{ article.decision.decided_by }} · {{ article.decision.decided_at|date:"j M Y" }}</span>
           {% else %}
-          <div class="prop" data-id="{{ article.id }}" data-stage="{{ article.stage }}">
+          {% comment %}
+          The row says what the marked decision will do, in words, before
+          it is submitted. Without it "Reject / It is a real story, put it
+          back" is simply false once a garbage body is also chosen -- the
+          row goes to `paused` for re-extraction, not back to the
+          pipeline -- and nothing on the page said so.
+          {% endcomment %}
+          <div class="prop" data-id="{{ article.id }}" data-stage="{{ article.stage }}"
+               data-status="{{ article.status|status_label }}"
+               data-rewind="{{ article.rewind_to }}"
+               data-host="{{ article.candidate_link.source|default:'this publisher' }}"
+               data-exported="{% if article.status in exported_statuses %}1{% else %}0{% endif %}">
             {% include "review/_verbs.html" with subject_id=article.id verbs=article.offered_verbs qualifier=queue_qualifier %}
+            <p class="outcome-line" data-for="{{ article.id }}"></p>
           </div>
           {% endif %}
         </td>
