@@ -68,6 +68,8 @@ REEXTRACT_TO = "paused"
 #: to see the other. lnic_contracts is the one definition both import.
 from lnic_contracts import review_note as _contract  # noqa: E402
 
+from review import kernel  # noqa: E402
+
 #: Where a record waits while somebody is deciding about it.
 #:
 #: A flagged record keeps a status the pipeline reads. Everything the queue
@@ -429,3 +431,70 @@ def record(article, *, decision, stage, user, reason="", label="", article_statu
         },
     )
     return entry
+
+
+# --- the extraction queue, declared ------------------------------------------
+#
+# The verbs were written into the template, three times over: the button
+# text, the tooltip that says what will happen, and the tally in the dock.
+# Here they are said once, and review/kernel.py renders and submits them.
+
+
+def _apply_extraction(article, verb, value, user):
+    """Carry out one extraction decision and say what it wrote.
+
+    The rules are unchanged -- `record` still holds them -- so this is
+    the shape the kernel needs, not a second implementation of the
+    disposition.
+    """
+    stage = stage_of(article)
+    entry = record(
+        article,
+        decision=verb.name,
+        stage=stage,
+        user=user,
+        reason=value,
+        label=(getattr(article, "title", "") or "")[:300],
+    )
+    return {
+        "label": entry.article_label,
+        "before": entry.status_before,
+        "after": entry.status_after,
+        "wrote": {"rewound_to": entry.rewound_to} if entry.rewound_to else {},
+        "reason": entry.reason,
+    }
+
+
+EXTRACTION_QUEUE = kernel.register(
+    kernel.Queue(
+        key="extraction",
+        subject_type="article",
+        verbs=(
+            kernel.Verb(
+                name="accept",
+                label="Accept",
+                sublabel="Leave it out",
+                past="accepted",
+                tone="accept",
+            ),
+            kernel.Verb(
+                name="reject",
+                label="Reject",
+                sublabel="Back to the pipeline",
+                past="rejected",
+                tone="reject",
+            ),
+            kernel.Verb(
+                name="reextract",
+                label="Re-extract",
+                sublabel="Re-parse the capture",
+                past="sent for re-extraction",
+                tone="fix",
+            ),
+        ),
+        apply=_apply_extraction,
+        # Which of the three a PARTICULAR row can carry out: reject needs a
+        # body to hand back, re-extract needs the archived capture.
+        verbs_for=lambda article: verbs_for(article, stage_of(article)),
+    )
+)

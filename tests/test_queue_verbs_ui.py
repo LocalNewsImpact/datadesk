@@ -118,5 +118,10 @@ def test_a_submission_carrying_nothing_says_so(client, reviewer, rows):
     """Said, not swallowed: a queue coming back with the same questions
     is the only evidence either way."""
     response = client.post(URL, {})
-    assert client.session["queue_receipt"] == {"nothing": True}
+    # The fact, not the shape. Every queue's receipt is one shape now
+    # (review/submit.py), so asserting a literal dict here would freeze
+    # a detail this test does not care about and every queue shares.
+    receipt = client.session["queue_receipt"]
+    assert receipt["nothing"] is True
+    assert receipt["decided"] == 0
     assert response.status_code == 302
