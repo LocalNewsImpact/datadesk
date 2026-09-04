@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Extraction problems — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>Publishers whose extraction is producing garbage</h1>
+  <p class="lede">
+    Reported from the extraction queue, one story at a time: an article
+    whose body arrived as ROT47 that never decoded, as JavaScript, or as a
+    list of counties where the story should be. Those stories are out of
+    the export. The parser that produced them is not fixed by that, and a
+    site appearing here more than once is a page shape it does not handle.
+  </p>
+
+  {% if publishers %}
+  <p class="result-count">
+    <strong>{{ total }}</strong> report{{ total|pluralize }} across
+    {{ publishers|length }} publisher{{ publishers|pluralize }}
+  </p>
+  <div class="table-viewport">
+    <table class="grid">
+      <thead>
+        <tr>
+          <th scope="col">Publisher</th>
+          <th scope="col" class="count">Reports</th>
+          <th scope="col">Most recent</th>
+          <th scope="col">Stories to look at</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in publishers %}
+        <tr>
+          <th scope="row">{{ row.host }}</th>
+          <td class="count">{{ row.reports }}</td>
+          <td class="nowrap">{{ row.latest|date:"j M Y" }}</td>
+          <td>
+            {% for example in row.examples %}
+            <a class="truncate" href="{% url 'explorer:article_detail' example.id %}"
+               title="{{ example.label }}">{{ example.label|default:example.id }}</a>{% if not forloop.last %}<br>{% endif %}
+            {% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="notice">
+    Nothing reported yet. The extraction queue's <em>Actually it is →
+    An article, but the body is garbage</em> is what puts a publisher here.
+  </p>
+  {% endif %}
+</section>
+{% endblock %}

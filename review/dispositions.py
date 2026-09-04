@@ -196,6 +196,13 @@ REEXTRACT = "reextract"
 EXPORTED_STATUSES = ("enriched", "enrichment_skipped")
 
 
+def _host_of(article):
+    """The publisher an article came from, as a string."""
+    link = getattr(article, "candidate_link", None)
+    source = getattr(link, "source", None)
+    return str(source) if source else ""
+
+
 def _what_accept_leaves(article):
     """What accepting does to THIS row.
 
@@ -559,7 +566,18 @@ def record(
             # which of ROT47, JavaScript or a county list it was.
             "wrote": {
                 **({"rewound_to": rewound} if rewound else {}),
-                **({"body": "garbage"} if bad_capture else {}),
+                # The publisher, with the finding. A garbage body is
+                # rarely one story -- it is a site whose extraction is
+                # wrong -- and counting them per publisher is the point
+                # of recording it rather than only acting on it. The
+                # decisions are in this database and the articles in the
+                # crawler's, which do not join, so the host travels on
+                # the row or the question cannot be asked at all.
+                **(
+                    {"body": "garbage", "host": _host_of(article)}
+                    if bad_capture
+                    else {}
+                ),
             },
             "reason": reason,
             "decided_by": user,

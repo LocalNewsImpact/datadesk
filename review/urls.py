@@ -9,6 +9,11 @@ app_name = "review"
 urlpatterns = [
     path("queue/", views.queue, name="queue"),
     path(
+        "extraction-problems/",
+        views.extraction_problems,
+        name="extraction_problems",
+    ),
+    path(
         "articles/<str:article_id>/edit/<str:field>/",
         views.edit_field,
         name="edit_field",

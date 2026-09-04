@@ -406,6 +406,28 @@ def _receipt_counts(receipt):
 
 
 @requires(WRITE)
+def extraction_problems(request):
+    """Publishers whose extraction is producing garbage.
+
+    A reviewer saying "this is an article and the body is unusable" is
+    answering about one story and reporting about a site: ROT47 that
+    never decoded, JavaScript captured instead of prose, a list of
+    counties where the story should be. Those come from a parser meeting
+    a page shape it does not handle, and the shape belongs to the site.
+
+    Acting on the row is not enough. Without this the only trace is a
+    status that says nothing about what was wrong or where it came from.
+    """
+    from review import extraction_problems as report
+
+    return render(
+        request,
+        "review/extraction_problems.html",
+        {"publishers": report.reported(), "total": report.total()},
+    )
+
+
+@requires(WRITE)
 def queue(request):
     """Articles automated triage flagged, with what a human needs to judge
     them: captured text length, the reason given, the CIN label, the
