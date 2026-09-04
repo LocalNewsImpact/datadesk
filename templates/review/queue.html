@@ -120,6 +120,76 @@
   proposals queue, which opens a publisher record the same way.
   {% endcomment %}
   <script defer src="{% static 'js/record-editor.js' %}"></script>
+  {% comment %}
+  What the marked decision will do, in the row's own words, before it is
+  submitted. The verb and the type answer different questions and the
+  outcome depends on both: "Reject / It is a real story, put it back" is
+  false once a garbage body is also chosen, because the row goes to
+  `paused` for re-extraction rather than back to the pipeline.
+
+  The proposals queue writes its own line the same way, through the same
+  hook (js/review-queue.js); what each queue says is its own.
+  {% endcomment %}
+  <script>
+window.reviewQueueDescribe = function (row, form) {
+  const note = row.querySelector(".outcome-line");
+  if (!note) return;
+  const verb = row.querySelector('input[type="hidden"]').value;
+  const chosen = row.querySelector(".qualval");
+  const type = chosen ? chosen.value : "";
+  const label = chosen && type
+    ? chosen.options[chosen.selectedIndex].text
+    : "";
+  const status = row.dataset.status || "its current status";
+  const host = row.dataset.host || "this publisher";
+  const rewind = row.dataset.rewind || "the pipeline";
+  const exported = row.dataset.exported === "1";
+
+  if (!verb) {
+    note.className = "outcome-line";
+    note.textContent = type
+      ? "Choose Accept or Reject as well: the type says what it is, the verb says whether excluding it was right."
+      : "";
+    return;
+  }
+
+  // A garbage body decides the outcome whatever the verb was: the
+  // article is not miscategorised, the capture is broken.
+  if (type === "text_is_garbage") {
+    note.className = "outcome-line on fix";
+    note.textContent =
+      (verb === "reject"
+        ? "The classification was wrong AND the body is unusable. "
+        : "The classification stands, and the body is unusable. ") +
+      "Held out of the pipeline for re-extraction — not put back — and counted against " +
+      host + " on Extraction problems.";
+    return;
+  }
+
+  if (type) {
+    note.className = "outcome-line on accept";
+    note.textContent =
+      "Recorded as " + label + ", which is what every later stage will read." +
+      (verb === "reject" ? " The original call is marked wrong." : "");
+    return;
+  }
+
+  if (verb === "accept") {
+    note.className = "outcome-line on accept";
+    note.textContent = exported
+      ? "Stays " + status + " — in the export, unenriched. Nothing is written."
+      : "Stays " + status + " — out of the export. Nothing is written.";
+  } else if (verb === "reject") {
+    note.className = "outcome-line on reject";
+    note.textContent =
+      "Back to " + rewind + ", and the pipeline carries on with the fields already captured.";
+  } else if (verb === "reextract") {
+    note.className = "outcome-line on fix";
+    note.textContent =
+      "Out of the pipeline, and the archived capture is re-parsed — not re-crawled.";
+  }
+};
+  </script>
   <script defer src="{% static 'js/review-queue.js' %}"></script>
 
   {% endif %}

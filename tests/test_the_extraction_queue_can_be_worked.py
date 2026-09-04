@@ -553,3 +553,56 @@ def test_the_page_says_what_puts_a_publisher_on_it(client, reviewer):
     body = client.get(reverse("review:extraction_problems")).content.decode()
     assert "Nothing reported yet" in body
     assert "the body is garbage" in body
+
+
+# --- the row says what the decision will do -----------------------------------
+#
+# "Reject / It is a real story, put it back" is false once a garbage body
+# is also chosen: the row goes to `paused` for re-extraction rather than
+# back to the pipeline. A button label cannot say that, because it depends
+# on the type chosen beside it.
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_row_carries_what_it_needs_to_describe_itself(client, reviewer, flagged):
+    client.force_login(reviewer)
+    body = client.get(reverse("review:queue")).content.decode()
+    for attribute in ("data-rewind=", "data-host=", "data-exported=", "data-status="):
+        assert (
+            attribute in body
+        ), f"the row cannot say what it will do without {attribute}"
+    assert 'class="outcome-line"' in body
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_page_describes_the_outcome(client, reviewer, flagged):
+    """The queue writes its own line through the shared hook, the way the
+    proposals queue does."""
+    client.force_login(reviewer)
+    body = client.get(reverse("review:queue")).content.decode()
+    assert "window.reviewQueueDescribe" in body
+    assert "text_is_garbage" in body, "the garbage case is not described"
+    assert "not put back" in body, "the row does not say a garbage body is held"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_garbage_body_is_held_whatever_the_verb(reviewer, flagged):
+    """Reject says the classification was wrong; the garbage body says the
+    capture is broken. Both are true at once, and the disposition is the
+    same either way -- which is what the row now says."""
+    from review.dispositions import REEXTRACT_TO
+
+    record(
+        flagged,
+        decision="reject",
+        stage=EXTRACTION,
+        user=reviewer,
+        content_type="text_is_garbage",
+    )
+    flagged.refresh_from_db()
+    assert flagged.status == REEXTRACT_TO
+
+    decision = ReviewDecision.objects.get(subject_id=flagged.id)
+    # Both defects recorded: the call was wrong AND the body is unusable.
+    assert decision.verb == "reject"
+    assert decision.wrote["body"] == "garbage"
