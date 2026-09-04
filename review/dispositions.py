@@ -327,6 +327,24 @@ def rewind_target(stage):
     return REWIND_TO.get(stage)
 
 
+def _metadata_of(article):
+    """The article's metadata as a mapping, whatever the driver returned.
+
+    `json` columns come back parsed from psycopg3 and as text from
+    anything that stores them as text, and a decision written over either
+    shape has to merge with what is already there.
+    """
+    import json
+
+    meta = getattr(article, "metadata", None)
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except ValueError:
+            meta = None
+    return meta if isinstance(meta, dict) else {}
+
+
 def record(article, *, decision, stage, user, reason="", label="", article_status=""):
     """Write the decision, and the status where the decision requires it.
 
@@ -370,10 +388,29 @@ def record(article, *, decision, stage, user, reason="", label="", article_statu
         # `extracted` -- asserts extraction succeeded and would be undone
         # by housekeeping.
         target = REEXTRACT_TO
+    # The answer, written onto the article where the pipeline can see it.
+    #
+    # The console's own record is not enough. The crawler raises a hold
+    # from the article's own fields, so a claim answered here is raised
+    # again by the next run that reads those fields -- held, released,
+    # held again, with the decision undone by a stage that never knew it
+    # was made. The two databases do not join, so the fact has to travel
+    # on the row.
+    #
+    # Merged into whatever metadata the article carries, never written
+    # over it: the crawler keeps the hold note in the same column.
+    answered = _contract.record_decision(
+        _metadata_of(article),
+        _contract.build_decision(claim=claimed, stage=stage, decision=decision),
+    )
+    article.metadata = answered
+    written = ["metadata"]
+
     if target:
         article.status = target
-        article.save(update_fields=["status"])
+        written.append("status")
         rewound = target
+    article.save(update_fields=written)
 
     entry, _ = ExtractionDecision.objects.update_or_create(
         article_id=str(article.pk),

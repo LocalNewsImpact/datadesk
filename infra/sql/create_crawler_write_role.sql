@@ -38,7 +38,21 @@ ALTER DEFAULT PRIVILEGES FOR ROLE mizzou_user IN SCHEMA public
   GRANT SELECT ON TABLES TO datadesk_rw;
 
 -- The boundary. Everything not listed here stays impossible.
-GRANT UPDATE (author, title, content, text, status, wire_check_status)
+--
+-- `metadata` is here so a decision reaches the pipeline. The crawler
+-- raises a hold from the article's own fields, so a claim a reviewer
+-- has answered is raised again by the next run that reads those fields:
+-- held, released from the console, held again, with the reviewer's
+-- decision undone by a stage that never knew it was made. The console
+-- writes the answer onto the article, under `review_decided`, because
+-- the two databases do not join and that is the only place both can
+-- see it.
+--
+-- The crawler writes this column too -- the hold note lives beside the
+-- decisions -- so both sides read and merge rather than replace. The
+-- console never writes a bare object over it.
+GRANT UPDATE (author, title, content, text, status, wire_check_status,
+              metadata)
   ON articles TO datadesk_rw;
 -- scope and scope_confidence are here so a reviewer can correct a
 -- mislabelled scope from the review queue. When a person sets the

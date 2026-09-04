@@ -198,3 +198,80 @@ def test_the_receipt_is_shown_once(client, reviewer, flagged):
     client.post(reverse("review:queue"), {"d-a1": "accept"}, follow=True)
     again = client.get(reverse("review:queue")).content.decode()
     assert "Submitted:" not in again
+
+
+# --- the decision has to reach the pipeline ----------------------------------
+#
+# The console's own record stops the console asking. It does not stop the
+# crawler: the hold is raised from the article's own fields, so a claim
+# answered here is raised again by the next run that reads those fields --
+# held, released from the console, held again, with the decision undone by
+# a stage that never knew it was made.
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_decision_is_written_onto_the_article(reviewer, flagged):
+    """On the row, because the two databases do not join. It is the only
+    place the crawler and the console can both see it."""
+    from lnic_contracts import review_note as contract
+
+    record(flagged, decision="accept", stage=EXTRACTION, user=reviewer)
+    flagged.refresh_from_db()
+    assert contract.is_answered(
+        flagged.metadata, claim="not_article", stage=EXTRACTION
+    ), "the crawler cannot see that this was answered, so it will ask again"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_crawler_reads_what_the_console_wrote(reviewer, flagged):
+    """The two halves, run against each other. Either side alone can pass
+    its own tests while the pair disagrees, which is what the shared
+    contract exists to prevent -- so the assertion is that the crawler's
+    own rule, given the console's own output, does not hold the article."""
+    from lnic_contracts import review_note as contract
+
+    record(flagged, decision="accept", stage=EXTRACTION, user=reviewer)
+    flagged.refresh_from_db()
+
+    # src/pipeline/review_hold.apply_hold, in the form this repository can
+    # state without importing the crawler: a claim with an answer is
+    # dropped before anything is held.
+    claims = ["not_article"]
+    unanswered = [
+        claim
+        for claim in claims
+        if not contract.is_answered(flagged.metadata, claim=claim, stage=EXTRACTION)
+    ]
+    assert unanswered == [], "the crawler would hold an article a person released"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_decision_does_not_flatten_the_metadata_the_crawler_keeps(reviewer, flagged):
+    """The crawler keeps the hold note in the same column. Writing a bare
+    object over it would strand every held article."""
+    from lnic_contracts import review_note as contract
+
+    Article.objects.filter(id=flagged.id).update(
+        metadata={"pause_reason": "housekeeping", "cohort": "mo"}
+    )
+    flagged.refresh_from_db()
+    record(flagged, decision="accept", stage=EXTRACTION, user=reviewer)
+    flagged.refresh_from_db()
+    assert flagged.metadata["pause_reason"] == "housekeeping"
+    assert flagged.metadata["cohort"] == "mo"
+    assert contract.is_answered(flagged.metadata, claim="not_article", stage=EXTRACTION)
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_write_path_is_granted_the_column_it_writes():
+    """Postgres enforces the boundary, so a column the console writes and
+    the role cannot must fail here rather than in production."""
+    from django.conf import settings
+
+    grants = (settings.BASE_DIR / "infra/sql/create_crawler_write_role.sql").read_text()
+    articles = grants[grants.index("ON articles TO datadesk_rw") - 400 :]
+    articles = articles[: articles.index("ON articles TO datadesk_rw")]
+    assert "metadata" in articles, (
+        "record() writes articles.metadata; datadesk_rw is not granted it, "
+        "so the write fails in production and passes here"
+    )
