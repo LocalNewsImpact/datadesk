@@ -188,3 +188,50 @@ class ExtractionDecision(models.Model):
 
     def __str__(self):
         return f"{self.decision} {self.article_id} ({self.question})"
+
+
+class WorklistCount(models.Model):
+    """How much is waiting in one queue, in one directory.
+
+    A row per (directory, queue), refreshed on a schedule, so the to-do is
+    ONE select instead of a query per queue per directory across two
+    databases.
+
+    Why it is a table and not a cache
+
+    The counts are joins over the crawler's largest tables. One of them --
+    flagged articles in a single directory -- takes 11.2 seconds against
+    production, with every join column already indexed: 164,570 articles
+    against 262,137 candidate links is fan-out, not a missing index. Nine
+    such queries is a landing page nobody waits for.
+
+    A cache does not fix that. It moves the wait to whoever arrives after
+    it expires, which is the same person, less often, more confusingly. A
+    table refreshed off the request path means no reader ever pays for it.
+
+    Stale on purpose
+
+    `updated_at` is shown rather than hidden. A number somebody plans a
+    morning around should say how old it is, and a refresh that has stopped
+    running is then visible as a number that stops moving -- rather than as
+    a queue that quietly looks empty.
+    """
+
+    dataset_slug = models.TextField()
+    #: Which queue: proposals, extraction, paywalls. Not a choices field --
+    #: a queue added later should not need a migration to be counted.
+    queue = models.TextField()
+    count = models.IntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["dataset_slug", "queue"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["dataset_slug", "queue"], name="one_count_per_queue_per_dataset"
+            )
+        ]
+        indexes = [models.Index(fields=["dataset_slug"])]
+
+    def __str__(self):
+        return f"{self.dataset_slug}/{self.queue}: {self.count}"

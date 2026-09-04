@@ -1,7 +1,7 @@
 """Project-level views: the landing page and the health check."""
 
 from django.conf import settings
-from django.db import connection
+from django.db import DatabaseError, connection
 from django.http import HttpResponse
 from django.shortcuts import render
 
@@ -67,6 +67,22 @@ def landing(request):
             context["summary"] = corpus_summary()
             context["datasets"] = datasets_table(counts, recorded)
             context["recorded_total"] = (recorded or {}).get("totals", {}).get("total")
+            # What this person has waiting, before the corpus figures.
+            # Somebody signing in should not have to visit three pages to
+            # find out whether there is anything for them.
+            from review import todo
+
+            try:
+                rows = todo.for_user(request.user)
+                context["todo"] = rows
+                # Left where the sidebar can read it without counting
+                # again on every page in the console.
+                todo.remember_total(request.user, sum(row["total"] for row in rows))
+            except DatabaseError:
+                # The crawler database is unreachable. The rest of the page
+                # already degrades to a banner rather than five empty
+                # panels; a to-do that cannot be counted does the same.
+                context["todo"] = None
     return render(request, "landing.html", context)
 
 

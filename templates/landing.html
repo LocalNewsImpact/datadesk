@@ -24,6 +24,43 @@
   <p class="notice">Connected — the corpus is empty.</p>
   {% else %}
 
+  {% comment %}
+  What is waiting, first, because it is the reason most people open this
+  page. The corpus figures below say how the collection is doing; this
+  says what somebody is expected to do about it.
+
+  Datasets with nothing waiting are absent rather than shown as zero: a
+  to-do listing zeroes is a list people stop reading.
+  {% endcomment %}
+  {% if todo %}
+  <section class="todo">
+    <h2>Waiting for you</h2>
+    {% for row in todo %}
+    <div class="todo-dataset">
+      <span class="todo-name">{{ row.dataset }}</span>
+      <ul class="todo-tasks">
+        {% for task in row.tasks %}
+        <li>
+          <a href="{{ task.url }}"><b>{{ task.count }}</b> {{ task.label }}</a>
+          <span class="todo-note">{{ task.note }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% comment %}
+      How old the number is. Counted on a schedule rather than per request,
+      because one of these joins takes 11 seconds against production -- so
+      a refresh that has stopped running shows here as a number that stops
+      moving, rather than as a queue that quietly looks empty.
+      {% endcomment %}
+      <span class="todo-age" title="{{ row.counted_at }}">counted {{ row.counted_at|timesince }} ago</span>
+    </div>
+    {% endfor %}
+  </section>
+  {% elif todo is not None and has_access %}
+  <p class="notice todo-clear">Nothing waiting in the directories you can
+  write. Anything the scans raise will appear here.</p>
+  {% endif %}
+
   <div class="stat-row">
     <div class="stat">
       <span class="stat-label">Articles</span>

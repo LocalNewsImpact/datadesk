@@ -81,6 +81,16 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # The review worklist, first: it is the slowest thing anybody
+        # waits for, and it is a table rather than a cache because one of
+        # its joins takes 11 seconds against production.
+        from django.core.management import call_command
+
+        try:
+            call_command("refresh_worklist")
+        except Exception as exc:  # noqa: BLE001 - one warm target failing
+            self.stderr.write(f"worklist refresh failed: {exc}")
+
         from django.core.cache import cache
 
         from explorer.costs import billed_costs, recorded_costs
