@@ -303,38 +303,48 @@ def test_the_write_path_is_granted_the_column_it_writes():
 
 # --- saying what the article actually is --------------------------------------
 #
-# Reject answers "the classification is wrong" when what the article
-# really is happens to be a news story. It does not answer "this is not an
-# obituary, it is a weather report", and a reviewer looking at a
-# 53,926-character bylined sports feature filed as an obituary has to be
-# able to say which of the two they mean.
+# The verb answers one question: does this stay out of the pipeline or go
+# back into it. What the thing actually IS is a second, independent answer,
+# and they are not alternatives -- a 53,926-character bylined sports
+# feature filed as an obituary is not an obituary AND is still out of
+# scope. As separate verbs a reviewer had to choose which half to record.
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_a_row_can_say_what_the_article_actually_is(client, reviewer, flagged):
+def test_a_type_can_be_said_alongside_a_verb(client, reviewer, flagged):
     """A list to pick from, not a box to type in: typing is how one
     spelling of a category comes to sit beside another."""
     client.force_login(reviewer)
     body = client.get(reverse("review:queue")).content.decode()
-    assert 'data-verb="reclassify"' in body
-    assert '<select class="fixval"' in body
-    for value in ("weather", "opinion", "out_of_scope"):
+    assert 'class="qualval"' in body, "there is no way to say what it actually is"
+    assert 'data-verb="reclassify"' not in body, "reclassify is a verb again"
+    for value in ("out_of_scope", "weather", "opinion"):
         assert f'value="{value}"' in body
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_reclassifying_writes_the_status_the_reviewer_chose(reviewer, flagged):
-    """A corrected type is not a note about the article. It is the
-    article's status, which is what every later stage reads."""
+def test_accepting_and_correcting_the_type_are_one_decision(reviewer, flagged):
+    """The exclusion was right and the reason was wrong. Both are
+    recorded, and the status becomes what the reviewer said it is."""
     record(
         flagged,
-        decision="reclassify",
+        decision="accept",
         stage=EXTRACTION,
         user=reviewer,
-        reason="weather",
+        content_type="out_of_scope",
     )
     flagged.refresh_from_db()
-    assert flagged.status == "weather"
+    assert flagged.status == "out_of_scope"
+    decision = ReviewDecision.objects.get(subject_id=flagged.id)
+    assert decision.verb == "accept"
+    assert decision.after == "out_of_scope"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_verb_without_a_type_leaves_the_type_alone(reviewer, flagged):
+    record(flagged, decision="accept", stage=EXTRACTION, user=reviewer)
+    flagged.refresh_from_db()
+    assert flagged.status == "not_article"
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
@@ -344,19 +354,57 @@ def test_a_type_the_queue_does_not_offer_is_refused(reviewer, flagged):
     with pytest.raises(ValueError):
         record(
             flagged,
-            decision="reclassify",
+            decision="accept",
             stage=EXTRACTION,
             user=reviewer,
-            reason="something_invented",
+            content_type="something_invented",
         )
     flagged.refresh_from_db()
     assert flagged.status == "not_article"
 
 
+# --- the buttons have to say what they will do --------------------------------
+
+
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_reject_says_what_it_asserts(client, reviewer, flagged):
-    """`Back to the pipeline` said where the row goes, not what the
-    reviewer is claiming about it."""
+def test_accept_says_what_it_leaves_on_an_excluded_row(client, reviewer, flagged):
     client.force_login(reviewer)
     body = client.get(reverse("review:queue")).content.decode()
-    assert "It is a real story" in body
+    assert "Stays out of the export" in body
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_accept_says_what_it_leaves_on_an_exported_row(reviewer, flagged):
+    """`enrichment_skipped` IS exported -- unenriched, but exported. The
+    button said "Leave it out" on every row, which is the opposite of
+    what it does here, and a reviewer read it as true.
+
+    Asked of the queue rather than of a page: putting a row in the
+    scope-mislabel case needs an enrichment record with one of 69 skip
+    reasons, and none of that is what this is about.
+    """
+    from review import kernel
+
+    flagged.status = "enrichment_skipped"
+    accept = next(
+        verb
+        for verb in kernel.get("extraction").offered(flagged)
+        if verb.name == "accept"
+    )
+    assert accept.sublabel == "Stays in the export, unenriched"
+
+    flagged.status = "obituary"
+    accept = next(
+        verb
+        for verb in kernel.get("extraction").offered(flagged)
+        if verb.name == "accept"
+    )
+    assert accept.sublabel == "Stays out of the export"
+
+
+def test_the_exported_statuses_are_the_crawler_s():
+    """Restating a cross-service fact is the drift lnic-contracts exists
+    to stop. Until it moves there, it at least has to be right."""
+    from review.dispositions import EXPORTED_STATUSES
+
+    assert EXPORTED_STATUSES == ("enriched", "enrichment_skipped")

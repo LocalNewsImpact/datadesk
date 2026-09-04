@@ -17,6 +17,10 @@
  *       .verb[data-verb]       a button; pressing it records that verb
  *       input[type=hidden]     where the verb is recorded (name="d-<id>")
  *       .fixval                optional -- a value the verb writes
+ *       .qualval               optional -- something said ALONGSIDE the
+ *                              verb, not instead of it. Choosing one is
+ *                              not a decision and does not make the row
+ *                              submittable on its own.
  *   .queue-dock
  *     [data-tally="<verb>"]    a count of rows carrying that verb
  *     #q-incomplete            rows decided but missing a required value
@@ -120,12 +124,27 @@
   });
 
   form.addEventListener("input", (event) => {
+    // A qualifier answers a second, independent question -- what the
+    // thing actually is -- and a row carrying one with no verb has not
+    // been decided. Setting a verb here would submit rows nobody judged.
+    if (event.target.classList.contains("qualval")) {
+      const row = event.target.closest(".prop");
+      if (row) describe(row);
+      recount();
+      return;
+    }
     if (!event.target.classList.contains("fixval")) return;
     const row = event.target.closest(".prop");
     if (!row) return;
     const typed = event.target.value.trim();
     const field = store(row);
-    const verb = row.dataset.fixVerb || "fix";
+    // The verb this value belongs to, named on the input by the template.
+    // It used to default to "fix" -- a name the extraction queue does not
+    // offer -- so choosing a category set the row's verb to something no
+    // tally counted and no submit path accepted, and Submit stayed
+    // disabled with a decision visibly made.
+    const verb = event.target.dataset.verb || row.dataset.fixVerb;
+    if (!verb) return;
     // Typing the value is the decision; clearing it withdraws the
     // decision rather than leaving one with nothing to write.
     if (typed) {
@@ -144,6 +163,8 @@
     rows().forEach((row) => {
       const value = fixval(row);
       if (value) value.value = "";
+      const qualifier = row.querySelector(".qualval");
+      if (qualifier) qualifier.value = "";
       mark(row, "");
     });
     recount();

@@ -37,6 +37,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
+from dataclasses import replace
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,12 @@ class Verb:
     name: str
     label: str
     sublabel: str = ""
+    #: What this verb will do to THIS row, when that differs by row.
+    #: `Accept` meant "leave it out" on every row, and on a
+    #: scope-recorded article it leaves it IN -- `enrichment_skipped` is
+    #: an exported status. A label that is false on some rows is worse
+    #: than no label, because it is read as true.
+    sublabel_for: Callable | None = None
     past: str = ""
     takes_value: bool = False
     values: tuple = ()
@@ -79,6 +86,31 @@ class Verb:
             object.__setattr__(self, "past", self.name + "ed")
         if self.values and not self.takes_value:
             raise ValueError(f"verb {self.name!r} offers values but does not take one")
+
+
+@dataclass(frozen=True)
+class Qualifier:
+    """Something a person can say alongside a verb, rather than instead of it.
+
+    The verbs answer one question -- does this stay out of the pipeline,
+    or go back into it. A reviewer often has a second, independent answer:
+    what the thing actually is.
+
+    Both at once, because they are not alternatives. A 53,926-character
+    bylined sports feature filed as an obituary is not an obituary AND is
+    still out of scope: the exclusion was right and the reason was wrong.
+    As separate verbs a person had to choose which half to record.
+
+    name    the field it posts as, and the key `apply` reads it by.
+    label   what it is asking.
+    values  what can be said. A list rather than a box, because typing is
+            how one spelling of a category comes to sit beside another.
+    """
+
+    name: str
+    label: str
+    values: tuple
+    sublabel: str = ""
 
 
 @dataclass(frozen=True)
@@ -105,6 +137,9 @@ class Queue:
     verbs: tuple[Verb, ...]
     apply: Callable
     verbs_for: Callable | None = None
+    #: An answer a person can give alongside any verb. Optional: a queue
+    #: whose only question is the verb declares none.
+    qualifier: Qualifier | None = None
     #: What a verb name means, resolved once.
     _by_name: dict = dataclass_field(default_factory=dict, repr=False)
 
@@ -131,10 +166,21 @@ class Queue:
         A button that cannot act is worse than no button: it is a promise
         the submit path then refuses, and the person is not told.
         """
-        if self.verbs_for is None:
-            return self.verbs
-        allowed = set(self.verbs_for(subject))
-        return tuple(verb for verb in self.verbs if verb.name in allowed)
+        allowed = (
+            {verb.name for verb in self.verbs}
+            if self.verbs_for is None
+            else set(self.verbs_for(subject))
+        )
+        return tuple(
+            _resolve(verb, subject) for verb in self.verbs if verb.name in allowed
+        )
+
+
+def _resolve(verb: Verb, subject) -> Verb:
+    """A verb with its per-row sublabel filled in, where it has one."""
+    if verb.sublabel_for is None:
+        return verb
+    return replace(verb, sublabel=verb.sublabel_for(subject) or verb.sublabel)
 
 
 #: Every queue in the console, by key. Registered rather than imported

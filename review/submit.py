@@ -36,6 +36,10 @@ def posted(post) -> dict[str, tuple[str, str]]:
         if not key.startswith(DECISION_PREFIX) or not verb:
             continue
         subject_id = key[len(DECISION_PREFIX) :]
+        # The value is read whatever the verb is. It carries a verb's own
+        # typed value where the verb takes one, and the queue's qualifier
+        # otherwise -- what the thing actually is, said alongside the verb
+        # rather than instead of it.
         out[subject_id] = (verb, post.get(f"{VALUE_PREFIX}{subject_id}", "").strip())
     return out
 
@@ -77,13 +81,20 @@ def submit(queue, decisions, subjects, user, *, stage_of=None, claim_of=None):
             unreachable += 1
             continue
 
+        # By name, not by identity. `offered` resolves a verb's per-row
+        # sublabel and returns a copy, so comparing the objects refused
+        # every decision on every queue whose verbs describe themselves
+        # per row -- silently, as "somebody else got there first".
         verb = queue.verb(verb_name)
-        if verb is None or verb not in queue.offered(subject):
+        offered = {available.name for available in queue.offered(subject)}
+        if verb is None or verb.name not in offered:
             refused += 1
             continue
 
         # A verb that writes a value and has none is not a decision yet.
-        # Left in the queue rather than applied as a blank.
+        # Left in the queue rather than applied as a blank. A QUALIFIER
+        # with no value is not incomplete: it is a second answer the
+        # reviewer chose not to give.
         if verb.takes_value and not value:
             incomplete += 1
             continue

@@ -24,7 +24,7 @@ whose fix box invites it is a queue creating the defect it exists to
 clear. Free text only where there is no vocabulary to offer.
 {% endcomment %}
 {% if verb.values %}
-<select class="fixval" name="v-{{ subject_id }}"
+<select class="fixval" name="v-{{ subject_id }}" data-verb="{{ verb.name }}"
         aria-label="{{ verb.sublabel|default:verb.label }}">
   <option value="">{{ verb.label|lower }}…</option>
   {% for choice in verb.values %}
@@ -33,8 +33,32 @@ clear. Free text only where there is no vocabulary to offer.
 </select>
 {% else %}
 <input type="text" class="fixval" name="v-{{ subject_id }}"
+       data-verb="{{ verb.name }}"
        value="" aria-label="A value for {{ verb.label|lower }}">
 {% endif %}
 {% endif %}
 {% endfor %}
 <input type="hidden" name="d-{{ subject_id }}" value="">
+
+{% if qualifier %}
+{% comment %}
+Said alongside the verb, not instead of it. An article can be wrongly
+called an obituary and still belong out of the pipeline -- the exclusion
+was right and the reason was wrong -- and as separate verbs a reviewer had
+to choose which half of that to record.
+
+Class `qualval`, not `fixval`: the session script treats a fix value as
+the decision itself, and this is not a decision. A row with a type and no
+verb is not submitted.
+{% endcomment %}
+<label class="qualifier">
+  <span>{{ qualifier.label }}</span>
+  <select class="qualval" name="v-{{ subject_id }}"
+          title="{{ qualifier.sublabel }}">
+    <option value="">unchanged</option>
+    {% for choice in qualifier.values %}
+    <option value="{{ choice.value }}">{{ choice.label }}</option>
+    {% endfor %}
+  </select>
+</label>
+{% endif %}
