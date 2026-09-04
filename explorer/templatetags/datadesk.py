@@ -72,6 +72,7 @@ FILTER_LABELS = {
     "no_point": "no claim",
     "byline": "byline",
     "case": "flagged as",
+    "days": "dated",
     "band": "length",
     "from": "from",
     "to": "to",
@@ -99,6 +100,10 @@ def _filter_value_label(key, value):
         from review.queue import CASE_LABELS
 
         return CASE_LABELS.get(value, value)
+    if key == "days":
+        from review.queue import DAY_WINDOWS
+
+        return dict(DAY_WINDOWS).get(value, value)
     return value
 
 

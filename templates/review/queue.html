@@ -41,6 +41,19 @@
         hx-trigger="change, submit" hx-push-url="true">
     <input type="hidden" name="case" value="{{ params.case|default:'' }}">
     <input type="hidden" name="band" value="{{ params.band|default:'' }}">
+    {% comment %}
+    First, because it is the one filter that is on before anybody
+    chooses anything. Every article ever crawled is not a queue, it is an
+    archive -- but a default that hides rows has to be visible, or the
+    page reads as data missing.
+    {% endcomment %}
+    <label>Dated
+      <select name="days">
+        {% for value, label in day_windows %}
+        <option value="{{ value }}" {% if params.days == value or not params.days and value == default_days %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <label>Dataset
       <select name="dataset">
         <option value="">all</option>
@@ -147,9 +160,19 @@ window.reviewQueueDescribe = function (row, form) {
 
   if (!verb) {
     note.className = "outcome-line";
-    note.textContent = type
-      ? "Choose Accept or Reject as well: the type says what it is, the verb says whether excluding it was right."
-      : "";
+    if (type) {
+      note.textContent =
+        "Choose Accept or Reject as well: the type says what it is, the verb says whether excluding it was right.";
+    } else if (exported) {
+      // The scope case. Accept leaves it in the export and Reject sends
+      // it back to be enriched again -- read side by side those both say
+      // keep it, and for a story about somewhere else neither is what a
+      // reviewer wants. The answer is in the list, not on the buttons.
+      note.textContent =
+        "This is in the export. If it is not local, choose Out of scope — that is what takes it out; Accept and Reject both keep it.";
+    } else {
+      note.textContent = "";
+    }
     return;
   }
 
