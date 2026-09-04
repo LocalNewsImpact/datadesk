@@ -1,0 +1,24 @@
+{% comment %}
+What the last submission did, in one shape for every queue. The counts
+come from the verbs the queue declares, so a queue that adds a verb gets
+it reported without touching this.
+
+A submission that lands as nothing has to be distinguishable from one
+that worked -- the rows are gone from the page either way.
+{% endcomment %}
+{% if receipt.nothing %}
+<p class="notice bad">
+  <strong>Nothing was submitted.</strong>
+  No decision reached the server. If you marked one and this says
+  otherwise, the page was probably reloaded after you marked it — a queue
+  starts every visit with nothing decided.
+</p>
+{% elif receipt %}
+<p class="receipt-line">
+  Submitted:
+  {% for count in receipt.counts %}{{ count.n }} {{ count.past }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+  {% if receipt.incomplete %}{{ receipt.incomplete }} left in the queue with nothing typed.{% endif %}
+  {% if receipt.refused %}{{ receipt.refused }} could no longer be decided that way and were left alone.{% endif %}
+  {% if receipt.unreachable %}{{ receipt.unreachable }} were outside what you may act on.{% endif %}
+</p>
+{% endif %}

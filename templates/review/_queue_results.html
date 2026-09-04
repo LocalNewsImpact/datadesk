@@ -118,25 +118,13 @@ decision sat where it could not be read beside any of it.
   </div>
   {% else %}
   {% comment %}
-  Only the verbs this row can carry out. Reject needs a body to hand back
-  to the pipeline; re-extract needs the page still in the archive, which
-  keeps 30 days. A row with neither is Accept-only, and offering a button
-  that cannot act is worse than offering none.
+  The verbs the queue declares, and only the ones this row can carry out.
+  They used to be written here -- button text, tooltip and dock tally,
+  three times over -- which is how the two queues' buttons drifted with
+  the difference living in HTML.
   {% endcomment %}
   <div class="rec-decide prop" data-id="{{ article.id }}" data-stage="{{ article.stage }}">
-    <button type="button" class="verb accept" data-verb="accept" aria-pressed="false"
-            title="The classification stands. Nothing is written to the article — its status already excludes it.">
-      <b>Accept</b><i>Leave it out</i></button>
-    {% if "reject" in article.verbs %}
-    <button type="button" class="verb reject" data-verb="reject" aria-pressed="false"
-            title="Wrong. The status rewinds to {{ article.rewind_to }} and the pipeline carries on with the fields already captured.">
-      <b>Reject</b><i>Back to {{ article.rewind_to }}</i></button>
-    {% elif "reextract" in article.verbs %}
-    <button type="button" class="verb fix" data-verb="reextract" aria-pressed="false"
-            title="The body was dropped, so there is nothing to hand back. The archived capture is re-parsed — not re-crawled.">
-      <b>Re-extract</b><i>Re-parse the capture</i></button>
-    {% endif %}
-    <input type="hidden" name="d-{{ article.id }}" value="">
+    {% include "review/_verbs.html" with subject_id=article.id verbs=article.offered_verbs %}
   </div>
   {% endif %}
 </article>

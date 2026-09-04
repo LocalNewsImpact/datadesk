@@ -1,7 +1,6 @@
 """Review and cleanup views (SCOPE.md §2.2). Editor role throughout."""
 
 import io
-from collections import Counter
 
 from django.core.cache import cache
 from django.core.paginator import Paginator
@@ -361,6 +360,27 @@ def export_run(request, definition_id):
 # placeholder the template already marks.
 
 
+def _receipt_counts(receipt):
+    """A receipt with its counts in the order the queue declares its verbs.
+
+    The template renders whatever is here, so a queue that adds a verb
+    gets it reported without a template change.
+    """
+    if not receipt or receipt.get("nothing"):
+        return receipt
+    from review import kernel
+
+    try:
+        queue = kernel.get(receipt.get("queue", ""))
+    except LookupError:
+        return receipt
+    receipt = dict(receipt)
+    receipt["counts"] = [
+        {"past": verb.past, "n": receipt.get(verb.past, 0)} for verb in queue.verbs
+    ]
+    return receipt
+
+
 @requires(WRITE)
 def queue(request):
     """Articles automated triage flagged, with what a human needs to judge
@@ -396,7 +416,7 @@ def queue(request):
         # reviewer submitted a session of decisions and got back a page
         # that looked exactly as it had -- with the rows gone, which is
         # also what a submission that silently did nothing looks like.
-        "receipt": request.session.pop("queue_receipt", None),
+        "receipt": _receipt_counts(request.session.pop("queue_receipt", None)),
     }
 
     if vocabulary is not None:
@@ -411,7 +431,9 @@ def queue(request):
         # Which verbs each row can actually carry out, decided per row
         # rather than in the template: a button that cannot act is worse
         # than no button.
-        from review import dispositions
+        from review import dispositions, kernel
+
+        extraction_queue = kernel.get("extraction")
 
         for article in page:
             stage = dispositions.stage_of(
@@ -422,6 +444,9 @@ def queue(request):
             article.stage = stage
             article.verbs = dispositions.verbs_for(article, stage)
             article.rewind_to = dispositions.rewind_target(stage) or ""
+            # What the template renders: the queue's declared verbs,
+            # narrowed to the ones this row can carry out.
+            article.offered_verbs = extraction_queue.offered(article)
             # An article held for review whose note cannot be read is
             # stranded: there is nothing to restore it to. Shown as a
             # defect on the row rather than treated as never held, which
@@ -447,48 +472,34 @@ def queue(request):
 def _submit_queue_decisions(request):
     """Apply a session of extraction-queue decisions.
 
-    The same shape as the proposal queue's submit: a reviewer marks what
-    they find on the way down the page and sends the lot, so the audit
-    entry is the session rather than one row at a time.
+    The rules stay in review/dispositions.py; what runs the session is
+    review/submit.py, shared with every other queue. There were two submit
+    paths answering the same questions differently -- what counts as a
+    decision, what happens to a verb a row can no longer carry out, what a
+    person is told afterwards -- and the shorter one was shorter mostly by
+    not doing what the longer one had learned to do.
     """
-    from review import dispositions
-    from review.models import ExtractionDecision
+    from review import dispositions, kernel
+    from review import submit as review_submit
 
-    decisions = {}
-    for key, value in request.POST.items():
-        if key.startswith("d-") and value:
-            decisions[key[2:]] = value
-    if not decisions:
-        request.session["queue_receipt"] = {"nothing": True}
-        return redirect(f"{reverse('review:queue')}?{request.GET.urlencode()}")
+    queue = kernel.get("extraction")
+    decisions = review_submit.posted(request.POST)
 
+    # Narrowed to what this person may act on. The narrowing IS the access
+    # check; the submit path counts what falls outside it rather than
+    # repeating it.
     reachable = review_queue.base_queryset(request.user)
-    articles = {a.id: a for a in reachable.filter(id__in=list(decisions))}
+    subjects = {str(a.id): a for a in reachable.filter(id__in=list(decisions))}
 
-    applied = Counter()
-    for article_id, verb in decisions.items():
-        article = articles.get(article_id)
-        if article is None or verb not in dict(ExtractionDecision.DECISIONS):
-            continue
-        stage = dispositions.stage_of(
-            article,
-            enrichment=getattr(article, "enr_present", None),
-            labels_updated_at=getattr(article, "labels_updated_at", None),
-        )
-        # Refused rather than ignored: a verb this row cannot carry out
-        # reaching the write path would report success and do nothing.
-        if verb not in dispositions.verbs_for(article, stage):
-            continue
-        dispositions.record(
-            article,
-            decision=verb,
-            stage=stage,
-            user=request.user,
-            label=(article.title or "")[:300],
-        )
-        applied[verb] += 1
-
-    request.session["queue_receipt"] = dict(applied)
+    receipt = review_submit.submit(
+        queue,
+        decisions,
+        subjects,
+        request.user,
+        stage_of=dispositions.stage_of,
+        claim_of=lambda article: getattr(article, "status", ""),
+    )
+    request.session["queue_receipt"] = receipt
     return redirect(f"{reverse('review:queue')}?{request.GET.urlencode()}")
 
 

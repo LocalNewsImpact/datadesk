@@ -1,0 +1,24 @@
+{% comment %}
+The verbs a queue declares, rendered. They used to be written into each
+template -- the button text, the tooltip and the dock tally, three times
+over -- which is why the two queues' buttons drifted apart with the
+difference living in HTML rather than anywhere a reader would look.
+
+Only the verbs THIS row can carry out (kernel.Queue.offered). A button
+that cannot act is a promise the submit path then refuses without saying
+so.
+
+Expects: `subject_id`, `verbs`, and optionally `value_name` for a verb
+that takes a typed value.
+{% endcomment %}
+{% for verb in verbs %}
+<button type="button" class="verb {{ verb.tone }}" data-verb="{{ verb.name }}"
+        aria-pressed="false"{% if verb.sublabel %} title="{{ verb.sublabel }}"{% endif %}>
+  <b>{{ verb.label }}</b>{% if verb.sublabel %}<i>{{ verb.sublabel }}</i>{% endif %}
+</button>
+{% if verb.takes_value %}
+<input type="text" class="fixval" name="v-{{ subject_id }}"
+       value="" aria-label="A value for {{ verb.label|lower }}">
+{% endif %}
+{% endfor %}
+<input type="hidden" name="d-{{ subject_id }}" value="">

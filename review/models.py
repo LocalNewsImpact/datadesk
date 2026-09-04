@@ -102,6 +102,102 @@ class PaywallDismissal(models.Model):
         return f"{self.source_label or self.source_id}: no paywall"
 
 
+class ReviewDecision(models.Model):
+    """What a person decided about one thing a queue asked about.
+
+    One record for every queue in the console. There were two -- this and
+    the decision half of ChangeProposal -- and a third and fourth were
+    coming, each with its own table, its own states and its own submit
+    path. The question they answer is the same question.
+
+    THE SUBJECT
+    -----------
+    `subject_type` and `subject_id` say what was decided about: an
+    article, a publisher record, later an outlet. Neither alone is enough,
+    because ids are only unique within their own table and two queues can
+    hold the same id.
+
+    `field` is set where the decision is about one field of the subject --
+    a publisher's city, a contradicted owner -- and empty where it is
+    about the subject as a whole, which is how the extraction queue
+    decides. Field-level is the general case; record-level is the same
+    thing with no field named.
+
+    THE QUESTION
+    ------------
+    `question` is what the decision answers, as a stable key built from
+    the claim and the stage that raised it (lnic_contracts.review_note.
+    question). Keying on the subject alone was wrong: it would let the
+    first decision about an article silence every later question about it,
+    and a byline found to be garbage months after the classification was
+    settled has to be askable.
+
+    WHAT IT DOES NOT HOLD
+    ---------------------
+    Anything a queue needs and another does not. A proposal's current and
+    proposed values belong to proposals; an article's rewind target
+    belongs to extraction. Both are described in `wrote`, which says what
+    the verb actually did, in that queue's own words.
+    """
+
+    #: Which queue asked. A decision is not portable between queues even
+    #: for the same subject: they ask different things.
+    queue = models.CharField(max_length=40, db_index=True)
+
+    subject_type = models.CharField(max_length=40, db_index=True)
+    subject_id = models.TextField(db_index=True)
+    #: Empty for a decision about the subject as a whole.
+    field = models.CharField(max_length=60, blank=True, default="")
+    #: A human label for the subject, so an audit list reads without
+    #: joining across databases -- the subjects are not all in this one.
+    subject_label = models.TextField(blank=True, default="")
+
+    #: What was claimed, and which stage claimed it. Together they are the
+    #: question.
+    claim = models.TextField(blank=True, default="")
+    stage = models.CharField(max_length=40, blank=True, default="")
+    question = models.TextField()
+
+    #: The verb, as declared by the queue (review/kernel.py).
+    verb = models.CharField(max_length=40)
+    #: What the person typed, for a verb that takes a value.
+    value = models.TextField(blank=True, default="")
+
+    #: What the subject was before, and what the verb made it. Recorded
+    #: rather than recomputed: the rules may change, and this says what
+    #: was actually done.
+    before = models.TextField(blank=True, default="")
+    after = models.TextField(blank=True, default="")
+    #: What the verb wrote, in the queue's own words. Free-form because
+    #: the queues genuinely differ, and forcing a shape here is how the
+    #: two records grew apart in the first place.
+    wrote = models.JSONField(default=dict, blank=True)
+
+    reason = models.TextField(blank=True, default="")
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    decided_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-decided_at"]
+        indexes = [
+            models.Index(fields=["queue", "subject_type", "subject_id"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["subject_type", "subject_id", "field", "question"],
+                name="one_review_decision_per_question",
+            )
+        ]
+
+    def __str__(self):
+        where = f"{self.subject_type}:{self.subject_id}"
+        if self.field:
+            where = f"{where}.{self.field}"
+        return f"{self.verb} {where} ({self.question})"
+
+
 class ExtractionDecision(models.Model):
     """What a person decided about a classification the pipeline made.
 
