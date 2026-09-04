@@ -183,7 +183,31 @@ def decisions_for(article_ids):
 ACCEPT = "accept"
 REJECT = "reject"
 REEXTRACT = "reextract"
-RECLASSIFY = "reclassify"
+
+#: The statuses the export selects (MizzouNewsCrawler
+#: src/enrichment/repository.py EXPORTABLE_STATUSES). Stated here because
+#: a reviewer has to be told what a decision does to the export, and
+#: `enrichment_skipped` is exported -- unenriched, but exported.
+#:
+#: A cross-service fact, and a candidate for lnic-contracts: it is
+#: written by one service and read by another, and restating it is
+#: exactly the drift that package exists to stop. Left here until the
+#: next contract release rather than bundled into an unrelated one.
+EXPORTED_STATUSES = ("enriched", "enrichment_skipped")
+
+
+def _what_accept_leaves(article):
+    """What accepting does to THIS row.
+
+    "Leave it out" was on every row, and on a scope-recorded article it
+    leaves it IN: `enrichment_skipped` is exported. A reviewer reading it
+    on a 14,149-character bylined feature was being told the opposite of
+    what the button does.
+    """
+    if getattr(article, "status", "") in EXPORTED_STATUSES:
+        return "Stays in the export, unenriched"
+    return "Stays out of the export"
+
 
 #: What a person can say an article actually is.
 #:
@@ -366,7 +390,6 @@ def verbs_for(article, stage):
         # at a bylined sports feature filed as an obituary has to be able
         # to say which one they mean.
         verbs.append(REJECT)
-        verbs.append(RECLASSIFY)
     elif can_reextract(article):
         verbs.append(REEXTRACT)
     return verbs
@@ -395,7 +418,17 @@ def _metadata_of(article):
     return meta if isinstance(meta, dict) else {}
 
 
-def record(article, *, decision, stage, user, reason="", label="", article_status=""):
+def record(
+    article,
+    *,
+    decision,
+    stage,
+    user,
+    reason="",
+    label="",
+    article_status="",
+    content_type="",
+):
     """Write the decision, and the status where the decision requires it.
 
     ACCEPT writes nothing to the crawler: the article's status already
@@ -432,20 +465,6 @@ def record(article, *, decision, stage, user, reason="", label="", article_statu
             target = before
     elif decision == REJECT:
         target = rewind_target(stage)
-    elif decision == RECLASSIFY:
-        # The classification is wrong AND what it should be is known. The
-        # article takes the status the reviewer chose, which is what every
-        # later stage reads: a corrected type is not a note about the
-        # article, it is the article's status.
-        #
-        # Refused rather than guessed at if the value is not one of the
-        # types offered: `reason` carries what a person picked from a
-        # list, and a status this does not recognise would be written
-        # straight through to the pipeline.
-        chosen = (reason or "").strip()
-        if chosen not in {t["value"] for t in CONTENT_TYPES}:
-            raise ValueError(f"{chosen!r} is not a content type this queue offers")
-        target = chosen
     elif decision == REEXTRACT:
         # Out of the pipeline rather than back into it: there is no status
         # meaning "re-parse me", and the one that looks like it --
@@ -469,6 +488,21 @@ def record(article, *, decision, stage, user, reason="", label="", article_statu
     )
     article.metadata = answered
     written = ["metadata"]
+
+    # What the reviewer said it actually is, if they said. It decides the
+    # status whatever the verb was: a corrected type is not a note about
+    # the article, it is the article's status, and every later stage reads
+    # that. Accept plus a type means the exclusion was right and the
+    # reason was wrong.
+    #
+    # Refused rather than guessed at: the value comes from a form, and a
+    # status this does not recognise would be written straight through to
+    # the pipeline.
+    said = (content_type or "").strip()
+    if said:
+        if said not in {t["value"] for t in CONTENT_TYPES}:
+            raise ValueError(f"{said!r} is not a content type this queue offers")
+        target = said
 
     if target:
         article.status = target
@@ -524,7 +558,9 @@ def _apply_extraction(article, verb, value, user):
         decision=verb.name,
         stage=stage,
         user=user,
-        reason=value,
+        # The queue's qualifier: what the reviewer said it actually is,
+        # given alongside the verb rather than instead of it.
+        content_type=value,
         label=(getattr(article, "title", "") or "")[:300],
     )
     return {
@@ -544,7 +580,10 @@ EXTRACTION_QUEUE = kernel.register(
             kernel.Verb(
                 name=ACCEPT,
                 label="Accept",
-                sublabel="Leave it out",
+                # Per row: what the current status does differs by row,
+                # and one phrase for all of them was false on some.
+                sublabel="The current status stands",
+                sublabel_for=_what_accept_leaves,
                 past="accepted",
                 tone="accept",
             ),
@@ -555,18 +594,9 @@ EXTRACTION_QUEUE = kernel.register(
                 # reviewer reading "Back to the pipeline" on a sports
                 # feature filed as an obituary cannot tell whether it says
                 # "this is a real story" or "put it back and re-decide".
-                sublabel="It is a real story",
+                sublabel="It is a real story, put it back",
                 past="rejected",
                 tone="reject",
-            ),
-            kernel.Verb(
-                name=RECLASSIFY,
-                label="Reclassify",
-                sublabel="It is something else",
-                past="reclassified",
-                takes_value=True,
-                values=CONTENT_TYPES,
-                tone="fix",
             ),
             kernel.Verb(
                 name=REEXTRACT,
@@ -577,6 +607,20 @@ EXTRACTION_QUEUE = kernel.register(
             ),
         ),
         apply=_apply_extraction,
+        # Said alongside the verb, not instead of it. An article can be
+        # wrongly called an obituary and still belong out of the pipeline:
+        # the exclusion was right and the reason was wrong, and as
+        # separate verbs a reviewer had to choose which half to record.
+        qualifier=kernel.Qualifier(
+            name="content_type",
+            label="Actually it is",
+            sublabel=(
+                "Leave alone unless the type is wrong. Out of scope, "
+                "not an article, weather, opinion and wire are all out "
+                "of the export; a real story goes back to the pipeline."
+            ),
+            values=CONTENT_TYPES,
+        ),
         # Which of the three a PARTICULAR row can carry out: reject needs a
         # body to hand back, re-extract needs the archived capture.
         verbs_for=lambda article: verbs_for(article, stage_of(article)),

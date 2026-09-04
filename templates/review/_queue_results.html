@@ -106,7 +106,7 @@ marked on the way down.
           <span class="decided-when">{{ article.decision.decided_by }} · {{ article.decision.decided_at|date:"j M Y" }}</span>
           {% else %}
           <div class="prop" data-id="{{ article.id }}" data-stage="{{ article.stage }}">
-            {% include "review/_verbs.html" with subject_id=article.id verbs=article.offered_verbs %}
+            {% include "review/_verbs.html" with subject_id=article.id verbs=article.offered_verbs qualifier=queue_qualifier %}
           </div>
           {% endif %}
         </td>

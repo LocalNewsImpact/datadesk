@@ -122,12 +122,11 @@ def test_a_row_offers_only_what_it_can_carry_out():
 def test_the_extraction_queue_is_registered():
     queue = kernel.get("extraction")
     assert queue.subject_type == "article"
-    assert {verb.name for verb in queue.verbs} == {
-        "accept",
-        "reject",
-        "reclassify",
-        "reextract",
-    }
+    assert {verb.name for verb in queue.verbs} == {"accept", "reject", "reextract"}
+    # What the thing actually is, said alongside a verb rather than
+    # instead of it.
+    assert queue.qualifier is not None
+    assert queue.qualifier.name == "content_type"
 
 
 def test_an_unknown_queue_says_which_ones_exist():
