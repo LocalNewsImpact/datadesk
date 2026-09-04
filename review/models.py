@@ -286,6 +286,59 @@ class ExtractionDecision(models.Model):
         return f"{self.decision} {self.article_id} ({self.question})"
 
 
+class RepeatedBody(models.Model):
+    """A publisher producing many articles with byte-identical body lengths.
+
+    A parser that meets a page shape it does not handle returns the same
+    thing every time -- a comment policy, a subscriber wall, a list of
+    counties -- and the tell is that the length repeats exactly. On
+    2026-09-04: 486 articles from newspressnow.com at exactly 228
+    characters, every one of them the site's comment policy, and 472 of
+    those were classified `wire`. A failed capture recorded as
+    syndication, 486 times, with nobody looking.
+
+    This is the half nobody has reported. review/extraction_problems.py
+    counts what reviewers found; this counts what the corpus shows on its
+    own.
+
+    Computed on a schedule rather than per request: the query groups
+    164,000 articles by host and length and takes about 32 seconds.
+
+    IS IT STILL HAPPENING
+    ---------------------
+    `latest_article` is the point. A pattern whose newest article is from
+    March is one somebody already fixed; one that grew this week is not,
+    and a list that cannot tell them apart is a list nobody reads twice.
+    """
+
+    host = models.CharField(max_length=255, db_index=True)
+    #: The length every one of these bodies has, exactly.
+    length = models.PositiveIntegerField()
+    articles = models.PositiveIntegerField()
+    #: Enough of the text to recognise it. A comment policy and a
+    #: subscriber wall are both "short and repeated"; only the words say
+    #: which, and which parser rule is missing.
+    sample = models.TextField(blank=True, default="")
+    #: What the pipeline decided these were, as {status: count}. The
+    #: interesting case is a failed capture confidently labelled
+    #: something else.
+    statuses = models.JSONField(default=dict, blank=True)
+    #: The newest article in the pattern: whether this is still going on.
+    latest_article = models.DateTimeField(null=True, blank=True)
+    computed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-articles"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["host", "length"], name="one_row_per_host_and_length"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.host} × {self.length} chars ({self.articles})"
+
+
 class WorklistCount(models.Model):
     """How much is waiting in one queue, in one directory.
 
