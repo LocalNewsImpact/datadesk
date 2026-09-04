@@ -408,3 +408,69 @@ def test_the_exported_statuses_are_the_crawler_s():
     from review.dispositions import EXPORTED_STATUSES
 
     assert EXPORTED_STATUSES == ("enriched", "enrichment_skipped")
+
+
+# --- an article whose body is unusable ----------------------------------------
+#
+# ROT47 that never decoded, JavaScript captured instead of prose, a list
+# of states or counties where the story should be. The article is not
+# miscategorised: the capture is broken, and exporting it would export the
+# garbage.
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_broken_capture_can_be_said(client, reviewer, flagged):
+    client.force_login(reviewer)
+    body = client.get(reverse("review:queue")).content.decode()
+    assert 'value="text_is_garbage"' in body
+    assert "the body is garbage" in body
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_broken_capture_is_not_written_as_a_content_type(reviewer, flagged):
+    """The article is what it always was. Writing `text_is_garbage` as a
+    status would invent one, and statuses are the pipeline's."""
+    from review.dispositions import REEXTRACT_TO
+
+    record(
+        flagged,
+        decision="accept",
+        stage=EXTRACTION,
+        user=reviewer,
+        content_type="text_is_garbage",
+    )
+    flagged.refresh_from_db()
+    assert flagged.status == REEXTRACT_TO
+    assert flagged.status != "text_is_garbage"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_broken_capture_is_recorded_and_not_only_acted_on(reviewer, flagged):
+    """The cleaning that produced it is the thing to fix. A row that only
+    disappears into `paused` says nothing about what was wrong with it."""
+    record(
+        flagged,
+        decision="accept",
+        stage=EXTRACTION,
+        user=reviewer,
+        content_type="text_is_garbage",
+    )
+    assert ReviewDecision.objects.get(subject_id=flagged.id).wrote["body"] == "garbage"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_broken_capture_leaves_the_export(reviewer, flagged):
+    from explorer.models import Article
+    from review.dispositions import EXPORTED_STATUSES
+
+    Article.objects.filter(id=flagged.id).update(status="enrichment_skipped")
+    flagged.refresh_from_db()
+    record(
+        flagged,
+        decision="accept",
+        stage=EXTRACTION,
+        user=reviewer,
+        content_type="text_is_garbage",
+    )
+    flagged.refresh_from_db()
+    assert flagged.status not in EXPORTED_STATUSES

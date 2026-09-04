@@ -221,6 +221,21 @@ def _what_accept_leaves(article):
 #: an obituary, it is a weather report", and a reviewer looking at a
 #: 53,926-character bylined sports feature filed as an obituary needs to
 #: be able to say which of the two they mean.
+#: The one value in the list that is not a content type.
+#:
+#: "It is a real article, and the body is unusable" -- ROT47 that never
+#: decoded, JavaScript that was captured instead of prose, a list of
+#: states or counties where the story should be. The article is not
+#: miscategorised; the capture is broken, and exporting it would export
+#: the garbage.
+#:
+#: There is no status for it, and inventing one would be wrong: statuses
+#: are the pipeline's (SCOPE.md §2.2). It goes to `paused` -- out of the
+#: pipeline, out of the export, waiting for work -- and the decision
+#: records what was wrong with it, so the cleaning that produced it can
+#: be found and fixed rather than the row quietly disappearing.
+BAD_CAPTURE = "text_is_garbage"
+
 CONTENT_TYPES = (
     {"value": "not_article", "label": "Not an article"},
     {"value": "obituary", "label": "Obituary"},
@@ -229,6 +244,10 @@ CONTENT_TYPES = (
     {"value": "wire", "label": "Wire"},
     {"value": "paywall", "label": "Paywalled stub"},
     {"value": "out_of_scope", "label": "Out of scope"},
+    {
+        "value": BAD_CAPTURE,
+        "label": "An article, but the body is garbage",
+    },
 )
 
 
@@ -499,10 +518,14 @@ def record(
     # status this does not recognise would be written straight through to
     # the pipeline.
     said = (content_type or "").strip()
+    bad_capture = said == BAD_CAPTURE
     if said:
         if said not in {t["value"] for t in CONTENT_TYPES}:
             raise ValueError(f"{said!r} is not a content type this queue offers")
-        target = said
+        # A broken capture is not a category. The article is what it
+        # always was; the text is unusable, so it goes where re-extraction
+        # looks rather than being written as a type it is not.
+        target = REEXTRACT_TO if bad_capture else said
 
     if target:
         article.status = target
@@ -529,7 +552,15 @@ def record(
             "verb": decision,
             "before": before,
             "after": target or before,
-            "wrote": {"rewound_to": rewound} if rewound else {},
+            # What the verb did, plus what the reviewer found. The
+            # capture finding is recorded rather than only acted on: the
+            # cleaning that produced it is the thing to fix, and a row
+            # that merely disappears into `paused` says nothing about
+            # which of ROT47, JavaScript or a county list it was.
+            "wrote": {
+                **({"rewound_to": rewound} if rewound else {}),
+                **({"body": "garbage"} if bad_capture else {}),
+            },
             "reason": reason,
             "decided_by": user,
             "decided_at": timezone.now(),
