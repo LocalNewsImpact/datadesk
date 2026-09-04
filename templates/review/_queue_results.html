@@ -128,9 +128,25 @@ marked on the way down.
   </table>
 </article>
 {% empty %}
+{% comment %}
+The window is a filter that is on before anybody chose anything, so an
+empty page has to say so. Against production on 2026-09-04 the last 30
+days held nothing at all -- the crawl is paused, and the newest flagged
+article is over 90 days old -- and without this line that reads as a
+broken page rather than a quiet one.
+{% endcomment %}
 <p class="notice empty-queue">
   <strong>Nothing flagged under these filters.</strong>
+  {% if not params.days or params.days != "all" %}
+  The queue is showing
+  {% if params.days %}the window you chose{% else %}the last 30 days{% endif %};
+  nothing was flagged in it. <a href="?{{ params.urlencode }}&amp;days=all"
+     hx-get="{% url 'review:queue' %}?{{ params.urlencode }}&amp;days=all"
+     hx-target="#queue-results" hx-indicator="#queue-results">Look at everything</a>
+  to see older work.
+  {% else %}
   Either triage passed everything here, or the filters are narrower than the data.
+  {% endif %}
 </p>
 {% endfor %}
 

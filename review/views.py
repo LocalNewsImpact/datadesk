@@ -460,6 +460,10 @@ def queue(request):
         "band_params": band_params,
         "state_params": state_params,
         "state": params.get("state", ""),
+        # The window, and what it is when nobody has chosen. A default
+        # that narrows the page has to be on the page.
+        "day_windows": review_queue.DAY_WINDOWS,
+        "default_days": str(review_queue.DEFAULT_DAYS),
         "bands": [],
         "cases": [],
         # What the last submission did. Written to the session by

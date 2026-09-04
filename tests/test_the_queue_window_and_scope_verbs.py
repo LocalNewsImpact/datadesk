@@ -1,0 +1,175 @@
+"""The queue looks at recent work, and its verbs say what they do.
+
+TWO THINGS THAT WERE WRONG TOGETHER
+-----------------------------------
+Every article ever crawled is not a queue, it is an archive: the corpus
+is 164,000 articles and the flagged ones go back to 2025, so a page that
+opened on all of it buried this week under last December.
+
+And on a scope-recorded article the two verbs read as the same answer.
+"Accept: stays in the export, unenriched" and "Reject: it is a real
+story, put it back" both say keep it, and for a story about somewhere
+else neither is what a reviewer wants -- what they want is Out of scope,
+in the list beside the buttons, which nothing pointed at.
+"""
+
+from datetime import timedelta
+
+import pytest
+from django.urls import reverse
+from django.utils import timezone
+
+from explorer.models import Article, CandidateLink, Dataset, DatasetSource, Source
+from review import queue as review_queue
+from review.dispositions import _what_accept_leaves, _what_reject_does
+
+
+@pytest.fixture
+def reviewer(db):
+    from django.contrib.auth.models import User
+
+    user = User.objects.create_user("ed", email="ed@localnewsimpact.org")
+    user.is_superuser = user.is_staff = True
+    user.save()
+    return user
+
+
+@pytest.fixture
+def two_articles(crawler_schema):
+    """One from this week, one from last year."""
+    dataset = Dataset.objects.create(id="d1", slug="mo", label="Missouri")
+    source = Source.objects.create(id="s1", host="a.example", host_norm="a.example")
+    DatasetSource.objects.create(id="ds1", dataset_id=dataset.id, source_id=source.id)
+    made = {}
+    for name, when in (
+        ("recent", timezone.now() - timedelta(days=3)),
+        ("old", timezone.now() - timedelta(days=400)),
+    ):
+        link = CandidateLink.objects.create(
+            id=f"c-{name}", source_id=source.id, url=f"https://a.example/{name}"
+        )
+        made[name] = Article.objects.create(
+            id=name,
+            candidate_link=link,
+            title=f"a {name} story",
+            status="not_article",
+            wire_check_status="complete",
+            content="A captured body.",
+            text="A captured body.",
+            author="Ellen Reporter",
+            publish_date=when,
+            created_at=when,
+            enrichment_attempts=0,
+        )
+    return made
+
+
+# --- the window ---------------------------------------------------------------
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_queue_opens_on_recent_work(reviewer, two_articles):
+    shown = {a.id for a in review_queue.queued({}, reviewer)}
+    assert "recent" in shown
+    assert "old" not in shown
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_window_can_be_widened(reviewer, two_articles):
+    """A question about a publisher's history is a real question, just
+    not the default one."""
+    shown = {a.id for a in review_queue.queued({"days": "all"}, reviewer)}
+    assert {"recent", "old"} <= shown
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_an_article_with_no_dates_is_kept(reviewer, two_articles, crawler_schema):
+    """An extraction that found no publish date, written before
+    created_at was populated: the worst captures in the corpus, and the
+    ones this queue is for. A window that hid them would hide exactly
+    what it should surface."""
+    Article.objects.filter(id="old").update(publish_date=None, created_at=None)
+    assert "old" in {a.id for a in review_queue.queued({}, reviewer)}
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_nonsense_window_reads_as_the_default(reviewer, two_articles):
+    """It comes from a query string."""
+    shown = {a.id for a in review_queue.queued({"days": "everything"}, reviewer)}
+    assert shown == {"recent"}
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_window_is_on_the_page(client, reviewer, two_articles):
+    """A default that hides rows has to be visible, or it reads as data
+    missing."""
+    client.force_login(reviewer)
+    body = client.get(reverse("review:queue")).content.decode()
+    assert 'name="days"' in body
+    assert "Last 30 days" in body
+    assert "Everything" in body
+
+
+# --- the verbs on a scope row -------------------------------------------------
+
+
+def test_reject_says_something_different_where_the_row_is_finished():
+    """A scope-recorded article is `enrichment_skipped` and in the
+    export. Rejecting the call sends it back to be enriched again; it
+    does not put back something that was taken away."""
+
+    class Scope:
+        status = "enrichment_skipped"
+
+    class Excluded:
+        status = "not_article"
+
+    assert _what_reject_does(Scope()) == "The call was wrong — enrich it again"
+    assert _what_reject_does(Excluded()) == "It is a real story, put it back"
+
+
+def test_accept_and_reject_do_not_read_as_the_same_answer():
+    """On an exported row they both keep it, which is why the page has to
+    point at the type list instead."""
+
+    class Scope:
+        status = "enrichment_skipped"
+
+    accept = _what_accept_leaves(Scope())
+    reject = _what_reject_does(Scope())
+    assert accept != reject
+    assert "export" in accept
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_page_points_at_the_type_for_an_exported_row(
+    client, reviewer, two_articles
+):
+    client.force_login(reviewer)
+    body = client.get(reverse("review:queue")).content.decode()
+    assert "that is what takes it out" in body
+    assert "Accept and Reject both keep it" in body
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_an_empty_window_says_it_is_the_window(client, reviewer, two_articles):
+    """Against production the last 30 days held nothing -- the crawl is
+    paused and the newest flagged article is over 90 days old. Without
+    this the page reads as broken rather than as quiet."""
+    Article.objects.filter(id="recent").update(
+        publish_date=timezone.now() - timedelta(days=400),
+        created_at=timezone.now() - timedelta(days=400),
+    )
+    client.force_login(reviewer)
+    body = client.get(reverse("review:queue")).content.decode()
+    assert "the last 30 days" in body
+    assert "Look at everything" in body
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_an_empty_everything_does_not_blame_the_window(
+    client, reviewer, crawler_schema
+):
+    client.force_login(reviewer)
+    body = client.get(reverse("review:queue"), {"days": "all"}).content.decode()
+    assert "Look at everything" not in body

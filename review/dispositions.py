@@ -203,6 +203,25 @@ def _host_of(article):
     return str(source) if source else ""
 
 
+def _what_reject_does(article):
+    """What rejecting does to THIS row.
+
+    "It is a real story, put it back" is the answer for a row excluded as
+    not-an-article. It is not the answer for one the pipeline already
+    finished with -- a scope-recorded article is `enrichment_skipped` and
+    in the export, so rejecting the call sends it back to be enriched
+    again rather than putting anything back that was taken away.
+
+    Read side by side, "Accept: stays in the export" and "Reject: put it
+    back" both said keep it, and neither was the thing a reviewer usually
+    wants for a story about somewhere else. What they want is Out of
+    scope, in the list beside them.
+    """
+    if getattr(article, "status", "") in EXPORTED_STATUSES:
+        return "The call was wrong — enrich it again"
+    return "It is a real story, put it back"
+
+
 def _what_accept_leaves(article):
     """What accepting does to THIS row.
 
@@ -644,6 +663,7 @@ EXTRACTION_QUEUE = kernel.register(
                 # feature filed as an obituary cannot tell whether it says
                 # "this is a real story" or "put it back and re-decide".
                 sublabel="It is a real story, put it back",
+                sublabel_for=_what_reject_does,
                 past="rejected",
                 tone="reject",
             ),

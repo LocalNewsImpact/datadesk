@@ -13,10 +13,11 @@ is matched by prefix. `removed_in_march_review` is a decision a person
 already made and must never appear.
 """
 
-from datetime import UTC, datetime
+from datetime import timedelta
 
 import pytest
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 from accounts.models import DATADESK, Grant
 from explorer.models import (
@@ -57,8 +58,13 @@ def _article(article_id, link, title, status, text="", **overrides):
         "title": title,
         "status": status,
         "wire_check_status": "complete",
-        "created_at": datetime(2026, 3, 1, tzinfo=UTC),
-        "publish_date": datetime(2026, 3, 1, tzinfo=UTC),
+        # Recent, relative to now. A fixed date was fine until the queue
+        # gained a window that defaults to the last 30 days -- and then
+        # every test in this file was about dates, silently, which none
+        # of them are. `test_the_queue_has_a_date_window` is where the
+        # window is tested.
+        "created_at": timezone.now() - timedelta(days=1),
+        "publish_date": timezone.now() - timedelta(days=1),
         "content": text,
         "primary_label": "government",
         "primary_label_confidence": 0.9,

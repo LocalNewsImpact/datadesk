@@ -508,8 +508,63 @@ def base_queryset(user):
     )
 
 
+#: How far back the queue looks unless somebody says otherwise.
+#:
+#: Every article ever crawled is not a queue, it is an archive. The corpus
+#: is 164,000 articles and the flagged ones go back to 2025; a reviewer
+#: opening this is working on what the pipeline is doing now, and a page
+#: that starts by showing December's mistakes buries September's.
+#:
+#: A default that hides rows has to be visible, or it reads as data
+#: missing. The window is a filter chip like any other and says which one
+#: it is.
+DEFAULT_DAYS = 30
+
+#: What the window can be set to. `all` is here because a question about
+#: a publisher's history is a real question, just not the default one.
+DAY_WINDOWS = (
+    ("30", "Last 30 days"),
+    ("90", "Last 90 days"),
+    ("365", "Last year"),
+    ("all", "Everything"),
+)
+
+
+def _within_the_window(qs, params):
+    """Narrow to the chosen window, on the date a reader would recognise.
+
+    `publish_date` is what the row shows and what a reviewer means by
+    "recent". It is not always there -- an extraction that failed to find
+    one leaves it null, and those are exactly the rows this queue is for
+    -- so the crawl date stands in where it is missing. Filtering on
+    publish_date alone would hide the worst captures.
+    """
+    from datetime import timedelta
+
+    from django.db.models.functions import Coalesce
+    from django.utils import timezone
+
+    window = params.get("days") or str(DEFAULT_DAYS)
+    if window == "all":
+        return qs
+    try:
+        days = int(window)
+    except ValueError:
+        days = DEFAULT_DAYS
+    cutoff = timezone.now() - timedelta(days=days)
+    # A row with neither date is kept. Those are extractions that found
+    # no publish date and were written before created_at was populated --
+    # the worst captures in the corpus, and the ones this queue is for.
+    # Dropping them would make the window hide exactly what it should
+    # surface.
+    return qs.annotate(_dated=Coalesce("publish_date", "created_at")).filter(
+        Q(_dated__gte=cutoff) | Q(_dated__isnull=True)
+    )
+
+
 def _apply_common(qs, params):
     """Filters shared by the queue and its facet counts."""
+    qs = _within_the_window(qs, params)
     # An unrecognized case reads as no case filter rather than an error.
     if (case := params.get("case")) and case in CASE_STATUS:
         qs = qs.filter(_case_q(case))
