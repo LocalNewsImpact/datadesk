@@ -12,7 +12,14 @@ Expects: `subject_id`, `verbs`, and optionally `value_name` for a verb
 that takes a typed value.
 {% endcomment %}
 {% for verb in verbs %}
+{% comment %}
+`data-needs-value` where this verb cannot be carried out without the
+queue's qualifier answered. On a row enrichment has finished with,
+"the call was wrong" is not an instruction -- wrong how? -- so the row
+does not submit until the type is chosen.
+{% endcomment %}
 <button type="button" class="verb {{ verb.tone }}" data-verb="{{ verb.name }}"
+        {% if verb.takes_value and not verb.values %}data-needs-value="1"{% endif %}
         aria-pressed="false"{% if verb.sublabel %} title="{{ verb.sublabel }}"{% endif %}>
   <b>{{ verb.label }}</b>{% if verb.sublabel %}<i>{{ verb.sublabel }}</i>{% endif %}
 </button>

@@ -74,6 +74,12 @@ class Verb:
     #: an exported status. A label that is false on some rows is worse
     #: than no label, because it is read as true.
     sublabel_for: Callable | None = None
+    #: Whether this verb needs the queue's qualifier answered, for THIS
+    #: row. On a row the pipeline has already finished with, "the call
+    #: was wrong" is not an instruction -- wrong how? -- and the only
+    #: useful answer is what the thing actually is. Without this the verb
+    #: submitted and did something arbitrary.
+    takes_value_for: Callable | None = None
     past: str = ""
     takes_value: bool = False
     values: tuple = ()
@@ -177,10 +183,25 @@ class Queue:
 
 
 def _resolve(verb: Verb, subject) -> Verb:
-    """A verb with its per-row sublabel filled in, where it has one."""
-    if verb.sublabel_for is None:
+    """A verb with everything that varies by row filled in."""
+    if verb.sublabel_for is None and verb.takes_value_for is None:
         return verb
-    return replace(verb, sublabel=verb.sublabel_for(subject) or verb.sublabel)
+    # Named rather than splatted from a dict: mypy cannot check the field
+    # types through **kwargs, and a typo in a key would be a silent
+    # no-op rather than an error.
+    return replace(
+        verb,
+        sublabel=(
+            (verb.sublabel_for(subject) or verb.sublabel)
+            if verb.sublabel_for is not None
+            else verb.sublabel
+        ),
+        takes_value=(
+            bool(verb.takes_value_for(subject))
+            if verb.takes_value_for is not None
+            else verb.takes_value
+        ),
+    )
 
 
 #: Every queue in the console, by key. Registered rather than imported

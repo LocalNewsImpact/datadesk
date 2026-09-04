@@ -85,16 +85,25 @@ def submit(queue, decisions, subjects, user, *, stage_of=None, claim_of=None):
         # sublabel and returns a copy, so comparing the objects refused
         # every decision on every queue whose verbs describe themselves
         # per row -- silently, as "somebody else got there first".
-        verb = queue.verb(verb_name)
-        offered = {available.name for available in queue.offered(subject)}
-        if verb is None or verb.name not in offered:
+        # The RESOLVED verb, from what this row offers. `queue.verb` gives
+        # the declaration, whose `takes_value` and `sublabel` are the
+        # defaults -- so checking completeness against it asked the wrong
+        # question on every row whose verbs differ.
+        offered = {available.name: available for available in queue.offered(subject)}
+        verb = offered.get(verb_name)
+        if verb is None:
             refused += 1
             continue
 
-        # A verb that writes a value and has none is not a decision yet.
-        # Left in the queue rather than applied as a blank. A QUALIFIER
-        # with no value is not incomplete: it is a second answer the
-        # reviewer chose not to give.
+        # A verb that cannot be carried out without a value is not a
+        # decision yet, and is left in the queue rather than applied as a
+        # blank. `takes_value` is resolved per row (kernel._resolve), so
+        # this is the same rule the buttons enforce: Reject on a row
+        # enrichment has finished with waits for the type.
+        #
+        # A qualifier nobody answered on a verb that does not need one is
+        # not incomplete -- it is a second answer the reviewer chose not
+        # to give.
         if verb.takes_value and not value:
             incomplete += 1
             continue

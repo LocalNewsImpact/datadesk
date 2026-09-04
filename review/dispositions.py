@@ -203,36 +203,57 @@ def _host_of(article):
     return str(source) if source else ""
 
 
+#: The statuses enrichment itself ends on (MizzouNewsCrawler
+#: src/enrichment/repository.py TERMINAL_STATUSES). An article carrying
+#: one of these has been all the way through.
+ENRICHMENT_FINISHED = ("enriched", "enrichment_skipped", "out_of_scope")
+
+
+def _enrichment_is_done_with_it(article):
+    """Has enrichment already finished with this row?
+
+    The distinction that decides what Reject can mean.
+
+    An article excluded by a content-type call -- `not_article`,
+    `obituary`, `wire` -- has a pipeline to be put back into, so "it is a
+    real story, put it back" is a complete instruction.
+
+    An article enrichment has finished with has no such place: it already
+    went through. Rejecting the call on one of those is "the type is
+    wrong", and the only useful next word is which type -- which is why
+    the row will not submit without one.
+    """
+    return getattr(article, "status", "") in ENRICHMENT_FINISHED
+
+
 def _what_reject_does(article):
     """What rejecting does to THIS row.
 
     "It is a real story, put it back" is the answer for a row excluded as
-    not-an-article. It is not the answer for one the pipeline already
-    finished with -- a scope-recorded article is `enrichment_skipped` and
-    in the export, so rejecting the call sends it back to be enriched
-    again rather than putting anything back that was taken away.
+    not-an-article: there is a pipeline to put it back into.
 
-    Read side by side, "Accept: stays in the export" and "Reject: put it
-    back" both said keep it, and neither was the thing a reviewer usually
-    wants for a story about somewhere else. What they want is Out of
-    scope, in the list beside them.
+    It is not the answer for one the pipeline has finished with. A
+    scope-recorded article is `enrichment_skipped` and in the export, and
+    it said "enrich it again" -- which is not a thing a reviewer wants,
+    and read beside "Accept: stays in the export" both options said keep
+    it. Rejecting that call means the type is wrong, and the only useful
+    next word is which type.
     """
-    if getattr(article, "status", "") in EXPORTED_STATUSES:
-        return "The call was wrong — enrich it again"
+    if _enrichment_is_done_with_it(article):
+        return "Wrong — say what it is below"
     return "It is a real story, put it back"
 
 
-def _what_accept_leaves(article):
+def _what_accept_does(article):
     """What accepting does to THIS row.
 
-    "Leave it out" was on every row, and on a scope-recorded article it
-    leaves it IN: `enrichment_skipped` is exported. A reviewer reading it
-    on a 14,149-character bylined feature was being told the opposite of
-    what the button does.
+    On a finished article, nothing. Saying so is the point: "Stays in the
+    export, unenriched" describes a state and left a reviewer working out
+    for themselves whether the button would change it.
     """
     if getattr(article, "status", "") in EXPORTED_STATUSES:
-        return "Stays in the export, unenriched"
-    return "Stays out of the export"
+        return "Nothing changes — it stays exported, unenriched"
+    return "Nothing changes — it stays out of the export"
 
 
 #: What a person can say an article actually is.
@@ -684,7 +705,7 @@ EXTRACTION_QUEUE = kernel.register(
                 # Per row: what the current status does differs by row,
                 # and one phrase for all of them was false on some.
                 sublabel="The current status stands",
-                sublabel_for=_what_accept_leaves,
+                sublabel_for=_what_accept_does,
                 past="accepted",
                 tone="accept",
             ),
@@ -697,6 +718,10 @@ EXTRACTION_QUEUE = kernel.register(
                 # "this is a real story" or "put it back and re-decide".
                 sublabel="It is a real story, put it back",
                 sublabel_for=_what_reject_does,
+                # On a finished row, rejecting without saying what it is
+                # is not an instruction. The queue's qualifier is that
+                # answer, and the row will not submit without it.
+                takes_value_for=_enrichment_is_done_with_it,
                 past="rejected",
                 tone="reject",
             ),
