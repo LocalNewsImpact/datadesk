@@ -379,14 +379,24 @@ def queue(request):
     case_params.pop("case", None)
     band_params = params.copy()
     band_params.pop("band", None)
+    state_params = params.copy()
+    state_params.pop("state", None)
     context = {
         "crawler_connected": vocabulary is not None,
         "vocab": vocabulary,
         "params": params,
         "case_params": case_params,
         "band_params": band_params,
+        "state_params": state_params,
+        "state": params.get("state", ""),
         "bands": [],
         "cases": [],
+        # What the last submission did. Written to the session by
+        # `_submit_queue_decisions` since it was built and never read, so a
+        # reviewer submitted a session of decisions and got back a page
+        # that looked exactly as it had -- with the rows gone, which is
+        # also what a submission that silently did nothing looks like.
+        "receipt": request.session.pop("queue_receipt", None),
     }
 
     if vocabulary is not None:
@@ -417,6 +427,11 @@ def queue(request):
             # defect on the row rather than treated as never held, which
             # is how it would go missing without anybody seeing it.
             article.note_problem = dispositions.unreadable_note_reason(article)
+        # Decisions already made, for the rows shown under `state=all`.
+        # Read in one query for the page rather than per row.
+        decided = dispositions.decisions_for([a.id for a in page])
+        for article in page:
+            article.decision = decided.get(str(article.id))
         context["page"] = page
         context["bands"] = review_queue.band_facets(request.GET, request.user)
         context["cases"] = review_queue.case_facets(request.GET, request.user)

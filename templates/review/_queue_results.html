@@ -8,6 +8,16 @@
     {{ band.label }} <span>{{ band.count }}</span>
   </a>
   {% endfor %}
+  {% comment %}
+  Answered questions are out of the queue -- `accept` writes nothing to
+  the article, so without that an accepted article matches its case
+  forever. This is how to see them again, and it is the same control the
+  proposals queue calls "Including decided".
+  {% endcomment %}
+  <a class="facet-chip{% if state == 'all' %} on{% endif %}"
+     href="?{{ state_params.urlencode }}{% if state != 'all' %}&amp;state=all{% endif %}"
+     hx-get="{% url 'review:queue' %}?{{ state_params.urlencode }}{% if state != 'all' %}&amp;state=all{% endif %}"
+     hx-target="#queue-results" hx-indicator="#queue-results">Including decided</a>
 </nav>
 
 {% if page is not None %}
@@ -16,85 +26,127 @@
   {% if page.paginator.num_pages > 1 %}· page {{ page.number }} of {{ page.paginator.num_pages }}{% endif %}
   · longest captures first
 </p>
-<div class="table-viewport">
-  <table class="grid">
-    <thead>
-      <tr>
-        <th scope="col" class="count">Chars</th>
-        <th scope="col">Published</th>
-        <th scope="col">Title</th>
-        <th scope="col">Publisher</th>
-        <th scope="col">Flagged as</th>
-        <th scope="col">Wire</th>
-        <th scope="col">Reason</th>
-        <th scope="col">CIN label</th>
-        <th scope="col" class="count">Confidence</th>
-        <th scope="col">Byline</th>
-        <th scope="col" class="decide">Decision</th>
-      </tr>
-    </thead>
+
+{% comment %}
+One card per article, the shape the proposals queue uses. This was an
+eleven-column grid with the verbs squeezed into the last cell: the
+evidence a person needs in order to decide -- how much text was captured,
+what the detector said and how sure it was, whether a byline survived --
+was spread across ten columns of a row that scrolled sideways, and the
+decision sat where it could not be read beside any of it.
+{% endcomment %}
+{% for article in page %}
+<article class="rec" data-record="{{ article.id }}">
+  <header class="rec-head">
+    <h2>
+      <a href="{% url 'explorer:article_detail' article.id %}"
+         title="{{ article.title|default:article.url }}">{{ article.title|default:article.url }}</a>
+    </h2>
+    <span class="rec-src">
+      {{ article.candidate_link.source|default:"unknown publisher" }}
+      {% if article.publish_date %} · {{ article.publish_date|date:"j M Y" }}{% endif %}
+      · {{ article.text_length }} character{{ article.text_length|pluralize }}
+    </span>
+  </header>
+
+  {% if article.note_problem %}
+  {% comment %}
+  Held, and unable to be released. Said on the card rather than hidden: an
+  article whose note cannot be read has lost the status it was held from,
+  so no verb can put it back, and treating it as never-held is how it
+  would disappear without anybody noticing.
+  {% endcomment %}
+  <p class="notice bad"><strong>Stranded.</strong> {{ article.note_problem }}</p>
+  {% endif %}
+
+  <table class="rec-table rec-facts">
     <tbody>
-      {% for article in page %}
-      <tr class="prop" data-id="{{ article.id }}" data-stage="{{ article.stage }}">
-        <td class="count{% if article.text_length >= 2000 %} flagged-length{% endif %}">{{ article.text_length }}</td>
-        <td class="nowrap">{{ article.publish_date|date:"Y-m-d"|default:"—" }}</td>
-        <td class="col-title">
-          <a class="truncate" title="{{ article.title|default:article.url }}"
-             href="{% url 'explorer:article_detail' article.id %}">{{ article.title|default:article.url }}</a>
-        </td>
-        <td class="col-publisher">{{ article.candidate_link.source|default:"—" }}</td>
-        <td class="nowrap"><span class="chip" data-status="{{ article.status }}" title="{{ article.status }}">{{ article.status|status_label }}</span></td>
-        <td class="nowrap"><span class="chip" data-wire="{{ article.wire_check_status|wire_tone }}" title="{{ article.wire_check_status }}">{{ article.wire_check_status|wire_label }}{% if article.wire_services %}: {{ article.wire_services|join:", " }}{% endif %}</span></td>
-        <td class="nowrap">{{ article.enr_skip_reason|default:"—" }}
-          {% if article.enr_gate_reason %}<span class="sub">gate: {{ article.enr_gate_reason }}</span>{% endif %}</td>
-        <td>{{ article.primary_label|default:"—" }}</td>
-        <td class="count">{% include "_confidence.html" with value=article.primary_label_confidence %}</td>
-        <td>{% if article.author %}<span class="truncate" title="{{ article.author }}">{{ article.author }}</span>{% else %}<span class="absent">none</span>{% endif %}</td>
-        {% comment %}
-        The same three-verb shape the sources queue uses, and only the
-        verbs this row can carry out. Reject needs a body to hand back to
-        the pipeline; re-extract needs the page still in the archive,
-        which keeps 30 days. A row with neither is Accept-only, and
-        offering a button that cannot act is worse than offering none.
-        {% endcomment %}
-        <td class="option decide">
-          {% if article.note_problem %}
-          {% comment %}
-          Held, and unable to be released. Said on the row rather than
-          hidden: an article whose note cannot be read has lost the status
-          it was held from, so no verb can put it back, and treating it as
-          never-held is how it would disappear without anybody noticing.
-          {% endcomment %}
-          <p class="hint stranded">{{ article.note_problem }}</p>
-          {% endif %}
-          <button type="button" class="verb accept" data-verb="accept"
-                  title="The classification stands. Nothing is written to the article — its status already excludes it.">
-            <b>Accept</b><i>Leave it out</i></button>
-          {% if "reject" in article.verbs %}
-          <button type="button" class="verb reject" data-verb="reject"
-                  title="Wrong. The status rewinds to {{ article.rewind_to }} and the pipeline carries on with the fields already captured.">
-            <b>Reject</b><i>Back to {{ article.rewind_to }}</i></button>
-          {% elif "reextract" in article.verbs %}
-          <button type="button" class="verb fix" data-verb="reextract"
-                  title="The body was dropped, so there is nothing to hand back. The archived capture is re-parsed — not re-crawled.">
-            <b>Re-extract</b><i>Re-parse the capture</i></button>
-          {% endif %}
-          <input type="hidden" name="d-{{ article.id }}" value="">
+      <tr>
+        <th scope="row">Flagged as</th>
+        <td>
+          <span class="chip" data-status="{{ article.status }}" title="{{ article.status }}">{{ article.status|status_label }}</span>
+          {% if article.enr_skip_reason %}<span class="finding">{{ article.enr_skip_reason }}</span>{% endif %}
+          {% if article.enr_gate_reason %}<span class="sub">gate: {{ article.enr_gate_reason }}</span>{% endif %}
         </td>
       </tr>
-      {% empty %}
-      <tr class="empty-row">
-        <td colspan="11">
-          <span class="empty-state">
-            <strong>Nothing flagged under these filters.</strong>
-            Either triage passed everything here, or the filters are narrower than the data.
-          </span>
+      <tr>
+        <th scope="row">Captured</th>
+        <td class="{% if article.text_length >= 2000 %}flagged-length{% endif %}">
+          <span class="val">{{ article.text_length }} character{{ article.text_length|pluralize }}</span>
+          {% if article.text_length >= 2000 %}<span class="sub">long enough that the flag is worth doubting</span>{% endif %}
         </td>
       </tr>
-      {% endfor %}
+      <tr>
+        <th scope="row">CIN label</th>
+        <td>
+          {% if article.primary_label %}
+          <span class="val">{{ article.primary_label }}</span>
+          {% include "_confidence.html" with value=article.primary_label_confidence %}
+          {% else %}<span class="none">none</span>{% endif %}
+        </td>
+      </tr>
+      <tr>
+        <th scope="row">Byline</th>
+        <td>{% if article.author %}<span class="val">{{ article.author }}</span>{% else %}<span class="none">absent</span>{% endif %}</td>
+      </tr>
+      <tr>
+        <th scope="row">Wire</th>
+        <td>
+          <span class="chip" data-wire="{{ article.wire_check_status|wire_tone }}" title="{{ article.wire_check_status }}">{{ article.wire_check_status|wire_label }}{% if article.wire_services %}: {{ article.wire_services|join:", " }}{% endif %}</span>
+        </td>
+      </tr>
     </tbody>
   </table>
-</div>
+
+  {% if article.decision %}
+  {% comment %}
+  Already answered, shown as answered. Rendering it with live buttons is
+  how somebody comes to believe they changed something they did not:
+  `_submit_queue_decisions` refuses a verb the row cannot carry out, so
+  the click would be dropped without saying so.
+  {% endcomment %}
+  <div class="rec-decide decided-outcome">
+    <span class="decided-verb {{ article.decision.decision }}">{{ article.decision.decision }}</span>
+    {% if article.decision.rewound_to %}
+    <span class="val">status put back to {{ article.decision.rewound_to }}</span>
+    {% else %}
+    <span class="val">{{ article.decision.classified_as }} stands</span>
+    {% endif %}
+    <span class="decided-when">
+      {{ article.decision.decided_by }} · {{ article.decision.decided_at|date:"j M Y" }}
+    </span>
+  </div>
+  {% else %}
+  {% comment %}
+  Only the verbs this row can carry out. Reject needs a body to hand back
+  to the pipeline; re-extract needs the page still in the archive, which
+  keeps 30 days. A row with neither is Accept-only, and offering a button
+  that cannot act is worse than offering none.
+  {% endcomment %}
+  <div class="rec-decide prop" data-id="{{ article.id }}" data-stage="{{ article.stage }}">
+    <button type="button" class="verb accept" data-verb="accept" aria-pressed="false"
+            title="The classification stands. Nothing is written to the article — its status already excludes it.">
+      <b>Accept</b><i>Leave it out</i></button>
+    {% if "reject" in article.verbs %}
+    <button type="button" class="verb reject" data-verb="reject" aria-pressed="false"
+            title="Wrong. The status rewinds to {{ article.rewind_to }} and the pipeline carries on with the fields already captured.">
+      <b>Reject</b><i>Back to {{ article.rewind_to }}</i></button>
+    {% elif "reextract" in article.verbs %}
+    <button type="button" class="verb fix" data-verb="reextract" aria-pressed="false"
+            title="The body was dropped, so there is nothing to hand back. The archived capture is re-parsed — not re-crawled.">
+      <b>Re-extract</b><i>Re-parse the capture</i></button>
+    {% endif %}
+    <input type="hidden" name="d-{{ article.id }}" value="">
+  </div>
+  {% endif %}
+</article>
+{% empty %}
+<p class="notice empty-queue">
+  <strong>Nothing flagged under these filters.</strong>
+  Either triage passed everything here, or the filters are narrower than the data.
+</p>
+{% endfor %}
+
 {% if page.paginator.num_pages > 1 %}
 <nav class="pager">
   {% if page.has_previous %}

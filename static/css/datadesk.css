@@ -1573,6 +1573,9 @@ td.count.flagged-length { color: var(--tone-warn); font-weight: 600; }
   padding: .1rem .45rem; border-radius: .25rem; border: 1px solid currentColor; }
 .decided-verb.accepted, .decided-verb.fixed { color: var(--tone-good); }
 .decided-verb.rejected { color: var(--text-2); }
+/* The extraction queue's verbs are the present tense of the same three. */
+.decided-verb.accept, .decided-verb.reextract { color: var(--tone-good); }
+.decided-verb.reject { color: var(--text-2); }
 .decided-when { color: var(--text-2); font-size: .82rem; }
 
 /* An article held for review that cannot be released. Not a styling
@@ -1617,6 +1620,20 @@ table.rec-table tbody th { white-space: nowrap; color: var(--text-2); }
 .rec-table .proposed { font-weight: 600; }
 .rec-table .none { color: var(--text-2); font-style: italic; font-family: inherit; }
 .rec-table tr.decided { background: rgba(127,127,127,.06); }
+/* One decision per article rather than per field, so the verbs sit under
+   the evidence in a bar of their own instead of in a column beside it. */
+.rec-facts tbody th { width: 8.5rem; }
+.rec-facts tbody tr:last-child th, .rec-facts tbody tr:last-child td { border-bottom: 0; }
+.rec-facts .sub { display: block; font-size: .75rem; color: var(--text-2); }
+.rec-facts .finding { display: inline; margin-left: .4rem; }
+.rec-facts .flagged-length .val { font-weight: 600; }
+.rec-decide { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap;
+  padding: .6rem .9rem; border-top: 1px solid var(--border);
+  background: rgba(127,127,127,.04); }
+.rec-decide.decided { background: rgba(127,127,127,.09); }
+.rec-decide.decided-outcome { font-size: .82rem; color: var(--text-2); }
+.rec .notice.bad { margin: .6rem .9rem; }
+
 .verbs { display: flex; gap: .3rem; flex-wrap: wrap; }
 .verb { display: flex; flex-direction: column; align-items: flex-start; gap: .05rem;
   line-height: 1.2; min-width: 5.6rem; text-align: left; cursor: pointer;
