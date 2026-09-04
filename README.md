@@ -94,6 +94,22 @@ through a green sqlite run.
 The development *server* still uses sqlite. Only the suite requires
 Postgres.
 
+Two checks need a connection to the crawler's real database (the Cloud
+SQL Auth Proxy locally), so they are commands rather than tests:
+
+```
+make crawler-schema   # do the unmanaged models still match the crawler?
+make smoke-queries    # do the console's read paths actually run?
+```
+
+`check_crawler_schema` is the answer to a schema this repository does not
+own and is not told about: a column renamed or retyped in the crawler
+leaves the suite green and breaks a page. `smoke_queries` runs the
+expensive reads against the real databases — the deploy runs it as a job
+on the candidate revision before traffic shifts, so a query that cannot
+run holds the rollout instead of reaching the site. `/_health` renders
+without touching the crawler and proves neither.
+
 ## Configuration
 
 All deployment-specific values come from environment variables

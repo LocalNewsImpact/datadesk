@@ -90,6 +90,16 @@ test: $(VENV) test-db ## Run the test suite (Postgres, as production is)
 	$(TEST_DB_ENV) $(PY) manage.py makemigrations --check --dry-run
 	$(TEST_DB_ENV) $(PY) -m pytest
 
+# Both need the crawler's real database — the Cloud SQL Auth Proxy, or
+# Cloud Run's socket. Not part of `check`, which must run offline.
+.PHONY: crawler-schema
+crawler-schema: $(VENV) ## Do the unmanaged models still match the crawler's schema?
+	$(PY) manage.py check_crawler_schema
+
+.PHONY: smoke-queries
+smoke-queries: $(VENV) ## Do the console's read paths run against the real databases?
+	$(PY) manage.py smoke_queries
+
 .PHONY: check
 # Run this before pushing. `lint` is CI's lint job (ruff, black, isort,
 # mypy) and `test` is CI's tests job (makemigrations --check, pytest).

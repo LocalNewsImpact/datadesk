@@ -210,10 +210,42 @@ steps:
         echo "candidate $$URL/_health -> $$code"
         [ "$$code" = "200" ] || { echo "candidate failed its health check; traffic not shifted"; exit 1; }
 
+  # /_health proves Django started. It does not touch the crawler, so a
+  # query that cannot run against the real schema passes it and fails
+  # when somebody opens the page -- which is how the review queue shipped
+  # telling people to fix credentials that were correct.
+  #
+  # This runs the console's read paths against the real databases, on the
+  # candidate image, before traffic moves. A broken query holds the
+  # rollout instead of reaching the site.
+  #
+  # A job rather than a request: the pages are behind Google sign-in, so
+  # curl proves only that the redirect works.
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'smoke-queries'
+    entrypoint: 'bash'
+    waitFor: ['prove']
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        IMAGE="${_REGISTRY}/${_SERVICE}:${_SHORT_SHA}"
+        gcloud run jobs deploy "${_SERVICE}-smoke" \
+          --image "$$IMAGE" --region "${_REGION}" --project "$PROJECT_ID" \
+          --command /bin/sh \
+          --args "^|^-c|python manage.py smoke_queries" \
+          --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_DB_PASSWORD=crawler-ro-password:latest" \
+          --set-env-vars "^@^CLOUD_SQL_CONNECTION_NAME=${_SQL_INSTANCE}@DB_NAME=datadesk@DB_USER=datadesk@CRAWLER_DB_NAME=mizzou@CRAWLER_DB_USER=datadesk_ro" \
+          --set-cloudsql-instances "${_SQL_INSTANCE}" \
+          --service-account "${_RUN_SA}" \
+          --max-retries 0
+        gcloud run jobs execute "${_SERVICE}-smoke" \
+          --region "${_REGION}" --project "$PROJECT_ID" --wait
+
   - name: 'gcr.io/cloud-builders/gcloud'
     id: 'shift'
     entrypoint: 'bash'
-    waitFor: ['prove']
+    waitFor: ['smoke-queries']
     args:
       - '-c'
       - |

@@ -323,10 +323,16 @@ class ArticleEnrichment(CrawlerModel):
         primary_key=True,
         related_name="enrichment",
     )
-    profile_version = models.TextField(null=True)
+    #: `integer` in the crawler. Declared TextField, a comparison against
+    #: a version number would have been str against int and quietly
+    #: false. Found by check_crawler_schema, not by a test.
+    profile_version = models.IntegerField(null=True)
     skip_reason = models.TextField(null=True)
     model = models.TextField(null=True)
-    cost_usd = models.FloatField(null=True)
+    #: `numeric(10, 6)`, so psycopg hands back a Decimal whatever this
+    #: says. Declared FloatField it was a lie that happened not to break:
+    #: the rollups sum with a leading int, and Decimal + int is fine.
+    cost_usd = models.DecimalField(max_digits=10, decimal_places=6, null=True)
     enriched_at = models.DateTimeField(null=True)
     is_news_content = models.BooleanField(null=True)
     content_gate_reason = models.TextField(null=True)

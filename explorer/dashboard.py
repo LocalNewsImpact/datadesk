@@ -15,6 +15,7 @@ from django.core.cache import cache
 from django.db import DatabaseError
 from django.db.models import Count
 
+from explorer.dberrors import absent_or_raise
 from explorer.models import Article, ArticleEnrichment
 
 _CACHE_KEY = "explorer.corpus_summary"
@@ -81,7 +82,8 @@ def corpus_summary():
 
     try:
         return cache.get_or_set(_CACHE_KEY, fetch, _CACHE_SECONDS)
-    except DatabaseError:
+    except DatabaseError as exc:
+        absent_or_raise(exc, "explorer.dashboard.summary")
         return None
 
 

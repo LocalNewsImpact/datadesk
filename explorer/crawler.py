@@ -10,6 +10,8 @@ must not run a COUNT over it on every request.
 from django.core.cache import cache
 from django.db import DatabaseError, connections
 
+from explorer.dberrors import absent_or_raise
+
 _COUNTS_CACHE_KEY = "explorer.dataset_row_counts"
 _COUNTS_CACHE_SECONDS = 3600
 
@@ -62,5 +64,6 @@ def dataset_row_counts():
 
     try:
         return cache.get_or_set(_COUNTS_CACHE_KEY, fetch, _COUNTS_CACHE_SECONDS)
-    except DatabaseError:
+    except DatabaseError as exc:
+        absent_or_raise(exc, "explorer.crawler.counts")
         return None

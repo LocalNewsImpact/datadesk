@@ -714,6 +714,7 @@ def vocab(user):
     database is not reachable."""
     from django.db import DatabaseError
 
+    from explorer.dberrors import absent_or_raise
     from explorer.models import Dataset
 
     try:
@@ -735,5 +736,8 @@ def vocab(user):
                 if value
             ),
         }
-    except DatabaseError:
+    except DatabaseError as exc:
+        # A missing crawler database is "not connected"; a query this
+        # repository got wrong is not, and used to be reported as one.
+        absent_or_raise(exc, "review.queue.vocab")
         return None
