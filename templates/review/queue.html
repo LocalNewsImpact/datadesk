@@ -191,8 +191,15 @@ window.reviewQueueDescribe = function (row, form) {
 
   if (type) {
     note.className = "outcome-line on accept";
+    // A paywalled stub keeps its place in the export -- its text is a
+    // teaser but the CIN label and byline are real observations. Every
+    // other type takes the article out of both the export and enrichment.
+    const fate =
+      type === "paywall"
+        ? "Exported, and not enriched any further: the text is a teaser but the label and byline are real."
+        : "Taken out of enrichment and out of the export.";
     note.textContent =
-      "Recorded as " + label + ", which is what every later stage will read." +
+      "Recorded as " + label + ". " + fate +
       (verb === "reject" ? " The original call is marked wrong." : "");
     return;
   }

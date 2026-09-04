@@ -262,6 +262,31 @@ def _what_accept_leaves(article):
 #: be found and fixed rather than the row quietly disappearing.
 BAD_CAPTURE = "text_is_garbage"
 
+#: What choosing a type does to the article's status.
+#:
+#: Choosing one always takes the article out of enrichment and, with one
+#: exception, out of the export. It is not a note about the row: it is
+#: what every later stage reads.
+#:
+#: The exception is a paywalled stub. Its text is a teaser or a login
+#: wall, but the CIN label and the byline are real observations, so it is
+#: exported and not enriched any further -- which is what
+#: `enrichment_skipped` means. Writing the `paywall` status instead would
+#: have taken it out of the export and lost them.
+#:
+#: `text_is_garbage` is not a type at all (see BAD_CAPTURE) and goes to
+#: `paused`, where re-extraction looks.
+TYPE_BECOMES = {
+    "not_article": "not_article",
+    "obituary": "obituary",
+    "weather": "weather",
+    "opinion": "opinion",
+    "wire": "wire",
+    "out_of_scope": "out_of_scope",
+    "paywall": "enrichment_skipped",
+    BAD_CAPTURE: REEXTRACT_TO,
+}
+
 CONTENT_TYPES = (
     {"value": "not_article", "label": "Not an article"},
     {"value": "obituary", "label": "Obituary"},
@@ -546,12 +571,14 @@ def record(
     said = (content_type or "").strip()
     bad_capture = said == BAD_CAPTURE
     if said:
-        if said not in {t["value"] for t in CONTENT_TYPES}:
+        if said not in TYPE_BECOMES:
             raise ValueError(f"{said!r} is not a content type this queue offers")
-        # A broken capture is not a category. The article is what it
-        # always was; the text is unusable, so it goes where re-extraction
-        # looks rather than being written as a type it is not.
-        target = REEXTRACT_TO if bad_capture else said
+        # The chosen type decides the status, whatever the verb was. A
+        # paywalled stub becomes `enrichment_skipped` -- exported, not
+        # enriched again -- and everything else becomes a status no stage
+        # selects. A broken capture is not a category at all and goes
+        # where re-extraction looks.
+        target = TYPE_BECOMES[said]
 
     if target:
         article.status = target
@@ -597,6 +624,12 @@ def record(
                     if bad_capture
                     else {}
                 ),
+                # The type a person chose, recorded whatever it was. The
+                # status says where the article went; this says what
+                # somebody decided it is, which is the thing worth
+                # counting against a detector that keeps getting it
+                # wrong.
+                **({"content_type": said} if said else {}),
             },
             "reason": reason,
             "decided_by": user,
