@@ -128,6 +128,28 @@ jobs:
       # federates to, which holds run.developer and serviceAccountUser in both
       # projects. No second identity, and no cross-project grant to keep in
       # step with this one.
+      # The base image's tag is a hash of what goes into it, computed by
+      # the shared action so every repository in the suite computes it the
+      # same way. It used to be computed inside the Cloud Build config --
+      # the right idea in a file no other repository reads, and it was
+      # missing the Dockerfile that builds the image, so editing that
+      # Dockerfile rebuilt nothing.
+      #
+      # `check_exists: false`: the registry is asked inside Cloud Build,
+      # which is already authenticated to it. This step only needs to say
+      # what the tag should be.
+      - name: What should the base image be tagged?
+        id: base
+        uses: LocalNewsImpact/lnic-contracts/.github/actions/image-tag@ci-v1
+        with:
+          image: us-central1-docker.pkg.dev/lnic-datadesk/app/datadesk-base
+          dockerfile: Dockerfile.base
+          inputs_to_hash: |
+            requirements.txt
+          build_args: |
+            DIRECTORY_VERSION=${{ steps.directory.outputs.version }}
+          check_exists: "false"
+
       - name: Build and deploy
         run: |
           gcloud builds submit \
@@ -135,4 +157,4 @@ jobs:
             --project="$PROJECT_ID" \
             --region="$BUILD_REGION" \
             --service-account="projects/$PROJECT_ID/serviceAccounts/github-deploy@$PROJECT_ID.iam.gserviceaccount.com" \
-            --substitutions="_SHORT_SHA=${GITHUB_SHA::7},_DIRECTORY_VERSION=${{ steps.directory.outputs.version }}"
+            --substitutions="_SHORT_SHA=${GITHUB_SHA::7},_DIRECTORY_VERSION=${{ steps.directory.outputs.version }},_BASE_TAG=${{ steps.base.outputs.tag }}"

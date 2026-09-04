@@ -20,6 +20,11 @@
 substitutions:
   _REGION: us-central1
   _REGISTRY: us-central1-docker.pkg.dev/lnic-datadesk/app
+  # Computed by the deploy workflow from a hash of what goes into the
+  # base image, using the action shared across the suite. Empty here so
+  # a build submitted without it fails by name rather than building an
+  # image tagged with nothing.
+  _BASE_TAG: ""
   _SERVICE: datadesk
   _RUN_SA: datadesk-run@lnic-datadesk.iam.gserviceaccount.com
   _SQL_INSTANCE: mizzou-news-crawler:us-central1:mizzou-db-prod-ssd
@@ -74,13 +79,23 @@ steps:
           echo "  --substitutions=_DIRECTORY_VERSION=vX.Y.Z"
           exit 1
         fi
-        # Dockerfile.base is in the hash because it defines the image.
-        # Without it, editing the base Dockerfile never rebuilt the base:
-        # the hash was unchanged, `docker manifest inspect` found the old
-        # image, and the change was reused away. Removing a bad `pip
-        # install` from it would have had no effect at all.
-        HASH="$$(cat requirements.txt Dockerfile.base \
-          <(echo "${_DIRECTORY_VERSION}") | sha256sum | cut -c1-12)"
+        # The tag is computed by the shared action
+        # (LocalNewsImpact/lnic-contracts .github/actions/image-tag) and
+        # passed in, so every repository in the suite computes it the same
+        # way. It was computed here, in a file no other repository reads --
+        # and it was missing Dockerfile.base, so editing the file that
+        # builds the image rebuilt nothing.
+        #
+        # Refused rather than recomputed when it is missing. A fallback
+        # would be a second implementation of the hash, which is what this
+        # removes; a failed build ships nothing, and a quiet fallback ships
+        # the wrong image.
+        if [ -z "${_BASE_TAG}" ]; then
+          echo "_BASE_TAG is unset. The deploy workflow computes it with the"
+          echo "shared image-tag action and passes it as a substitution."
+          exit 1
+        fi
+        HASH="${_BASE_TAG}"
         BASE="${_REGISTRY}/${_SERVICE}-base:$$HASH"
         echo "$$BASE" > /workspace/base-image
 
