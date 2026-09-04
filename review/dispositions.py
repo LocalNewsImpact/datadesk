@@ -150,6 +150,25 @@ def answered_questions(article_ids):
     )
 
 
+def decisions_for(article_ids):
+    """The decision on each of these articles, by article id.
+
+    One query for a page of rows. Used to render a decided row as decided
+    rather than offering verbs that would be refused -- the proposals
+    queue's `state=all` does the same, and showing an answered question
+    with live buttons is how somebody comes to believe they changed
+    something they did not.
+    """
+    from review.models import ExtractionDecision
+
+    latest = {}
+    for decision in ExtractionDecision.objects.filter(
+        article_id__in=[str(i) for i in article_ids]
+    ).order_by("decided_at"):
+        latest[decision.article_id] = decision
+    return latest
+
+
 #: Where the hold records what it held, so the article can be put back.
 #:
 #: `status` is overwritten by IN_REVIEW, so the claim being reviewed and

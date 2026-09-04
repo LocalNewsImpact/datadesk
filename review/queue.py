@@ -628,6 +628,18 @@ def queued(params, user):
             "all",
         )
     )
+    # A question somebody already answered is not a question. `accept`
+    # writes nothing to the article -- its status already excludes it --
+    # so without this an accepted article matches its case forever and is
+    # asked about on every visit. `answered_questions` existed for this
+    # and nothing called it.
+    #
+    # Keyed on (article, question), never on the article alone: a byline
+    # later found to be garbage is a NEW question about an article whose
+    # classification was settled, and must still be askable.
+    if params.get("state") != "all":
+        qs = _without_answered(qs)
+
     if not asked_for_something:
         # Matched by id rather than by filtering the rows and calling
         # `.distinct()`. The telemetry join can repeat a row, and DISTINCT
@@ -641,6 +653,44 @@ def queued(params, user):
         doubtful_ids = qs.filter(doubtful_q()).values("id")
         qs = qs.filter(id__in=doubtful_ids)
     return qs.order_by("-text_length", "-created_at")
+
+
+def _without_answered(qs):
+    """Drop rows whose current claim already has a decision.
+
+    `accept` writes nothing to the article -- its status already excludes
+    it from processing -- so an accepted article goes on matching its case
+    and is asked about on every visit. This is what stops that.
+
+    A decision settles one claim about one article, not the article. The
+    pair is (article, the status it was reviewed under), so an article
+    whose status later changes raises a new question and comes back. That
+    is the intent: a byline found to be garbage months after the
+    classification was settled has to be askable.
+
+    Two queries rather than a subquery: the decisions are in the
+    application database and the articles are in the crawler's, and
+    Postgres does not join across databases. The decisions are the small
+    side, and only those on statuses the queue can select are read.
+    """
+    from collections import defaultdict
+
+    from review.dispositions import IN_REVIEW
+    from review.models import ExtractionDecision
+
+    settled = defaultdict(list)
+    pairs = ExtractionDecision.objects.filter(
+        classified_as__in=set(CASE_STATUS.values()) | {IN_REVIEW}
+    ).values_list("article_id", "classified_as")
+    for article_id, claim in pairs:
+        settled[claim].append(article_id)
+    if not settled:
+        return qs
+
+    answered = Q()
+    for claim, ids in settled.items():
+        answered |= Q(status=claim, id__in=ids)
+    return qs.exclude(answered)
 
 
 def band_facets(params, user):

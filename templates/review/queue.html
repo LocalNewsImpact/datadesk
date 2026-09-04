@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}Extraction review queue — Datadesk{% endblock %}
 
 {% block content %}
@@ -16,6 +17,30 @@
     SQL Auth Proxy locally) to work the queue.
   </p>
   {% else %}
+
+  {% comment %}
+  What the last submission did. It was written to the session when the
+  submit handler was built and never read, so a reviewer sent a session of
+  decisions and got back a page that looked as it had -- with the rows
+  gone, which is also what a submission that silently did nothing looks
+  like.
+  {% endcomment %}
+  {% if receipt.nothing %}
+  <p class="notice bad">
+    <strong>Nothing was submitted.</strong>
+    No decision reached the server. If you marked one and this says
+    otherwise, the page was probably reloaded after you marked it — the
+    queue starts every visit with nothing decided.
+  </p>
+  {% elif receipt %}
+  <p class="receipt-line">
+    Submitted:
+    {{ receipt.accept|default:0 }} accepted,
+    {{ receipt.reject|default:0 }} rejected,
+    {{ receipt.reextract|default:0 }} sent for re-extraction.
+    Decided questions leave the queue; <a href="?{{ params.urlencode }}&amp;state=all">including decided</a> shows them.
+  </p>
+  {% endif %}
 
   {% comment %}
   The same chips as the sources queue. The note that used to sit inside
@@ -92,12 +117,25 @@
   is visible before it is sent.
   {% endcomment %}
   <div class="queue-dock">
-    <span class="tally"><b id="t-accept">0</b> accept</span>
-    <span class="tally"><b id="t-reject">0</b> reject</span>
-    <span class="tally"><b id="t-reextract">0</b> re-extract</span>
+    <span class="tally"><b id="t-accept" data-tally="accept">0</b> accept</span>
+    <span class="tally"><b id="t-reject" data-tally="reject">0</b> reject</span>
+    <span class="tally"><b id="t-reextract" data-tally="reextract">0</b> re-extract</span>
+    <span class="tally warn" id="q-incomplete"></span>
     <button type="button" class="linklike" id="q-clear">Clear</button>
     <button type="submit" form="queue-form" class="q-submit" id="q-submit" disabled>Submit</button>
   </div>
+
+  {% comment %}
+  The behaviour behind the dock. This page had the markup for a decision
+  session -- rows, verbs, tallies, a submit button -- and no script, so
+  pressing a verb recorded nothing, the tallies stayed at zero and Submit
+  was disabled with nothing able to enable it. The queue could be read and
+  not worked.
+
+  Shared with the proposals queue rather than copied, so a change to how a
+  decision is recorded cannot reach one queue and not the other.
+  {% endcomment %}
+  <script defer src="{% static 'js/review-queue.js' %}"></script>
 
   {% endif %}
 </section>
