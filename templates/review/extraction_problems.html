@@ -51,4 +51,64 @@
   </p>
   {% endif %}
 </section>
+
+<section class="card card-wide">
+  <h1>Bodies that repeat exactly</h1>
+  <p class="lede">
+    A parser meeting a page shape it does not handle returns the same
+    thing every time, and the tell is that the body length repeats to the
+    character. Nobody reported these: they are what the corpus says on
+    its own. What matters on each row is the statuses — a failed capture
+    that was excluded is a waste, and one that was labelled and sent on is
+    a story in the export that is not a story.
+  </p>
+
+  {% if repeated %}
+  <div class="table-viewport">
+    <table class="grid">
+      <thead>
+        <tr>
+          <th scope="col">Publisher</th>
+          <th scope="col" class="count">Chars</th>
+          <th scope="col" class="count">Articles</th>
+          <th scope="col" class="count">Reached the pipeline</th>
+          <th scope="col">Newest</th>
+          <th scope="col">What the body is</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in repeated %}
+        <tr>
+          <th scope="row">{{ row.host }}</th>
+          <td class="count">{{ row.length }}</td>
+          <td class="count">{{ row.articles }}</td>
+          <td class="count{% if row.total_reaching_the_pipeline %} flagged-length{% endif %}">
+            {{ row.total_reaching_the_pipeline }}
+          </td>
+          {% comment %}
+          Whether this is still going on. A pattern whose newest article
+          is months old was fixed; one from this week was not, and a list
+          that cannot tell them apart is one nobody reads twice.
+          {% endcomment %}
+          <td class="nowrap">{{ row.latest_article|date:"j M Y"|default:"—" }}</td>
+          <td>
+            <span class="truncate" title="{{ row.sample }}">{{ row.sample|truncatechars:90 }}</span>
+            <span class="sub">
+              {% for status, n in row.status_counts %}{{ status }} {{ n }}{% if not forloop.last %} · {% endif %}{% endfor %}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="notice">
+    Nothing computed yet. <code>manage.py find_repeated_bodies</code> fills
+    this; it groups every article by publisher and body length, which takes
+    about a minute, so it runs on a schedule rather than when this page is
+    opened.
+  </p>
+  {% endif %}
+</section>
 {% endblock %}

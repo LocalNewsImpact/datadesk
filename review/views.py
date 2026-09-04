@@ -423,7 +423,12 @@ def extraction_problems(request):
     return render(
         request,
         "review/extraction_problems.html",
-        {"publishers": report.reported(), "total": report.total()},
+        {
+            "publishers": report.reported(),
+            "total": report.total(),
+            # What the corpus shows without anybody reporting it.
+            "repeated": report.repeated_bodies(),
+        },
     )
 
 
