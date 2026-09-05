@@ -171,9 +171,14 @@ window.reviewQueueDescribe = function (row, form) {
   }
 
   if (verb === "restore") {
+    // Say which call is being dropped, not only where the row goes.
+    // "Back to cleaned" never answered the question a reviewer actually
+    // asks on an obituary row -- does this remove the obituary call? --
+    // and the answer is yes, the status is the call.
     note.className = "outcome-line on reject";
-    note.textContent =
-      "Back to " + rewind + ", and the pipeline carries on with the fields already captured.";
+    note.textContent = exported
+      ? "Back to " + rewind + " to be enriched, then exported with entities and geography rather than without."
+      : "The " + status + " call is dropped. Back to " + rewind + ", with the fields already captured. The detector's own record is kept as evidence.";
     return;
   }
 

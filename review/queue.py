@@ -402,15 +402,21 @@ def _case_q(case):
                 Q(enrichment__skip_reason__in=SCOPE_SKIP_REASONS)
                 | Q(enrichment__skip_reason__startswith=SCOPE_SKIP_REASON_PREFIX)
             )
-            # SCOPE.md §2.3 names an `out_of_scope` status for these, while
-            # production carries all 69 as skip reasons on
-            # enrichment_skipped. The status is kept as an extra selector
-            # rather than dropped: if such a row exists it belongs here by
-            # the section's own rule that no automated step may exclude an
-            # article carrying a CIN label, and it cannot pull in the
-            # human removals, which _flagged_q excludes unconditionally.
-            # Delete this line once the status is confirmed unused.
-            | Q(status="out_of_scope")
+            # `out_of_scope` is NOT selected here.
+            #
+            # This case used to carry `| Q(status="out_of_scope")`, added
+            # when the status was believed unused and kept "until it is
+            # confirmed unused". It is used now, and by exactly one
+            # writer: the reviewer choosing "Out of scope" from the
+            # disposition list (dispositions.TYPE_BECOMES). Selecting it
+            # here re-flagged the rows a person had just disposed of --
+            # 18 of them in production, all showing their own `reject`
+            # and, because a decision existed, showing it with no buttons
+            # at all, so they could not even be decided again.
+            #
+            # A status a human wrote is a decision, not a flag. That is
+            # already the rule for the March removals
+            # (HUMAN_REMOVAL_SKIP_REASON); this is the same rule.
         )
     if case == MINIMAL_CAPTURE:
         return Q(status=CASE_STATUS[MINIMAL_CAPTURE])
@@ -730,17 +736,15 @@ def _without_answered(qs):
     """
     from collections import defaultdict
 
-    from review.dispositions import IN_REVIEW
     from review.models import ReviewDecision
 
     settled = defaultdict(list)
-    selectable = set(CASE_STATUS.values()) | {IN_REVIEW}
     rows = ReviewDecision.objects.filter(subject_type="article").values_list(
         "subject_id", "claim", "after"
     )
     for article_id, claim, after in rows:
         # The claim the decision answered.
-        if claim in selectable:
+        if claim:
             settled[claim].append(article_id)
         # AND the status the decision itself wrote.
         #
@@ -757,7 +761,19 @@ def _without_answered(qs):
         # A later status change still raises a new question, which is the
         # point of keying on the pair: it will match neither the claim
         # answered nor the status this decision wrote.
-        if after and after != claim and after in selectable:
+        #
+        # Neither is filtered against "statuses a case selects on". It
+        # was, and `out_of_scope` escaped: it is not a value in
+        # CASE_STATUS but the scope case selected it anyway, through an
+        # extra clause of its own. So the one disposition whose status
+        # the queue could still see was the one the gate let through, and
+        # 18 rows in production came back permanently -- decided, and
+        # therefore rendered with no buttons to decide them again.
+        #
+        # A status nothing selects on costs a key in a dict that no row
+        # will ever match. A status something selects on, left out, is
+        # this bug. There is no version of this worth gating.
+        if after and after != claim:
             settled[after].append(article_id)
     if not settled:
         return qs

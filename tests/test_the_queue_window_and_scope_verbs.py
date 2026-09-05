@@ -236,6 +236,31 @@ def test_all_three_verbs_are_offered_on_a_row_with_a_body():
     )
 
 
+def test_restore_names_the_call_it_drops():
+    """Asked directly whether restoring an obituary removes the obituary
+    call, the page had no answer on it. The status IS the call, and the
+    label now says which one is going."""
+    from review import kernel
+
+    def sub(status):
+        class Row:
+            content, text, raw_gcs_path = "A body.", "A body.", ""
+
+        Row.status = status
+        return {v.name: v for v in kernel.get("extraction").offered(Row())}[
+            "restore"
+        ].sublabel
+
+    assert sub("obituary") == (
+        "It is not an obituary — drop the call, back to the pipeline"
+    )
+    assert sub("not_article") == (
+        "It is a real story — drop the call, back to the pipeline"
+    )
+    # A status with no phrase of its own still reads as a sentence.
+    assert sub("something_new") == "It is an ordinary story — back to the pipeline"
+
+
 @pytest.mark.django_db(databases=["default", "crawler"])
 def test_a_reject_without_the_type_is_not_applied(reviewer, two_articles):
     """Left in the queue and counted, not applied as a blank. The buttons

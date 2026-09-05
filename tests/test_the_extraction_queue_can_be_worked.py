@@ -215,6 +215,74 @@ def test_a_disposed_article_does_not_come_straight_back(reviewer, flagged):
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
+def test_disposing_as_out_of_scope_settles_it_too(reviewer, flagged):
+    """Reported from production, 2026-09-05, with a screenshot: seven KMBC
+    stories showing "Out of scope" and their own `reject`.
+
+    This is the case the first fix missed. The scope case carried an extra
+    `| Q(status="out_of_scope")` selector, added when nothing wrote that
+    status; the "Out of scope" disposition writes exactly it. And the
+    settling gate only covered statuses that are values in CASE_STATUS,
+    which `out_of_scope` is not -- it was reachable only through that
+    extra clause -- so the one disposition the queue could still see was
+    the one that escaped. 18 rows came back permanently, and since a
+    decision existed they rendered as decided, with no buttons to decide
+    them again.
+    """
+    stub = Article.objects.create(
+        id="a3",
+        candidate_link_id="c1",
+        title="A story from somewhere else entirely",
+        status="enrichment_skipped",
+        wire_check_status="complete",
+        content="A full story body, plainly about another state.",
+        text="A full story body, plainly about another state.",
+        author="Ellen Reporter",
+        enrichment_attempts=0,
+    )
+    ArticleEnrichment.objects.create(
+        article=stub, skip_reason="scope_recorded_not_excluded"
+    )
+    assert stub.id in {a.id for a in review_queue.queued({}, reviewer)}
+
+    record(
+        stub,
+        decision="reject",
+        stage=ENRICHMENT,
+        user=reviewer,
+        content_type="out_of_scope",
+    )
+    stub.refresh_from_db()
+    assert stub.status == "out_of_scope"
+    for params in ({}, {"days": "all"}):
+        assert stub.id not in {
+            a.id for a in review_queue.queued(params, reviewer)
+        }, f"came back under {params}"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_scope_case_does_not_select_a_human_out_of_scope_call(reviewer, flagged):
+    """The selector itself, independent of any decision record.
+
+    A status a person wrote is a decision, not a flag -- the rule the
+    March removals already follow. An `out_of_scope` article must not be
+    in the queue even if the decision row were lost.
+    """
+    Article.objects.create(
+        id="a4",
+        candidate_link_id="c1",
+        title="Already called out of scope by a person",
+        status="out_of_scope",
+        wire_check_status="complete",
+        content="A body.",
+        text="A body.",
+        author="Ellen Reporter",
+        enrichment_attempts=0,
+    )
+    assert "a4" not in {a.id for a in review_queue.queued({"days": "all"}, reviewer)}
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
 def test_a_status_changed_by_something_else_is_still_asked(reviewer, flagged):
     """The narrow version of the fix, held in place.
 
