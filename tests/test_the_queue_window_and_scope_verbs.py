@@ -191,10 +191,24 @@ def test_reject_always_carries_the_disposition():
     assert [choice["value"] for choice in reject.values]
 
 
-def test_restore_is_offered_only_where_there_is_somewhere_to_put_it():
-    """An article enrichment has finished with has already been through.
-    "Back to the pipeline" there is a button that does nothing a reviewer
-    means."""
+def test_all_three_verbs_are_offered_on_a_row_with_a_body():
+    """Restore is offered on rows enrichment has finished with too.
+
+    This used to assert the opposite -- that "back to the pipeline" on an
+    article enrichment had already been through was a button doing nothing
+    a reviewer meant. Reported wrong from production on 2026-09-04, with
+    the case that makes it plain: a 6,887-character story sitting at
+    `enrichment_skipped` whose gate said the full story content was
+    present. It should be enriched and re-exported, and no verb offered
+    that.
+
+    `enrichment_skipped` rewinds to `labeled`, the status enrichment
+    selects, so Restore there IS "enrich it". Only the sublabel was
+    wrong, and it now says so per row.
+
+    The queue keeps the three-option shape the sources queue has: accept
+    what stands, take the change on offer, or reject with a disposition.
+    """
     from review import kernel
 
     class Finished:
@@ -207,12 +221,19 @@ def test_restore_is_offered_only_where_there_is_somewhere_to_put_it():
         content = "A body."
         text = "A body."
 
-    offered = {v.name for v in kernel.get("extraction").offered(Finished())}
-    assert "restore" not in offered
-    assert "reject" in offered
+    for row in (Finished(), Excluded()):
+        offered = {v.name for v in kernel.get("extraction").offered(row)}
+        assert offered == {"accept", "restore", "reject"}, row.status
 
-    offered = {v.name for v in kernel.get("extraction").offered(Excluded())}
-    assert "restore" in offered
+    # And each says what it does to THIS row, which is what differs.
+    verbs = {v.name: v for v in kernel.get("extraction").offered(Finished())}
+    assert "Enrich it" in verbs["restore"].sublabel
+    assert (
+        "back to the pipeline"
+        in {v.name: v for v in kernel.get("extraction").offered(Excluded())}[
+            "restore"
+        ].sublabel
+    )
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])

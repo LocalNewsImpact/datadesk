@@ -136,6 +136,50 @@ def test_a_row_with_a_body_can_be_rejected():
     assert "reject" in verbs_for(Row(), EXTRACTION)
 
 
+def test_an_exported_unenriched_row_can_still_be_restored():
+    """Reported from production, 2026-09-04.
+
+    A story with 6,887 characters of body sat at `enrichment_skipped` /
+    `scope_recorded_not_excluded` with the gate saying "Full story content
+    present in both samples". It should be enriched and re-exported, and
+    that was not on offer: Restore was withheld from every row enrichment
+    had finished with, on the reasoning that there was nowhere to put it
+    back into.
+
+    There is. `enrichment_skipped` rewinds to `labeled`, which is the
+    status enrichment selects, so Restore on one of these means "enrich
+    it" -- and it then exports enriched rather than exported-unenriched.
+    """
+
+    class Row:
+        content, text, raw_gcs_path = "a full story body", "", ""
+        status = "enrichment_skipped"
+
+    verbs = verbs_for(Row(), ENRICHMENT)
+    assert "restore" in verbs
+    # And the other two, so the row still offers all three.
+    assert "accept" in verbs and "reject" in verbs
+
+
+def test_restore_says_it_will_enrich_on_a_row_the_gate_finished_with():
+    """The sublabel was the only thing genuinely wrong before.
+
+    "It is an ordinary story -- back to the pipeline" is true but hides
+    what the reviewer is choosing between: the article is exported
+    unenriched now, and this is what gets it enriched.
+    """
+    from review.dispositions import _what_restore_does
+
+    class Finished:
+        status = "enrichment_skipped"
+
+    class Excluded:
+        status = "obituary"
+
+    assert "Enrich it" in _what_restore_does(Finished())
+    assert "back to the pipeline" in _what_restore_does(Excluded())
+
+
 def test_a_row_with_no_body_is_offered_re_extraction_instead():
     """Extraction dropped `content` as well on 788 rows. Rewinding one
     sends an empty body to the labeler."""

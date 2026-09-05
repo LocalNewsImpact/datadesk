@@ -711,7 +711,7 @@ def queued(params, user):
 
 
 def _without_answered(qs):
-    """Drop rows whose current claim already has a decision.
+    """Drop rows a decision has already settled.
 
     `accept` writes nothing to the article -- its status already excludes
     it from processing -- so an accepted article goes on matching its case
@@ -734,12 +734,31 @@ def _without_answered(qs):
     from review.models import ReviewDecision
 
     settled = defaultdict(list)
-    pairs = ReviewDecision.objects.filter(
-        subject_type="article",
-        claim__in=set(CASE_STATUS.values()) | {IN_REVIEW},
-    ).values_list("subject_id", "claim")
-    for article_id, claim in pairs:
-        settled[claim].append(article_id)
+    selectable = set(CASE_STATUS.values()) | {IN_REVIEW}
+    rows = ReviewDecision.objects.filter(subject_type="article").values_list(
+        "subject_id", "claim", "after"
+    )
+    for article_id, claim, after in rows:
+        # The claim the decision answered.
+        if claim in selectable:
+            settled[claim].append(article_id)
+        # AND the status the decision itself wrote.
+        #
+        # Six of the eight dispositions write a status this queue also
+        # selects on -- "Not an article" writes `not_article`, which is
+        # the minimal-capture case; "Obituary" writes `obituary`, which
+        # is the doubted-type case; "Paywalled stub" writes
+        # `enrichment_skipped`, which is two cases -- so a disposed
+        # article came straight back on the next page load, now with its
+        # own `reject` visible on the row. The reviewer was being asked
+        # to re-decide what they had just decided, and the queue never
+        # emptied.
+        #
+        # A later status change still raises a new question, which is the
+        # point of keying on the pair: it will match neither the claim
+        # answered nor the status this decision wrote.
+        if after and after != claim and after in selectable:
+            settled[after].append(article_id)
     if not settled:
         return qs
 

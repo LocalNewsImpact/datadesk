@@ -26,6 +26,7 @@ from django.urls import reverse
 
 from explorer.models import (
     Article,
+    ArticleEnrichment,
     CandidateLink,
     ContentTypeDetection,
     Dataset,
@@ -33,7 +34,7 @@ from explorer.models import (
     Source,
 )
 from review import queue as review_queue
-from review.dispositions import EXTRACTION, record
+from review.dispositions import ENRICHMENT, EXTRACTION, record
 from review.models import ReviewDecision
 
 
@@ -161,6 +162,70 @@ def test_a_new_claim_about_the_same_article_is_asked(reviewer, flagged):
     record(flagged, decision="accept", stage=EXTRACTION, user=reviewer)
     # Re-flagged, as an obituary the detector was barely confident of --
     # a claim nobody has answered.
+    Article.objects.filter(id=flagged.id).update(status="obituary")
+    ContentTypeDetection.objects.create(
+        article_id=flagged.id,
+        detected_type="obituary",
+        confidence_score=0.17,
+        evidence=json.dumps({"content": ["passed away"]}),
+    )
+    assert flagged.id in {a.id for a in review_queue.queued({}, reviewer)}
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_disposed_article_does_not_come_straight_back(reviewer, flagged):
+    """Reported from production, 2026-09-04: disposed rows stayed in the
+    queue with their own `reject` visible on them.
+
+    Six of the eight dispositions write a status this queue also selects
+    on, so a disposition that crosses cases re-flagged the article it had
+    just settled. Here a paywall stub -- claim `enrichment_skipped` -- is
+    disposed of as "Not an article", which writes `not_article`: the
+    minimal-capture case, under a claim no decision had answered. On the
+    next page load it was back, now carrying its own `reject` chip, and
+    the queue could not be emptied.
+
+    A decision now settles the status it wrote as well as the claim it
+    answered.
+    """
+    stub = Article.objects.create(
+        id="a2",
+        candidate_link_id="c1",
+        title="A paywalled teaser",
+        status="enrichment_skipped",
+        wire_check_status="complete",
+        content="Subscribe to keep reading.",
+        text="Subscribe to keep reading.",
+        author="Ellen Reporter",
+        enrichment_attempts=0,
+    )
+    ArticleEnrichment.objects.create(article=stub, skip_reason="paywall_stub")
+    assert stub.id in {a.id for a in review_queue.queued({}, reviewer)}
+
+    record(
+        stub,
+        decision="reject",
+        stage=ENRICHMENT,
+        user=reviewer,
+        content_type="not_article",
+    )
+    stub.refresh_from_db()
+    assert stub.status == "not_article", "the disposition crossed into another case"
+    assert stub.id not in {a.id for a in review_queue.queued({}, reviewer)}
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_status_changed_by_something_else_is_still_asked(reviewer, flagged):
+    """The narrow version of the fix, held in place.
+
+    Settling the status a decision wrote must not settle the article. A
+    status the pipeline changes afterwards matches neither the claim
+    answered nor the status written, so it is a new question and comes
+    back -- which is the whole reason the record is keyed on a pair.
+    """
+    record(flagged, decision="accept", stage=EXTRACTION, user=reviewer)
+    assert flagged.id not in {a.id for a in review_queue.queued({}, reviewer)}
+    # Re-flagged by a later run, as an obituary it was barely confident of.
     Article.objects.filter(id=flagged.id).update(status="obituary")
     ContentTypeDetection.objects.create(
         article_id=flagged.id,

@@ -234,6 +234,19 @@ def _enrichment_is_done_with_it(article):
     return getattr(article, "status", "") in ENRICHMENT_FINISHED
 
 
+def _what_restore_does(article):
+    """What restoring does to THIS row.
+
+    "Back to the pipeline" is true everywhere, but on a row enrichment
+    finished with it hides the part the reviewer is actually choosing:
+    the article is currently exported without enrichment, and restoring
+    it is what gets it enriched and exported again.
+    """
+    if _enrichment_is_done_with_it(article):
+        return "Enrich it — the story is there; back for enrichment, then export"
+    return "It is an ordinary story — back to the pipeline"
+
+
 def _what_reject_does(article):
     """What rejecting does to THIS row.
 
@@ -484,12 +497,21 @@ def verbs_for(article, stage):
     """
     verbs = [ACCEPT]
     if has_body_to_rewind_to(article):
-        # Restore only where there is somewhere to put it back: an
-        # article enrichment has already finished with has been through,
-        # and "back to the pipeline" would be a button that does nothing
-        # a reviewer means.
-        if not _enrichment_is_done_with_it(article):
-            verbs.append(RESTORE)
+        # Restore wherever there is a body, including on rows enrichment
+        # has finished with.
+        #
+        # This used to skip them, on the reasoning that an article that
+        # already went through has nowhere to be put back into. That was
+        # wrong, and it removed the one action those rows most need. An
+        # `enrichment_skipped` row rewinds to `labeled`, which is the
+        # status enrichment selects, so restoring it IS "enrich it" --
+        # and it then exports enriched rather than exported-unenriched.
+        #
+        # It is not a no-op on the rows in the queue today. Every
+        # `scope_recorded_not_excluded` row was written by the bulk March
+        # update, not by the live gate, so its later enrichment steps
+        # never ran at all. Only the sublabel was ever wrong here.
+        verbs.append(RESTORE)
         # Reject is always available with a body: whatever the row is
         # now, a person can say what it should have been.
         verbs.append(REJECT)
@@ -729,6 +751,7 @@ EXTRACTION_QUEUE = kernel.register(
                 name=RESTORE,
                 label="Restore",
                 sublabel="It is an ordinary story — back to the pipeline",
+                sublabel_for=_what_restore_does,
                 past="restored",
                 tone="reject",
             ),
