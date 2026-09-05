@@ -36,3 +36,16 @@ exclude = ["migrations", "\\.venv"]
 testpaths = ["tests"]
 addopts = "-q"
 DJANGO_SETTINGS_MODULE = "datadesk.settings"
+
+# What `make test` measures: the application packages, less migrations
+# and the tests themselves. How much of it a test must reach is not set
+# here -- the floor is lnic_contracts.coverage_floor, the same number in
+# every repository, and conforms.yml refuses a fail_under of this
+# repository's own.
+[tool.coverage.run]
+source = ["accounts", "audit", "datadesk", "datasets", "explorer", "review", "visuals"]
+omit = ["*/migrations/*", "*/tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

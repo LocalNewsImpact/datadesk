@@ -4,9 +4,14 @@
 # SQL Postgres refuses — a `?|` operator on a text column and DISTINCT
 # over a `json` column both shipped green. Tests now run here.
 #
-# Port 5434 is deliberate: 5432 is the crawler's own test database and
-# 5433 is the scratch instance, and none of the three should be able to
-# take another's place by accident.
+# Port 5435 is deliberate. 5432 is the crawler's database, 5433 its
+# scratch instance and 5434 the Source Directory's; this one was 5434 too,
+# and the suite ran against the directory's database, with an
+# authentication error as the only symptom. Another container on the port
+# fails loudly at `up`; a host process on it does not -- Docker Desktop
+# starts the container, reports the binding, and the process keeps
+# answering -- which is why `make test-db` checks who answers. The suite's
+# port table is in lnic-contracts docs/shared-ci.md.
 #
 #   make test          starts this, waits for it, runs the suite
 #   make test-db-down  stops it
@@ -19,7 +24,7 @@ services:
       POSTGRES_PASSWORD: datadesk
       POSTGRES_DB: datadesk
     ports:
-      - "5434:5432"
+      - "5435:5432"
     # No volume. The suite creates and drops its own test databases, and
     # nothing here is worth keeping between runs.
     tmpfs:

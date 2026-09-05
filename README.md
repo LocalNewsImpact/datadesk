@@ -85,7 +85,7 @@ make check    # everything CI runs (ruff, black, isort, mypy, pytest)
 lists all targets.
 
 The test suite runs on Postgres, because production does — `make check`
-and `make test` start it (`docker-compose.test.yml`, port 5434) and stop
+and `make test` start it (`docker-compose.test.yml`, port 5435) and stop
 nothing, so a second run reuses it; `make test-db-down` stops it. Running
 `pytest` with no database is refused rather than allowed to fall back:
 sqlite accepts SQL Postgres refuses, and defects have reached production
