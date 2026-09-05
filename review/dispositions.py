@@ -333,6 +333,14 @@ def _what_accept_does(article):
 #: be found and fixed rather than the row quietly disappearing.
 BAD_CAPTURE = "text_is_garbage"
 
+
+def _offered_types():
+    """The type list with any revised labels applied."""
+    from review.vocabulary import content_types
+
+    return content_types()
+
+
 #: What choosing a type does to the article's status.
 #:
 #: Choosing one always takes the article out of enrichment and, with one
@@ -822,7 +830,12 @@ EXTRACTION_QUEUE = kernel.register(
                 sublabel="It is something else",
                 past="rejected",
                 takes_value=True,
+                # Read when the row is rendered, not when this module is
+                # imported: the words are revisable on the schema page,
+                # and a list fixed at import offers whatever they were
+                # when the process started.
                 values=CONTENT_TYPES,
+                values_for=_offered_types,
                 tone="fix",
             ),
             kernel.Verb(

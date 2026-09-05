@@ -155,4 +155,103 @@
     </tbody>
   </table>
 </section>
+
+<section class="card card-wide">
+  <header>
+    <h1>What an extraction review is</h1>
+    <p class="notice">The verbs a reviewer can press, what they can say an
+    article really is, and the flags a row can be raised on. Two halves,
+    and only one of them is words: a type writes a status every later
+    stage reads, so which status it writes is a change somebody reviews.
+    What it is <em>called</em> is not.</p>
+  </header>
+
+  <h2 class="schema-part">The verbs</h2>
+  <p class="lede">Declared. A verb is behaviour — what it does to the
+  article — not a word, and adding one is a change to this console.</p>
+  <table class="grid schema">
+    <thead>
+      <tr><th scope="col">Verb</th><th scope="col">Reads as</th></tr>
+    </thead>
+    <tbody>
+      {% for verb in review.verbs %}
+      <tr>
+        <th scope="row"><span class="field-name">{{ verb.label }}</span>
+          <code class="field-key">{{ verb.name }}</code></th>
+        <td>{{ verb.sublabel }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2 class="schema-part">What an article really is</h2>
+  <p class="lede">The status each one writes is declared, because a type
+  with no status behind it cannot be written at all — the submit path
+  refuses it. The name is revisable here: “Out of scope” named the
+  status, “Non-local” names what a reviewer is saying, and that
+  correction should not have needed a deploy.</p>
+  <table class="grid schema">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+        <th scope="col">Writes</th>
+        <th scope="col">Called</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in review.types %}
+      <tr>
+        <th scope="row"><code class="field-key">{{ t.value }}</code></th>
+        <td><code class="val">{{ t.writes|default:"—" }}</code></td>
+        <td>
+          <span class="field-name">{{ t.label }}</span>
+          <form method="post" class="add-term">
+            {% csrf_token %}
+            <input type="hidden" name="vocabulary" value="{{ review.type_vocabulary }}">
+            <input type="hidden" name="value" value="{{ t.value }}">
+            <input type="text" name="label" value="{{ t.label }}"
+                   aria-label="What {{ t.value }} is called">
+            <button type="submit">Rename</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2 class="schema-part">What a row can be flagged as</h2>
+  <p class="lede">The flag is what the pipeline recorded; the sentence
+  beside it is what a reviewer reads on the row. Both are words, and both
+  are revisable — the queue shows whatever is here.</p>
+  <table class="grid schema">
+    <thead>
+      <tr>
+        <th scope="col">Flag</th>
+        <th scope="col">Shown as, and what it means</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for flag in review.flags %}
+      <tr>
+        <th scope="row"><code class="field-key">{{ flag.value }}</code></th>
+        <td>
+          <form method="post" class="add-term">
+            {% csrf_token %}
+            <input type="hidden" name="vocabulary" value="{{ review.flag_vocabulary }}">
+            <input type="hidden" name="value" value="{{ flag.value }}">
+            <label class="stacked">Shown as
+              <input type="text" name="label" value="{{ flag.label }}">
+            </label>
+            <label class="stacked">Means
+              <input type="text" name="spelling" value="{{ flag.hint }}"
+                     placeholder="Story cut off by login prompt">
+            </label>
+            <button type="submit">Save</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
 {% endblock %}

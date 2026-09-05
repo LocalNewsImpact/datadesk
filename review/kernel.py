@@ -83,6 +83,11 @@ class Verb:
     past: str = ""
     takes_value: bool = False
     values: tuple = ()
+    #: Where the list is not fixed at import: the words a value is shown
+    #: as can be revised on the schema page, and a verb declared once at
+    #: import would offer the words as they were when the process
+    #: started.
+    values_for: Callable | None = None
     tone: str = "accept"
 
     def __post_init__(self):
@@ -184,13 +189,18 @@ class Queue:
 
 def _resolve(verb: Verb, subject) -> Verb:
     """A verb with everything that varies by row filled in."""
-    if verb.sublabel_for is None and verb.takes_value_for is None:
+    if (
+        verb.sublabel_for is None
+        and verb.takes_value_for is None
+        and verb.values_for is None
+    ):
         return verb
     # Named rather than splatted from a dict: mypy cannot check the field
     # types through **kwargs, and a typo in a key would be a silent
     # no-op rather than an error.
     return replace(
         verb,
+        values=(verb.values_for() if verb.values_for is not None else verb.values),
         sublabel=(
             (verb.sublabel_for(subject) or verb.sublabel)
             if verb.sublabel_for is not None

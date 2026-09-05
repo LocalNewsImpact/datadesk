@@ -1095,11 +1095,16 @@ def schema(request):
     from datasets.publishers import fold_value
     from datasets.schema import ALIASES, FIELDS, VOCABULARY
     from datasets.terms import forget
+    from review import vocabulary as review_vocabulary
 
     notice = ""
     if request.method == "POST":
         vocabulary = (request.POST.get("vocabulary") or "").strip()
         names = {f.vocabulary for f in FIELDS if f.vocabulary}
+        # The extraction review's words are kept the same way. What a type
+        # or a flag is CALLED is a word; which status a type writes is not,
+        # and is not editable here (review/vocabulary.py says why).
+        names |= {review_vocabulary.TYPE_WORDS, review_vocabulary.FLAG_WORDS}
         if vocabulary not in names:
             raise Http404("No such vocabulary")
         retire = (request.POST.get("retire") or "").strip()
@@ -1112,7 +1117,20 @@ def schema(request):
             ).update(retired=True)
             notice = f"{retire} is no longer offered." if changed else ""
         else:
-            value = fold_value(request.POST.get("value") or "")
+            # Folded for a publisher vocabulary, where the value is a word
+            # somebody typed on a record and "Digital Native" and
+            # "digital native" are the same word. NOT folded for the
+            # review's, where the value is a key the pipeline writes:
+            # folding turns `paywall_stub` into `paywall stub`, which
+            # matches no flag and no type, so the rename saved a row
+            # nothing would ever read.
+            raw = request.POST.get("value") or ""
+            value = (
+                raw.strip()
+                if vocabulary
+                in (review_vocabulary.TYPE_WORDS, review_vocabulary.FLAG_WORDS)
+                else fold_value(raw)
+            )
             if not value:
                 raise ValueError("Type the word to add")
             # A word is added to a kind, so it carries that kind's name and
@@ -1129,7 +1147,21 @@ def schema(request):
                     "added_by": request.user,
                 },
             )
-            if not made and term.retired:
+            # A word being RE-said is a revision, not a duplicate. The
+            # review vocabularies post an existing value with new words
+            # in it -- that is what the rename form is -- and
+            # get_or_create alone would find the row and leave it as it
+            # was, so the form would report success and change nothing.
+            if not made and (
+                (label and term.label != label)
+                or (spelling and term.spelling != spelling)
+            ):
+                term.label = label or term.label
+                term.spelling = spelling or term.spelling
+                term.retired = False
+                term.save(update_fields=["label", "spelling", "retired"])
+                notice = f"{value} is now {term.label}."
+            elif not made and term.retired:
                 # Adding a word that was retired brings it back rather
                 # than refusing it as already there, which is what
                 # somebody typing it again means.
@@ -1147,6 +1179,10 @@ def schema(request):
                 reason=f"added {value} to {vocabulary}",
             )
         forget(vocabulary)
+        # The review's words are cached separately, and a revision nobody
+        # can see until the cache expires reads as a form that did
+        # nothing.
+        review_vocabulary.forget()
         request.session["schema_notice"] = notice
         return redirect("review:schema")
 
@@ -1197,8 +1233,57 @@ def schema(request):
             "fields": rows,
             "notice": request.session.pop("schema_notice", ""),
             "vocabulary_rule": VOCABULARY,
+            "review": _extraction_review_schema(),
         },
     )
+
+
+def _extraction_review_schema():
+    """What an extraction review is: the verbs, the types, the flags.
+
+    The half that is declared is shown as declared, with what it writes;
+    the half that is words is shown with a form beside it. Read from the
+    modules that define them rather than restated here, so a verb or a
+    flag added there appears without a second edit -- restating a
+    vocabulary on the page that documents it is the drift this page
+    exists to make visible.
+    """
+    from review import dispositions, kernel
+    from review import vocabulary as review_vocabulary
+
+    queue = kernel.get("extraction")
+    types = []
+    for entry in review_vocabulary.content_types():
+        value = entry["value"]
+        writes = dispositions.TYPE_BECOMES.get(value, "")
+        types.append(
+            {
+                "value": value,
+                "label": entry["label"],
+                "writes": (
+                    "back to where the stage rewinds to"
+                    if writes == dispositions.REWIND
+                    else writes
+                ),
+            }
+        )
+    return {
+        "verbs": [
+            {"name": verb.name, "label": verb.label, "sublabel": verb.sublabel}
+            for verb in queue.verbs
+        ],
+        "types": types,
+        "type_vocabulary": review_vocabulary.TYPE_WORDS,
+        "flags": [
+            {
+                "value": flag,
+                "label": review_vocabulary.flag_words(flag, flag, hint)[0],
+                "hint": review_vocabulary.flag_words(flag, flag, hint)[1],
+            }
+            for flag, hint in review_vocabulary.declared_flags()
+        ],
+        "flag_vocabulary": review_vocabulary.FLAG_WORDS,
+    }
 
 
 PAYWALL_COUNTS_CACHE_KEY = "review.paywall_corpus_counts"
