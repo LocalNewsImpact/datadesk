@@ -53,6 +53,18 @@ marked on the way down.
   </header>
 
   <table class="rec-table queue-rows">
+    {% comment %}
+    The widths are declared here rather than left to the browser. Without
+    them the longest headline in a group decided every column, so the
+    disposition buttons moved from row to row and a reviewer pressing the
+    same one forty times had to find it each time.
+    {% endcomment %}
+    <colgroup>
+      <col class="story">
+      <col class="flagged">
+      <col class="has">
+      <col class="decide">
+    </colgroup>
     <thead>
       <tr>
         <th scope="col">Story</th>
@@ -80,10 +92,18 @@ marked on the way down.
           <span class="finding stranded">{{ article.note_problem }}</span>
           {% endif %}
         </th>
+        {% comment %}
+        The flag, then what it means, then where the article ended up.
+        This led with the status, so a paywalled stub was "flagged as"
+        Exported unenriched -- an outcome, which a reviewer then had to
+        work backwards from to the reason, on every row.
+        {% endcomment %}
         <td>
-          <span class="chip" data-status="{{ article.status }}" title="{{ article.status }}">{{ article.status|status_label }}</span>
-          {% if article.enr_skip_reason %}<span class="sub">{{ article.enr_skip_reason }}</span>{% endif %}
-          {% if article.enr_gate_reason %}<span class="sub">gate: {{ article.enr_gate_reason }}</span>{% endif %}
+          <span class="val flag">{{ article.flag }}</span>
+          {% if article.flag_hint %}<span class="sub">{{ article.flag_hint }}</span>{% endif %}
+          <span class="sub status-note">status:
+            <span class="chip" data-status="{{ article.status }}" title="{{ article.status }}">{{ article.status|status_label }}</span>
+          </span>
         </td>
         <td>
           {% if article.primary_label %}

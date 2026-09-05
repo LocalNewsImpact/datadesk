@@ -2361,3 +2361,35 @@ tr.dragging{ opacity: .5; }
    works with no script and a bookmarked ?days=custom renders it. */
 .js-custom-range{ display: contents; }
 .js-custom-range.hidden{ display: none; }
+
+/* The extraction queue's four columns, fixed.
+
+   The widths were the browser's, worked out from the content: a long
+   headline took the space it wanted and every other column gave way, so
+   the disposition buttons sat in a different place on every row and the
+   eye had to find them again each time. A reviewer works down this table
+   by pressing the same button forty times; it has to be in the same
+   place.
+
+   `table-layout: fixed` makes the widths the ones declared here rather
+   than the ones the longest cell asks for, and the headline wraps inside
+   its half instead of pushing. The percentages are of the table, so they
+   hold at every width the breakpoint allows. */
+.queue-rows { table-layout: fixed; }
+.queue-rows col.story { width: 50%; }
+.queue-rows col.flagged { width: 12%; }
+.queue-rows col.has { width: 20%; }
+.queue-rows col.decide { width: 18%; }
+
+/* `table.rec-table tbody th` is nowrap, which is right for the record
+   tables it was written for -- a field name -- and wrong for a headline.
+   Here the row header IS the story, and it wraps. */
+.queue-rows tbody th { white-space: normal; color: var(--text); }
+.queue-rows tbody th .rec-read { overflow-wrap: anywhere; }
+
+/* The flag a row was raised on, and where the article ended up. The flag
+   is the answer to "flagged as"; the status is context for it, not the
+   thing itself, so it is set below and quieter. */
+.queue-rows .flag { font-weight: 600; overflow-wrap: anywhere; }
+.queue-rows .status-note { margin-top: .25rem; }
+.queue-rows .status-note .chip { font-size: .7rem; }

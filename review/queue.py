@@ -562,6 +562,80 @@ def _parse_date(value):
         return None
 
 
+#: What a row is flagged AS, and what that means in words.
+#:
+#: The column headed "Flagged as" showed the article's STATUS -- which
+#: for a paywalled stub reads "Exported unenriched". That is where the
+#: article ended up, not what anybody flagged: the flag is
+#: `paywall_stub`, and what a reviewer needs to know is that the story is
+#: cut off by a login prompt. A status in this column asks the reviewer
+#: to work backwards from an outcome to a reason, on every row.
+#:
+#: Keyed on what the pipeline actually recorded -- the enrichment skip
+#: reason, the content gate's reason, the review note's claim -- because
+#: those are the flags. The status stays on the row, in its own place.
+FLAGS = {
+    "paywall_stub": ("paywall_stub", "Story cut off by login prompt"),
+    "paywall_stub_exported_unenriched": (
+        "paywall_stub",
+        "Story cut off by login prompt",
+    ),
+    "scope_recorded_not_excluded": (
+        "scope_recorded",
+        "Recorded as about somewhere else, and kept",
+    ),
+    "byline_not_a_name": ("byline_not_a_name", "Byline is not a person's name"),
+    "text_is_ciphertext": ("text_is_ciphertext", "Body never decoded"),
+    "removed_in_march_review": ("removed_by_hand", "Taken out in the March review"),
+}
+
+#: A scope exclusion carries the place in the reason itself
+#: (`scope_excluded_ukraine`), so it is matched by prefix and the place is
+#: kept: "about somewhere else" is the finding, and which somewhere is
+#: what a reviewer judges.
+SCOPE_EXCLUDED_FLAG = "scope_excluded"
+
+
+def flag_of(article):
+    """(flag, hint) for a row: what it was flagged as, and what that means.
+
+    Falls back to the shape the queue matched on rather than to the
+    status. A row with no recorded reason is in this queue for something
+    the query found -- a body too short to be a story, a content type the
+    detector barely believed -- and saying so is more use than repeating
+    where the article ended up.
+    """
+    reason = getattr(article, "enr_skip_reason", "") or ""
+    if reason in FLAGS:
+        return FLAGS[reason]
+    if reason.startswith(SCOPE_SKIP_REASON_PREFIX):
+        place = reason[len(SCOPE_SKIP_REASON_PREFIX) :].replace("_", " ")
+        return (SCOPE_EXCLUDED_FLAG, f"Excluded as about {place or 'somewhere else'}")
+
+    gate = getattr(article, "enr_gate_reason", "") or ""
+    if gate:
+        return (gate, "Enrichment's content gate stopped it")
+
+    # Imported here rather than at module scope: dispositions imports this
+    # module for its vocabulary, and a top-level import would close the
+    # circle.
+    from review.dispositions import claim_under_review
+
+    claim = claim_under_review(article)
+    if claim:
+        return FLAGS.get(claim, (claim, "Held for review"))
+
+    # No recorded reason. The case the row matched is the flag, and the
+    # cases are keyed on status -- so this reads the status to name the
+    # FLAG, which is not the same as showing the status in its place.
+    status = getattr(article, "status", "")
+    if status == CASE_STATUS[MINIMAL_CAPTURE]:
+        return ("minimal_capture", "Body is too short to be a story")
+    if status == CASE_STATUS[DOUBTED_CONTENT_TYPE]:
+        return ("doubted_type", "The detector barely believed its own call")
+    return ("flagged", "")
+
+
 def _within_the_window(qs, params):
     """Narrow to the chosen window, on the date a reader would recognise.
 

@@ -67,6 +67,7 @@ def submit(queue, decisions, subjects, user, *, stage_of=None, claim_of=None):
     """
     from lnic_contracts import review_note as contract
 
+    from audit.models import AuditLogEntry
     from review.models import ReviewDecision
 
     applied = Counter()
@@ -74,6 +75,8 @@ def submit(queue, decisions, subjects, user, *, stage_of=None, claim_of=None):
     incomplete = 0
     unreachable = 0
     written = []
+    # What the session did, per row, for the audit entry below.
+    session = []
 
     for subject_id, (verb_name, value) in decisions.items():
         subject = subjects.get(subject_id)
@@ -133,6 +136,44 @@ def submit(queue, decisions, subjects, user, *, stage_of=None, claim_of=None):
         )
         applied[verb.past] += 1
         written.append(subject_id)
+        session.append(
+            {
+                "id": str(subject_id),
+                "verb": verb.name,
+                "value": value,
+                "before": outcome.get("before", ""),
+                "after": outcome.get("after", ""),
+            }
+        )
+
+    # One audit entry for the session, which is what this module has said
+    # it does since it was written and did not do. Decisions reached the
+    # article and the ReviewDecision table; the audit log -- the record of
+    # who changed production data and to what -- had nothing in it. A
+    # console whose whole premise is an audited write path cannot answer
+    # "who rejected these forty articles" from the place built to answer
+    # it.
+    #
+    # Per session, not per row: a reviewer reads down a page and sends the
+    # lot, and forty entries for one action is a log nobody reads.
+    if session:
+        AuditLogEntry.objects.create(
+            actor=user,
+            action=f"review.{queue.key}.decide",
+            target_table=queue.subject_type,
+            target_ids=[row["id"] for row in session],
+            before=[{"id": row["id"], "status": row["before"]} for row in session],
+            after=[
+                {
+                    "id": row["id"],
+                    "verb": row["verb"],
+                    "value": row["value"],
+                    "status": row["after"],
+                }
+                for row in session
+            ],
+            reason=f"{len(session)} decision{'' if len(session) == 1 else 's'}",
+        )
 
     receipt = {verb.past: applied.get(verb.past, 0) for verb in queue.verbs}
     receipt.update(
