@@ -53,14 +53,17 @@
 </section>
 
 <section class="card card-wide">
-  <h1>Bodies that repeat exactly</h1>
+  <h1>Boilerplate</h1>
   <p class="lede">
     A parser meeting a page shape it does not handle returns the same
-    thing every time, and the tell is that the body length repeats to the
-    character. Nobody reported these: they are what the corpus says on
-    its own. What matters on each row is the statuses — a failed capture
-    that was excluded is a waste, and one that was labelled and sent on is
-    a story in the export that is not a story.
+    block every time — a comment policy, a subscriber wall, a list of
+    counties. The lengths rarely match to the character; the boilerplate
+    does, and whatever comes with it moves the total a little, which is
+    what the character range on each row shows. Nobody reported these:
+    they are what the corpus says on its own. What matters on each row is
+    the statuses — a failed capture that was excluded is a waste, and one
+    that was labelled and sent on is a story in the export that is not a
+    story.
   </p>
 
   {% if repeated %}
@@ -80,7 +83,12 @@
         {% for row in repeated %}
         <tr>
           <th scope="row">{{ row.host }}</th>
-          <td class="count">{{ row.length }}</td>
+          {% comment %}
+          The range, because the boilerplate repeats and what comes with
+          it does not. A single number here was the old finding, and it
+          was the wrong one.
+          {% endcomment %}
+          <td class="count">{% if row.length == row.length_max %}{{ row.length }}{% else %}{{ row.length }}&ndash;{{ row.length_max }}{% endif %}</td>
           <td class="count">{{ row.articles }}</td>
           <td class="count{% if row.total_reaching_the_pipeline %} flagged-length{% endif %}">
             {{ row.total_reaching_the_pipeline }}
@@ -104,10 +112,10 @@
   </div>
   {% else %}
   <p class="notice">
-    Nothing computed yet. <code>manage.py find_repeated_bodies</code> fills
-    this; it groups every article by publisher and body length, which takes
-    about a minute, so it runs on a schedule rather than when this page is
-    opened.
+    Nothing computed yet. <code>manage.py find_boilerplate</code> fills
+    this; it fingerprints every article body and groups them by publisher,
+    which takes about a minute, so it runs on a schedule rather than when
+    this page is opened.
   </p>
   {% endif %}
 </section>

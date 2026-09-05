@@ -428,7 +428,7 @@ def extraction_problems(request):
             "publishers": report.reported(),
             "total": report.total(),
             # What the corpus shows without anybody reporting it.
-            "repeated": report.repeated_bodies(),
+            "repeated": report.boilerplate_patterns(),
         },
     )
 
