@@ -107,10 +107,19 @@
   find, and sends the lot. The dock counts what is marked so the number
   is visible before it is sent.
   {% endcomment %}
+  {% comment %}
+  One tally per verb the queue declares, rather than three written by
+  hand. Restore was added to the queue and not to this list, and the
+  effect was not a missing counter: `recount()` summed the dock's tallies
+  to decide how many decisions were ready, so a row marked `restore`
+  counted zero and Submit stayed disabled with a decision plainly made.
+  Generated from `queue_verbs`, the dock cannot fall behind the queue
+  again.
+  {% endcomment %}
   <div class="queue-dock">
-    <span class="tally"><b id="t-accept" data-tally="accept">0</b> accept</span>
-    <span class="tally"><b id="t-reject" data-tally="reject">0</b> reject</span>
-    <span class="tally"><b id="t-reextract" data-tally="reextract">0</b> re-extract</span>
+    {% for verb in queue_verbs %}
+    <span class="tally"><b id="t-{{ verb.name }}" data-tally="{{ verb.name }}">0</b> {{ verb.label|lower }}</span>
+    {% endfor %}
     <span class="tally warn" id="q-incomplete"></span>
     <button type="button" class="linklike" id="q-clear">Clear</button>
     <button type="submit" form="queue-form" class="q-submit" id="q-submit" disabled>Submit</button>

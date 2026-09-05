@@ -18,6 +18,7 @@ from accounts.privileges import EXPORT_PRIVILEGE, WRITE
 from audit.models import AuditLogEntry
 from explorer.models import Article, ArticleEnrichment
 from explorer.views import _filtered_articles
+from review import kernel as _kernel
 from review import queue as review_queue
 from review.exports import EXPORT_COLUMNS, csv_response
 from review.imports import (
@@ -472,6 +473,11 @@ def queue(request):
         # that looked exactly as it had -- with the rows gone, which is
         # also what a submission that silently did nothing looks like.
         "receipt": _receipt_counts(request.session.pop("queue_receipt", None)),
+        # The dock's tallies, one per verb the queue declares. Written by
+        # hand it went stale the moment a verb was added, and because the
+        # script counted the dock rather than the rows, the stale dock
+        # disabled Submit.
+        "queue_verbs": _kernel.get("extraction").verbs,
     }
 
     if vocabulary is not None:

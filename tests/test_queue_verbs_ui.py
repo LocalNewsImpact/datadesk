@@ -91,6 +91,46 @@ def test_the_page_uses_the_shared_chips_and_dock(client, reviewer, rows):
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_dock_tallies_every_verb_the_queue_declares(client, reviewer, rows):
+    """Reported from production, 2026-09-05: marking Restore left Submit
+    disabled.
+
+    The dock listed accept, reject and re-extract, written by hand, and
+    `restore` was added to the queue without it. That was not a missing
+    counter. `recount()` summed the dock's tallies to decide how many
+    decisions were ready, so a restored row counted zero -- the decision
+    recorded, the row shown as decided, and Submit disabled with nothing
+    on the page saying why.
+
+    Both halves are held here: the dock is generated from the queue's
+    verbs, and the count no longer comes from the dock at all.
+    """
+    from review import kernel
+
+    body = client.get(URL, {"all": "1"}).content.decode()
+    for verb in kernel.get("extraction").verbs:
+        assert (
+            f'data-tally="{verb.name}"' in body
+        ), f"the dock has no tally for {verb.name!r}, a verb the queue offers"
+
+
+def test_the_submit_count_does_not_come_from_the_dock():
+    """The structural half, asserted on the script itself.
+
+    A tally missing from the dock must cost a label, never a decision.
+    """
+    from pathlib import Path
+
+    js = (
+        Path(__file__).resolve().parent.parent / "static" / "js" / "review-queue.js"
+    ).read_text()
+    tallies = js.index('querySelectorAll("[data-tally]")')
+    # The dock loop assigns the number for display and adds nothing up.
+    loop = js[tallies : js.index("}", js.index("});", tallies))]
+    assert "decided +=" not in loop, "the submit count is being summed from the dock"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
 def test_submitting_a_decision_records_it(client, reviewer, rows):
     client.post(URL, {"d-with-body": "accept"})
     entry = ReviewDecision.objects.get(subject_id="with-body")
