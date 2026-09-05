@@ -240,11 +240,19 @@ def _workflow(name):
     return yaml.safe_load(path.read_text())
 
 
-def test_ci_runs_on_every_branch_and_on_pull_requests():
+def test_ci_runs_on_main_and_on_pull_requests():
+    """This asserted an unscoped `push:` -- "no branch filter: a
+    contributor sees failures before opening a PR". The cost was a second
+    full run of lint, mypy, Postgres and the suite on every pull request
+    push, which `concurrency` cannot collapse because the two runs have
+    different refs. The early feedback it bought is bought again, earlier,
+    by the pre-push hook: the same `make check`, on the same commit,
+    before it leaves the machine, and `conforms.yml` fails the build if
+    that hook goes missing.
+
+    See tests/test_ci_runs_once_per_push.py."""
     triggers = _workflow("ci.yml")[True]
-    assert "push" in triggers
-    # No branch filter: a contributor sees failures before opening a PR.
-    assert triggers["push"] is None
+    assert triggers["push"] == {"branches": ["main"]}
     assert "pull_request" in triggers
     assert "workflow_dispatch" in triggers
 

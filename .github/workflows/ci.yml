@@ -17,7 +17,17 @@
 name: CI
 
 on:
+  # main only. An unscoped `push:` ran this whole workflow a second time
+  # on every pull request push -- once for the branch and once for the
+  # merge ref -- and `concurrency` does not collapse them, because their
+  # refs differ (refs/heads/... against refs/pull/N/merge). PR #247 ran
+  # lint, the Postgres service and 1,388 tests twice for one commit.
+  #
+  # A branch pushed without a pull request now gets no run here. The
+  # pre-push hook already ran `make check` on it, and the pull request
+  # runs it again; a third pass was never the thing keeping main green.
   push:
+    branches: [main]
   pull_request:
   # Re-run without a commit: a shared-workflow change lands in
   # lnic-contracts, not here, so there may be nothing to push to test it.
