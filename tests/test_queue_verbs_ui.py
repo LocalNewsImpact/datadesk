@@ -61,9 +61,9 @@ def rows(crawler_schema):
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_a_row_with_a_body_offers_reject(client, reviewer, rows):
+def test_a_row_with_a_body_offers_restore(client, reviewer, rows):
     body = client.get(URL, {"all": "1"}).content.decode()
-    assert 'data-verb="reject"' in body
+    assert 'data-verb="restore"' in body
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
@@ -99,8 +99,8 @@ def test_submitting_a_decision_records_it(client, reviewer, rows):
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_rejecting_rewinds_the_status(client, reviewer, rows):
-    client.post(URL, {"d-with-body": "reject"})
+def test_restoring_rewinds_the_status(client, reviewer, rows):
+    client.post(URL, {"d-with-body": "restore"})
     assert Article.objects.get(id="with-body").status == "cleaned"
 
 

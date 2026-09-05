@@ -13,10 +13,10 @@ that takes a typed value.
 {% endcomment %}
 {% for verb in verbs %}
 {% comment %}
-`data-needs-value` where this verb cannot be carried out without the
-queue's qualifier answered. On a row enrichment has finished with,
-"the call was wrong" is not an instruction -- wrong how? -- so the row
-does not submit until the type is chosen.
+`data-needs-value` where the verb writes a value it does not have yet.
+Rejecting a flag says the call was wrong; the list beside it says what it
+should have been, and one without the other is half an answer -- so the
+row does not submit until it is chosen.
 {% endcomment %}
 <button type="button" class="verb {{ verb.tone }}" data-verb="{{ verb.name }}"
         {% if verb.takes_value and not verb.values %}data-needs-value="1"{% endif %}
@@ -46,26 +46,3 @@ clear. Free text only where there is no vocabulary to offer.
 {% endif %}
 {% endfor %}
 <input type="hidden" name="d-{{ subject_id }}" value="">
-
-{% if qualifier %}
-{% comment %}
-Said alongside the verb, not instead of it. An article can be wrongly
-called an obituary and still belong out of the pipeline -- the exclusion
-was right and the reason was wrong -- and as separate verbs a reviewer had
-to choose which half of that to record.
-
-Class `qualval`, not `fixval`: the session script treats a fix value as
-the decision itself, and this is not a decision. A row with a type and no
-verb is not submitted.
-{% endcomment %}
-<label class="qualifier">
-  <span>{{ qualifier.label }}</span>
-  <select class="qualval" name="v-{{ subject_id }}"
-          title="{{ qualifier.sublabel }}">
-    <option value="">unchanged</option>
-    {% for choice in qualifier.values %}
-    <option value="{{ choice.value }}">{{ choice.label }}</option>
-    {% endfor %}
-  </select>
-</label>
-{% endif %}

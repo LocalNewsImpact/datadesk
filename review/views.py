@@ -519,7 +519,6 @@ def queue(request):
         # a run of them at once.
         context["page"] = page
         context["publishers"] = _by_publisher(page)
-        context["queue_qualifier"] = extraction_queue.qualifier
         context["exported_statuses"] = dispositions.EXPORTED_STATUSES
         context["bands"] = review_queue.band_facets(request.GET, request.user)
         context["cases"] = review_queue.case_facets(request.GET, request.user)

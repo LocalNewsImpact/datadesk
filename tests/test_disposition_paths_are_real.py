@@ -68,24 +68,24 @@ def _article(pk, crawler_schema, **kwargs):
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_reject_at_enrichment_lands_on_the_status_enrichment_selects(
+def test_restore_at_enrichment_lands_on_the_status_enrichment_selects(
     reviewer, crawler_schema
 ):
     article = _article("e1", crawler_schema)
-    record(article, decision="reject", stage=ENRICHMENT, user=reviewer)
+    record(article, decision="restore", stage=ENRICHMENT, user=reviewer)
     article.refresh_from_db()
     assert article.status == ENRICHMENT_SELECTS
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_a_rejected_row_still_satisfies_the_rest_of_the_enrichment_selector(
+def test_a_restored_row_still_satisfies_the_rest_of_the_enrichment_selector(
     reviewer, crawler_schema
 ):
     """Status alone is not enough. The selector also requires a settled
     wire check and attempts under the limit -- in production the highest
     attempt count on these rows is 1, against a limit of 3."""
     article = _article("e2", crawler_schema, enrichment_attempts=1)
-    record(article, decision="reject", stage=ENRICHMENT, user=reviewer)
+    record(article, decision="restore", stage=ENRICHMENT, user=reviewer)
     article.refresh_from_db()
     assert article.status == ENRICHMENT_SELECTS
     assert article.wire_check_status in ("complete", "local")
@@ -98,7 +98,7 @@ def test_a_row_at_the_attempt_limit_would_not_be_re_enriched(reviewer, crawler_s
     the highest is 1 -- but a rewind is not a promise if the selector
     still excludes it, and this says so rather than assuming."""
     article = _article("e3", crawler_schema, enrichment_attempts=3)
-    record(article, decision="reject", stage=ENRICHMENT, user=reviewer)
+    record(article, decision="restore", stage=ENRICHMENT, user=reviewer)
     article.refresh_from_db()
     assert article.status == ENRICHMENT_SELECTS
     assert not article.enrichment_attempts < ENRICHMENT_MAX_ATTEMPTS
@@ -109,9 +109,9 @@ def test_a_row_at_the_attempt_limit_would_not_be_re_enriched(reviewer, crawler_s
 
 @pytest.mark.django_db(databases=["default", "crawler"])
 @pytest.mark.parametrize("stage", [EXTRACTION, LABELING])
-def test_reject_lands_on_a_status_the_labeler_selects(reviewer, crawler_schema, stage):
+def test_restore_lands_on_a_status_the_labeler_selects(reviewer, crawler_schema, stage):
     article = _article(f"l-{stage}", crawler_schema)
-    record(article, decision="reject", stage=stage, user=reviewer)
+    record(article, decision="restore", stage=stage, user=reviewer)
     article.refresh_from_db()
     assert article.status in LABELING_SELECTS
 
@@ -124,7 +124,7 @@ def test_the_labeler_then_promotes_it_to_what_enrichment_selects(
     and what it writes on success is `labeled`, which is what enrichment
     reads. So a rejection at extraction reaches enrichment in two steps."""
     article = _article("l2", crawler_schema)
-    record(article, decision="reject", stage=EXTRACTION, user=reviewer)
+    record(article, decision="restore", stage=EXTRACTION, user=reviewer)
     article.refresh_from_db()
     assert article.status in LABELING_SELECTS
     # models/database.py promotes exactly these to `labeled`.

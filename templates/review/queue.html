@@ -148,86 +148,61 @@ window.reviewQueueDescribe = function (row, form) {
   const note = row.querySelector(".outcome-line");
   if (!note) return;
   const verb = row.querySelector('input[type="hidden"]').value;
-  const chosen = row.querySelector(".qualval");
-  const type = chosen ? chosen.value : "";
-  const label = chosen && type
-    ? chosen.options[chosen.selectedIndex].text
-    : "";
+  const list = row.querySelector(".fixval");
+  const type = list ? list.value : "";
+  const label = list && type ? list.options[list.selectedIndex].text : "";
   const status = row.dataset.status || "its current status";
   const host = row.dataset.host || "this publisher";
   const rewind = row.dataset.rewind || "the pipeline";
   const exported = row.dataset.exported === "1";
 
-  // Reject on a row enrichment has finished with needs the type: "the
-  // call was wrong" is not an instruction on a row that already went
-  // through, and the row will not submit until the type is chosen.
-  const button = row.querySelector(`.verb[data-verb="${verb}"]`);
-  if (verb && button && button.dataset.needsValue === "1" && !type) {
-    note.className = "outcome-line on fix";
-    note.textContent =
-      "Rejecting this says the type is wrong. Say which type below — nothing is submitted until you do.";
-    return;
-  }
-
   if (!verb) {
     note.className = "outcome-line";
-    if (type) {
-      note.textContent =
-        "Choose Accept or Reject as well: the type says what it is, the verb says whether excluding it was right.";
-    } else if (exported) {
-      // The scope case. Accept leaves it in the export and Reject sends
-      // it back to be enriched again -- read side by side those both say
-      // keep it, and for a story about somewhere else neither is what a
-      // reviewer wants. The answer is in the list, not on the buttons.
-      note.textContent =
-        "Accept leaves this exactly as it is. If it should not be in the export, say what it actually is below.";
-    } else {
-      note.textContent = "";
-    }
-    return;
-  }
-
-  // A garbage body decides the outcome whatever the verb was: the
-  // article is not miscategorised, the capture is broken.
-  if (type === "text_is_garbage") {
-    note.className = "outcome-line on fix";
-    note.textContent =
-      (verb === "reject"
-        ? "The classification was wrong AND the body is unusable. "
-        : "The classification stands, and the body is unusable. ") +
-      "Held out of the pipeline for re-extraction — not put back — and counted against " +
-      host + " on Extraction problems.";
-    return;
-  }
-
-  if (type) {
-    note.className = "outcome-line on accept";
-    // A paywalled stub keeps its place in the export -- its text is a
-    // teaser but the CIN label and byline are real observations. Every
-    // other type takes the article out of both the export and enrichment.
-    const fate =
-      type === "paywall"
-        ? "Exported, and not enriched any further: the text is a teaser but the label and byline are real."
-        : "Taken out of enrichment and out of the export.";
-    note.textContent =
-      "Recorded as " + label + ". " + fate +
-      (verb === "reject" ? " The original call is marked wrong." : "");
+    note.textContent = "";
     return;
   }
 
   if (verb === "accept") {
     note.className = "outcome-line on accept";
     note.textContent = exported
-      ? "Stays " + status + " — in the export, unenriched. Nothing is written."
-      : "Stays " + status + " — out of the export. Nothing is written.";
-  } else if (verb === "reject") {
+      ? "Nothing is written. It stays " + status + ", in the export, unenriched."
+      : "Nothing is written. It stays " + status + ", out of the export.";
+    return;
+  }
+
+  if (verb === "restore") {
     note.className = "outcome-line on reject";
     note.textContent =
       "Back to " + rewind + ", and the pipeline carries on with the fields already captured.";
-  } else if (verb === "reextract") {
+    return;
+  }
+
+  if (verb === "reextract") {
     note.className = "outcome-line on fix";
     note.textContent =
       "Out of the pipeline, and the archived capture is re-parsed — not re-crawled.";
+    return;
+  }
+
+  // Reject. The disposition is the list beside it, and without one this
+  // is half an answer.
+  if (!type) {
+    note.className = "outcome-line on fix";
+    note.textContent = "Say what it is, in the list. Nothing is submitted until you do.";
+    return;
+  }
+  note.className = "outcome-line on fix";
+  if (type === "text_is_garbage") {
+    note.textContent =
+      "The article is fine and the body is not. Held out of the pipeline for re-extraction, and counted against " +
+      host + " on Extraction problems.";
+  } else if (type === "paywall") {
+    note.textContent =
+      "Recorded as " + label +
+      ". Exported and not enriched any further: the text is a teaser but the label and byline are real.";
+  } else {
+    note.textContent =
+      "Recorded as " + label + ". Taken out of enrichment and out of the export.";
   }
 };
   </script>

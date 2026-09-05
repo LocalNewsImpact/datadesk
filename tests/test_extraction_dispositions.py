@@ -81,10 +81,10 @@ def test_an_unknown_stage_rewinds_nowhere():
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_reject_writes_the_status_and_nothing_else(reviewer, article):
+def test_restore_writes_the_status_and_nothing_else(reviewer, article):
     record(
         article,
-        decision="reject",
+        decision="restore",
         stage=ENRICHMENT,
         user=reviewer,
         reason="a real story",
@@ -111,9 +111,9 @@ def test_answering_the_same_question_twice_replaces_the_answer(reviewer, article
     """Same claim, same stage, so the same question -- the later decision
     stands in place of the earlier one."""
     record(article, decision="accept", stage=ENRICHMENT, user=reviewer)
-    record(article, decision="reject", stage=ENRICHMENT, user=reviewer)
+    record(article, decision="restore", stage=ENRICHMENT, user=reviewer)
     assert ReviewDecision.objects.filter(subject_id="a1").count() == 1
-    assert ReviewDecision.objects.get(subject_id="a1").verb == "reject"
+    assert ReviewDecision.objects.get(subject_id="a1").verb == "restore"
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
@@ -122,7 +122,7 @@ def test_a_decision_at_another_stage_is_another_question(reviewer, article):
     different claims that happen to share a status, so both are asked and
     both are answered."""
     record(article, decision="accept", stage=EXTRACTION, user=reviewer)
-    record(article, decision="reject", stage=ENRICHMENT, user=reviewer)
+    record(article, decision="restore", stage=ENRICHMENT, user=reviewer)
     assert ReviewDecision.objects.filter(subject_id="a1").count() == 2
 
 

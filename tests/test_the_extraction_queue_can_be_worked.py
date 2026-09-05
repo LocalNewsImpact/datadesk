@@ -311,13 +311,15 @@ def test_the_write_path_is_granted_the_column_it_writes():
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_a_type_can_be_said_alongside_a_verb(client, reviewer, flagged):
-    """A list to pick from, not a box to type in: typing is how one
-    spelling of a category comes to sit beside another."""
+def test_reject_carries_the_disposition(client, reviewer, flagged):
+    """The list is Reject's own value, rendered beside it -- the sources
+    queue's Fix and the value it writes. It was a second control that had
+    to be combined with a verb, which is one decision presented as two."""
     client.force_login(reviewer)
     body = client.get(reverse("review:queue")).content.decode()
-    assert 'class="qualval"' in body, "there is no way to say what it actually is"
-    assert 'data-verb="reclassify"' not in body, "reclassify is a verb again"
+    assert 'data-verb="reject"' in body
+    assert '<select class="fixval"' in body
+    assert 'class="qualval"' not in body, "the separate control is still there"
     for value in ("out_of_scope", "weather", "opinion"):
         assert f'value="{value}"' in body
 
@@ -586,7 +588,7 @@ def test_the_page_describes_the_outcome(client, reviewer, flagged):
     body = client.get(reverse("review:queue")).content.decode()
     assert "window.reviewQueueDescribe" in body
     assert "text_is_garbage" in body, "the garbage case is not described"
-    assert "not put back" in body, "the row does not say a garbage body is held"
+    assert "Held out of the pipeline for re-extraction" in body
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])

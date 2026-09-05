@@ -144,13 +144,12 @@ def test_accept_and_reject_do_not_read_as_the_same_answer():
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_the_page_points_at_the_type_for_an_exported_row(
-    client, reviewer, two_articles
-):
+def test_the_page_says_what_each_verb_will_do(client, reviewer, two_articles):
     client.force_login(reviewer)
     body = client.get(reverse("review:queue")).content.decode()
-    assert "Accept leaves this exactly as it is" in body
-    assert "say what it actually is below" in body
+    # Accept says it writes nothing; Reject carries the list.
+    assert "Nothing is written" in body
+    assert "Say what it is, in the list" in body
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
@@ -180,9 +179,22 @@ def test_an_empty_everything_does_not_blame_the_window(
 # --- rejecting a finished row needs the type ----------------------------------
 
 
-def test_reject_needs_the_type_where_enrichment_has_finished():
-    """ "The call was wrong" is not an instruction on a row that already
-    went through. Wrong how? The only useful next word is which type."""
+def test_reject_always_carries_the_disposition():
+    """Rejecting a flag says the call was wrong; the list says what it
+    should have been. One without the other is half an answer, so the
+    verb carries the list the way the sources queue's Fix carries the
+    value it writes."""
+    from review import kernel
+
+    reject = kernel.get("extraction").verb("reject")
+    assert reject.takes_value is True
+    assert [choice["value"] for choice in reject.values]
+
+
+def test_restore_is_offered_only_where_there_is_somewhere_to_put_it():
+    """An article enrichment has finished with has already been through.
+    "Back to the pipeline" there is a button that does nothing a reviewer
+    means."""
     from review import kernel
 
     class Finished:
@@ -190,32 +202,17 @@ def test_reject_needs_the_type_where_enrichment_has_finished():
         content = "A body."
         text = "A body."
 
-    reject = next(
-        verb
-        for verb in kernel.get("extraction").offered(Finished())
-        if verb.name == "reject"
-    )
-    assert reject.takes_value is True
-    assert reject.sublabel == "Wrong — say what it is below"
-
-
-def test_reject_does_not_need_the_type_where_there_is_a_pipeline_to_return_to():
-    """An article excluded as not-an-article has somewhere to go back to,
-    so "it is a real story, put it back" is complete on its own."""
-    from review import kernel
-
     class Excluded:
         status = "not_article"
         content = "A body."
         text = "A body."
 
-    reject = next(
-        verb
-        for verb in kernel.get("extraction").offered(Excluded())
-        if verb.name == "reject"
-    )
-    assert reject.takes_value is False
-    assert reject.sublabel == "It is a real story, put it back"
+    offered = {v.name for v in kernel.get("extraction").offered(Finished())}
+    assert "restore" not in offered
+    assert "reject" in offered
+
+    offered = {v.name for v in kernel.get("extraction").offered(Excluded())}
+    assert "restore" in offered
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
@@ -266,4 +263,4 @@ def test_the_page_says_the_type_is_required(client, reviewer, two_articles):
     Article.objects.filter(id="recent").update(status="enrichment_skipped")
     client.force_login(reviewer)
     body = client.get(reverse("review:queue"), {"days": "all"}).content.decode()
-    assert "nothing is submitted until you do" in body
+    assert "Nothing is submitted until you do" in body

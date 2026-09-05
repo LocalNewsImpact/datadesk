@@ -117,7 +117,7 @@ marked on the way down.
                data-rewind="{{ article.rewind_to }}"
                data-host="{{ article.candidate_link.source|default:'this publisher' }}"
                data-exported="{% if article.status in exported_statuses %}1{% else %}0{% endif %}">
-            {% include "review/_verbs.html" with subject_id=article.id verbs=article.offered_verbs qualifier=queue_qualifier %}
+            {% include "review/_verbs.html" with subject_id=article.id verbs=article.offered_verbs %}
             <p class="outcome-line" data-for="{{ article.id }}"></p>
           </div>
           {% endif %}
