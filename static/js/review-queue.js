@@ -17,10 +17,6 @@
  *       .verb[data-verb]       a button; pressing it records that verb
  *       input[type=hidden]     where the verb is recorded (name="d-<id>")
  *       .fixval                optional -- a value the verb writes
- *       .qualval               optional -- something said ALONGSIDE the
- *                              verb, not instead of it. Choosing one is
- *                              not a decision and does not make the row
- *                              submittable on its own.
  *   .queue-dock
  *     [data-tally="<verb>"]    a count of rows carrying that verb
  *     #q-incomplete            rows decided but missing a required value
@@ -64,15 +60,10 @@
       // Only the verb that writes one. Every proposal row carries a fix
       // box, so testing the box alone would call an `accept` incomplete
       // and refuse to submit it.
-      // A verb that cannot be carried out without the queue's qualifier
-      // is not a decision until the qualifier is answered. On a row
-      // enrichment has finished with, Reject means "the type is wrong"
-      // and says nothing about which type -- so it waits.
+      // A verb that writes a value is not a decision until it has one.
+      // Rejecting says the call was wrong and the list says what it
+      // should have been; half an answer waits rather than submitting.
       const chosen = row.querySelector(`.verb[data-verb="${field.value}"]`);
-      const qualifier = row.querySelector(".qualval");
-      if (chosen && chosen.dataset.needsValue === "1") {
-        if (!qualifier || !qualifier.value) incomplete += 1;
-      }
       const value = fixval(row);
       if (value && field.value === (row.dataset.fixVerb || "fix") && !value.value.trim()) {
         incomplete += 1;
@@ -133,24 +124,6 @@
   });
 
   form.addEventListener("input", (event) => {
-    // A qualifier answers a second, independent question -- what the
-    // thing actually is -- and a row carrying one with no verb has not
-    // been decided. Setting a verb here would submit rows nobody judged.
-    if (event.target.classList.contains("qualval")) {
-      const row = event.target.closest(".prop");
-      if (row) {
-        // Answering the qualifier can complete a verb that was waiting
-        // for it, so the dock and the outcome line both have to look
-        // again.
-        row.classList.toggle(
-          "decided",
-          Boolean(store(row) && store(row).value)
-        );
-        describe(row);
-      }
-      recount();
-      return;
-    }
     if (!event.target.classList.contains("fixval")) return;
     const row = event.target.closest(".prop");
     if (!row) return;
@@ -181,8 +154,6 @@
     rows().forEach((row) => {
       const value = fixval(row);
       if (value) value.value = "";
-      const qualifier = row.querySelector(".qualval");
-      if (qualifier) qualifier.value = "";
       mark(row, "");
     });
     recount();

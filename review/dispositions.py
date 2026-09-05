@@ -181,6 +181,14 @@ def decisions_for(article_ids):
 #: belong to the queue, and the queue declares them at the end of this
 #: module.
 ACCEPT = "accept"
+#: The flag is wrong and the article is an ordinary story. The sources
+#: queue's middle column: take the change the queue is implicitly
+#: proposing, which here is "put it back".
+RESTORE = "restore"
+#: The flag is wrong in a specific way, and the list says which. The
+#: sources queue's Fix, whose value is a list to pick from for the same
+#: reason: a field with a right answer and a list of them should not
+#: invite typing.
 REJECT = "reject"
 REEXTRACT = "reextract"
 
@@ -476,10 +484,14 @@ def verbs_for(article, stage):
     """
     verbs = [ACCEPT]
     if has_body_to_rewind_to(article):
-        # Both are available together: "this is a real story" and "this is
-        # a weather report" are different answers, and a reviewer looking
-        # at a bylined sports feature filed as an obituary has to be able
-        # to say which one they mean.
+        # Restore only where there is somewhere to put it back: an
+        # article enrichment has already finished with has been through,
+        # and "back to the pipeline" would be a button that does nothing
+        # a reviewer means.
+        if not _enrichment_is_done_with_it(article):
+            verbs.append(RESTORE)
+        # Reject is always available with a body: whatever the row is
+        # now, a person can say what it should have been.
         verbs.append(REJECT)
     elif can_reextract(article):
         verbs.append(REEXTRACT)
@@ -554,8 +566,12 @@ def record(
         # strength of a decision that said nothing was wrong.
         if getattr(article, "status", "") == IN_REVIEW and before != IN_REVIEW:
             target = before
-    elif decision == REJECT:
+    elif decision == RESTORE:
         target = rewind_target(stage)
+    elif decision == REJECT:
+        # The disposition comes from the list, applied below. Rejecting
+        # without one is refused before it reaches here.
+        target = None
     elif decision == REEXTRACT:
         # Out of the pipeline rather than back into it: there is no status
         # meaning "re-parse me", and the one that looks like it --
@@ -710,20 +726,25 @@ EXTRACTION_QUEUE = kernel.register(
                 tone="accept",
             ),
             kernel.Verb(
+                name=RESTORE,
+                label="Restore",
+                sublabel="It is an ordinary story — back to the pipeline",
+                past="restored",
+                tone="reject",
+            ),
+            kernel.Verb(
                 name=REJECT,
                 label="Reject",
-                # What rejecting asserts, not where it sends the row. A
-                # reviewer reading "Back to the pipeline" on a sports
-                # feature filed as an obituary cannot tell whether it says
-                # "this is a real story" or "put it back and re-decide".
-                sublabel="It is a real story, put it back",
-                sublabel_for=_what_reject_does,
-                # On a finished row, rejecting without saying what it is
-                # is not an instruction. The queue's qualifier is that
-                # answer, and the row will not submit without it.
-                takes_value_for=_enrichment_is_done_with_it,
+                # Always with the disposition. Rejecting a flag says the
+                # call was wrong; the list says what it should have been,
+                # and one without the other is half an answer. The
+                # sources queue's Fix works the same way: a verb and the
+                # value it writes, not two decisions to combine.
+                sublabel="It is something else",
                 past="rejected",
-                tone="reject",
+                takes_value=True,
+                values=CONTENT_TYPES,
+                tone="fix",
             ),
             kernel.Verb(
                 name=REEXTRACT,
@@ -734,22 +755,7 @@ EXTRACTION_QUEUE = kernel.register(
             ),
         ),
         apply=_apply_extraction,
-        # Said alongside the verb, not instead of it. An article can be
-        # wrongly called an obituary and still belong out of the pipeline:
-        # the exclusion was right and the reason was wrong, and as
-        # separate verbs a reviewer had to choose which half to record.
-        qualifier=kernel.Qualifier(
-            name="content_type",
-            label="Actually it is",
-            sublabel=(
-                "Leave alone unless the type is wrong. Out of scope, "
-                "not an article, weather, opinion and wire are all out "
-                "of the export; a real story goes back to the pipeline."
-            ),
-            values=CONTENT_TYPES,
-        ),
-        # Which of the three a PARTICULAR row can carry out: reject needs a
-        # body to hand back, re-extract needs the archived capture.
+        # Which of the three a PARTICULAR row can carry out.
         verbs_for=lambda article: verbs_for(article, stage_of(article)),
     )
 )
