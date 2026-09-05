@@ -513,6 +513,10 @@ def queue(request):
             # defect on the row rather than treated as never held, which
             # is how it would go missing without anybody seeing it.
             article.note_problem = dispositions.unreadable_note_reason(article)
+            # What this row was flagged AS -- the recorded reason, not the
+            # status it ended up with. "Exported unenriched" is where a
+            # paywalled stub went; `paywall_stub` is why.
+            article.flag, article.flag_hint = review_queue.flag_of(article)
         # Decisions already made, for the rows shown under `state=all`.
         # Read in one query for the page rather than per row.
         decided = dispositions.decisions_for([a.id for a in page])
