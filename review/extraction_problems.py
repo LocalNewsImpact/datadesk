@@ -60,21 +60,21 @@ def total():
     return ReviewDecision.objects.filter(wrote__body="garbage").count()
 
 
-def repeated_bodies(limit=50):
+def boilerplate_patterns(limit=50):
     """Publishers whose bodies repeat exactly, worst first.
 
     The half nobody has reported. `reported()` counts what reviewers
     found one story at a time; this is what the corpus says on its own,
-    computed by `manage.py find_repeated_bodies`.
+    computed by `manage.py find_boilerplate`.
 
     Each row carries what the pipeline decided these were, because the
     finding is not that a body repeats -- it is that a failed capture was
     confidently labelled something. 472 of newspressnow.com's 486
     identical comment-policy bodies were classified `wire`.
     """
-    from review.models import RepeatedBody
+    from review.models import Boilerplate
 
-    rows = list(RepeatedBody.objects.all()[:limit])
+    rows = list(Boilerplate.objects.all()[:limit])
     for row in rows:
         counts = row.statuses or {}
         row.total_reaching_the_pipeline = sum(
