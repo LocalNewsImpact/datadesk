@@ -70,12 +70,23 @@
       }
     });
 
+    // How many decisions are marked, counted from the ROWS.
+    //
+    // This used to be summed from the dock's tallies, which made the
+    // submit button depend on the dock listing every verb. The extraction
+    // queue gained `restore` and the dock did not, so a restored row
+    // counted zero: the decision was recorded, the row showed as decided,
+    // and Submit stayed disabled with nothing on the page explaining why.
+    //
+    // The dock is a display of the count, never its source. A verb it has
+    // no tally for is now an unlabelled decision rather than a lost one.
     let decided = 0;
+    Object.keys(counts).forEach((verb) => {
+      decided += counts[verb];
+    });
     if (dock) {
       dock.querySelectorAll("[data-tally]").forEach((el) => {
-        const n = counts[el.dataset.tally] || 0;
-        el.textContent = n;
-        decided += n;
+        el.textContent = counts[el.dataset.tally] || 0;
       });
     }
 
