@@ -234,16 +234,45 @@ def _enrichment_is_done_with_it(article):
     return getattr(article, "status", "") in ENRICHMENT_FINISHED
 
 
+#: What Restore denies, per status.
+#:
+#: Restore always writes the same thing -- the rewind status -- but what
+#: a reviewer is SAYING differs by the row, and that is the half the
+#: label was missing. On an `obituary` row the reviewer is saying it is
+#: not an obituary; the classification is what gets dropped.
+#:
+#: Only the status is dropped. The detector's own record of what it
+#: called and how confident it was is kept: it is evidence, nothing
+#: downstream excludes on it, and it is the raw material for measuring
+#: the detector against the decisions people make about it.
+_RESTORE_DENIES = {
+    "obituary": "It is not an obituary",
+    "not_article": "It is a real story",
+    "weather": "It is not a weather report",
+    "opinion": "It is not opinion",
+    "wire": "It is not wire copy",
+    IN_REVIEW: "The flagged field is right",
+}
+
+
 def _what_restore_does(article):
     """What restoring does to THIS row.
 
-    "Back to the pipeline" is true everywhere, but on a row enrichment
-    finished with it hides the part the reviewer is actually choosing:
-    the article is currently exported without enrichment, and restoring
-    it is what gets it enriched and exported again.
+    "It is an ordinary story — back to the pipeline" was true and told a
+    reviewer almost nothing. Asked directly whether restoring an
+    `obituary` removes the obituary call, the page had no answer on it:
+    the one thing the verb actually writes is the status, and the label
+    never named it.
+
+    So it names it. On a row enrichment finished with, the choice is
+    whether the story gets enriched at all; everywhere else it is which
+    classification is being dropped.
     """
     if _enrichment_is_done_with_it(article):
         return "Enrich it — the story is there; back for enrichment, then export"
+    denial = _RESTORE_DENIES.get(getattr(article, "status", ""))
+    if denial:
+        return f"{denial} — drop the call, back to the pipeline"
     return "It is an ordinary story — back to the pipeline"
 
 

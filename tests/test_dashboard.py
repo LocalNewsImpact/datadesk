@@ -129,8 +129,12 @@ def test_enrichment_coverage(client, viewer, corpus):
 def test_review_backlog_counts_the_queue(client, viewer, corpus):
     from explorer.dashboard import corpus_summary
 
-    # Two paywall stubs, one not_article, one out_of_scope.
-    assert corpus_summary()["flagged"] == 4
+    # Two paywall stubs and one not_article. The fixture's `out_of_scope`
+    # article is NOT counted: that status is written by a person choosing
+    # "Out of scope" from the disposition list, and a human removal is a
+    # decision rather than a flag. The scope case used to select it and
+    # so re-flagged every row a reviewer had just disposed of.
+    assert corpus_summary()["flagged"] == 3
 
 
 def test_dashboard_renders_the_figures(client, viewer, corpus):
