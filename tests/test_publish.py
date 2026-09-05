@@ -249,12 +249,32 @@ def test_ci_runs_on_every_branch_and_on_pull_requests():
     assert "workflow_dispatch" in triggers
 
 
-def test_ci_runs_the_gates_in_the_crawlers_order():
-    lint = _workflow("ci.yml")["jobs"]["lint"]["steps"]
-    names = [step.get("name") for step in lint if step.get("name")]
-    assert names[-4:] == ["ruff", "black", "isort", "mypy"]
-    tests = _workflow("ci.yml")["jobs"]["tests"]["steps"]
-    assert any("pytest" in (step.get("run") or "") for step in tests)
+def test_ci_calls_the_shared_workflow_rather_than_listing_its_own_gates():
+    """The gate order lives in lnic-contracts, not here.
+
+    This used to assert ruff, black, isort, mypy, pytest as inline steps in
+    this repository's own `lint` and `tests` jobs -- and the crawler and the
+    Source Directory each asserted their own slightly different version of
+    the same list. Three copies of one rule is how they drifted apart.
+
+    The rule now has one home. What this repository owes is the call, and
+    make targets for the shared workflow to run; `conforms.yml` fails the
+    build if either goes missing.
+    """
+    jobs = _workflow("ci.yml")["jobs"]
+    uses = {name: job.get("uses", "") for name, job in jobs.items()}
+    assert any(
+        "lnic-contracts/.github/workflows/python-checks.yml@" in u
+        for u in uses.values()
+    ), uses
+    # And the conformance check that keeps it from drifting back.
+    assert any(
+        "lnic-contracts/.github/workflows/conforms.yml@" in u for u in uses.values()
+    ), uses
+    # Pinned to a CI major tag, not to a branch: a change in contracts
+    # cannot silently alter what runs here.
+    for u in uses.values():
+        assert "@ci-v" in u, u
 
 
 def test_deploy_runs_only_on_main_and_skips_documentation():
