@@ -22,7 +22,7 @@ REPO = Path(__file__).resolve().parent.parent
 INSTALLER = REPO / "scripts" / "setup-hooks.sh"
 
 
-def _run(command, cwd, env=None):
+def _run(command, cwd, env=None, stdin=None):
     # Git exports GIT_DIR to a hook when the push comes from a linked
     # worktree (from the primary checkout it does not). These tests run
     # inside the hook, so with that variable inherited the scratch
@@ -36,8 +36,17 @@ def _run(command, cwd, env=None):
         shell=True,
         capture_output=True,
         text=True,
+        input=stdin,
         env={**clean, **(env or {})},
     )
+
+
+ZERO = "0" * 40
+A_COMMIT = "1" * 40
+# What git writes on the hook's stdin: one line per ref being pushed,
+# "<local_ref> <local_sha> <remote_ref> <remote_sha>".
+PUSHING = f"refs/heads/topic {A_COMMIT} refs/heads/topic {ZERO}\n"
+DELETING = f"(delete) {ZERO} refs/heads/topic {A_COMMIT}\n"
 
 
 def test_the_installer_is_valid_shell():
@@ -98,7 +107,7 @@ def test_the_hook_runs_make_check(tmp_path):
     hook = _install_into(tmp_path)
     repo = hook.parent.parent.parent
     env = _fake_make(repo, 0)
-    result = _run(str(hook), repo, env)
+    result = _run(str(hook), repo, env, stdin=PUSHING)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "make called with: check" in (repo / "make.log").read_text()
 
@@ -109,9 +118,42 @@ def test_the_hook_blocks_the_push_when_checks_fail(tmp_path):
     hook = _install_into(tmp_path)
     repo = hook.parent.parent.parent
     env = _fake_make(repo, 1)
-    result = _run(str(hook), repo, env)
+    result = _run(str(hook), repo, env, stdin=PUSHING)
     assert result.returncode == 1
     assert "push aborted" in (result.stdout + result.stderr).lower()
+
+
+def test_a_branch_deletion_runs_nothing(tmp_path):
+    """Deleting a remote branch pushes no commits, and ran the whole
+    suite -- ruff, mypy, a Postgres container, pytest -- to do it."""
+    hook = _install_into(tmp_path)
+    repo = hook.parent.parent.parent
+    env = _fake_make(repo, 1)  # would fail the push, if it ran at all
+    result = _run(str(hook), repo, env, stdin=DELETING)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not (repo / "make.log").exists(), "make ran for a deletion"
+
+
+def test_a_push_that_also_deletes_still_runs_the_checks(tmp_path):
+    """One deletion among real commits is not a way past the suite."""
+    hook = _install_into(tmp_path)
+    repo = hook.parent.parent.parent
+    env = _fake_make(repo, 1)
+    result = _run(str(hook), repo, env, stdin=DELETING + PUSHING)
+    assert result.returncode == 1
+    assert "make called with: check" in (repo / "make.log").read_text()
+
+
+def test_an_empty_stdin_is_not_a_way_past_the_checks(tmp_path):
+    """Run by hand there are no refspecs to read. An empty read has to
+    mean "check": the skip is for what git tells us, not for the absence
+    of anything to tell."""
+    hook = _install_into(tmp_path)
+    repo = hook.parent.parent.parent
+    env = _fake_make(repo, 1)
+    result = _run(str(hook), repo, env, stdin="")
+    assert result.returncode == 1
+    assert "make called with: check" in (repo / "make.log").read_text()
 
 
 def test_the_hook_does_not_read_a_variable_before_assigning_it():
