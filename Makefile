@@ -69,26 +69,42 @@ fmt: $(VENV) ## Apply formatting and safe fixes
 	$(VENV)/bin/black .
 	$(VENV)/bin/isort .
 
-# Postgres for the test suite, on 5434 so it cannot be confused with the
-# crawler's test database (5432) or the scratch instance (5433).
-TEST_DB_ENV = DATADESK_TEST_DB_HOST=127.0.0.1 DATADESK_TEST_DB_PORT=5434 \
-	DATADESK_TEST_DB_USER=datadesk DATADESK_TEST_DB_PASSWORD=datadesk
+# Postgres for the test suite.
+#
+# Locally: docker-compose.test.yml on 5434, so it cannot be confused with
+# the crawler's test database (5432) or the scratch instance (5433).
+#
+# In CI: a service container the shared workflow provides
+# (lnic-contracts python-checks.yml), which announces itself through the
+# standard PG* variables. Those win where they are set, and no compose
+# database is started -- one `make test` that means the same thing in
+# both places, which is the whole point of the shared pattern.
+DATADESK_TEST_DB_HOST     ?= $(if $(PGHOST),$(PGHOST),127.0.0.1)
+DATADESK_TEST_DB_PORT     ?= $(if $(PGPORT),$(PGPORT),5434)
+DATADESK_TEST_DB_USER     ?= $(if $(PGUSER),$(PGUSER),datadesk)
+DATADESK_TEST_DB_PASSWORD ?= $(if $(PGPASSWORD),$(PGPASSWORD),datadesk)
+export DATADESK_TEST_DB_HOST DATADESK_TEST_DB_PORT
+export DATADESK_TEST_DB_USER DATADESK_TEST_DB_PASSWORD
 
 .PHONY: test-db
-test-db: ## Start the test database and wait for it
+test-db: ## Start the local test database and wait for it
 	docker compose -f docker-compose.test.yml up -d --wait
 
 .PHONY: test-db-down
-test-db-down: ## Stop the test database
+test-db-down: ## Stop the local test database
 	docker compose -f docker-compose.test.yml down
 
 .PHONY: test
-test: $(VENV) test-db ## Run the test suite (Postgres, as production is)
-# The same two steps CI's `tests` job runs, in the same order. A model
-# changed without its migration passes pytest and fails the build, so
-# the check belongs here rather than being discovered on a pull request.
-	$(TEST_DB_ENV) $(PY) manage.py makemigrations --check --dry-run
-	$(TEST_DB_ENV) $(PY) -m pytest
+test: $(VENV) ## Run the test suite (Postgres, as production is)
+# Start the compose database only when nothing else has provided one. A
+# `docker compose up` on a runner that already has a Postgres service is
+# a second database and a slower, more confusing failure.
+	@if [ -z "$(PGHOST)" ]; then $(MAKE) --no-print-directory test-db; fi
+# The same two steps in the same order. A model changed without its
+# migration passes pytest and fails the build, so the check belongs here
+# rather than being discovered on a pull request.
+	$(PY) manage.py makemigrations --check --dry-run
+	$(PY) -m pytest
 
 # Both need the crawler's real database — the Cloud SQL Auth Proxy, or
 # Cloud Run's socket. Not part of `check`, which must run offline.

@@ -1,12 +1,26 @@
-# Toolchain and ordering match the MizzouNewsCrawler pre-push gate
-# (ruff, black, isort, mypy, then tests); workflow shape follows the
-# NewsSourceDirectory CI. Python here must match the deployment runtime
-# once one exists (SCOPE.md §6).
+# The suite's CI, called rather than restated.
+#
+# This was two jobs listing ruff, black, isort, mypy and pytest by hand.
+# The crawler listed fourteen, the Source Directory eight, and no two of
+# them ran the same stages in the same order -- so a rule learned in one
+# repository stayed there, and a suite-wide fix meant three pull
+# requests that were never quite the same.
+#
+# The stages, their order and the Postgres service come from
+# lnic-contracts. What runs inside them is this repository's Makefile,
+# which is also what a person runs here, so CI and a local run cannot
+# mean different things.
+#
+# `conforms` is the part that keeps it true: it fails if this repository
+# drifts back to defining its own stages, loses a make target the shared
+# workflow calls, or drops the pre-push hook.
 name: CI
 
 on:
-  push: # every branch, so a contributor sees failures before opening a PR
+  push:
   pull_request:
+  # Re-run without a commit: a shared-workflow change lands in
+  # lnic-contracts, not here, so there may be nothing to push to test it.
   workflow_dispatch:
 
 concurrency:
@@ -17,61 +31,25 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-      - name: Install dependencies
-        run: pip install -r requirements-dev.txt
-      - name: ruff
-        run: ruff check .
-      - name: black
-        run: black --check .
-      - name: isort
-        run: isort --check-only .
-      - name: mypy
-        run: mypy .
+  checks:
+    uses: LocalNewsImpact/lnic-contracts/.github/workflows/python-checks.yml@ci-v1
+    with:
+      # `make .venv` rather than `make setup`: setup also writes .env and
+      # runs migrations, which need a database this stage does not have.
+      install: make .venv
+      # mypy runs inside `make lint` here, so there is no separate stage.
+      typecheck: false
+      # No integration suite in this repository yet. Declaring one that
+      # does not exist would fail the conformance check, which is the
+      # point of it.
+      integration: false
 
-  tests:
-    name: Tests
-    runs-on: ubuntu-latest
-    # Production is Postgres, so the suite is. On sqlite it accepted a
-    # `?|` operator against a text column and a DISTINCT over a `json`
-    # column, neither of which Postgres will run, and both reached
-    # production green.
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: datadesk
-          POSTGRES_PASSWORD: datadesk
-          POSTGRES_DB: datadesk
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U datadesk"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      DATADESK_TEST_DB_HOST: 127.0.0.1
-      DATADESK_TEST_DB_PORT: "5432"
-      DATADESK_TEST_DB_USER: datadesk
-      DATADESK_TEST_DB_PASSWORD: datadesk
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-      - name: Install dependencies
-        run: pip install -r requirements-dev.txt
-      - name: Migrations are complete and committed
-        run: python manage.py makemigrations --check --dry-run
-      - name: Tests
-        run: python -m pytest
+  conforms:
+    uses: LocalNewsImpact/lnic-contracts/.github/workflows/conforms.yml@ci-v1
+    with:
+      # The same two flags the checks job declares. Passed rather than
+      # left to default: conforms uses them to decide which make targets
+      # to require, so a repository that turns a stage on above and not
+      # here would run a stage whose target nothing checks for.
+      typecheck: false
+      integration: false
