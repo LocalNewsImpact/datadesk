@@ -286,16 +286,20 @@ class ExtractionDecision(models.Model):
         return f"{self.decision} {self.article_id} ({self.question})"
 
 
-class RepeatedBody(models.Model):
-    """A publisher producing many articles with byte-identical body lengths.
+class Boilerplate(models.Model):
+    """A publisher producing many articles that share their boilerplate.
 
     A parser that meets a page shape it does not handle returns the same
-    thing every time -- a comment policy, a subscriber wall, a list of
-    counties -- and the tell is that the length repeats exactly. On
-    2026-09-04: 486 articles from newspressnow.com at exactly 228
-    characters, every one of them the site's comment policy, and 472 of
-    those were classified `wire`. A failed capture recorded as
-    syndication, 486 times, with nobody looking.
+    block every time -- a comment policy, a subscriber wall, a list of
+    counties. On 2026-09-04: 486 articles from newspressnow.com carrying
+    the site's comment policy, 472 of them classified `wire`. A failed
+    capture recorded as syndication, 486 times, with nobody looking.
+
+    This was keyed on exact body length, which is not the tell. Lengths
+    rarely repeat to the character; the boilerplate does, and whatever
+    comes with it moves the total a few characters either way. The key is
+    a fingerprint of the boilerplate, and `length`/`length_max` record
+    the range the totals span.
 
     This is the half nobody has reported. review/extraction_problems.py
     counts what reviewers found; this counts what the corpus shows on its
@@ -312,8 +316,18 @@ class RepeatedBody(models.Model):
     """
 
     host = models.CharField(max_length=255, db_index=True)
-    #: The length every one of these bodies has, exactly.
+    #: md5 of the fingerprinted part of the body, whitespace-collapsed and
+    #: lowercased. This is what identifies the pattern: the boilerplate,
+    #: not the total length.
+    fingerprint = models.CharField(max_length=32, default="", db_index=True)
+    #: Which end of the body matched -- `opening` or `ending`. A parser
+    #: that returns only the boilerplate and one that appends it to a stub
+    #: are different faults with the same text in them.
+    matched_on = models.CharField(max_length=16, default="opening")
+    #: The shortest body in the pattern, and the longest. They are rarely
+    #: equal: the boilerplate repeats and what surrounds it does not.
     length = models.PositiveIntegerField()
+    length_max = models.PositiveIntegerField(default=0)
     articles = models.PositiveIntegerField()
     #: Enough of the text to recognise it. A comment policy and a
     #: subscriber wall are both "short and repeated"; only the words say
@@ -331,12 +345,18 @@ class RepeatedBody(models.Model):
         ordering = ["-articles"]
         constraints = [
             models.UniqueConstraint(
-                fields=["host", "length"], name="one_row_per_host_and_length"
+                fields=["host", "fingerprint"],
+                name="one_row_per_host_and_boilerplate",
             )
         ]
 
     def __str__(self):
-        return f"{self.host} × {self.length} chars ({self.articles})"
+        span = (
+            f"{self.length}"
+            if self.length == self.length_max
+            else f"{self.length}-{self.length_max}"
+        )
+        return f"{self.host} × {span} chars ({self.articles})"
 
 
 class WorklistCount(models.Model):

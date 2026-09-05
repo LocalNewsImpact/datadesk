@@ -3,7 +3,7 @@
 Two of these had no schedule at all. `refresh_worklist` fills the To Do
 counts every reviewer's landing page reads, and had never run on a
 schedule since it was built -- the counts were whatever the last manual
-run left. `find_repeated_bodies` finds publishers whose parser returns
+run left. `find_boilerplate` finds publishers whose parser returns
 the same string for every article, and would have said nothing until
 somebody remembered it existed.
 
@@ -35,7 +35,7 @@ TASKS = (
         (),
     ),
     (
-        "find_repeated_bodies",
+        "find_boilerplate",
         "publishers whose parser returns the same string every time",
         (),
     ),

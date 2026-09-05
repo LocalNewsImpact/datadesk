@@ -3,7 +3,7 @@
 Two of these had no schedule at all. `refresh_worklist` fills the To Do
 counts every reviewer's landing page reads and had never run on one since
 it was built, so the counts were whatever the last manual run left.
-`find_repeated_bodies` would have said nothing until somebody remembered
+`find_boilerplate` would have said nothing until somebody remembered
 it existed.
 
 One job for the set rather than one each: a second Cloud Run job and a
@@ -25,7 +25,7 @@ ROOT = Path(settings.BASE_DIR)
 def test_the_tasks_that_had_no_schedule_are_in_the_list():
     names = {name for name, _, _ in TASKS}
     assert "refresh_worklist" in names
-    assert "find_repeated_bodies" in names
+    assert "find_boilerplate" in names
 
 
 def test_every_task_is_a_command_that_exists():
