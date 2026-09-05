@@ -50,6 +50,24 @@ document.addEventListener("click", async (event) => {
   }
 });
 
+// A click outside the dialog closes it.
+//
+// `showModal` puts a backdrop over the page, and a click on that backdrop
+// has the dialog itself as its target -- the content inside it is a
+// different element. Comparing the pointer against the dialog's own box
+// keeps a click on the dialog's padding from closing it, which reading
+// only the target does not.
+editor.addEventListener("click", (event) => {
+  if (event.target !== editor) return;
+  const box = editor.getBoundingClientRect();
+  const inside =
+    box.top <= event.clientY &&
+    event.clientY <= box.bottom &&
+    box.left <= event.clientX &&
+    event.clientX <= box.right;
+  if (!inside) editor.close();
+});
+
 function wire(href) {
   const close = document.createElement("button");
   close.type = "button";

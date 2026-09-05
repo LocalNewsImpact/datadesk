@@ -347,7 +347,17 @@ BAD_CAPTURE = "text_is_garbage"
 #:
 #: `text_is_garbage` is not a type at all (see BAD_CAPTURE) and goes to
 #: `paused`, where re-extraction looks.
+#: A type whose status depends on where the article is, not on the type.
+#:
+#: "It is a news story" is the one answer that puts an article BACK, and
+#: where back is depends on the stage that excluded it -- `cleaned` before
+#: labelling, `labeled` after enrichment. A fixed status here would send
+#: an enrichment-stage row to `cleaned` and re-run labelling on an article
+#: that had already been through it.
+REWIND = "__rewind__"
+
 TYPE_BECOMES = {
+    "news": REWIND,
     "not_article": "not_article",
     "obituary": "obituary",
     "weather": "weather",
@@ -355,17 +365,31 @@ TYPE_BECOMES = {
     "wire": "wire",
     "out_of_scope": "out_of_scope",
     "paywall": "enrichment_skipped",
+    # Neither is a status the pipeline writes, and inventing one would be
+    # wrong (SCOPE.md 2.2): a video page and a photo gallery are both
+    # `not_article` as far as every later stage is concerned. Which one a
+    # reviewer said is kept on the decision (`wrote.content_type`), so the
+    # distinction survives for counting against the detector even though
+    # the article carries the general status.
+    "video": "not_article",
+    "photo_gallery": "not_article",
     BAD_CAPTURE: REEXTRACT_TO,
 }
 
 CONTENT_TYPES = (
-    {"value": "not_article", "label": "Not an article"},
-    {"value": "obituary", "label": "Obituary"},
-    {"value": "weather", "label": "Weather"},
+    {"value": "news", "label": "News"},
     {"value": "opinion", "label": "Opinion"},
+    {"value": "weather", "label": "Weather"},
     {"value": "wire", "label": "Wire"},
+    {"value": "obituary", "label": "Obituary"},
+    {"value": "not_article", "label": "Not an article"},
     {"value": "paywall", "label": "Paywalled stub"},
-    {"value": "out_of_scope", "label": "Out of scope"},
+    # "Out of scope" named the pipeline's status rather than the finding.
+    # A reviewer is saying the story is about somewhere else; the status
+    # it writes is unchanged.
+    {"value": "out_of_scope", "label": "Non-local"},
+    {"value": "video", "label": "Video"},
+    {"value": "photo_gallery", "label": "Photo gallery"},
     {
         "value": BAD_CAPTURE,
         "label": "An article, but the body is garbage",
@@ -667,6 +691,9 @@ def record(
         # selects. A broken capture is not a category at all and goes
         # where re-extraction looks.
         target = TYPE_BECOMES[said]
+        if target == REWIND:
+            # Back into the pipeline, at the point the stage rewinds to.
+            target = rewind_target(stage)
 
     if target:
         article.status = target

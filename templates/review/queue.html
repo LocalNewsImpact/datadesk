@@ -48,12 +48,31 @@
     page reads as data missing.
     {% endcomment %}
     <label>Dated
-      <select name="days">
+      <select name="days" class="js-window">
         {% for value, label in day_windows %}
         <option value="{{ value }}" {% if params.days == value or not params.days and value == default_days %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
     </label>
+    {% comment %}
+    The two dates behind "Custom…". Present in the markup rather than
+    built by script, so the range works without JavaScript and a
+    bookmarked `?days=custom&since=…&until=…` renders what it says. The
+    script only hides them when another window is chosen.
+
+    `type="date"` is the browser's own calendar. A text field with a
+    format hint was the alternative and is worse: every reviewer here is
+    on a browser that has one, and a typed date is a typed date to get
+    wrong.
+    {% endcomment %}
+    <span class="js-custom-range{% if params.days != 'custom' %} hidden{% endif %}">
+      <label>From
+        <input type="date" name="since" value="{{ params.since|default:'' }}">
+      </label>
+      <label>To
+        <input type="date" name="until" value="{{ params.until|default:'' }}">
+      </label>
+    </span>
     <label>Dataset
       <select name="dataset">
         <option value="">all</option>
@@ -141,6 +160,22 @@
   do it loses every decision marked on the way down. Shared with the
   proposals queue, which opens a publisher record the same way.
   {% endcomment %}
+  {% comment %}
+  The two date fields follow the window select. Without script they are
+  visible whenever the URL says `days=custom`, which is the state the
+  server renders; this only spares a reviewer the sight of them while
+  they are on "Last 30 days".
+  {% endcomment %}
+  <script>
+(function () {
+  const select = document.querySelector(".filter-bar .js-window");
+  const range = document.querySelector(".filter-bar .js-custom-range");
+  if (!select || !range) return;
+  const show = () => range.classList.toggle("hidden", select.value !== "custom");
+  select.addEventListener("change", show);
+  show();
+})();
+  </script>
   <script defer src="{% static 'js/record-editor.js' %}"></script>
   {% comment %}
   What the marked decision will do, in the row's own words, before it is

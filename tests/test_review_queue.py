@@ -115,7 +115,7 @@ def flagged(crawler_schema):
         article=bulk, skip_reason="paywall_stub_exported_unenriched"
     )
 
-    empty = _article("empty", cl1, "Photo gallery", "not_article", text="")
+    empty = _article("empty", cl1, "Fair pictures", "not_article", text="")
     ArticleEnrichment.objects.create(
         article=empty, content_gate_reason="no_body_text", is_news_content=False
     )
@@ -178,13 +178,21 @@ def flagged(crawler_schema):
 
 
 def _titles(response):
+    """The story titles on the page.
+
+    These are matched as substrings of the whole document, so a fixture
+    title must not also be something the page says on its own account.
+    "Fair pictures" was one until the type list gained an option of that
+    name -- rendered on every row, so every response then contained it
+    and seven tests passed or failed on the control rather than the row.
+    """
     content = response.content.decode()
     return [
         title
         for title in (
             "Subscribers only: council votes",
             "Paywalled: county budget",
-            "Photo gallery",
+            "Fair pictures",
             "County budget hearing draws a crowd",
             "Local firm wins a contract in Berlin",
             "Council debates a treaty resolution",
@@ -223,7 +231,7 @@ def test_queue_selects_the_three_flagged_cases_only(client, viewer, flagged):
     # case -- short, unbylined, with a reason from the gate.
     titles = _titles(client.get(URL, {"all": "1"}))
     assert "Subscribers only: council votes" in titles
-    assert "Photo gallery" in titles
+    assert "Fair pictures" in titles
     assert "County budget hearing draws a crowd" in titles
     assert "Local firm wins a contract in Berlin" in titles
     # An enriched article is not a review item.
@@ -242,7 +250,7 @@ def test_case_filter_narrows_to_one_case(client, viewer, flagged):
         "Paywalled: county budget",
     }
     assert set(_titles(client.get(URL, {"case": "minimal_capture"}))) == {
-        "Photo gallery",
+        "Fair pictures",
         "County budget hearing draws a crowd",
     }
     assert set(_titles(client.get(URL, {"case": "scope_mislabel"}))) == {
@@ -267,7 +275,7 @@ def test_longest_captures_come_first(client, viewer, flagged):
         content.index("Local firm wins a contract in Berlin"),
         content.index("County budget hearing draws a crowd"),
         content.index("Subscribers only: council votes"),
-        content.index("Photo gallery"),
+        content.index("Fair pictures"),
     ]
     assert positions == sorted(positions)
 
@@ -307,7 +315,7 @@ def test_bands_combine_with_a_case(client, viewer, flagged):
 
 
 def test_empty_band_selects_articles_with_no_text(client, viewer, flagged):
-    assert _titles(client.get(URL, {"band": "empty"})) == ["Photo gallery"]
+    assert _titles(client.get(URL, {"band": "empty"})) == ["Fair pictures"]
 
 
 def test_case_facet_counts(client, viewer, flagged):
@@ -331,7 +339,7 @@ def test_dataset_filter_follows_membership(client, viewer, flagged):
     assert set(titles) == {
         "Subscribers only: council votes",
         "Paywalled: county budget",
-        "Photo gallery",
+        "Fair pictures",
     }
 
 
@@ -345,8 +353,8 @@ def test_publisher_filter(client, viewer, flagged):
 
 
 def test_byline_filter(client, viewer, flagged):
-    assert _titles(client.get(URL, {"byline": "no", "all": "1"})) == ["Photo gallery"]
-    assert "Photo gallery" not in _titles(
+    assert _titles(client.get(URL, {"byline": "no", "all": "1"})) == ["Fair pictures"]
+    assert "Fair pictures" not in _titles(
         client.get(URL, {"byline": "yes", "all": "1"})
     )
 
@@ -425,7 +433,7 @@ def test_degrades_without_the_crawler_database(client, viewer):
 def test_htmx_request_gets_only_the_results_fragment(client, viewer, flagged):
     response = client.get(URL, {"all": "1"}, HTTP_HX_REQUEST="true")
     content = response.content.decode()
-    assert "Photo gallery" in content
+    assert "Fair pictures" in content
     assert "<html" not in content
     assert "filter-bar" not in content
 

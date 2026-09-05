@@ -533,7 +533,33 @@ DAY_WINDOWS = (
     ("90", "Last 90 days"),
     ("365", "Last year"),
     ("all", "Everything"),
+    ("custom", "Custom…"),
 )
+
+#: The value that means "read the two dates instead of counting back".
+#:
+#: The windows answer "recently"; a question about a particular month --
+#: the March corpus, the week a publisher changed its template -- has no
+#: number of days that expresses it, and picking 90 and reading past the
+#: rows you did not want is not the same thing.
+CUSTOM = "custom"
+
+
+def _parse_date(value):
+    """A `YYYY-MM-DD` from the form, or None.
+
+    None for anything else, including an empty string and the browser's
+    own idea of a partial date. A half-typed date reads as "no bound"
+    rather than as an error: the field is a filter, and refusing the page
+    while somebody is still typing in it would be worse than showing them
+    a wider range.
+    """
+    from datetime import date
+
+    try:
+        return date.fromisoformat((value or "").strip())
+    except (ValueError, TypeError):
+        return None
 
 
 def _within_the_window(qs, params):
@@ -553,6 +579,8 @@ def _within_the_window(qs, params):
     window = params.get("days") or str(DEFAULT_DAYS)
     if window == "all":
         return qs
+    if window == CUSTOM:
+        return _between_two_dates(qs, params)
     try:
         days = int(window)
     except ValueError:
@@ -566,6 +594,33 @@ def _within_the_window(qs, params):
     return qs.annotate(_dated=Coalesce("publish_date", "created_at")).filter(
         Q(_dated__gte=cutoff) | Q(_dated__isnull=True)
     )
+
+
+def _between_two_dates(qs, params):
+    """Narrow to a chosen range, on the same date the windows use.
+
+    Either bound may be missing, and one alone is a real question -- "since
+    the template changed", "everything before the March export". With
+    neither, this is the whole corpus, which is what `Everything` already
+    means and is the honest reading of a custom range nobody filled in.
+
+    Rows with no date at all are kept for the windows, because they are the
+    worst captures and the queue exists for them. They are dropped here: a
+    reviewer asking for one month is asking for rows they can place in it,
+    and an undated row is not in any month.
+    """
+    from django.db.models.functions import Coalesce
+
+    since = _parse_date(params.get("since"))
+    until = _parse_date(params.get("until"))
+    if not since and not until:
+        return qs
+    qs = qs.annotate(_dated=Coalesce("publish_date", "created_at"))
+    if since:
+        qs = qs.filter(_dated__date__gte=since)
+    if until:
+        qs = qs.filter(_dated__date__lte=until)
+    return qs
 
 
 def _apply_common(qs, params):

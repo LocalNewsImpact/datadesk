@@ -2355,3 +2355,9 @@ tr.dragging{ opacity: .5; }
 /* Under the button, where somebody looks only once the password failed. */
 .auth-password .auth-note{ align-self: flex-start; text-decoration: none; }
 .auth-password .auth-note:hover{ text-decoration: underline; }
+
+/* The custom range's two dates, shown only when the window is Custom.
+   Hidden in CSS rather than removed from the markup, so the range still
+   works with no script and a bookmarked ?days=custom renders it. */
+.js-custom-range{ display: contents; }
+.js-custom-range.hidden{ display: none; }
