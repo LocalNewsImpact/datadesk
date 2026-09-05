@@ -22,3 +22,8 @@ crawler.sqlite3
 # fetches them, never the readings themselves.
 data/sources/*
 !data/sources/README.md
+
+# What make test writes; the floor reads coverage.xml and nothing keeps it.
+.coverage
+coverage.xml
+htmlcov/

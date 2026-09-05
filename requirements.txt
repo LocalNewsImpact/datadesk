@@ -33,4 +33,4 @@ brotli>=1.1
 # The release tarball rather than git+https, for the same reason the
 # crawler uses it: no build stage needs git to install a tarball, and one
 # of these two images does not have git.
-lnic-contracts @ https://github.com/LocalNewsImpact/lnic-contracts/archive/refs/tags/v0.2.0.tar.gz
+lnic-contracts @ https://github.com/LocalNewsImpact/lnic-contracts/archive/refs/tags/v0.3.0.tar.gz

@@ -71,8 +71,8 @@ fmt: $(VENV) ## Apply formatting and safe fixes
 
 # Postgres for the test suite.
 #
-# Locally: docker-compose.test.yml on 5434, so it cannot be confused with
-# the crawler's test database (5432) or the scratch instance (5433).
+# Locally: docker-compose.test.yml on 5435 -- the crawler has 5432 and
+# 5433, the Source Directory 5434 (lnic-contracts docs/shared-ci.md).
 #
 # In CI: a service container the shared workflow provides
 # (lnic-contracts python-checks.yml), which announces itself through the
@@ -80,15 +80,36 @@ fmt: $(VENV) ## Apply formatting and safe fixes
 # database is started -- one `make test` that means the same thing in
 # both places, which is the whole point of the shared pattern.
 DATADESK_TEST_DB_HOST     ?= $(if $(PGHOST),$(PGHOST),127.0.0.1)
-DATADESK_TEST_DB_PORT     ?= $(if $(PGPORT),$(PGPORT),5434)
+DATADESK_TEST_DB_PORT     ?= $(if $(PGPORT),$(PGPORT),5435)
 DATADESK_TEST_DB_USER     ?= $(if $(PGUSER),$(PGUSER),datadesk)
 DATADESK_TEST_DB_PASSWORD ?= $(if $(PGPASSWORD),$(PGPASSWORD),datadesk)
 export DATADESK_TEST_DB_HOST DATADESK_TEST_DB_PORT
 export DATADESK_TEST_DB_USER DATADESK_TEST_DB_PASSWORD
 
 .PHONY: test-db
-test-db: ## Start the local test database and wait for it
+test-db: $(VENV) ## Start the local test database and wait for it
 	docker compose -f docker-compose.test.yml up -d --wait
+# Whoever answers on the port must be this container. A host process
+# already listening there is not an error to Docker Desktop: the
+# container starts, `docker ps` reports the binding, `--wait` passes (the
+# health check runs inside), and the host process keeps answering -- so
+# the suite would run against it. Another container on the port fails
+# loudly; a process does not. So: the cluster's identifier, asked inside
+# the container and asked through the host port, must be the same one.
+	@inside=$$(docker compose -f docker-compose.test.yml exec -T postgres \
+	    psql -U datadesk -tAc 'select system_identifier from pg_control_system()'); \
+	outside=$$($(PY) -c "import psycopg; print(psycopg.connect( \
+	    host='$(DATADESK_TEST_DB_HOST)', port='$(DATADESK_TEST_DB_PORT)', \
+	    user='$(DATADESK_TEST_DB_USER)', password='$(DATADESK_TEST_DB_PASSWORD)', \
+	    dbname='datadesk', connect_timeout=5 \
+	    ).execute('select system_identifier from pg_control_system()').fetchone()[0])" 2>/dev/null); \
+	if [ -z "$$inside" ] || [ "$$inside" != "$$outside" ]; then \
+	  echo "what answers on $(DATADESK_TEST_DB_HOST):$(DATADESK_TEST_DB_PORT) is not the test database" >&2; \
+	  echo "(container cluster $${inside:-unknown}, port answered $${outside:-nothing})." >&2; \
+	  echo "Something else holds the port: lsof -nP -iTCP:$(DATADESK_TEST_DB_PORT) -sTCP:LISTEN" >&2; \
+	  exit 1; \
+	fi; \
+	echo "test database on $(DATADESK_TEST_DB_HOST):$(DATADESK_TEST_DB_PORT) (cluster $$inside)"
 
 .PHONY: test-db-down
 test-db-down: ## Stop the local test database
@@ -104,7 +125,10 @@ test: $(VENV) ## Run the test suite (Postgres, as production is)
 # migration passes pytest and fails the build, so the check belongs here
 # rather than being discovered on a pull request.
 	$(PY) manage.py makemigrations --check --dry-run
-	$(PY) -m pytest
+	$(PY) -m pytest --cov --cov-report=xml --cov-report=term
+# The suite's coverage floor, from the package every repository installs.
+# The shared workflow runs the same file after this target in CI.
+	$(PY) -m lnic_contracts.coverage_floor coverage.xml
 
 # Both need the crawler's real database — the Cloud SQL Auth Proxy, or
 # Cloud Run's socket. Not part of `check`, which must run offline.
