@@ -191,6 +191,7 @@ def test_reject_always_carries_the_disposition():
     assert [choice["value"] for choice in reject.values]
 
 
+@pytest.mark.django_db
 def test_all_three_verbs_are_offered_on_a_row_with_a_body():
     """Restore is offered on rows enrichment has finished with too.
 
@@ -236,6 +237,7 @@ def test_all_three_verbs_are_offered_on_a_row_with_a_body():
     )
 
 
+@pytest.mark.django_db
 def test_restore_names_the_call_it_drops():
     """Asked directly whether restoring an obituary removes the obituary
     call, the page had no answer on it. The status IS the call, and the

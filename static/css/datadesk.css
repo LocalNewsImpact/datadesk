@@ -2383,9 +2383,19 @@ tr.dragging{ opacity: .5; }
 
 /* `table.rec-table tbody th` is nowrap, which is right for the record
    tables it was written for -- a field name -- and wrong for a headline.
-   Here the row header IS the story, and it wraps. */
-.queue-rows tbody th { white-space: normal; color: var(--text); }
-.queue-rows tbody th .rec-read { overflow-wrap: anywhere; }
+   Here the row header IS the story, and it wraps.
+
+   Written as `table.rec-table.queue-rows` and not `.queue-rows`: the rule
+   it overrides is (0,1,3) and a class-plus-two-elements selector is
+   (0,1,2), so the shorter form LOST and the headline still would not
+   wrap. With the widths fixed, a headline that cannot wrap does not push
+   the columns any more -- it overflows across them, which is worse and
+   is what shipped. */
+table.rec-table.queue-rows tbody th { white-space: normal; color: var(--text); }
+table.rec-table.queue-rows tbody th .rec-read { overflow-wrap: anywhere; }
+/* Nothing leaves its column, whatever it is: a URL where a headline
+   should be has no space to break at. */
+.queue-rows th, .queue-rows td { overflow-wrap: anywhere; }
 
 /* The flag a row was raised on, and where the article ended up. The flag
    is the answer to "flagged as"; the status is context for it, not the

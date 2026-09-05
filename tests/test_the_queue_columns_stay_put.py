@@ -114,6 +114,26 @@ def test_the_headline_wraps_rather_than_pushing():
     assert "white-space: normal" in rules
 
 
+def test_the_wrapping_rule_outranks_the_one_it_overrides():
+    """It did not, and the headline still would not wrap.
+
+    `table.rec-table tbody th` is (0,1,3); `.queue-rows tbody th` is
+    (0,1,2) and loses. With the widths fixed, a headline that cannot wrap
+    stops pushing the columns and overflows across them instead, which is
+    worse -- and is what shipped.
+    """
+    for line in CSS.read_text().splitlines():
+        if "white-space: normal" in line and "queue-rows" in line:
+            selector = line.split("{")[0]
+            assert "table.rec-table.queue-rows" in selector, (
+                "the override must be at least as specific as "
+                "`table.rec-table tbody th`"
+            )
+            break
+    else:
+        raise AssertionError("nothing lets the headline wrap")
+
+
 @pytest.mark.django_db(databases=["default", "crawler"])
 def test_the_table_declares_its_columns(client, reviewer, two_headlines):
     client.force_login(reviewer)
@@ -168,6 +188,7 @@ def test_a_paywalled_stub_is_flagged_as_one(client, reviewer, crawler_schema):
     assert "Story cut off by login prompt" in body
 
 
+@pytest.mark.django_db
 def test_the_flag_is_read_from_what_was_recorded():
     """Not from the status: two different flags share `enrichment_skipped`
     and reading it would make them the same row."""
@@ -184,6 +205,7 @@ def test_the_flag_is_read_from_what_was_recorded():
     assert hint == "Story cut off by login prompt"
 
 
+@pytest.mark.django_db
 def test_a_scope_exclusion_keeps_the_place_it_names():
     """`scope_excluded_ukraine` says which somewhere else, and that is
     what a reviewer judges."""
@@ -200,6 +222,7 @@ def test_a_scope_exclusion_keeps_the_place_it_names():
     assert "ukraine" in hint
 
 
+@pytest.mark.django_db
 def test_a_row_with_no_recorded_reason_still_says_something_useful():
     """The case it matched is the flag. Repeating the status here is what
     this replaced."""
