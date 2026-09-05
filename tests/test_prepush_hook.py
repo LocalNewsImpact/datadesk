@@ -23,13 +23,20 @@ INSTALLER = REPO / "scripts" / "setup-hooks.sh"
 
 
 def _run(command, cwd, env=None):
+    # Git exports GIT_DIR to a hook when the push comes from a linked
+    # worktree (from the primary checkout it does not). These tests run
+    # inside the hook, so with that variable inherited the scratch
+    # `git init` below re-initialised the real repository as bare, and
+    # `git config user.email t@e` wrote into its config. Every GIT_*
+    # variable goes, so the scratch repository is the one at `cwd`.
+    clean = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     return subprocess.run(
         command,
         cwd=cwd,
         shell=True,
         capture_output=True,
         text=True,
-        env={**os.environ, **(env or {})},
+        env={**clean, **(env or {})},
     )
 
 
@@ -40,6 +47,24 @@ def test_the_installer_is_valid_shell():
 def test_the_installed_hook_is_valid_shell(tmp_path):
     hook = _install_into(tmp_path)
     assert _run(f"bash -n {hook}", tmp_path).returncode == 0
+
+
+def test_the_scratch_repository_is_not_the_one_git_exported(tmp_path, monkeypatch):
+    """Pushed from a linked worktree, git runs the hook with GIT_DIR set to
+    the pushing repository. The first time this suite ran inside such a
+    hook, the scratch `git init` re-initialised that repository as bare
+    and the test identity landed in its config."""
+    decoy = tmp_path / "decoy"
+    decoy.mkdir()
+    assert _run("git init -q", decoy).returncode == 0
+    before = (decoy / ".git" / "config").read_text()
+    monkeypatch.setenv("GIT_DIR", str(decoy / ".git"))
+
+    hook = _install_into(tmp_path)
+
+    assert hook.exists(), "the hook was installed somewhere other than the scratch repo"
+    assert (decoy / ".git" / "config").read_text() == before
+    assert not (decoy / ".git" / "hooks" / "pre-push").exists()
 
 
 def _install_into(tmp_path):
