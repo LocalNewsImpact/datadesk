@@ -155,12 +155,39 @@ there is text to decide it on.
 ### The four subject-matter rules have never worked
 
 `entertainment`, `obituary`, `us_world_news` and `weather` are exactly
-the four rules whose regexes do not compile (§7). They have never fired.
+the four rules whose regexes do not compile (§7). They have never fired —
+`_load_dynamic_patterns` logs the compile failure and skips the rule, so
+they are dormant rather than dangerous.
 
 That is why the table above can be measured at all — the URLs flowed
 through, so the sample is unbiased — and it means removing them changes
-nothing in production. The rules that do fire are the structural ones,
-which is what this policy would have kept anyway.
+nothing in production.
+
+### Two topic filters do fire, and they are the pattern to follow
+
+Not through the rules table. `verify_url` carries a hardcoded `/opinion/`
+check as its first stage (`url_verification.py:528`), and a wire-service
+check a few stages later. Both skip the fetch, and both are already doing
+what this policy asks: they record the **topic** — `opinion`, `wire` —
+never `not_article`.
+
+| Candidate status | links | of which reached extraction |
+| --- | ---: | ---: |
+| `wire` | 78,225 | 48% |
+| `opinion` | 3,695 | 49% |
+| `obituary` | 3,181 | 92% |
+| `weather` | 2,035 | 97% |
+
+The first two are half-fetched because the URL stage skipped the rest:
+roughly 40,650 wire fetches and 1,870 opinion fetches never happened. The
+last two are the other way round — nothing filters them at the URL stage,
+so their candidate status is extraction's verdict written back.
+
+So topic-based skipping at the URL stage is not a proposal; it is running,
+on the two topics with the clearest signals, recorded honestly. What is
+missing is the record of each decision (§3), without which the precision
+of the `/opinion/` filter cannot be checked at all: the 1,870 URLs it
+skipped were never fetched, so nothing downstream knows what they were.
 
 ### Two changes to how a verdict is reached
 
