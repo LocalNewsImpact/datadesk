@@ -106,27 +106,51 @@ where it has been measured to be nearly always right.
 For URLs that reached extraction, how often the URL's topic hint matched
 what the content stage then decided:
 
-| URL hint | fetched | content stage agreed | ordinary local articles |
+| URL hint | fetched | content stage said the same | filed as ordinary `labeled` |
 | --- | ---: | ---: | ---: |
-| `/nation-world/`, `/us-world-news/` | 3,853 | **99.7% `wire`** | 0.2% |
-| `/obituaries/` | 2,022 | 90.3% `obituary` | **6.6%** |
-| `/opinion/` | 643 | 88.5% `opinion` | **9.3%** |
-| `/weather/` | 747 | 37.3% `weather` | **52.5%** |
-| `/sports/` | 8,803 | — | 76.9% |
+| `/nation-world/`, `/us-world-news/` | 3,853 | 99.7% `wire` | 0.2% |
+| `/obituaries/` | 2,022 | 90.3% `obituary` | 133 |
+| `/opinion/` | 643 | 88.5% `opinion` | 57 |
+| `/weather/` | 747 | 37.3% `weather` | 384 |
 
-One of the five is clear enough to act on. `/nation-world/` is right
-99.7% of the time, and skipping those fetches would cost one local story
-in every five hundred. Obituary and opinion are right about nine times in
-ten, which under this policy is a story lost per ten skipped — a price,
-not a free saving, and one to decide deliberately rather than inherit.
-`/weather/` is an ordinary local story more often than it is weather:
-storm damage, closures and flooding are local news filed under the
-section a reader would look in. `/sports/` is not a filter at all.
+**The residual is not the URL being wrong.** Read the rows: the 133
+obituary-hinted articles the content stage left as `labeled` are
+obituaries; the 384 weather-hinted ones are forecasts, radar pages and
+storm tracking; the 57 opinion-hinted ones are columns, letters and
+"It's Your Call". The hint was right and the content classifier missed
+the category.
 
-**Whatever is acted on is recorded as what it is.** A skipped fetch gets
-a status that says a topic rule skipped it and which one — never
-`not_article` — so it is countable, reversible, and visible in this queue
-as its own facet.
+So this column measures the **content stage's recall**, and agreement is
+only a *lower bound* on the URL hint's precision. `/weather/` looks like
+the worst hint of the four and is not: weather is simply what the content
+stage misses most.
+
+Read as samples rather than as a census — a dozen rows per hint, and
+nearly all of them the topic their URL claimed. The exceptions were
+adjacent rather than wrong: a rising-heating-bills consumer story and a
+Caribbean tropical-storm report, both filed by their publisher under
+weather. Establishing the real precision is what human labels are for
+(§10), and that is a reason to collect them rather than a reason to act
+on the hint now.
+
+Two consequences, and they point in opposite directions from the same
+fact:
+
+- **A topic hint is good enough to be recorded, and good enough to be a
+  prior for the content stage.** It is not good enough, on its own, to
+  skip a fetch: that decision needs the precision measured against human
+  labels rather than against a classifier that is demonstrably missing
+  half of one category. The queue produces those labels.
+- **The content classifier is missing topic content a URL rule finds
+  trivially** — 51% of weather, 8.9% of opinion, 6.6% of obituaries. That
+  is roughly 570 rows sitting in the corpus as ordinary articles: forecast
+  pages and death notices among the local journalism. It is an extraction
+  defect, not a discovery one, and it is listed here because the same
+  measurement found it.
+
+Neither changes the filter policy. A forecast, an obituary and a national
+story are all stories, they all get fetched, and topic is decided where
+there is text to decide it on.
 
 ### The four subject-matter rules have never worked
 
