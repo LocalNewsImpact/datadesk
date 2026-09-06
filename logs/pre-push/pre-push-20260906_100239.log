@@ -1,0 +1,29 @@
+.venv/bin/ruff check .
+All checks passed!
+.venv/bin/black --check .
+All done! ✨ 🍰 ✨
+227 files would be left unchanged.
+.venv/bin/isort --check-only .
+Skipped 2 files
+.venv/bin/mypy .
+datasets/places.py:39: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+datasets/places.py:40: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+explorer/costs.py:244: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+Success: no issues found in 182 source files
+.venv/bin/python manage.py makemigrations --check --dry-run
+No changes detected
+.venv/bin/python -m pytest --cov --cov-report=xml --cov-report=term
+........................................................................ [  4%]
+........................................................................ [  9%]
+........................................................................ [ 14%]
+........................................................................ [ 19%]
+........................................................................ [ 24%]
+........................................................................ [ 29%]
+........................................................................ [ 34%]
+........................................................................ [ 38%]
+........................................................................ [ 43%]
+........................................................................ [ 48%]
+........................................................................ [ 53%]
+........................................................................ [ 58%]
+........................................................................ [ 63%]
+............
