@@ -559,12 +559,19 @@ def test_the_selection_is_exact_values_not_substrings(client, viewer, flagged):
 
 def test_the_queues_vocabulary_matches_production():
     """The values themselves, pinned. Queried from production 2026-08-22;
-    a change to the pipeline's vocabulary must update this list too."""
+    a change to the pipeline's vocabulary must update this list too.
+
+    paywall_stub_rule added 2026-09-06 with the free pre-gate rule that
+    writes it (MizzouNewsCrawler src/enrichment/orchestrator.py). It is
+    the pin working: a reason the pipeline writes and this queue does not
+    know is an article diverted out of review with nothing to show it.
+    """
     from review import queue as q
 
     assert q.PAYWALL_STUB_SKIP_REASONS == (
         "paywall_stub",
         "paywall_stub_exported_unenriched",
+        "paywall_stub_rule",
     )
     assert q.SCOPE_SKIP_REASONS == ("scope_recorded_not_excluded",)
     assert q.SCOPE_SKIP_REASON_PREFIX == "scope_excluded_"
