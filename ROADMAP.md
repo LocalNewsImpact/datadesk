@@ -2375,7 +2375,23 @@ a silently empty map into a sentence.
 `templates/visuals/renderers/`, and the static assets behind them.
 `visuals/models.py` should not need to change.
 
-## 21. The audit log records what changed but never shows it
+## 21. The audit log records what changed but never shows it — **done**
+
+Delivered 2026-09-06 as `/review/audit/<id>/` (PRs #254 and #255). Two
+points below were settled differently from how they are written:
+
+- **A detail page, not inline expansion.** The row is where a revert was
+  asked for without the facts, and putting the values on it keeps the
+  decision in the same cramped place. The page also carries what the rows
+  hold *now*, which is what decides whether to revert and does not fit on
+  a list row.
+- **It did add a field.** `AuditLogEntry.reverts` (migration
+  `audit/0003_reverts`), because "has this been reverted already" was
+  otherwise a question about the wording of free text.
+- **Who may read it** did not arise: the page is admin-only, as the list
+  is, and an admin grant is application-wide by construction.
+
+The original statement follows.
 
 `/review/audit/` lists who, when, which action, which table and which rows.
 It does not show what the values actually were.
@@ -2629,6 +2645,47 @@ be enforced, by leaving it out.
 - **`content_gate_reason` needs a categorical companion**, written where
   the model answers. Without one, "low or no content" is not measurable
   however the dashboard is built.
+
+## 26. The discovery review queue
+
+**Wanted:** the third queue, over the judgement made before extraction —
+is this URL a story? It decides whether a page is ever fetched, and a
+wrong rejection removes an article from the corpus with no row left
+behind to notice.
+
+**The policy the queue measures against:** the URL filter is *generous*.
+It rejects only where a URL cannot be an article whatever it contains,
+and everything else goes to extraction, where there is text to judge on.
+A wrongly accepted URL costs a fetch and is caught downstream; a wrongly
+rejected one costs the article, silently and permanently.
+
+Specified in full in
+[docs/DISCOVERY_REVIEW_QUEUE.md](docs/DISCOVERY_REVIEW_QUEUE.md): that
+policy and what it forbids, what production records (nothing per URL),
+why URL shape and storysniffer's own probability cannot stand in for a
+confidence metric, the four row sets that catch type I and type II
+errors *and* measure them, the two verbs with their qualifier, and how
+the labels are structured so they can train a model rather than only
+correct rows.
+
+**It is blocked on the crawler, and the block is small.** The console
+cannot rank by a confidence nothing writes. `url_verifications` has the
+right columns and no rows, because the implementation that writes it is
+not the one that runs; `storysniffer.guess()` throws away the probability
+its own model computes. Phase 1 of the spec is that recording, plus an
+offline backfill of the existing 245,473 verified links, and nothing
+about any verdict changes.
+
+**Nav:** a new group, Discovery, between Sources and Extraction.
+
+**Three findings the specification work turned up**, all in the crawler
+and none of them waiting on this queue: four of the 46 active
+`verification_patterns` have regexes that do not compile
+(`/(entertainment`, `obituar(y`, `/(us-world-news`, `/(weather`);
+storysniffer's model carries `/2022` as a literal feature, so its
+strongest date signal has aged out; and 66.4% of rejected URLs are ones
+storysniffer would have accepted, overruled by a rule whose identity is
+not recorded.
 
 ## Sequence
 
