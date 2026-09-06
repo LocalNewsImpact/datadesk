@@ -41,6 +41,11 @@ REWIND_TO = {
     ENRICHMENT: "labeled",
 }
 
+#: The statuses that mean "the pipeline should pick this up again",
+#: derived from REWIND_TO rather than written out, so a new stage cannot
+#: add a rewind target this does not know about.
+PIPELINE_REWINDS = frozenset(REWIND_TO.values())
+
 #: Where re-extraction puts the article.
 #:
 #: NOT `extracted`. That status asserts extraction succeeded -- the
@@ -722,6 +727,24 @@ def record(
         article.status = target
         written.append("status")
         rewound = target
+        if target in PIPELINE_REWINDS:
+            # A rewind that leaves the attempt count alone is not a rewind.
+            #
+            # Enrichment selects `status = 'labeled' AND enrichment_attempts
+            # < max_attempts` (enrichment/repository.py). An article that
+            # failed three times before anybody looked at it keeps that
+            # count through the rewind, so it sits at `labeled` where no
+            # stage will ever select it again: never enriched, never
+            # exported, and no longer flagged, because the status it was
+            # flagged on is the one the rewind took away. The record goes
+            # quiet rather than coming back.
+            #
+            # The count is a record of what the pipeline tried on its own.
+            # A person overruling the verdict is exactly the case where
+            # those attempts should stop counting -- the judgement they
+            # produced has just been rejected.
+            article.enrichment_attempts = 0
+            written.append("enrichment_attempts")
     article.save(update_fields=written)
 
     # One record for every queue in the console (review/models.py

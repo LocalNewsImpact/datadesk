@@ -82,8 +82,8 @@ def test_a_restored_row_still_satisfies_the_rest_of_the_enrichment_selector(
     reviewer, crawler_schema
 ):
     """Status alone is not enough. The selector also requires a settled
-    wire check and attempts under the limit -- in production the highest
-    attempt count on these rows is 1, against a limit of 3."""
+    wire check and attempts under the limit of 3 -- a limit production
+    rows have reached, which is why the rewind now clears the count."""
     article = _article("e2", crawler_schema, enrichment_attempts=1)
     record(article, decision="restore", stage=ENRICHMENT, user=reviewer)
     article.refresh_from_db()
@@ -93,15 +93,28 @@ def test_a_restored_row_still_satisfies_the_rest_of_the_enrichment_selector(
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_a_row_at_the_attempt_limit_would_not_be_re_enriched(reviewer, crawler_schema):
-    """The one way this path fails. No production row is here today --
-    the highest is 1 -- but a rewind is not a promise if the selector
-    still excludes it, and this says so rather than assuming."""
+def test_a_row_at_the_attempt_limit_is_cleared_so_it_can_be_re_enriched(
+    reviewer, crawler_schema
+):
+    """The way this path used to fail, and the reason it is fixed.
+
+    This test asserted the failure instead: it said a row at the limit is
+    rewound to a status the selector still excludes, on the grounds that
+    no production row was there. Two reached it (2026-09-06, March
+    Missouri), and the failure is silent by construction -- the article
+    holds `labeled`, which no stage selects at three attempts, so it is
+    never enriched, never exported, and no longer flagged, because the
+    status it was flagged on is the one the rewind took away.
+
+    The count records what the pipeline managed alone. A person
+    overruling that verdict is exactly when it should stop counting.
+    """
     article = _article("e3", crawler_schema, enrichment_attempts=3)
     record(article, decision="restore", stage=ENRICHMENT, user=reviewer)
     article.refresh_from_db()
     assert article.status == ENRICHMENT_SELECTS
-    assert not article.enrichment_attempts < ENRICHMENT_MAX_ATTEMPTS
+    assert article.enrichment_attempts == 0
+    assert article.enrichment_attempts < ENRICHMENT_MAX_ATTEMPTS
 
 
 # --- reject at the extraction and labeling stages -----------------------------
@@ -200,3 +213,48 @@ def test_every_rewind_target_is_a_status_something_selects():
     selected_by_something = set(LABELING_SELECTS) | {ENRICHMENT_SELECTS}
     for stage in (EXTRACTION, LABELING, ENRICHMENT):
         assert rewind_target(stage) in selected_by_something
+
+
+# --- the attempt count travels with the rewind --------------------------------
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+@pytest.mark.parametrize("stage", [EXTRACTION, LABELING])
+def test_a_rewind_to_the_labeler_also_clears_the_count(reviewer, crawler_schema, stage):
+    """`cleaned` reaches enrichment through the labeler, so a count left
+    behind here strands the article one hop later instead of now."""
+    article = _article(f"a-{stage}", crawler_schema, enrichment_attempts=3)
+    record(article, decision="restore", stage=stage, user=reviewer)
+    article.refresh_from_db()
+    assert article.status in LABELING_SELECTS
+    assert article.enrichment_attempts == 0
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_terminal_disposition_leaves_the_count_alone(reviewer, crawler_schema):
+    """Only a rewind clears it. An article being taken OUT of the
+    pipeline keeps its history: nothing will select it, so the count is a
+    record rather than a gate, and erasing it would destroy the evidence
+    of what the pipeline tried."""
+    article = _article("t1", crawler_schema, status="labeled", enrichment_attempts=2)
+    record(
+        article,
+        decision="reject",
+        stage=ENRICHMENT,
+        user=reviewer,
+        content_type="obituary",
+    )
+    article.refresh_from_db()
+    assert article.status not in LABELING_SELECTS
+    assert article.status != ENRICHMENT_SELECTS
+    assert article.enrichment_attempts == 2
+
+
+def test_the_cleared_statuses_are_the_rewind_targets():
+    """Derived, not restated. A new stage adding a rewind target must not
+    be able to introduce one whose count is never cleared."""
+    from review.dispositions import PIPELINE_REWINDS, REWIND_TO
+
+    assert frozenset(REWIND_TO.values()) == PIPELINE_REWINDS
+    assert ENRICHMENT_SELECTS in PIPELINE_REWINDS
+    assert set(LABELING_SELECTS) & PIPELINE_REWINDS
