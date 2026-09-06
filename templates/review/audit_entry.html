@@ -40,8 +40,13 @@
 
   {% for row in rows %}
   <h2>
-    {% if row.link %}<a href="{{ row.link }}" class="mono">{{ row.id }}</a>
-    {% else %}<span class="mono">{{ row.id }}</span>{% endif %}
+    {% if row.link %}<a href="{{ row.link }}" class="mono">{{ row.label|default:row.id }}</a>
+    {% else %}<span class="mono">{{ row.label|default:row.id }}</span>{% endif %}
+    {% comment %}
+    The verb a reviewer chose, where the entry records one. It is the
+    decision being judged, and it is not a column of anything.
+    {% endcomment %}
+    {% if row.decision %}<span class="notice">{{ row.decision }}</span>{% endif %}
     {% if row.present is False %}<span class="notice">no longer present</span>{% endif %}
   </h2>
   {% if row.fields %}
