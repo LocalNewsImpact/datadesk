@@ -22,7 +22,7 @@ from django.contrib.auth.models import User
 from accounts.models import DATADESK, Grant
 from audit.models import AuditLogEntry
 from explorer.models import Article, CandidateLink, Source
-from review import audit_entries
+from review import audit_entries, audit_shapes
 from review.services import audited_update, revert
 
 pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
@@ -209,3 +209,101 @@ def test_the_entry_is_admin_only(client, article):
     entry = audited_update(editor, [article], {"author": "Wrong"}, "edit:author")
     client.force_login(editor)
     assert client.get(f"/review/audit/{entry.pk}/").status_code == 403
+
+
+# --- the queue's own decisions ----------------------------------------------
+#
+# The entries a reviewer most wants to judge are the queue's, and they are
+# recorded in a shape of their own: one entry per session of decisions,
+# `[{"id": …, "status": …}]` before and `[{"id": …, "verb": …, "value": …,
+# "status": …}]` after, against `target_table="article"` -- the subject
+# the queue asks about, not the table it lives in.
+#
+# The page read that list as a map of rows and raised AttributeError:
+# 'list' object has no attribute 'get'. /review/audit/341/ was a 500 in
+# production, and 341 is exactly the kind of entry the page was built for.
+
+
+@pytest.fixture
+def session_entry(editor, article):
+    """One session of extraction decisions, as review/submit.py records it."""
+    return AuditLogEntry.objects.create(
+        actor=editor,
+        action="review.extraction.decide",
+        target_table="article",
+        target_ids=["a1"],
+        before=[{"id": "a1", "status": "labeled"}],
+        after=[
+            {"id": "a1", "verb": "skip", "value": "paywall_stub", "status": "paused"}
+        ],
+        reason="1 decision",
+    )
+
+
+def test_a_session_of_decisions_renders(client, session_entry):
+    content = client.get(f"/review/audit/{session_entry.pk}/").content.decode()
+    assert content.count("Internal Server Error") == 0
+    assert "labeled" in content  # the status it held
+    assert "paused" in content  # the status the decision wrote
+
+
+def test_a_session_shows_the_verb_that_was_chosen(client, session_entry):
+    detail = audit_entries.detail(session_entry)
+    assert detail["shape"] == audit_shapes.SESSION
+    assert detail["rows"][0]["decision"] == "skip paywall_stub"
+    assert [f["name"] for f in detail["rows"][0]["fields"]] == ["status"]
+
+
+def test_a_session_reads_the_article_as_it_stands(client, session_entry, article):
+    """`article` is `labeled` in the fixture and the decision wrote
+    `paused`, so the row has moved since -- which is the whole point of
+    the column."""
+    detail = audit_entries.detail(session_entry)
+    field = detail["rows"][0]["fields"][0]
+    assert field["before"] == "labeled"
+    assert field["after"] == "paused"
+    assert field["now"] == "labeled"
+    assert field["drifted"] is True
+
+
+def test_a_session_links_to_the_article(client, session_entry):
+    content = client.get(f"/review/audit/{session_entry.pk}/").content.decode()
+    assert "/explorer/articles/a1/" in content
+
+
+def test_reverting_a_session_puts_the_status_back(client, session_entry, article):
+    Article.objects.filter(id="a1").update(status="paused")
+    compensating = revert(session_entry.actor, session_entry)
+    article.refresh_from_db()
+    assert article.status == "labeled"
+    assert compensating.reverts_id == session_entry.pk
+
+
+def test_reverting_a_session_withdraws_the_decision(client, session_entry, article):
+    """A status put back while the answer stands rewinds the article out
+    of sight: no longer disposed, and never asked about again."""
+    from review.models import ReviewDecision
+
+    ReviewDecision.objects.create(
+        queue="extraction",
+        subject_type="article",
+        subject_id="a1",
+        field="",
+        question="is_it_an_article",
+        claim="labeled",
+        stage="extraction",
+        verb="skip",
+        before="labeled",
+        after="paused",
+        decided_by=session_entry.actor,
+    )
+    compensating = revert(session_entry.actor, session_entry)
+    assert not ReviewDecision.objects.filter(subject_id="a1").exists()
+    assert "1 decision withdrawn" in compensating.reason
+
+
+def test_a_session_whose_articles_are_gone_says_so(client, session_entry):
+    Article.objects.filter(id="a1").delete()
+    response = client.post(f"/review/audit/{session_entry.pk}/revert/", follow=True)
+    assert response.status_code == 200
+    assert "still there to write" in response.content.decode()

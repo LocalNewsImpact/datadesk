@@ -23,56 +23,32 @@ from django.db import DatabaseError
 from django.urls import reverse
 
 from explorer.dberrors import absent_or_raise
-from review.services import _BY_TABLE, DELETABLE, _read
-
-#: An entry's shape, which is what says how to read `before` and `after`.
-#: The audited write paths record three of them, and everything else in
-#: the log is a hand-written note about something that is not a row of a
-#: crawler table.
-UPDATE = "update"
-CREATION = "creation"
-DELETION = "deletion"
-NOTE = "note"
-
-
-def _shape(entry):
-    """Which of the four an entry is.
-
-    A row-by-row entry is recognised by its `before` keys being exactly
-    its target ids, each holding a field map. `audited_update` and
-    `audited_update_rows` both write that; the notes elsewhere in the log
-    write a flat `{field: value}` beside a target id that is an email or
-    a slug, and reverting one of those would read the field names as row
-    ids.
-    """
-    if entry.before is None and entry.after is not None:
-        return CREATION
-    if entry.after is None and entry.before is not None:
-        return DELETION
-    if _is_per_row(entry.before, entry.target_ids):
-        return UPDATE
-    return NOTE
+from review.audit_shapes import (
+    CREATION,
+    DELETION,
+    NOTE,
+    SESSION,
+    by_id,
+    is_per_row,
+    shape_of,
+)
+from review.services import _BY_TABLE, DELETABLE, SUBJECT_MODELS, _read
 
 
-def _is_per_row(values, target_ids):
-    if not isinstance(values, dict) or not values:
-        return False
-    if set(values) != {str(i) for i in (target_ids or [])}:
-        return False
-    return all(isinstance(v, dict) for v in values.values())
-
-
-def _after_for(entry, row_id):
+def _after_for(entry, shape, row_id):
     """The values this entry wrote to one row.
 
     `audited_update` records one `{field: value}` map for every row it
-    touched; `audited_update_rows` records a map per row. Both are read
-    here so the page does not have to know which path wrote the entry.
+    touched; `audited_update_rows` records a map per row; a session
+    records a list. All three are read here so the page does not have to
+    know which path wrote the entry.
     """
-    after = entry.after or {}
-    if _is_per_row(after, entry.target_ids):
+    if shape == SESSION:
+        return by_id(entry.after).get(row_id, {})
+    after = entry.after
+    if is_per_row(after, entry.target_ids):
         return after.get(row_id, {})
-    return after
+    return after if isinstance(after, dict) else {}
 
 
 def show(value):
@@ -87,8 +63,13 @@ def show(value):
 
 
 def _link(table, row_id):
-    """Where the row can be looked at, for the tables that have a page."""
-    if table == "articles":
+    """Where the row can be looked at, for the tables that have a page.
+
+    Both names for the same thing: the audited write path records the
+    database table (`articles`), and a queue session records the subject
+    type it asks about (`article`).
+    """
+    if table in ("articles", "article"):
         return reverse("explorer:article_detail", args=[row_id])
     return ""
 
@@ -109,10 +90,17 @@ def _live_rows(model, row_ids):
         return None
 
 
-def _fields(entry, row_id, recorded, row):
+#: What a queue session records about the decision rather than about the
+#: row: which verb was chosen, and the qualifier it was given. Shown
+#: beside the row, not as columns of it -- neither is a field of an
+#: article.
+DECISION_KEYS = ("verb", "value")
+
+
+def _fields(entry, shape, row_id, recorded, row):
     """One row's fields: what it held, what was written, what it holds."""
-    written = _after_for(entry, row_id)
-    names = list(recorded) or list(written)
+    written = _after_for(entry, shape, row_id)
+    names = [n for n in (list(recorded) or list(written)) if n not in DECISION_KEYS]
     fields = []
     for name in names:
         wrote = written.get(name)
@@ -134,8 +122,15 @@ def _fields(entry, row_id, recorded, row):
 
 def _rows(entry, shape, model):
     """Each target row, with its fields and whether it is still there."""
-    # A creation has no before-values; what it recorded is what it wrote.
-    recorded_by_id = (entry.after if shape == CREATION else entry.before) or {}
+    # A creation has no before-values; what it recorded is what it
+    # wrote. Only the structured shapes have per-row values at all --
+    # a note's `before` may be a list, a string, or anything else the
+    # writer found useful, and none of it is addressed by row.
+    recorded_by_id = {}
+    if shape == SESSION:
+        recorded_by_id = by_id(entry.before)
+    elif shape != NOTE:
+        recorded_by_id = (entry.after if shape == CREATION else entry.before) or {}
 
     ids = [str(i) for i in (entry.target_ids or [])]
     # A table outside the write boundary has no model to read, which is
@@ -145,12 +140,22 @@ def _rows(entry, shape, model):
     rows = []
     for row_id in ids:
         row = live.get(row_id) if live else None
+        wrote = _after_for(entry, shape, row_id)
         rows.append(
             {
                 "id": row_id,
                 "link": _link(entry.target_table, row_id),
                 "present": (None if live is None or model is None else row is not None),
-                "fields": _fields(entry, row_id, recorded_by_id.get(row_id, {}), row),
+                "fields": _fields(
+                    entry, shape, row_id, recorded_by_id.get(row_id, {}), row
+                ),
+                # The verb a reviewer chose, where one was recorded. It is
+                # the decision the page is being read to judge, and it is
+                # not a column of anything.
+                "decision": " ".join(
+                    str(wrote[key]) for key in DECISION_KEYS if wrote.get(key)
+                ),
+                "label": getattr(row, "title", "") if row is not None else "",
             }
         )
     return rows, live is not None
@@ -188,13 +193,20 @@ def _revertability(entry, shape, model):
         return True, "Reverting deletes the rows this entry created.", None
     if shape == DELETION:
         return True, "Reverting recreates the rows this entry deleted.", None
+    if shape == SESSION:
+        return (
+            True,
+            "Reverting puts each status back and withdraws the decision, so the "
+            "queue asks about these articles again.",
+            None,
+        )
     return True, "Reverting writes the recorded before-values back.", None
 
 
 def detail(entry):
     """Everything the detail page shows about one entry."""
-    shape = _shape(entry)
-    model = _BY_TABLE.get(entry.target_table)
+    shape = shape_of(entry)
+    model = _BY_TABLE.get(entry.target_table) or SUBJECT_MODELS.get(entry.target_table)
     rows, crawler_connected = _rows(entry, shape, model)
     revertable, note, undone_by = _revertability(entry, shape, model)
     return {

@@ -15,6 +15,7 @@ from django.db import router, transaction
 from audit.models import AuditLogEntry
 from datasets.schema import FIELDS as SCHEMA_FIELDS
 from explorer.models import Article, ArticleEnrichment, Dataset, DatasetSource, Source
+from review import audit_shapes
 
 
 class BoundaryViolation(Exception):
@@ -94,6 +95,12 @@ _BY_TABLE = {
     model._meta.db_table: model for model in {*WRITABLE, *CREATABLE, *DELETABLE}
 }
 
+#: The queues record what they asked about, not the table it lives in:
+#: `article`, where the audited write path records `articles`. Both name
+#: the same rows, and a revert of a session of decisions has to resolve
+#: the one to the other.
+SUBJECT_MODELS = {"article": Article}
+
 
 def _read(obj, field):
     """A field, or a key inside a JSON column when the name is dotted."""
@@ -170,6 +177,8 @@ def revert(actor, entry, reason=""):
     Rows that no longer exist are skipped and named in the compensating
     entry's reason rather than failing the rest.
     """
+    if audit_shapes.shape_of(entry) == audit_shapes.SESSION:
+        return _revert_session(actor, entry, reason)
     model = _BY_TABLE.get(entry.target_table)
     if model is None:
         raise BoundaryViolation(f"{entry.target_table} is not writable")
@@ -225,7 +234,7 @@ def repair_text(value):
     return ftfy.fix_text(value, config=_FTFY_CONFIG)
 
 
-def audited_update_rows(actor, model, rows, action, reason=""):
+def audited_update_rows(actor, model, rows, action, reason="", reverts=None):
     """Like audited_update, but each row carries its own values — the
     import apply path (SCOPE.md §2.4). `rows` maps pk → {field: value}.
     Fields must sit inside the write boundary; missing rows fail the
@@ -268,6 +277,7 @@ def audited_update_rows(actor, model, rows, action, reason=""):
             before=before,
             after=dict(rows),
             reason=reason,
+            reverts=reverts,
         )
     return entry
 
@@ -334,6 +344,71 @@ def audited_delete(actor, instances, action, reason="", reverts=None):
             reverts=reverts,
         )
     return entry
+
+
+def _revert_session(actor, entry, reason=""):
+    """Undo a session of queue decisions.
+
+    A queue decision is two writes, and only one of them is on the
+    article. The status went back to the crawler; the answer went to
+    `ReviewDecision`, which is what stops the queue asking again
+    (review/queue.py `_without_answered`). Putting the status back and
+    leaving the answer standing would rewind the article out of sight:
+    no longer disposed, and never asked about again.
+
+    So both come back. The statuses are written through the audited path,
+    and the decisions they answered are withdrawn, which returns the
+    articles to the queue for somebody to decide again.
+    """
+    from review.models import ReviewDecision
+
+    model = SUBJECT_MODELS.get(entry.target_table)
+    if model is None:
+        raise BoundaryViolation(f"{entry.target_table} is not a subject with rows")
+
+    recorded = audit_shapes.by_id(entry.before)
+    wanted = {
+        row_id: {"status": values["status"]}
+        for row_id, values in recorded.items()
+        if values.get("status")
+    }
+    present = {
+        str(pk)
+        for pk in model.objects.filter(pk__in=list(wanted)).values_list("pk", flat=True)
+    }
+    rows = {row_id: values for row_id, values in wanted.items() if row_id in present}
+    if not rows:
+        raise BoundaryViolation(
+            "None of the articles this session decided are still there to write."
+        )
+
+    missing = sorted(set(wanted) - present)
+    # Counted before the write, so the note says what the revert did even
+    # though the decisions live in the other database and cannot join the
+    # same transaction.
+    answered = ReviewDecision.objects.filter(
+        subject_type=entry.target_table, subject_id__in=list(rows)
+    )
+    withdrawn = answered.count()
+
+    note = reason or f"revert of audit entry {entry.pk}"
+    if missing:
+        note += f" (rows no longer present: {', '.join(missing)})"
+    note += (
+        f"; {withdrawn} decision{'' if withdrawn == 1 else 's'} withdrawn, "
+        "so the queue asks again"
+    )
+
+    compensating = audited_update_rows(
+        actor,
+        model,
+        rows,
+        action=f"revert:{entry.action}",
+        reason=note,
+        reverts=entry,
+    )
+    answered.delete()
+    return compensating
 
 
 def _revert_creation(actor, entry, model, reason):
