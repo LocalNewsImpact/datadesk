@@ -253,9 +253,12 @@ it would put 11,900 rejected URLs in the queue on its own.
 The dated-path row is the finding. A `/YYYY/MM/` path is among the
 strongest indicators that a URL is a story, and it is **more** common
 among the URLs the verifier discarded than among the ones it kept:
-**9,350 rejected URLs carry one**. Whatever that is — a rule matching too
-widely, a publisher whose section pages are also dated — it is a type II
-signal sitting in production that nothing surfaces.
+**9,350 rejected URLs carry one**.
+
+That is not the model's doing. Of a random 1,065 rejected URLs with a
+full `/YYYY/MM/` path, storysniffer would have accepted **926 (87%)**,
+and 976 (92%) matched an active rule. The dated pile is being discarded
+by the rules, over the model's objection — §5 and §7.
 
 It is not, however, a substitute for a confidence metric. It ranks URLs
 by one hand-picked feature, which finds the errors that feature happens
@@ -287,10 +290,15 @@ confidence in it.
 Two more properties of the same model, both worth knowing before anyone
 proposes tuning it:
 
-- **Its date feature is hard-coded to 2022.** Six of the 180 features are
-  the literals `/2022`, `/2022/`, `/2022/0`, `2022`, `2022/`, `2022/0`. A
-  `/2026/09/` path matches none of them, which is consistent with the
-  dated-path inversion in §4.
+- **Its vocabulary is year-bound, and it does not matter.** Six of the
+  180 features are the literals `/2022`, `/2022/`, `/2022/0`, `2022`,
+  `2022/`, `2022/0` — an artifact of fitting character n-grams on a
+  2022-era corpus under a 180-feature cap, not a rule anybody wrote.
+  Tested by rewriting the year on 2,051 dated production URLs, the
+  verdict changes in **24 cases (1.2%)**, all of them archive indexes
+  like `/2026/10` with no slug. The shorter n-grams `/2`, `/20`, `/202`
+  match any year and the slug features dominate. Worth knowing before
+  anyone proposes retraining for it; not worth acting on.
 - **The accept path is the model's; the reject path mostly is not.** Run
   over the same 6,000 URLs, `guess()` agrees with 99.6% of the
   acceptances and with only 33.6% of the rejections: **66.4% of rejected

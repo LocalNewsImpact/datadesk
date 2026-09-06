@@ -2682,10 +2682,10 @@ about any verdict changes.
 and none of them waiting on this queue: four of the 46 active
 `verification_patterns` have regexes that do not compile
 (`/(entertainment`, `obituar(y`, `/(us-world-news`, `/(weather`);
-storysniffer's model carries `/2022` as a literal feature, so its
-strongest date signal has aged out; and 66.4% of rejected URLs are ones
-storysniffer would have accepted, overruled by a rule whose identity is
-not recorded.
+and 66.4% of rejected URLs are ones storysniffer would have accepted,
+overruled by a rule whose identity is not recorded — including 87% of
+the rejected URLs that carry a full dated path, which is the strongest
+story signal a URL has.
 
 **And one in the extraction stage.** Measuring URL topic hints against
 what the content classifier decided found the classifier, not the hints,
