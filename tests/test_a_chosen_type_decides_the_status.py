@@ -27,15 +27,27 @@ from django.contrib.auth.models import User
 
 from explorer.models import Article, CandidateLink, Source
 from review.dispositions import (
+    BAD_CAPTURE,
     EXPORTED_STATUSES,
     EXTRACTION,
+    REWIND,
     TYPE_BECOMES,
     record,
 )
 from review.models import ReviewDecision
 
-#: Not processed and not exported. The whole list except the stub.
-EXCLUDING = ("not_article", "obituary", "weather", "opinion", "wire", "out_of_scope")
+#: Not processed and not exported: every type except the stub, the two
+#: that are not a fixed status at all, and the broken-capture answer.
+#:
+#: Derived rather than listed. Written out by hand it was missing `video`
+#: and `photo_gallery` from the day they were added, so the tests below
+#: stopped covering new types silently -- which is exactly the shape of
+#: bug they exist to catch.
+EXCLUDING = tuple(
+    chosen
+    for chosen, status in TYPE_BECOMES.items()
+    if chosen != BAD_CAPTURE and status != REWIND and status not in EXPORTED_STATUSES
+)
 
 
 @pytest.fixture
@@ -71,7 +83,12 @@ def test_a_chosen_type_takes_it_out_of_the_export(chosen, reviewer, crawler_sche
         content_type=chosen,
     )
     article.refresh_from_db()
-    assert article.status == chosen
+    # The status the type maps to, not the type itself. Several types
+    # share one status on purpose -- a video, a photo gallery, an events
+    # calendar and a page of the printed edition are all `not_article` to
+    # every later stage -- and asserting the value equalled the status is
+    # what kept this list hand-written and one type behind.
+    assert article.status == TYPE_BECOMES[chosen]
     assert article.status not in EXPORTED_STATUSES
 
 

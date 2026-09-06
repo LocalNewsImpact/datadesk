@@ -381,6 +381,14 @@ TYPE_BECOMES = {
     # the article carries the general status.
     "video": "not_article",
     "photo_gallery": "not_article",
+    # Same shape, and the three a reviewer kept having to call "Not an
+    # article", losing which one it was. An events calendar, a named
+    # column and a page of the printed edition are each a recognisable
+    # thing a parser keeps mistaking for a story, and counting them per
+    # publisher is how the parser gets fixed.
+    "event": "not_article",
+    "column": "not_article",
+    "e_edition": "not_article",
     BAD_CAPTURE: REEXTRACT_TO,
 }
 
@@ -398,6 +406,13 @@ CONTENT_TYPES = (
     {"value": "out_of_scope", "label": "Non-local"},
     {"value": "video", "label": "Video"},
     {"value": "photo_gallery", "label": "Photo gallery"},
+    {"value": "event", "label": "Event listing"},
+    {"value": "column", "label": "Column"},
+    # `e_edition` rather than `e-edition`: the value is posted in a form
+    # and matched against TYPE_BECOMES, and every other value here is a
+    # bare identifier. The hyphen is in the label, which is what a
+    # reviewer reads.
+    {"value": "e_edition", "label": "E-edition"},
     {
         "value": BAD_CAPTURE,
         "label": "An article, but the body is garbage",
