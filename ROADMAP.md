@@ -2687,6 +2687,13 @@ strongest date signal has aged out; and 66.4% of rejected URLs are ones
 storysniffer would have accepted, overruled by a rule whose identity is
 not recorded.
 
+**And one in the extraction stage.** Measuring URL topic hints against
+what the content classifier decided found the classifier, not the hints,
+to be the inaccurate side: it leaves 51% of weather-section articles,
+8.9% of opinion and 6.6% of obituaries as ordinary `labeled` rows.
+Roughly 570 forecast pages and death notices are in the corpus as
+analysable local journalism. Item 25's territory, found here.
+
 ## Sequence
 
 1. **Item 1** first: items 5 and 6 both need dataset-scoped roles, and
