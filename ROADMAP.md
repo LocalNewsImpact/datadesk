@@ -2687,12 +2687,93 @@ overruled by a rule whose identity is not recorded — including 87% of
 the rejected URLs that carry a full dated path, which is the strongest
 story signal a URL has.
 
-**And one in the extraction stage.** Measuring URL topic hints against
-what the content classifier decided found the classifier, not the hints,
-to be the inaccurate side: it leaves 51% of weather-section articles,
-8.9% of opinion and 6.6% of obituaries as ordinary `labeled` rows.
-Roughly 570 forecast pages and death notices are in the corpus as
-analysable local journalism. Item 25's territory, found here.
+**And one for the extraction queue**, found by the same measurement and
+written up as item 27: the topic classifier over-allows, which is the
+right direction, and the cost lands on the people who work the queue.
+
+## 27. Telling an obituary from a story about a death
+
+**The problem, in the reviewers' words:** many stories about deaths and
+funerals are counted as obituaries when they are not, so working the
+queue means reading a great many clear obituaries in order to find and
+restore the handful of articles about people who have died. The same
+shape holds for weather: a forecast or a radar chart should be excluded,
+a story about what a storm did to a town should not.
+
+**The policy is to over-allow.** A forecast wrongly kept costs one row an
+analyst ignores. A story about a storm's damage, or about a person who
+has died, wrongly filed as weather or obituary is local journalism
+removed from the corpus with no trace. Until something can separate them,
+ambiguous cases stay in — and the cost of that lands here, as review
+volume.
+
+### The labels already exist
+
+754 human decisions on articles claimed `obituary`: **607 accepted** (the
+status stands — a true obituary) and **147 restored** ("it is an ordinary
+story"). That is a labelled set, collected by the people who work the
+queue, and it is what the triage below is measured against rather than
+against anybody's intuition.
+
+### What separates them, measured
+
+| Feature | true obituary (607) | misfiled story (147) |
+| --- | ---: | ---: |
+| **has a byline** | 51 (8.4%) | **125 (85.0%)** |
+| verb in the title (*dies, killed, remembered, honors, mourn*) | 1 | **35 (23.8%)** |
+| obit markers in the text (*survived by, visitation, in lieu of flowers*) | 594 (97.9%) | **55 (37.4%)** |
+| name-plus-dates title | 133 (21.9%) | 2 (1.4%) |
+| byline that is a funeral home or `Legacy` | 0 | 0 |
+
+**The byline is the signal.** An obituary is filed by a funeral home and
+carries no reporter; a story about a death is written by somebody. Two
+plausible-sounding signals are worth recording as dead ends: the obit
+markers have superb recall and fire on **more than a third of the
+restored stories** — a news story about a death mentions funeral services
+and survivors too — so they can never approve a row on their own; and the
+funeral-home byline, which looked strong in a sample, matches **nothing**
+in the reviewed set.
+
+### The triage, and what it saves
+
+| Band | true obits | misfiled stories |
+| --- | ---: | ---: |
+| **Auto-confirm** — no byline **and** obit markers | 546 | 9 |
+| **Review** — has a byline, or a verb in the title | 51 | **126** |
+| Review — no byline, no markers | 10 | 12 |
+
+73.6% of the pile clears at **98.4% precision**. The queue goes from 754
+rows to 199, and 138 of those 199 are rows that need action — the
+reviewer's time moves from confirming obituaries to restoring
+journalism. Over the full 4,282-row obituary corpus that is roughly 3,150
+rows off the queue.
+
+The cost is nine misfiled stories inside the 546 auto-confirmed, 1.6%.
+Under the over-allow policy that is the number to tune, and the lever is
+there: 80% of restored stories contain a quotation against 52% of true
+obituaries, so routing quoted rows to review trades auto-confirm volume
+for leakage.
+
+### Two more things the same reading found
+
+- **A surname-first title** ("Callahan, Dennis Lee") is an obituary, and a
+  parenthesised date range — "(August 17, 1965 - March 21, 2026)" — is one
+  the name-plus-dates test misses. Both belong in the title-shape rule.
+- **Index pages are being extracted as articles**: "Obit Index", "St.
+  Louis obituaries for February 17", "11/29/2025 - Northwest MO Info".
+  Those are section indexes and belong to item 26's queue, which is where
+  a URL that is not a story is supposed to be caught.
+
+### What to build
+
+The three bands as an obituary facet on the extraction queue, so a
+reviewer confirms the auto-confirm band in bulk and reads only the other
+two. Weather gets the same treatment once its signals are measured the
+same way — a forecast has no byline, a recurring title shape per
+publisher and a templated body — and the decisions this facet produces
+are the training set for a classifier later, which is the right order:
+the rule is cheap, measurable today, and its errors are what a model
+would need to learn from anyway.
 
 ## Sequence
 
