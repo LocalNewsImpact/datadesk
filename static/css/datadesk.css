@@ -1199,16 +1199,24 @@ label.stacked .required {
   gap: var(--s-2);
   margin: 0 0 var(--s-1);
 }
-.publisher .goes-to {
-  flex: 0 0 3.4rem;
+/* The owner's label, wherever it appears: the paywalls page's publisher
+   column and the extraction queue's publisher header. Said once so the
+   two cannot drift into two different-looking answers to the same
+   question. */
+.publisher .goes-to,
+.rec-head .goes-to {
   font-size: var(--fs-2xs);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-3);
 }
+/* Only the paywalls column reserves a gutter, so its labels line up down
+   the column. In the queue header the label sits inline after the name. */
+.publisher .goes-to { flex: 0 0 3.4rem; }
 /* The owner is a fact, not a destination: same row shape as the links
    above it so the labels line up, but not styled as one. */
-.publisher .owner { font-size: var(--fs-sm); color: var(--text-2); }
+.publisher .owner,
+.rec-head .owner { font-size: var(--fs-sm); color: var(--text-2); }
 .publisher .no-paywall { margin-top: var(--s-1); font-size: var(--fs-sm); }
 
 /* The paywall row's form. Labels sit beside their fields rather than

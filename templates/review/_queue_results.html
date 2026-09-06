@@ -49,6 +49,19 @@ marked on the way down.
          data-record="{{ group.source.id }}">{{ group.label }}</a>
       {% else %}{{ group.label }}{% endif %}
     </h2>
+    {% comment %}
+    Who owns the publication, in the same words and the same style the
+    paywalls page uses for it. A run of flagged stories is often one
+    chain's house style rather than one newsroom's, and the owner is what
+    makes that visible without opening a record.
+
+    Only where the record carries one -- 254 of 1,149 sources do -- so
+    the rest get no labelled blank.
+    {% endcomment %}
+    {% if group.source.owner %}
+    <span class="goes-to">Owner</span>
+    <span class="owner">{{ group.source.owner }}</span>
+    {% endif %}
     <span class="rec-src">{{ group.articles|length }} flagged</span>
   </header>
 
