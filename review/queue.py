@@ -57,12 +57,19 @@ DOUBTED_CONTENT_TYPE = "doubted_content_type"
 #: the crawler holds would have been invisible here.
 HELD_FOR_REVIEW = "held_for_review"
 
-# article_enrichment.skip_reason, as production actually holds it. Two
-# spellings mean the same thing: the bulk March update wrote
-# paywall_stub_exported_unenriched, and the live pipeline writes
-# paywall_stub (src/enrichment/orchestrator.py,
-# _GATE_VERDICT_SKIP_REASON). Both belong in the queue.
-PAYWALL_STUB_SKIP_REASONS = ("paywall_stub", "paywall_stub_exported_unenriched")
+# article_enrichment.skip_reason, as production actually holds it. Three
+# spellings mean one finding: the bulk March update wrote
+# paywall_stub_exported_unenriched, the LLM content gate writes
+# paywall_stub, and the free rule ahead of it writes paywall_stub_rule
+# (src/enrichment/orchestrator.py, PAYWALL_RULE_SKIP_REASON). All belong
+# in the queue -- the rule diverts these before the model ever sees them,
+# so if this list missed it they would leave the queue entirely, which is
+# the opposite of what a new rule needs while it is being judged.
+PAYWALL_STUB_SKIP_REASONS = (
+    "paywall_stub",
+    "paywall_stub_exported_unenriched",
+    "paywall_stub_rule",
+)
 
 # Scope exclusions kept for export with the scope recorded. The bulk
 # update wrote scope_recorded_not_excluded; the pipeline now writes
@@ -579,6 +586,14 @@ FLAGS = {
     "paywall_stub_exported_unenriched": (
         "paywall_stub",
         "Story cut off by login prompt",
+    ),
+    # Said differently on purpose. The finding is the same, the evidence
+    # is not: a phrase and a length, which a reviewer can check and this
+    # project can retune, rather than a model's judgement. A reviewer who
+    # cannot tell the two apart cannot tell whether the rule is right.
+    "paywall_stub_rule": (
+        "paywall_stub_rule",
+        "Login prompt matched by rule, before AI review",
     ),
     "scope_recorded_not_excluded": (
         "scope_recorded",
