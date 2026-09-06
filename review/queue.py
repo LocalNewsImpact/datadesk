@@ -796,17 +796,49 @@ def doubtful_q():
     )
 
 
-def queued(params, user):
-    """The queue itself: longest captures first.
+#: The filters that mean somebody asked for a particular set of rows,
+#: rather than arriving at the queue.
+_EXPLICIT = ("case", "band", "skip", "label", "byline", "publisher", "dataset", "all")
 
-    Length descending is the useful default — the wrongly flagged
-    articles are the long ones, and putting them on the first page is the
-    point of the queue.
+
+def _asked_for_something(params) -> bool:
+    return any(params.get(key) for key in _EXPLICIT)
+
+
+def _population(qs, params, *, landing_narrowing=True):
+    """Everything the queue is asking about, before any one facet narrows it.
+
+    The rows and the facet counts have to come from the same set, and did
+    not. `queued` dropped answered questions and, on the landing view,
+    narrowed to what there is recorded reason to doubt; the band and case
+    counts skipped both and were computed straight off `_apply_common`.
+    So the chips counted rows the list would not show -- decided ones
+    always, and on a bare queue the whole flagged backlog. Filtering to
+    one month of one dataset still showed bands adding to 1,218 against a
+    shorter list, which reads as the filters not being applied at all.
+
+    `params` is what the reader asked for, even where the caller has
+    dropped a facet from the queryset to count it: `case_facets` removes
+    `case` so each chip shows its own total, and that must not turn the
+    landing-view narrowing back on for a reader who did choose a case.
+
+    `landing_narrowing` is off for the facet counts, because a chip
+    promises what clicking it will show and clicking it IS an explicit
+    filter -- which switches that narrowing off. Counting the chips the
+    same way as the landing list made "No text" read 0, and that band
+    exists precisely to surface the captures the narrowing hides.
     """
-    qs = _apply_common(base_queryset(user), params)
-    band = params.get("band")
-    if band in BAND_BOUNDS:
-        qs = _apply_band(qs, band)
+    # A question somebody already answered is not a question. `accept`
+    # writes nothing to the article -- its status already excludes it --
+    # so without this an accepted article matches its case forever and is
+    # asked about on every visit.
+    #
+    # Keyed on (article, question), never on the article alone: a byline
+    # later found to be garbage is a NEW question about an article whose
+    # classification was settled, and must still be askable.
+    if params.get("state") != "all":
+        qs = _without_answered(qs)
+
     # The landing view holds what there is recorded reason to doubt: at
     # 175 extraction rejections per active day against roughly 815
     # articles, the unfiltered queue is a backlog nobody works.
@@ -815,43 +847,28 @@ def queued(params, user):
     # case, or one publisher, is asking to see what matches -- and the
     # empty band exists precisely to show the captures this narrowing
     # would otherwise hide.
-    asked_for_something = any(
-        params.get(key)
-        for key in (
-            "case",
-            "band",
-            "skip",
-            "label",
-            "byline",
-            "publisher",
-            "dataset",
-            "all",
-        )
-    )
-    # A question somebody already answered is not a question. `accept`
-    # writes nothing to the article -- its status already excludes it --
-    # so without this an accepted article matches its case forever and is
-    # asked about on every visit. `answered_questions` existed for this
-    # and nothing called it.
-    #
-    # Keyed on (article, question), never on the article alone: a byline
-    # later found to be garbage is a NEW question about an article whose
-    # classification was settled, and must still be askable.
-    if params.get("state") != "all":
-        qs = _without_answered(qs)
-
-    if not asked_for_something:
+    if landing_narrowing and not _asked_for_something(params):
         # Matched by id rather than by filtering the rows and calling
         # `.distinct()`. The telemetry join can repeat a row, and DISTINCT
         # over a selected row fails in Postgres -- "could not identify an
         # equality operator for type json" -- because `articles` carries
         # json columns. `IN` de-duplicates without comparing them.
-        #
-        # SQLite compares json as text and accepted it, so every test
-        # passed while the page returned an error the view reported as
-        # "crawler database not connected".
         doubtful_ids = qs.filter(doubtful_q()).values("id")
         qs = qs.filter(id__in=doubtful_ids)
+    return qs
+
+
+def queued(params, user):
+    """The queue itself: longest captures first.
+
+    Length descending is the useful default — the wrongly flagged
+    articles are the long ones, and putting them on the first page is the
+    point of the queue.
+    """
+    qs = _population(_apply_common(base_queryset(user), params), params)
+    band = params.get("band")
+    if band in BAND_BOUNDS:
+        qs = _apply_band(qs, band)
     return qs.order_by("-text_length", "-created_at")
 
 
@@ -928,8 +945,15 @@ def band_facets(params, user):
 
     A facet that counted only the selected band would always read as the
     result count and tell the operator nothing.
+
+    The band itself is the one thing not applied; everything else the
+    list does, including dropping answered questions, is applied here
+    through `_population` so a chip cannot promise rows the list will
+    not show.
     """
-    qs = _apply_common(base_queryset(user), params)
+    qs = _population(
+        _apply_common(base_queryset(user), params), params, landing_narrowing=False
+    )
     counts = qs.aggregate(
         **{
             key: Count(
@@ -964,7 +988,11 @@ def case_facets(params, user):
     # .copy() rather than dict(): a QueryDict's dict() flattens to lists.
     scoped = params.copy()
     scoped.pop("case", None)
-    qs = _apply_common(base_queryset(user), scoped)
+    # `scoped` builds the queryset -- without the case, so each chip counts
+    # its own -- while `params` says what the reader actually asked for.
+    qs = _population(
+        _apply_common(base_queryset(user), scoped), params, landing_narrowing=False
+    )
     band = params.get("band")
     if band in BAND_BOUNDS:
         qs = _apply_band(qs, band)
