@@ -5,7 +5,9 @@
 <section class="card card-wide">
   <h1>Audit log</h1>
   <p class="notice">Append-only. Reverts apply the recorded before-values
-  back as a new entry; history is never edited.</p>
+  back as a new entry; history is never edited. Open an entry to see what
+  it changed, what the rows hold now, and whether reverting it is the
+  right answer.</p>
   <table class="grid">
     <thead>
       <tr>
@@ -23,16 +25,17 @@
       <tr>
         <td class="nowrap">{{ entry.timestamp|date:"Y-m-d H:i" }}</td>
         <td>{{ entry.actor.email }}</td>
-        <td>{{ entry.action }}</td>
+        <td>{{ entry.action }}{% for undone in entry.reverted_by.all %}
+          <span class="notice">reverted by {{ undone.pk }}</span>{% endfor %}</td>
         <td>{{ entry.target_table }}</td>
         <td class="count">{{ entry.target_ids|length }}</td>
         <td>{{ entry.reason|truncatechars:60 }}</td>
-        <td>
-          <form method="post" action="{% url 'review:revert' entry.pk %}">
-            {% csrf_token %}
-            <button type="submit" class="linklike">Revert</button>
-          </form>
-        </td>
+        {% comment %}
+        Revert lives on the entry, not here. A button beside an action
+        name and sixty characters of reason asks for a decision the row
+        does not carry the facts for.
+        {% endcomment %}
+        <td><a href="{% url 'review:audit_entry' entry.pk %}">Open</a></td>
       </tr>
       {% empty %}
       <tr><td colspan="7" class="notice">No entries yet.</td></tr>

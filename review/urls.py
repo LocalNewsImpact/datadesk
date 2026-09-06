@@ -30,5 +30,6 @@ urlpatterns = [
     path("paywalls/", views.paywalls, name="paywalls"),
     path("schema/", views.schema, name="schema"),
     path("audit/", views.audit_log, name="audit_log"),
+    path("audit/<int:entry_id>/", views.audit_entry, name="audit_entry"),
     path("audit/<int:entry_id>/revert/", views.revert_entry, name="revert"),
 ]

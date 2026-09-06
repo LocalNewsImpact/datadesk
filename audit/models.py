@@ -30,6 +30,19 @@ class AuditLogEntry(models.Model):
     after = models.JSONField(null=True, blank=True)
     # Dispositions carry recorded reasons (SCOPE.md §2.2); free text.
     reason = models.TextField(blank=True, default="")
+    # The entry this one undoes, on a compensating action. Recorded as a
+    # link because the alternative was reading it out of the reason text
+    # -- which `revert()` only writes when the reviewer gives no reason
+    # of their own, so "has this been reverted already?" had no reliable
+    # answer, and the page that has to ask it is the one that decides
+    # whether to revert again.
+    reverts = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="reverted_by",
+    )
 
     class Meta:
         ordering = ["-timestamp"]

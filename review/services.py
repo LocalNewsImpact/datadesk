@@ -210,6 +210,7 @@ def revert(actor, entry, reason=""):
             before=before,
             after=applied,
             reason=note,
+            reverts=entry,
         )
     return compensating
 
@@ -280,7 +281,7 @@ def _row_values(obj):
     return values
 
 
-def audited_create(actor, instances, action, reason=""):
+def audited_create(actor, instances, action, reason="", reverts=None):
     """Create rows with a full-values audit record (before=None)."""
     instances = list(instances)
     if not instances:
@@ -302,11 +303,12 @@ def audited_create(actor, instances, action, reason=""):
             before=None,
             after=after,
             reason=reason,
+            reverts=reverts,
         )
     return entry
 
 
-def audited_delete(actor, instances, action, reason=""):
+def audited_delete(actor, instances, action, reason="", reverts=None):
     """Delete rows with a full-values audit record (after=None), so a
     revert can recreate them."""
     instances = list(instances)
@@ -329,6 +331,7 @@ def audited_delete(actor, instances, action, reason=""):
             before=before,
             after=None,
             reason=reason,
+            reverts=reverts,
         )
     return entry
 
@@ -347,6 +350,7 @@ def _revert_creation(actor, entry, model, reason):
         instances,
         action=f"revert:{entry.action}",
         reason=reason or f"revert of audit entry {entry.pk}",
+        reverts=entry,
     )
 
 
@@ -358,6 +362,7 @@ def _revert_deletion(actor, entry, model, reason):
         instances,
         action=f"revert:{entry.action}",
         reason=reason or f"revert of audit entry {entry.pk}",
+        reverts=entry,
     )
 
 
