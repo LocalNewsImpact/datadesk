@@ -96,6 +96,14 @@ marked on the way down.
             {% if article.publish_date %}{{ article.publish_date|date:"j M Y" }} · {% endif %}
             {{ article.text_length }} character{{ article.text_length|pluralize }}
           </span>
+          {% comment %}
+          The byline belongs to the story, not to what the article "has":
+          a reviewer reads headline, date, length, byline as one block
+          about the same thing, and it was two columns away.
+          {% endcomment %}
+          <span class="sub byline">
+            {% if article.author %}by {{ article.author }}{% else %}no byline{% endif %}
+          </span>
           {% if article.note_problem %}
           {% comment %}
           Held, and unable to be released: the note has lost the status it
@@ -117,16 +125,21 @@ marked on the way down.
           <span class="sub status-note">status:
             <span class="chip" data-status="{{ article.status }}" title="{{ article.status }}">{{ article.status|status_label }}</span>
           </span>
+          {% comment %}
+          Under the status rather than beside the byline. Both say where
+          the article stands with the pipeline -- "Exported unenriched"
+          and "Local" are read together -- while the byline is a fact
+          about the story.
+          {% endcomment %}
+          <span class="sub wire-note">
+            <span class="chip" data-wire="{{ article.wire_check_status|wire_tone }}" title="{{ article.wire_check_status }}">{{ article.wire_check_status|wire_label }}{% if article.wire_services %}: {{ article.wire_services|join:", " }}{% endif %}</span>
+          </span>
         </td>
         <td>
           {% if article.primary_label %}
           <span class="val">{{ article.primary_label }}</span>
           {% include "_confidence.html" with value=article.primary_label_confidence %}
           {% else %}<span class="none">no CIN label</span>{% endif %}
-          <span class="sub">
-            {% if article.author %}by {{ article.author }}{% else %}no byline{% endif %}
-            · <span class="chip" data-wire="{{ article.wire_check_status|wire_tone }}" title="{{ article.wire_check_status }}">{{ article.wire_check_status|wire_label }}{% if article.wire_services %}: {{ article.wire_services|join:", " }}{% endif %}</span>
-          </span>
         </td>
         <td class="option decide">
           {% if article.decision %}

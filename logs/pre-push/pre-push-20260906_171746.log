@@ -1,0 +1,8 @@
+.venv/bin/ruff check .
+All checks passed!
+.venv/bin/black --check .
+would reformat /private/tmp/claude-504/-Users-kiesowd-VSCode-NewsCrawler-MizzouNewsCrawler/9a1c8186-d3dc-4877-880d-3d748700d7f8/scratchpad/dd-types/tests/test_the_queue_row_reads_in_one_place.py
+
+Oh no! 💥 💔 💥
+1 file would be reformatted, 229 files would be left unchanged.
+make: *** [lint] Error 1

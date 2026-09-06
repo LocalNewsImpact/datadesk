@@ -2411,3 +2411,9 @@ table.rec-table.queue-rows tbody th .rec-read { overflow-wrap: anywhere; }
 .queue-rows .flag { font-weight: 600; overflow-wrap: anywhere; }
 .queue-rows .status-note { margin-top: .25rem; }
 .queue-rows .status-note .chip { font-size: .7rem; }
+/* The byline reads as part of the story block, one line below the date
+   and length, so it is spaced away from them rather than crowding them. */
+.queue-rows th .byline { margin-top: .25rem; }
+/* The wire verdict sits under the status it qualifies and matches it. */
+.queue-rows .wire-note { margin-top: .25rem; }
+.queue-rows .wire-note .chip { font-size: .7rem; }
