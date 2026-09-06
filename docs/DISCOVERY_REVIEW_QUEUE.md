@@ -141,12 +141,15 @@ fact:
   skip a fetch: that decision needs the precision measured against human
   labels rather than against a classifier that is demonstrably missing
   half of one category. The queue produces those labels.
-- **The content classifier is missing topic content a URL rule finds
-  trivially** — 51% of weather, 8.9% of opinion, 6.6% of obituaries. That
-  is roughly 570 rows sitting in the corpus as ordinary articles: forecast
-  pages and death notices among the local journalism. It is an extraction
-  defect, not a discovery one, and it is listed here because the same
-  measurement found it.
+- **The content stage lets ambiguous topic rows through, and that is the
+  policy, not a defect.** 51% of weather-section articles, 8.9% of
+  opinion and 6.6% of obituaries stay as ordinary `labeled` rows. The
+  expensive error runs the other way: a forecast wrongly kept costs an
+  analyst one row to ignore, while a story about a storm's damage, or
+  about a person who has died, wrongly filed as weather or obituary is
+  local journalism removed from the corpus. Over-allowing is correct
+  until something can tell those apart, which is item 27's problem, not
+  this queue's.
 
 Neither changes the filter policy. A forecast, an obituary and a national
 story are all stories, they all get fetched, and topic is decided where
