@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Audit entry {{ entry.pk }} — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <p class="breadcrumb"><a href="{% url 'review:audit_log' %}">← Audit log</a></p>
+  <h1>{{ entry.action }}</h1>
+  <p class="lede">
+    {{ entry.actor.email }} on {{ entry.timestamp|date:"Y-m-d H:i" }},
+    {{ entry.target_ids|length }} row{{ entry.target_ids|length|pluralize }}
+    of <span class="mono">{{ entry.target_table }}</span>.
+  </p>
+
+  {% if entry.reason %}<p>{{ entry.reason }}</p>{% endif %}
+
+  {% comment %}
+  Where this entry sits in a chain. A revert is an entry like any other,
+  and reading one without saying what it undid leaves a reader looking at
+  values with no origin.
+  {% endcomment %}
+  {% if reverts %}
+  <p class="notice">Reverts
+    <a href="{% url 'review:audit_entry' reverts.pk %}">entry {{ reverts.pk }}</a>
+    ({{ reverts.action }}, {{ reverts.timestamp|date:"Y-m-d H:i" }}).</p>
+  {% endif %}
+  {% if reverted_by %}
+  <p class="notice">Already reverted by
+    <a href="{% url 'review:audit_entry' reverted_by.pk %}">entry {{ reverted_by.pk }}</a>
+    ({{ reverted_by.actor.email }}, {{ reverted_by.timestamp|date:"Y-m-d H:i" }}).</p>
+  {% endif %}
+
+  {% if not crawler_connected %}
+  <p class="notice">Crawler database not connected: what the rows hold now
+  cannot be read, so this shows only what was recorded.</p>
+  {% endif %}
+  {% if missing %}
+  <p class="notice bad"><strong>{{ missing|length }} row{{ missing|length|pluralize }} no longer present</strong>
+  A revert skips them and names them in its own entry.</p>
+  {% endif %}
+
+  {% for row in rows %}
+  <h2>
+    {% if row.link %}<a href="{{ row.link }}" class="mono">{{ row.id }}</a>
+    {% else %}<span class="mono">{{ row.id }}</span>{% endif %}
+    {% if row.present is False %}<span class="notice">no longer present</span>{% endif %}
+  </h2>
+  {% if row.fields %}
+  <table class="grid">
+    <thead>
+      <tr>
+        <th scope="col">Field</th>
+        <th scope="col">Before</th>
+        <th scope="col">Written</th>
+        {% if crawler_connected and row.present %}<th scope="col">Now</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for field in row.fields %}
+      <tr>
+        <td class="mono">{{ field.name }}</td>
+        <td class="mono">{{ field.before|truncatechars:200 }}</td>
+        <td class="mono">{{ field.after|truncatechars:200 }}</td>
+        {% if crawler_connected and row.present %}
+        <td class="mono">{{ field.now|truncatechars:200 }}{% if field.drifted %}
+          <span class="notice">changed since</span>{% endif %}</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="notice">No field values were recorded for this row.</p>
+  {% endif %}
+  {% endfor %}
+
+  {% comment %}
+  The note entries: something happened that is not a row of a crawler
+  table -- an invitation, a role, a published visual. Shown as recorded,
+  and not offered a revert, because there is nothing to write back.
+  {% endcomment %}
+  {% if shape == "note" %}
+  <table class="grid">
+    <thead><tr><th scope="col">Before</th><th scope="col">After</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="mono">{{ note_before }}</td>
+        <td class="mono">{{ note_after }}</td>
+      </tr>
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if revertable %}
+  <form method="post" action="{% url 'review:revert' entry.pk %}" class="action-bar">
+    {% csrf_token %}
+    <label>Reason
+      <input type="text" name="reason" placeholder="why this is being put back">
+    </label>
+    <button type="submit">Revert</button>
+    <span class="notice">{{ revert_note }}</span>
+  </form>
+  {% else %}
+  <p class="notice">{{ revert_note }}</p>
+  {% endif %}
+</section>
+{% endblock %}

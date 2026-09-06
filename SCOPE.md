@@ -92,6 +92,11 @@ a CIN label; scope values are recorded for downstream filtering, never used
 to withhold an article from export; and every disposition is an audited
 action attributable to a person.
 
+The filters are the working position, not a query string. A reviewer
+working one dataset, one window and one case keeps them when they leave
+the page and come back; clearing them is the explicit act ("Clear all",
+or taking the last facet off).
+
 ### 2.4 Import and export
 
 - **Import** follows the backpatch protocol proven on the March CSV:
@@ -248,3 +253,12 @@ Decided 2026-08-21:
    DELETE there, and the only DELETE anywhere is dataset_sources rows. Every write is
    recorded in the append-only audit log with actor, before/after, and a
    reason, and is reversible from the audit record.
+
+   Reversible is not the same as reverted on sight. Each entry has a page
+   (`/review/audit/<id>/`) showing what it changed field by field, what
+   the rows hold now — a value that moved since is named, because
+   reverting over it discards that later work — whether the rows are
+   still there, and whether the entry is revertable at all: entries on
+   tables outside the write boundary are history, not undo. A revert
+   records the entry it undoes, so "already reverted" is a link rather
+   than a phrase in a reason.

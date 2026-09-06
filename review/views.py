@@ -2,6 +2,7 @@
 
 import io
 
+from django.contrib import messages
 from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.db import DatabaseError, connections
@@ -18,6 +19,7 @@ from accounts.privileges import EXPORT_PRIVILEGE, WRITE
 from audit.models import AuditLogEntry
 from explorer.models import Article, ArticleEnrichment
 from explorer.views import _filtered_articles
+from review import audit_entries
 from review import kernel as _kernel
 from review import queue as review_queue
 from review.exports import EXPORT_COLUMNS, csv_response
@@ -46,6 +48,24 @@ TEXT_FIELDS = ("author", "title", "content")
 # The queue is browsed, not paged through: a smaller page keeps the text
 # lengths and reasons on one screen.
 QUEUE_PAGE_SIZE = 50
+
+#: The extraction queue's filters, kept between visits. Everything the
+#: queue reads from the query string except `page`: coming back to page
+#: seven of a queue that has been worked since is not where anybody was.
+QUEUE_FILTER_KEYS = (
+    "days",
+    "dataset",
+    "case",
+    "band",
+    "skip",
+    "label",
+    "byline",
+    "publisher",
+    "state",
+    "all",
+)
+
+QUEUE_FILTERS = "queue_filters"
 
 
 def _get_article(article_id):
@@ -154,7 +174,10 @@ def audit_log(request):
         page_number = int(request.GET.get("page", "1"))
     except ValueError:
         page_number = 1
-    paginator = Paginator(AuditLogEntry.objects.select_related("actor").all(), 50)
+    entries = AuditLogEntry.objects.select_related("actor").prefetch_related(
+        "reverted_by"
+    )
+    paginator = Paginator(entries, 50)
     return render(
         request,
         "review/audit_log.html",
@@ -162,12 +185,45 @@ def audit_log(request):
     )
 
 
+@requires_admin
+def audit_entry(request, entry_id):
+    """One entry, with what it changed and what reverting it would do.
+
+    Revert used to be a button on a list row showing an action name and
+    sixty characters of reason. Nothing there says whether the rows still
+    hold what the entry wrote -- and where they do not, a revert discards
+    whatever moved them. review/audit_entries.py reads the rows; this
+    renders the comparison.
+    """
+    entry = get_object_or_404(
+        AuditLogEntry.objects.select_related("actor", "reverts"), pk=entry_id
+    )
+    return render(request, "review/audit_entry.html", audit_entries.detail(entry))
+
+
 @requires(WRITE)
 @require_POST
 def revert_entry(request, entry_id):
+    """Write an entry's recorded values back, as a new entry.
+
+    Returns to the entry rather than to the log: what a revert did is
+    read on the page that proposed it, and a failure that the write
+    boundary refuses has to be said rather than raised as a 500 --
+    the log offered this button on tables `revert()` cannot write.
+    """
     entry = get_object_or_404(AuditLogEntry, pk=entry_id)
-    revert(request.user, entry, reason=request.POST.get("reason", ""))
-    return redirect("review:audit_log")
+    try:
+        compensating = revert(
+            request.user, entry, reason=request.POST.get("reason", "")
+        )
+    except BoundaryViolation as exc:
+        messages.error(request, str(exc))
+        return redirect("review:audit_entry", entry_id=entry.pk)
+    messages.success(
+        request,
+        f"Reverted. Entry {compensating.pk} records what was written back.",
+    )
+    return redirect("review:audit_entry", entry_id=entry.pk)
 
 
 # --- import (SCOPE.md §2.4: diff report first, then explicit apply) ---------
@@ -433,6 +489,40 @@ def extraction_problems(request):
     )
 
 
+def _queue_as_it_was_left(request):
+    """Keep the queue's filters, and return to them.
+
+    A reviewer working one dataset, one window and one case left the page
+    to look something up and came back to the unfiltered queue, having to
+    choose all three again. The filters are the working position, so they
+    are kept on the session and a bare visit is sent back to them.
+
+    Clearing stays possible because clearing is an explicit act: "Clear
+    all", and taking the last facet off, are htmx requests, so an htmx
+    request carrying no filters means somebody has just removed them and
+    the memory goes with them. A full page load carrying none is arriving
+    from somewhere else in the console, which is the case this is for.
+
+    Returns a redirect when there is a remembered position to restore,
+    and None when the view should render what was asked for.
+    """
+    chosen = {
+        key: value
+        for key, value in request.GET.items()
+        if key in QUEUE_FILTER_KEYS and value
+    }
+    if chosen:
+        request.session[QUEUE_FILTERS] = chosen
+        return None
+    if request.headers.get("HX-Request"):
+        request.session.pop(QUEUE_FILTERS, None)
+        return None
+    remembered = request.session.get(QUEUE_FILTERS)
+    if not remembered:
+        return None
+    return redirect(f"{reverse('review:queue')}?{urlencode(remembered)}")
+
+
 @requires(WRITE)
 def queue(request):
     """Articles automated triage flagged, with what a human needs to judge
@@ -440,6 +530,10 @@ def queue(request):
     byline (SCOPE.md §2.3)."""
     if request.method == "POST":
         return _submit_queue_decisions(request)
+
+    restored = _queue_as_it_was_left(request)
+    if restored is not None:
+        return restored
 
     vocabulary = review_queue.vocab(request.user)
     params = request.GET.copy()
