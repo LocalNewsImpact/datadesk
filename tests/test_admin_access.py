@@ -253,7 +253,7 @@ def test_the_source_directory_sits_under_sources():
 
 
 def test_the_groups_read_in_the_order_the_sidebar_shows_them(client, crawler_schema):
-    """Data, then Review, then Sources, then Extraction, then Admin.
+    """Data, Review, Sources, Extraction, Processing, then Admin.
 
     Review sits second because it is what somebody signs in to do. The
     groups below it are the reference material the review is made
@@ -271,6 +271,10 @@ def test_the_groups_read_in_the_order_the_sidebar_shows_them(client, crawler_sch
         "Review",
         "Sources",
         "Extraction",
+        # Operational rather than editorial: a reader looking for work to
+        # do passes it, and a reader asking whether the machine is running
+        # knows to look near the bottom.
+        "Processing",
         "Admin",
     ]
     _user(client, "admin")

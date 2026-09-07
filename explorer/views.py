@@ -771,3 +771,68 @@ def sources(request):
             "total": qs.count(),
         },
     )
+
+
+#: The privilege the processing view asks for. Item 19 put production
+#: state on the same footing as cost: a management fact, not an
+#: administrative one, so an editor sees it for the datasets they write.
+#: Written as its own name so the reason survives a later edit.
+PROCESSING_PRIVILEGE = COST_PRIVILEGE
+
+
+@requires(PROCESSING_PRIVILEGE)
+def processing(request):
+    """Live view of what the pipeline is doing (ROADMAP item 19).
+
+    Scoped to the datasets the caller may write, and offering a filter
+    when they hold more than one -- a picker listing a single dataset is
+    a control that cannot change anything.
+
+    Refreshes itself every 15 seconds by re-requesting only the stream
+    partial, so a poll costs the panel queries and not the page.
+    """
+    from explorer import processing as pipeline
+    from explorer.scoping import datasets_for
+
+    available = list(datasets_for(request.user, PROCESSING_PRIVILEGE))
+    # A dataset the caller cannot see never reaches here: @requires refuses
+    # the request outright rather than emptying it, so that a reader who
+    # picks one is told, instead of being shown a page that looks like the
+    # dataset has nothing in it. Not re-checked here -- two guards that can
+    # disagree are worse than one.
+    chosen = (request.GET.get("dataset") or "").strip()
+
+    selected = [d for d in available if d.slug == chosen] if chosen else available
+    dataset_ids = [d.id for d in selected]
+
+    context = {
+        "datasets": available,
+        "dataset": chosen,
+        # One dataset is not a choice. The filter appears only where it
+        # has something to filter between.
+        "show_filter": len(available) > 1,
+        "window_hours": int(pipeline.WINDOW.total_seconds() // 3600),
+    }
+
+    try:
+        context.update(
+            {
+                "summary": pipeline.summarise(dataset_ids),
+                "jobs": pipeline.jobs_for(dataset_ids),
+                "domains": pipeline.by_domain(dataset_ids),
+                "milestones": pipeline.extraction_milestones(dataset_ids),
+                "errors": pipeline.recent_errors(dataset_ids),
+                "stages": pipeline.stage_counts(dataset_ids),
+                "crawler_absent": False,
+            }
+        )
+    except DatabaseError as exc:
+        absent_or_raise(exc, "explorer.views.processing")
+        context["crawler_absent"] = True
+
+    template = (
+        "explorer/_processing_stream.html"
+        if request.headers.get("HX-Request")
+        else "explorer/processing.html"
+    )
+    return render(request, template, context)

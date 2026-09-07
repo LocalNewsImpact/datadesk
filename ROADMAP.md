@@ -1755,6 +1755,30 @@ two of them afterwards.
 
 ## 19. Production: is the pipeline running, and is it healthy
 
+**Partly built, 2026-09-07.** The **Processing → Live Logs** page carries
+the runs, the domains being worked, the backlog by stage, and the errors.
+What remains is the GKE worker count, which is the one item here that is
+not a query against something Datadesk already reads.
+
+The Cloud Logging dependency below did not survive contact. Every
+question the page answers is answerable from `jobs` and
+`extraction_telemetry_v2`, which `datadesk_ro` already reads -- so no
+`roles/logging.viewer`, no log egress billed per query, and no IAM change
+in the crawler's project. That became true the same day, when both tables
+gained a `dataset_id` and job rows began carrying the counters they had
+always had columns for. Before that, a per-dataset question about
+extraction meant joining 315k rows to the corpus on URL text.
+
+Two things the build found that this section did not anticipate:
+
+- The crawler's timestamps are `timestamp without time zone`. Django
+  returns them naive, and comparing one to an aware `timezone.now()`
+  raises on the first row. Anything reusing these queries -- item 8 --
+  inherits that.
+- A run that never reports finishing has to be found outside the activity
+  window, not inside it. A job stuck for nine hours has aged out of a
+  six-hour window and is the most important thing on the page.
+
 **Now:** nothing in Datadesk says whether the crawler is running. The
 corpus dashboard counts what exists; the extraction queue lists what needs
 a person. Both describe the result of a pipeline run without describing

@@ -439,7 +439,7 @@ def test_the_write_path_is_granted_every_column_it_writes():
     source = inspect.getsource(dispositions.record)
 
     written = set()
-    initial = re.search(r'written = \[([^\]]*)\]', source)
+    initial = re.search(r"written = \[([^\]]*)\]", source)
     if initial:
         written.update(re.findall(r'"(\w+)"', initial.group(1)))
     written.update(re.findall(r'written\.append\("(\w+)"\)', source))

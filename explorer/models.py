@@ -162,6 +162,10 @@ class CandidateLink(CrawlerModel):
         related_name="candidate_links",
     )
     dataset_id = models.TextField(null=True)
+    #: Written by two stages: the URL rule before extraction, and the
+    #: content rule after it. `extraction_telemetry_v2` is what tells the
+    #: two apart -- neither writer records which one it was.
+    status = models.TextField(null=True)
 
     class Meta(CrawlerModel.Meta):
         db_table = "candidate_links"
@@ -493,3 +497,72 @@ class ArticleOrganization(CrawlerModel):
 
     def __str__(self):
         return self.name
+
+
+class Job(CrawlerModel):
+    """One run of one pipeline stage.
+
+    The counters were null on all 769 rows until 2026-09-07: the tracker
+    held them and neither `complete_operation` nor `fail_operation` passed
+    them to the writer, so a job row said a run happened and nothing about
+    what it did. Rows written before that date have the columns and no
+    values, which is why the processing view shows a dash rather than a
+    zero -- a job that processed nothing and a job that never said are
+    different facts.
+    """
+
+    id = models.TextField(primary_key=True)
+    job_type = models.TextField()
+    job_name = models.TextField(null=True)
+    started_at = models.DateTimeField(null=True)
+    finished_at = models.DateTimeField(null=True)
+    exit_status = models.TextField(null=True)
+    #: Added 2026-09-07. Null on every row before it, and on any run not
+    #: scoped to one dataset.
+    dataset_id = models.TextField(null=True)
+    records_processed = models.IntegerField(null=True)
+    records_created = models.IntegerField(null=True)
+    records_updated = models.IntegerField(null=True)
+    errors_count = models.IntegerField(null=True)
+
+    @property
+    def is_running(self):
+        return self.started_at is not None and self.finished_at is None
+
+    class Meta(CrawlerModel.Meta):
+        db_table = "jobs"
+
+
+class ExtractionTelemetry(CrawlerModel):
+    """One extraction attempt, whatever came of it.
+
+    `article_id` is a UUID minted before the fetch, so it names a row that
+    may never exist -- 156,712 of 315,631 rows on 2026-09-07 matched
+    neither `articles` nor `candidate_links`. Those are not failures:
+    paused sources and correct topic filtering account for most of them.
+    Join on `candidate_link_id`, which is the discovery and exists either
+    way, and was added the same day.
+    """
+
+    id = models.AutoField(primary_key=True)
+    operation_id = models.TextField(null=True)
+    url = models.TextField(null=True)
+    publisher = models.TextField(null=True)
+    host = models.TextField(null=True)
+    start_time = models.DateTimeField(null=True)
+    end_time = models.DateTimeField(null=True)
+    total_duration_ms = models.IntegerField(null=True)
+    http_status_code = models.IntegerField(null=True)
+    content_length = models.IntegerField(null=True)
+    is_success = models.BooleanField(null=True)
+    error_message = models.TextField(null=True)
+    error_type = models.TextField(null=True)
+    created_at = models.DateTimeField(null=True)
+    #: Both added 2026-09-07 and null on every row before it. The backfill
+    #: (`backfill-telemetry-dataset` in the crawler) fills what it can
+    #: prove and leaves the rest null.
+    dataset_id = models.TextField(null=True)
+    candidate_link_id = models.TextField(null=True)
+
+    class Meta(CrawlerModel.Meta):
+        db_table = "extraction_telemetry_v2"
