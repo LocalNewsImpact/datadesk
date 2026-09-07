@@ -51,8 +51,16 @@ ALTER DEFAULT PRIVILEGES FOR ROLE mizzou_user IN SCHEMA public
 -- The crawler writes this column too -- the hold note lives beside the
 -- decisions -- so both sides read and merge rather than replace. The
 -- console never writes a bare object over it.
+--
+-- enrichment_attempts is written by a rewind, which sets it to 0. A
+-- rewind that leaves the count alone is not a rewind: enrichment selects
+-- `status = 'labeled' AND enrichment_attempts < max_attempts`, so an
+-- article that failed three times before anybody looked at it would sit
+-- at `labeled` where no stage selects it again. The column was added to
+-- the write set without this grant, and every submit that rewound a row
+-- answered 500.
 GRANT UPDATE (author, title, content, text, status, wire_check_status,
-              metadata)
+              metadata, enrichment_attempts)
   ON articles TO datadesk_rw;
 -- scope and scope_confidence are here so a reviewer can correct a
 -- mislabelled scope from the review queue. When a person sets the
