@@ -69,8 +69,19 @@ class Command(BaseCommand):
         failures = []
         for visual in visuals:
             pinned = visual.pinned_snapshot.version if visual.pinned_snapshot else None
+            # Read before the refresh: `refresh_snapshot` does not move
+            # the pin, but reading after it invites the next author to
+            # reorder these two lines and compare a thing with itself.
+            pinned_data = (
+                visual.pinned_snapshot.data if visual.pinned_snapshot else None
+            )
             if options["dry_run"]:
-                self.stdout.write(f"{visual.slug}: would refresh (pinned v{pinned})")
+                would = (
+                    "refresh and repin if the data changed"
+                    if options["repin"] or visual.keep_updated
+                    else "refresh"
+                )
+                self.stdout.write(f"{visual.slug}: would {would} (pinned v{pinned})")
                 continue
             try:
                 snapshot = refresh_snapshot(visual, actor)
@@ -80,11 +91,26 @@ class Command(BaseCommand):
                 failures.append(f"{visual.slug}: {exc}")
                 self.stderr.write(f"{visual.slug}: {exc}")
                 continue
-            if options["repin"]:
+            # `--repin` is the operator saying so for this run; a visual
+            # marked keep_updated says so for itself, for ever. The flag
+            # still wins where it is given, so one run can repin
+            # everything without anybody editing a visual.
+            asked = options["repin"] or visual.keep_updated
+            # Only when it actually changed. A daily republish of
+            # identical rows moves the pin, writes an audit entry and
+            # invalidates an hour of cache to deliver the same numbers --
+            # and it buries the entries that meant something.
+            changed = pinned_data != snapshot.data
+            if asked and changed:
                 publish(visual, actor)
                 self.stdout.write(
                     f"{visual.slug}: v{snapshot.version} taken and pinned "
                     f"(was v{pinned})"
+                )
+            elif asked:
+                self.stdout.write(
+                    f"{visual.slug}: v{snapshot.version} taken; same data, "
+                    f"pin stays at v{pinned}"
                 )
             else:
                 self.stdout.write(

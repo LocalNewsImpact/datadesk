@@ -183,6 +183,31 @@ class Visual(models.Model):
         help_text="Permit ?live=1 on the feed — the embed default stays pinned.",
     )
 
+    # The other way to stay current, and the cheaper one.
+    #
+    # `allow_live` trades the cache for freshness: nothing is stored, so
+    # every view runs the source and no response can be cached. That is
+    # right for "what does it say this second" and wrong for a figure
+    # that changes once a day, which is most of them -- the queries here
+    # follow a nightly BigQuery sync.
+    #
+    # This keeps the snapshot, the version history and the full hour of
+    # caching, and moves the pin on the scheduled refresh instead. One
+    # query a day, and a reader is never more than a day behind.
+    #
+    # It is per visual and off by default because it is an exception to
+    # the embed-stability rule (SCOPE.md): a published report must not
+    # change under its readers, and this says that for THIS report,
+    # changing is the point. A dashboard wants it; a chart cited in an
+    # article does not.
+    keep_updated = models.BooleanField(
+        default=False,
+        help_text=(
+            "Let the daily refresh publish new data, when it differs from "
+            "what is pinned. Off means the pin moves only when you publish."
+        ),
+    )
+
     # frame-ancestors allowlist for the embed, space-separated origins.
     # `'self'` was the default and it made every embed fail: only
     # data.localnewsimpact.org could frame a page whose entire purpose is to

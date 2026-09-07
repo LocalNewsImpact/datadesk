@@ -1161,8 +1161,42 @@ def publish_panel(visual, post=None, actor=None):
             publish(visual, actor)
         elif wanted == "unpublish":
             unpublish(visual, actor)
+        elif wanted == "freshness":
+            # Reachable only from the Django admin until now, which is
+            # the same as unreachable: the person who builds a visual
+            # does not go to /admin/ to finish it, and the two settings
+            # that decide whether a reader sees current numbers were the
+            # two they could not see.
+            #
+            # Checkboxes rather than buttons: these are states the visual
+            # is in, and the page says underneath what each one means.
+            from audit.models import AuditLogEntry
+
+            before = {
+                "keep_updated": visual.keep_updated,
+                "allow_live": visual.allow_live,
+            }
+            visual.keep_updated = bool(post.get("keep_updated"))
+            visual.allow_live = bool(post.get("allow_live"))
+            after = {
+                "keep_updated": visual.keep_updated,
+                "allow_live": visual.allow_live,
+            }
+            if after != before:
+                visual.save(update_fields=["keep_updated", "allow_live", "updated_at"])
+                # Audited like publishing, because it is the same kind of
+                # fact: it changes what a public URL will serve, and when.
+                AuditLogEntry.objects.create(
+                    actor=actor,
+                    action="visual:freshness",
+                    target_table="visuals",
+                    target_ids=[visual.slug],
+                    before=before,
+                    after=after,
+                    reason=f"freshness settings for {visual.slug}",
+                )
         else:
-            raise ValueError("Publish or unpublish")
+            raise ValueError("Publish, unpublish, or set freshness")
         # `publish` writes the visual itself, so nothing is returned for
         # the step machinery to write on top of it.
         return {}
@@ -1208,6 +1242,12 @@ def publish_panel(visual, post=None, actor=None):
         "theme_mode": (visual.config or {}).get("theme_mode", "") or "auto",
         "pinned": visual.pinned_snapshot,
         "latest": snapshot,
+        # The two settings that decide whether a reader sees current
+        # numbers. Rendered here rather than only in the Django admin:
+        # they decide what a public URL serves, and the person deciding
+        # that is the one on this page.
+        "keep_updated": visual.keep_updated,
+        "allow_live": visual.allow_live,
         # Publishing an empty visual produces an embed that renders
         # nothing, which is worse on somebody's page than not existing.
         # But having no snapshot is not that: it is what everything is

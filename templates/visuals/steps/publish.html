@@ -110,6 +110,41 @@ does not exist.</p>
   </p>
 </div>
 
+{% comment %}
+Both of these lived only in the Django admin, which is the same as
+nowhere: the person who builds a visual does not go to /admin/ to finish
+it. They are the answer to "why is this still showing last week's
+number", and they were the one thing that page could not say.
+
+Ordered by which is usually wanted. Most figures here change once a day,
+because the queries follow a nightly sync -- so keeping the snapshot and
+moving the pin is the common case, and running the source on every view
+is the exception.
+{% endcomment %}
+<div class="group">
+  <h4>Staying current</h4>
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="do" value="freshness">
+    <label><input type="checkbox" name="keep_updated"
+      {% if keep_updated %}checked{% endif %}> Publish new data daily, when it
+      changes</label>
+    <p class="notice">The refresh runs each morning. With this on, a version
+    that differs from what is pinned is published; identical data changes
+    nothing. The page stays cached and a reader is never more than a day
+    behind.</p>
+
+    <label><input type="checkbox" name="allow_live"
+      {% if allow_live %}checked{% endif %}> Let a reader ask for live data
+      with <code>?live=1</code></label>
+    <p class="notice">Runs the source on every request, so nothing is
+    cached and each view costs a query. For a figure that changes through
+    the day. The plain URL still serves the pinned version either way.</p>
+
+    <button type="submit" class="linklike">Save</button>
+  </form>
+</div>
+
 <form method="post" class="action-bar">
   {% csrf_token %}
   {% comment %}

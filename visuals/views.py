@@ -627,15 +627,29 @@ def public_page(request, slug=None, uuid=None):
     shown = visual.snapshots.filter(version=asked).first() if asked else None
     if asked is not None and shown is None:
         raise Http404(f"No version {asked} of this visual")
+    # `?live=1` reaches the feed and did not reach the page that draws
+    # it, so the page asked for the pinned snapshot and the parameter did
+    # nothing -- on the one host where `allow_live` is the only thing
+    # that can grant it. A setting whose documented switch is silently
+    # ignored is worse than not having the setting.
+    #
+    # The same rule the feed applies, so the two cannot disagree: the
+    # visual permits it, or the person may act on the visual.
+    live = request.GET.get("live") == "1" and (
+        visual.allow_live or may_act_on(request.user, visual)
+    )
     response = render(
         request,
         "visuals/public.html",
         {
             "visual": visual,
             "renderer": f"visuals/renderers/{visual.template}.html",
-            "feed": _feed_url(visual, by_uuid=uuid is not None, version=asked),
+            "feed": _feed_url(
+                visual, by_uuid=uuid is not None, version=asked, live=live
+            ),
             # A snapshot is one answer at a URL that says which, so there
-            # is no live question here to name.
+            # is no live question to name -- unless the reader asked for
+            # live, which is a question about now and has no version.
             "stamp": "",
             # The version being shown, not the one the URL asked for.
             # Those differ on the plain URL -- the page draws the pinned
@@ -665,7 +679,10 @@ def public_page(request, slug=None, uuid=None):
             "pinned_by_url": shown is not None,
         },
     )
-    return _cache_for(response, visual, shown is not None)
+    # `live` as well as the version: a live page must not be cached for
+    # an hour, or the first reader's copy freezes it for everyone after
+    # them -- which is the failure this was asked to fix.
+    return _cache_for(response, visual, shown is not None, live=live)
 
 
 @xframe_options_exempt
