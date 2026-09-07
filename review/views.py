@@ -499,6 +499,33 @@ def extraction_problems(request):
     )
 
 
+def _without_an_unbounded_range(remembered):
+    """Drop `days=custom` when the bounds that give it meaning are absent.
+
+    A custom range with neither bound reads as the whole corpus -- the
+    honest reading of a range somebody chose and did not fill in, and a
+    disaster to restore somebody INTO. Production measured one such
+    restored visit at 254 seconds.
+
+    `since` and `until` are remembered now, so this state is no longer
+    created. It is still restored: every session saved before that fix
+    holds `days=custom` alone, and its owner is redirected into the hang
+    on every visit until something overwrites it. Sessions outlive
+    deploys; that is what they are for.
+
+    Dropping `days` falls back to the default window rather than the
+    corpus, which is what a reader wants from a range that no longer says
+    anything.
+    """
+    if not remembered:
+        return remembered
+    if remembered.get("days") != review_queue.CUSTOM:
+        return remembered
+    if remembered.get("since") or remembered.get("until"):
+        return remembered
+    return {key: value for key, value in remembered.items() if key != "days"} or None
+
+
 def _queue_as_it_was_left(request):
     """Keep the queue's filters, and return to them.
 
@@ -527,7 +554,7 @@ def _queue_as_it_was_left(request):
     if request.headers.get("HX-Request"):
         request.session.pop(QUEUE_FILTERS, None)
         return None
-    remembered = request.session.get(QUEUE_FILTERS)
+    remembered = _without_an_unbounded_range(request.session.get(QUEUE_FILTERS))
     if not remembered:
         return None
     return redirect(f"{reverse('review:queue')}?{urlencode(remembered)}")

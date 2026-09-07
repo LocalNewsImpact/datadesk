@@ -32,7 +32,7 @@ module deliberately contains no write path.
 """
 
 from django.db.models import Case as SQLCase
-from django.db.models import Count, F, IntegerField, Q, TextField, Value, When
+from django.db.models import Count, F, Func, IntegerField, Q, TextField, Value, When
 from django.db.models.functions import Coalesce, Length
 
 from accounts.privileges import WRITE
@@ -598,6 +598,24 @@ def _flagged_q(cases=None):
     return query & ~Q(enrichment__skip_reason=HUMAN_REMOVAL_SKIP_REASON)
 
 
+#: Characters of captured text, whichever column holds it.
+TEXT_LENGTH = Length(
+    Coalesce("content", "text", "text_excerpt", Value(""), output_field=TextField())
+)
+
+#: The sort key for "longest captures first", without reading the bodies.
+#:
+#: Sorting by TEXT_LENGTH detoasts every article in the population to
+#: rank them, page 1 included. `pg_column_size` reads the stored size off
+#: the row without detoasting, which ranks the same way for the purpose --
+#: a long body is a large column -- at a fraction of the cost.
+STORED_SIZE = Func(
+    Coalesce("content", "text", "text_excerpt", Value(""), output_field=TextField()),
+    function="pg_column_size",
+    output_field=IntegerField(),
+)
+
+
 def base_queryset_unscoped():
     """The flagged rows, before anyone's access narrows them.
 
@@ -610,16 +628,20 @@ def base_queryset_unscoped():
     """
     return (
         Article.objects.select_related("candidate_link__source")
+        # alias(), not annotate(): the length is available to every filter
+        # that needs it and is NOT in the SELECT list. Annotated, it was
+        # computed for every row of every query on the page -- the
+        # paginator's count and nine conditional aggregates for the facet
+        # chips -- and computing it means reading each article body out
+        # of TOAST. On March 2026 Mizzou, 11,833 flagged rows: 7.5s to
+        # count them, 30.5s to count them while measuring their text.
+        # Times ten per page load is the four-minute queue.
+        #
+        # The 50 rows actually shown get it annotated in `queued`.
+        .alias(
+            text_length=TEXT_LENGTH,
+        )
         .annotate(
-            text_length=Length(
-                Coalesce(
-                    "content",
-                    "text",
-                    "text_excerpt",
-                    Value(""),
-                    output_field=TextField(),
-                )
-            ),
             enr_skip_reason=F("enrichment__skip_reason"),
             enr_gate_reason=F("enrichment__content_gate_reason"),
             enr_is_news=F("enrichment__is_news_content"),
@@ -641,16 +663,20 @@ def base_queryset(user):
     """
     return narrow(
         Article.objects.select_related("candidate_link__source")
+        # alias(), not annotate(): the length is available to every filter
+        # that needs it and is NOT in the SELECT list. Annotated, it was
+        # computed for every row of every query on the page -- the
+        # paginator's count and nine conditional aggregates for the facet
+        # chips -- and computing it means reading each article body out
+        # of TOAST. On March 2026 Mizzou, 11,833 flagged rows: 7.5s to
+        # count them, 30.5s to count them while measuring their text.
+        # Times ten per page load is the four-minute queue.
+        #
+        # The 50 rows actually shown get it annotated in `queued`.
+        .alias(
+            text_length=TEXT_LENGTH,
+        )
         .annotate(
-            text_length=Length(
-                Coalesce(
-                    "content",
-                    "text",
-                    "text_excerpt",
-                    Value(""),
-                    output_field=TextField(),
-                )
-            ),
             enr_skip_reason=F("enrichment__skip_reason"),
             enr_gate_reason=F("enrichment__content_gate_reason"),
             enr_is_news=F("enrichment__is_news_content"),
@@ -1128,7 +1154,12 @@ def queued(params, user):
     band = params.get("band")
     if band in BAND_BOUNDS:
         qs = _apply_band(qs, band)
-    return qs.order_by("-text_length", "-created_at")
+    # Annotated here and nowhere else: these are the rows the page shows,
+    # and the template prints the count. Sorted by stored size rather than
+    # by the annotation, so ranking does not read every body.
+    return qs.annotate(text_length=TEXT_LENGTH).order_by(
+        STORED_SIZE.desc(nulls_last=True), "-created_at"
+    )
 
 
 def _without_answered(qs):
