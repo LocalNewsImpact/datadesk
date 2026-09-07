@@ -240,7 +240,11 @@ def test_the_source_directory_sits_under_sources():
 
 
 def test_the_groups_read_in_the_order_the_sidebar_shows_them(client, crawler_schema):
-    """Data, then Sources, then Extraction, then Cost, then Admin.
+    """Data, then Review, then Sources, then Extraction, Cost, Admin.
+
+    Review sits second because it is what somebody signs in to do. The
+    groups below it are the reference material the review is made
+    against, and Admin is last because it is the least often wanted.
 
     Cost joined the list when ROADMAP item 1 put spend on `write`: it
     left the Admin group because an editor may see it, and a group
@@ -248,6 +252,7 @@ def test_the_groups_read_in_the_order_the_sidebar_shows_them(client, crawler_sch
     """
     assert [g["label"] for g in SECTION_GROUPS] == [
         "Data",
+        "Review",
         "Sources",
         "Extraction",
         "Cost",
@@ -263,23 +268,44 @@ def test_a_user_with_no_role_sees_no_groups():
     assert groups_for(None) == ()
 
 
-def test_the_two_queues_are_called_the_same_thing():
-    """Both are the same job -- records something flagged, waiting on a
-    person. "Proposed changes" under Sources and "Review queue" under
-    Extraction described one process with two names. The group header says
-    which records: publishers here, articles there."""
+def test_the_queues_are_one_group_named_for_their_stage():
+    """Reviewing is one activity, so its queues are one group.
+
+    They were "Review queue" under two different headers, which put the
+    same words in the sidebar twice and made the reader carry the header
+    down to the link to tell them apart. Under one header the label can
+    do the work, so each is named for the stage it reviews -- and those
+    read in pipeline order: a publisher is decided before a URL is
+    discovered, and a URL before its article is extracted.
+    """
     from accounts.sections import SECTION_GROUPS
 
-    labels = {}
-    for group in SECTION_GROUPS:
-        for section in group["sections"]:
-            # Some sections are external links carrying `site` rather
-            # than a named route.
-            if section.get("url") in ("review:proposals", "review:queue"):
-                labels[section["url"]] = (group["label"], section["label"])
+    review = next(g for g in SECTION_GROUPS if g["label"] == "Review")
+    by_url = {s["url"]: s["label"] for s in review["sections"]}
 
-    assert labels["review:proposals"][1] == "Review queue"
-    assert labels["review:queue"][1] == "Review queue"
-    assert (
-        labels["review:proposals"][0] != labels["review:queue"][0]
-    ), "two sections with one label need different headers to tell apart"
+    assert by_url["review:proposals"] == "Sources"
+    assert by_url["review:queue"] == "Extraction"
+    # No two sections in one group may share a label -- the group header
+    # is no longer available to tell them apart.
+    labels = [s["label"] for s in review["sections"]]
+    assert len(labels) == len(set(labels))
+
+
+def test_review_sits_between_data_and_sources():
+    """Where it was asked to be, and pinned so a later addition does not
+    quietly push it down the sidebar.
+
+    Above Sources because reviewing is the work; the groups below it are
+    what the review is made against.
+    """
+    order = [g["label"] for g in SECTION_GROUPS]
+    assert order.index("Data") < order.index("Review") < order.index("Sources")
+
+
+def test_extraction_problems_stayed_where_it_was():
+    """Only the queues moved. Extraction problems is a different kind of
+    page -- publishers whose parser is broken, not records awaiting a
+    decision -- and it keeps its group until somebody decides otherwise.
+    """
+    group = next(g for g in SECTION_GROUPS if g["label"] == "Extraction")
+    assert [s["url"] for s in group["sections"]] == ["review:extraction_problems"]
