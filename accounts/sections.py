@@ -80,16 +80,36 @@ SECTION_GROUPS = (
         ),
     },
     {
+        # Reviewing is one activity, so its queues are one group. They
+        # were three "Review queue" links under three different headers,
+        # which read as three unrelated pages and gave the sidebar the
+        # same label three times -- the reader had to know which header
+        # meant which stage before they could tell them apart.
+        #
+        # Named for the stage each one reviews, in pipeline order:
+        # publishers are decided before a URL is discovered, and a URL
+        # before its article is extracted.
+        "label": "Review",
+        "requires": EDITOR,
+        "sections": (
+            {
+                "url": "review:proposals",
+                "label": "Sources",
+                "note": "Publisher records the scan flagged, awaiting a decision.",
+            },
+            {
+                "url": "review:queue",
+                "label": "Extraction",
+                "note": "Articles automated triage could not use, awaiting a decision.",
+            },
+        ),
+    },
+    {
         # "Proposed changes" does not say what it covers. Under this
         # header it does: these are publisher records.
         "label": "Sources",
         "requires": EDITOR,
         "sections": (
-            {
-                "url": "review:proposals",
-                "label": "Review queue",
-                "note": "Publisher records the scan flagged, awaiting a decision.",
-            },
             {
                 # Beside the queue rather than under Admin: which
                 # publishers are behind a paywall, what a subscription
@@ -128,11 +148,6 @@ SECTION_GROUPS = (
         "label": "Extraction",
         "requires": EDITOR,
         "sections": (
-            {
-                "url": "review:queue",
-                "label": "Review queue",
-                "note": "Articles automated triage could not use, awaiting a decision.",
-            },
             {
                 "url": "review:extraction_problems",
                 "label": "Extraction problems",
