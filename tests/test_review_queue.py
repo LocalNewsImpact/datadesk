@@ -328,6 +328,9 @@ def test_case_facet_counts(client, viewer, flagged):
         "scope_mislabel": 2,
         "doubted_content_type": 0,
         "held_for_review": 0,
+        # Every fixture row here has a recorded reason, which is what
+        # this case is the absence of.
+        "exported_unenriched": 0,
     }
 
 

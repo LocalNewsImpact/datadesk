@@ -56,6 +56,21 @@ DOUBTED_CONTENT_TYPE = "doubted_content_type"
 #: it out of the queue that is supposed to review it. Every field defect
 #: the crawler holds would have been invisible here.
 HELD_FOR_REVIEW = "held_for_review"
+#: Exported, and never enriched, with nothing on the row saying why.
+#:
+#: `enrichment_skipped` is terminal AND exportable, so these articles look
+#: finished: they reach BigQuery, count as local coverage, and carry no
+#: scope, places or entities. Every selector requires `status = 'labeled'`,
+#: so no run revisits them, and every other case here keys on a skip
+#: reason -- which these do not have. Exported, counted, unenriched and
+#: unreviewable.
+#:
+#: 23 were found in March Missouri on 2026-09-06, written by the backfill
+#: spike that predates src/enrichment/orchestrator.py. Today's code always
+#: records a reason, so this case is not for a bug that still writes them
+#: -- it is for the next thing that does. A status no queue selects is a
+#: black hole, which is the argument HELD_FOR_REVIEW already makes.
+EXPORTED_UNENRICHED = "exported_unenriched"
 
 # article_enrichment.skip_reason, as production actually holds it. Three
 # spellings mean one finding: the bulk March update wrote
@@ -341,6 +356,7 @@ CASE_STATUS = {
     SCOPE_MISLABEL: "enrichment_skipped",
     DOUBTED_CONTENT_TYPE: "obituary",
     HELD_FOR_REVIEW: "in_review",
+    EXPORTED_UNENRICHED: "enrichment_skipped",
 }
 
 CASE_LABELS = {
@@ -349,6 +365,7 @@ CASE_LABELS = {
     SCOPE_MISLABEL: "Wrong geographic scope",
     DOUBTED_CONTENT_TYPE: "Barely-confident content types",
     HELD_FOR_REVIEW: "Held: a field is wrong",
+    EXPORTED_UNENRICHED: "Exported without enrichment",
 }
 
 CASE_NOTES = {
@@ -375,6 +392,12 @@ CASE_NOTES = {
         "Excluded for being about somewhere else, and kept for export "
         "with the scope recorded. In March roughly 70% were locally "
         "bylined stories that merely referenced a foreign subject."
+    ),
+    EXPORTED_UNENRICHED: (
+        "Marked not-enriched with no reason recorded, so nothing says "
+        "what stopped them. They export and count as local coverage "
+        "while carrying no scope, places or entities, and no stage will "
+        "select them again."
     ),
 }
 
@@ -424,6 +447,16 @@ def _case_q(case):
             # A status a human wrote is a decision, not a flag. That is
             # already the rule for the March removals
             # (HUMAN_REMOVAL_SKIP_REASON); this is the same rule.
+        )
+    if case == EXPORTED_UNENRICHED:
+        # No reason recorded, in any of the three ways the row can say
+        # nothing: no enrichment row at all, a null reason, an empty one.
+        # Disjoint from PAYWALL_STUB and SCOPE_MISLABEL by construction --
+        # they share this status and both require a reason.
+        return Q(status=CASE_STATUS[EXPORTED_UNENRICHED]) & (
+            Q(enrichment__isnull=True)
+            | Q(enrichment__skip_reason__isnull=True)
+            | Q(enrichment__skip_reason="")
         )
     if case == MINIMAL_CAPTURE:
         return Q(status=CASE_STATUS[MINIMAL_CAPTURE])
@@ -658,6 +691,13 @@ def flag_of(article):
         return _words("minimal_capture", "Body is too short to be a story")
     if status == CASE_STATUS[DOUBTED_CONTENT_TYPE]:
         return _words("doubted_type", "The detector barely believed its own call")
+    if status == CASE_STATUS[EXPORTED_UNENRICHED]:
+        # Reached only with no reason of any kind: every branch above
+        # returns when one exists, and this status carries one whenever
+        # the pipeline wrote it.
+        return _words(
+            "exported_unenriched", "Exported, never enriched, no reason given"
+        )
     return _words("flagged", "")
 
 
@@ -808,6 +848,9 @@ def doubtful_q():
         # leaving it off the landing view is what holding it would mean if
         # nobody were told.
         | _case_q(HELD_FOR_REVIEW)
+        # Same argument: these are already invisible everywhere else, so
+        # a landing view that hid them would be the defect again.
+        | _case_q(EXPORTED_UNENRICHED)
     )
 
 
