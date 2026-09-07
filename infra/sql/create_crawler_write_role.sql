@@ -82,6 +82,22 @@ GRANT UPDATE (canonical_name, city, county, owner, type, metadata,
               auth_secret_name)
   ON sources TO datadesk_rw;
 
+-- The discovery review queue's one verb that writes
+-- (docs/DISCOVERY_REVIEW_QUEUE.md §9). A URL rejected before extraction
+-- leaves no article row, no status and no telemetry -- nothing
+-- downstream can see that it was lost -- so restoring one is the only
+-- repair for a type II error, and it has to happen here or not at all.
+--
+-- `status` alone, and no INSERT or DELETE: the console does not create
+-- candidate links and does not destroy them. Setting it to `discovered`
+-- puts the URL back where the pipeline picks it up on the next run.
+--
+-- Narrow on purpose. This is the console's first write to a table the
+-- crawler fills, and every other column on it -- the URL, the source,
+-- when it was found -- is the crawler's record of what it saw, which a
+-- reviewer has no business editing.
+GRANT UPDATE (status) ON candidate_links TO datadesk_rw;
+
 -- Phase 4: dataset management (SCOPE.md §2.4). Creation columns include
 -- the NOT-NULL-without-server-default pair on sources; everything else
 -- falls to the table defaults.
