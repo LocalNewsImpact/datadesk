@@ -185,13 +185,26 @@ def test_an_editor_reaches_every_editor_section(client, url_name, crawler_schema
 # --- the sidebar reflects the same list ------------------------------------
 
 
-def test_the_sidebar_hides_admin_from_non_admins(client, crawler_schema):
-    for role in ("viewer", "editor"):
-        _user(client, role, username=f"nav-{role}")
-        content = client.get("/").content.decode()
-        assert ">Admin<" not in content
-        for url_name in ADMIN_URLS:
-            assert reverse(url_name) not in content, url_name
+def test_the_sidebar_hides_every_admin_page_from_non_admins(client, crawler_schema):
+    """The pages, not the header.
+
+    A viewer sees no Admin header at all -- nothing under it reaches
+    them. An editor sees the header, because Cost lives there and is
+    theirs to open, and sees nothing else in it. The rule the sidebar
+    follows is that a group appears when the role reaches at least one
+    of its sections, which is what makes that possible: the header is a
+    consequence of what is under it, not a claim about the person.
+    """
+    _user(client, "viewer", username="nav-viewer")
+    content = client.get("/").content.decode()
+    assert ">Admin<" not in content
+
+    _user(client, "editor", username="nav-editor")
+    content = client.get("/").content.decode()
+    assert ">Admin<" in content, "Cost is under this header and an editor may open it"
+    assert reverse("explorer:costs") in content
+    for url_name in ADMIN_URLS:
+        assert reverse(url_name) not in content, url_name
 
 
 def test_the_sidebar_hides_the_editor_groups_from_a_viewer(client, crawler_schema):
@@ -240,22 +253,24 @@ def test_the_source_directory_sits_under_sources():
 
 
 def test_the_groups_read_in_the_order_the_sidebar_shows_them(client, crawler_schema):
-    """Data, then Review, then Sources, then Extraction, Cost, Admin.
+    """Data, then Review, then Sources, then Extraction, then Admin.
 
     Review sits second because it is what somebody signs in to do. The
     groups below it are the reference material the review is made
     against, and Admin is last because it is the least often wanted.
 
-    Cost joined the list when ROADMAP item 1 put spend on `write`: it
-    left the Admin group because an editor may see it, and a group
-    labelled Admin containing a page an editor can open would be a lie.
+    Cost had a group of its own, because ROADMAP item 1 put spend on
+    `write` and a group labelled Admin containing a page an editor can
+    open would be a lie. It is under Admin now with its own `requires`,
+    which keeps the page open to editors -- one section is not a group,
+    and a header hosting a single link is a header a reader has to read
+    before they can skip it.
     """
     assert [g["label"] for g in SECTION_GROUPS] == [
         "Data",
         "Review",
         "Sources",
         "Extraction",
-        "Cost",
         "Admin",
     ]
     _user(client, "admin")
@@ -309,3 +324,17 @@ def test_extraction_problems_stayed_where_it_was():
     """
     group = next(g for g in SECTION_GROUPS if g["label"] == "Extraction")
     assert [s["url"] for s in group["sections"]] == ["review:extraction_problems"]
+
+
+def test_cost_stays_open_to_an_editor_under_the_admin_header():
+    """Moving it must not take the page away from the people it was
+    opened to. The section carries its own `requires`, so the Admin
+    group's ADMIN does not reach it."""
+    from accounts.sections import EDITOR, requires_for
+
+    admin = next(g for g in SECTION_GROUPS if g["label"] == "Admin")
+    cost = next(s for s in admin["sections"] if s["url"] == "explorer:costs")
+    assert requires_for(admin, cost) == EDITOR
+    # And everything else under that header still needs admin.
+    others = [s for s in admin["sections"] if s["url"] != "explorer:costs"]
+    assert all(requires_for(admin, s) == "administration" for s in others)

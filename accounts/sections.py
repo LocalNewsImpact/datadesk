@@ -158,31 +158,30 @@ SECTION_GROUPS = (
             },
         ),
     },
-    # Cost sits on its own rather than under Admin. ROADMAP item 1 put
-    # spend on `write` -- a management fact, not a research one, but not
-    # an administrative one either -- so an editor sees it for the
-    # datasets they write. Leaving it under a group labelled Admin would
-    # have meant either lying to an editor about why they can see it, or
-    # hiding a page they are allowed to open. Item 19's Production group
-    # is where this belongs once that exists.
     {
-        "label": "Cost",
-        "requires": EDITOR,
+        "label": "Admin",
+        "requires": ADMIN,
         "sections": (
             {
+                # Its own `requires`, not the group's. ROADMAP item 1 put
+                # spend on `write`: a management fact, not an
+                # administrative one, so an editor sees it for the
+                # datasets they write. Inheriting ADMIN here would take a
+                # page away from the people it was opened to.
+                #
+                # It lived in a group of its own for that reason. One
+                # section is not a group, and a header that exists to
+                # host a single link is a header a reader has to read
+                # before they can skip it. Item 19's Production group is
+                # where this belongs once that exists.
                 "url": "explorer:costs",
+                "requires": EDITOR,
                 "label": "Cost",
                 "note": (
                     "Recorded against billed, the cache discount, "
                     "per dataset and model."
                 ),
             },
-        ),
-    },
-    {
-        "label": "Admin",
-        "requires": ADMIN,
-        "sections": (
             {
                 "url": "datasets:list",
                 "label": "Datasets",
