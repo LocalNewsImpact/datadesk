@@ -317,6 +317,40 @@ There is no uncertain band in that distribution to sample from. A
 threshold on this number is a second copy of the verdict, not a
 confidence in it.
 
+**But the information is not gone — the exponential destroys it.**
+Measured 2026-09-07 over 3,000 random production URLs, calling
+`predict_log_proba` on the same `path_only_model` and taking the margin
+`logP(story) − logP(not)`:
+
+| Measure | Value |
+| --- | ---: |
+| `predict_proba` at exactly 0.0 or 1.0 | 2,924 (97.5%) |
+| **distinct log-odds values** | **2,990 of 3,000** |
+| range | −194 to +3,497 |
+
+So a real-valued score is available today, with no retraining and no fork
+of the package: the model is reachable as `sn.path_only_model` and the
+margin is computed here. `predict_proba` was the wrong output to read.
+
+Two things that score is NOT, both of which matter before anyone ranks on
+it:
+
+- **Not a probability.** Naive Bayes treats correlated character n-grams
+  as independent, so the magnitudes are wildly overconfident — thousands,
+  not units. It orders URLs; its scale means nothing. Turning it into a
+  calibrated probability is isotonic regression or Platt scaling against
+  human labels, which is cheap and needs a few hundred of them.
+- **Not yet shown to rank well.** An attempt to validate it against
+  whether the pipeline agreed with the model is confounded and was
+  discarded: the rules overrule the model exactly when it says "story"
+  most strongly, so high margin produces disagreement by construction.
+  That test measures the rules. Whether the margin tracks correctness can
+  only be answered with the labels this queue collects.
+
+Which is the same loop as everything else here: the score is recorded on
+each row from the first day, beside the mechanisms' disagreement, and the
+labels decide which of the two ranks better.
+
 Two more properties of the same model, both worth knowing before anyone
 proposes tuning it:
 
@@ -336,8 +370,9 @@ proposes tuning it:
   killed them first. Scaled to the corpus that is roughly 17,300 of the
   26,024 rejections.
 
-So the confidence metric has to be built rather than read (§10), and the
-first thing to review is not the model's judgement but the rules that
+So the calibrated confidence metric has to be built rather than read
+(§10) — though the raw score it will be built from is readable now — and
+the first thing to review is not the model's judgement but the rules that
 overrule it.
 
 What a decision has to record, per URL:
