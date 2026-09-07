@@ -110,3 +110,95 @@ def test_an_article_naming_several_syndications_answers_to_each(crawler_schema):
             {"service": service},
         )
         assert set(qs.values_list("id", flat=True)) == {"both"}, service
+
+
+# --- obituaries: the headline is the signal -----------------------------------
+#
+# The obituary case used to select `confidence_score < 0.30` and no
+# corroborating evidence, on the reading that a low score marks a doubtful
+# call. Measured against the reviews it does not. Every obituary a person
+# has ruled on scored 0.167, the floor, and 88.5% of them were right --
+# so the number counts matched signals and does not rank.
+#
+# The headline does. An obituary headline is a name; a story about a death
+# is a sentence, and a sentence has a lowercase word in it.
+
+
+def _obit(title, status="obituary", **kw):
+    from explorer.models import Article, CandidateLink
+
+    link = CandidateLink.objects.create(
+        id=kw.pop("link_id", f"cl-{abs(hash(title)) % 10**8}"),
+        url=f"https://a.example/{abs(hash(title)) % 10**8}",
+    )
+    return Article.objects.create(
+        id=kw.pop("id", f"a-{abs(hash(title)) % 10**8}"),
+        candidate_link=link,
+        status=status,
+        wire_check_status="complete",
+        title=title,
+    )
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Alice Theresa Kline",
+        "ANNA LEE VANSKIKE",
+        "Allen Ray Shaeffer (December 30, 1949 - March 9, 2026)",
+        "Betty “Colleen” Minton",
+        "Alice Ann Meyer - Warren County Record",
+    ],
+)
+def test_a_death_notice_is_not_sent_to_review(crawler_schema, title):
+    """These are the 745 the reviewer should not have to read."""
+    _obit(title)
+
+    ids = set(
+        q.base_queryset_unscoped()
+        .filter(q._case_q(q.DOUBTED_CONTENT_TYPE))
+        .values_list("id", flat=True)
+    )
+
+    assert ids == set(), title
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Carthage man killed in motorcycle crash on Gum Road",
+        "Community pays tribute to Missouri deputies killed in line of duty",
+        "Former SEMO Sports Information Director Ron Hines passes away at 82",
+        "Funeral and procession set for former Columbia fire captain",
+        "JEFFTRAN transit services to close March 13",
+    ],
+)
+def test_a_story_about_a_death_is_sent_to_review(crawler_schema, title):
+    """These are the mistakes. Roughly half of what the rule surfaces."""
+    article = _obit(title)
+
+    ids = set(
+        q.base_queryset_unscoped()
+        .filter(q._case_q(q.DOUBTED_CONTENT_TYPE))
+        .values_list("id", flat=True)
+    )
+
+    assert ids == {article.id}, title
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_particle_inside_a_name_is_not_a_sentence(crawler_schema):
+    """ "van", "de" and "Jr" are lowercase and belong to the name. Reading
+    them as verbs would send every Dutch surname to review."""
+    _obit("Hendrik van der Berg")
+    _obit("Maria de la Cruz", link_id="cl-x", id="a-x")
+
+    ids = set(
+        q.base_queryset_unscoped()
+        .filter(q._case_q(q.DOUBTED_CONTENT_TYPE))
+        .values_list("id", flat=True)
+    )
+
+    assert ids == set()
