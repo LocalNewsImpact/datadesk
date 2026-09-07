@@ -41,6 +41,19 @@ LIMIT = 25
 #: this every one of those is reported as live work forever.
 STALE_AFTER = timedelta(hours=3)
 
+#: Past this, an unfinished run is not stuck -- it is abandoned, and
+#: nobody is going to act on it.
+#:
+#: Production holds 129 rows with no `finished_at`, every one of them more
+#: than thirty days old and the newest from 2026-07-28. They are what a
+#: killed pod leaves behind. Reporting them would put "129 started but
+#: never reported finishing" on the page on every load, forever, which is
+#: the same cry-wolf failure as reporting a suspended cron as broken.
+#:
+#: Wide enough to still catch the case that matters: a run stuck for nine
+#: hours has aged out of the activity window and is inside this one.
+ABANDONED_AFTER = timedelta(hours=24)
+
 
 def _utc_naive(moment):
     """A moment on the same footing as the crawler's timestamps.
@@ -82,12 +95,17 @@ def jobs_for(dataset_ids=None, limit=LIMIT):
 def running_jobs(dataset_ids=None):
     """Every run that has not reported finishing, at any age.
 
-    Deliberately not bounded by WINDOW. A job stuck for nine hours has
-    fallen out of the activity window and is the single most important
-    thing on the page -- bounding this by the same window would hide a
-    stuck run precisely as it got bad enough to matter.
+    Bounded by ABANDONED_AFTER rather than by WINDOW. A job stuck for nine
+    hours has fallen out of the activity window and is the most important
+    thing on the page, so WINDOW is too narrow -- but unbounded is worse:
+    production's 129 unfinished rows are all over a month old, and every
+    one would be reported as live work.
     """
-    qs = Job.objects.filter(finished_at__isnull=True, started_at__isnull=False)
+    qs = Job.objects.filter(
+        finished_at__isnull=True,
+        started_at__isnull=False,
+        started_at__gte=_now() - ABANDONED_AFTER,
+    )
     if dataset_ids is not None:
         qs = qs.filter(dataset_id__in=list(dataset_ids))
     return list(qs.order_by("-started_at"))

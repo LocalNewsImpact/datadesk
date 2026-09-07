@@ -203,3 +203,34 @@ def test_activity_older_than_the_window_is_not_current_activity(crawler_schema):
     )
 
     assert processing.extraction_milestones(None) == []
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_run_abandoned_weeks_ago_is_not_reported_as_live_work(crawler_schema):
+    """Production holds 129 rows with no `finished_at`, every one over a
+    month old and the newest from 2026-07-28. They are what a killed pod
+    leaves behind, not work in flight.
+
+    Unbounded, the page would say "129 started but never reported
+    finishing" on every load, forever -- the same cry-wolf failure as
+    reporting a suspended cron as broken, reached from the other side.
+    """
+    _job(id="abandoned", started_at=timezone.now() - timedelta(days=42))
+
+    summary = processing.summarise(None)
+
+    assert summary["running"] == 0
+    assert summary["stale"] == 0
+    assert summary["idle"] is True
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_run_stuck_for_hours_is_still_reported(crawler_schema):
+    """The horizon must not swallow the case it was widened for: nine
+    hours is outside the activity window and inside the abandonment one."""
+    _job(id="stuck", started_at=timezone.now() - timedelta(hours=9))
+
+    summary = processing.summarise(None)
+
+    assert summary["stale"] == 1
+    assert summary["idle"] is False
