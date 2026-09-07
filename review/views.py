@@ -54,6 +54,14 @@ QUEUE_PAGE_SIZE = 50
 #: seven of a queue that has been worked since is not where anybody was.
 QUEUE_FILTER_KEYS = (
     "days",
+    # The bounds of a custom range. Without them `days=custom` is
+    # remembered on its own, and `_between_two_dates` reads a range with
+    # no bounds as the whole corpus -- so returning to the queue silently
+    # dropped the date filter. That was survivable while the flagged set
+    # was small; it is 60,408 rows now that the machine exclusions have
+    # cases, and the page stops answering.
+    "since",
+    "until",
     "dataset",
     "case",
     "band",
