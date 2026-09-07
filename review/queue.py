@@ -72,6 +72,30 @@ HELD_FOR_REVIEW = "held_for_review"
 #: black hole, which is the argument HELD_FOR_REVIEW already makes.
 EXPORTED_UNENRICHED = "exported_unenriched"
 
+#: Excluded as syndicated content.
+#:
+#: The largest exclusion in the corpus and, until now, the only large one
+#: nobody could check: 9,335 articles in March 2026 Mizzou alone, against
+#: 12,962 kept. Obituaries and minimal captures were reviewable and have
+#: been reviewed in quantity; this was not, so a wrongly excluded article
+#: was simply gone -- a Type II error with no other surface, which is the
+#: expensive kind.
+#:
+#: The rows are ordered by the service they were attributed to rather than
+#: doubt-ranked. There is no validated doubt signal for wire yet, and
+#: inventing one would decide in advance what the review is supposed to
+#: find out. Grouping by service is what makes precision per service fall
+#: out of the review, and precision per service is what says which of them
+#: can run unreviewed (99% precision and 95% recall) and which cannot.
+#:
+#: A local newsroom appearing as the attributed service is NOT evidence of
+#: a mistake. The Missouri Independent and the Columbia Missourian are
+#: newsrooms and syndicators both, so their content on another outlet is
+#: correctly wire. What would be wrong is an outlet marked wire for
+#: publishing its own work, and that question belongs to a reviewer
+#: looking at the article, not to a heuristic guessing ahead of them.
+WIRE_EXCLUSION = "wire_exclusion"
+
 # article_enrichment.skip_reason, as production actually holds it. Three
 # spellings mean one finding: the bulk March update wrote
 # paywall_stub_exported_unenriched, the LLM content gate writes
@@ -357,6 +381,7 @@ CASE_STATUS = {
     DOUBTED_CONTENT_TYPE: "obituary",
     HELD_FOR_REVIEW: "in_review",
     EXPORTED_UNENRICHED: "enrichment_skipped",
+    WIRE_EXCLUSION: "wire",
 }
 
 CASE_LABELS = {
@@ -366,9 +391,17 @@ CASE_LABELS = {
     DOUBTED_CONTENT_TYPE: "Barely-confident content types",
     HELD_FOR_REVIEW: "Held: a field is wrong",
     EXPORTED_UNENRICHED: "Exported without enrichment",
+    WIRE_EXCLUSION: "Excluded as wire",
 }
 
 CASE_NOTES = {
+    WIRE_EXCLUSION: (
+        "Excluded as syndicated. The pipeline already tells local "
+        "syndicators from wire services and files the first as `local`, "
+        "so these are the rows it judged to be neither. The largest "
+        "exclusion in the corpus and the last one without a review "
+        "surface."
+    ),
     PAYWALL_STUB: (
         "Text is a teaser or a login wall. The CIN label and byline are "
         "still usable, so exclusion loses valid observations."
@@ -458,6 +491,12 @@ def _case_q(case):
             | Q(enrichment__skip_reason__isnull=True)
             | Q(enrichment__skip_reason="")
         )
+    if case == WIRE_EXCLUSION:
+        # Every row, not a doubted subset. DOUBTED_CONTENT_TYPE can narrow
+        # obituaries because the detector records a confidence to narrow
+        # on; the wire writers record which service they matched, which
+        # says what the decision was and not how sure it was.
+        return Q(status=CASE_STATUS[WIRE_EXCLUSION])
     if case == MINIMAL_CAPTURE:
         return Q(status=CASE_STATUS[MINIMAL_CAPTURE])
     if case == HELD_FOR_REVIEW:
@@ -778,6 +817,34 @@ def _apply_common(qs, params):
         # identifier and must not be matched on (it changes, and
         # the same one can front two records).
         qs = qs.filter(candidate_link__source__canonical_name__icontains=publisher)
+    if method := params.get("method"):
+        # WHICH RULE DECIDED, from `metadata.wire_detection`, where each
+        # rule records the signals it fired on under `detected_by`.
+        #
+        # This is the axis precision is measured along, and the axis the
+        # methods differ along: URL patterns and the MediaCloud lookup run
+        # at 99%, while the local-syndication rules -- byline
+        # identification, copyright-text matching -- are the tricky ones.
+        # Reviewing "wire" as one undifferentiated pile compares none of
+        # them against each other.
+        #
+        # Matched as text: `metadata` is Postgres `json`, not `jsonb`, so
+        # a key lookup would emit an operator Postgres refuses on this
+        # column. Django renders icontains as `metadata::text LIKE`, which
+        # is exact enough here because these are distinctive rule names.
+        qs = qs.filter(metadata__icontains=method)
+    if service := params.get("service"):
+        # The syndication the wire writers attributed the article to,
+        # recorded in `articles.wire`. Matched as text because the column
+        # holds a JSON array and one article can name several -- "NPR"
+        # and "NPR, The Associated Press" are both NPR's to answer for.
+        #
+        # This is the axis the wire case is worked along. Several of the
+        # methods behind these attributions are already at or above 99%
+        # precision, and those do not earn a reviewer's time; the filter
+        # is what lets the uncertain ones be worked without the certain
+        # ones burying them.
+        qs = qs.filter(wire__icontains=service)
     if skip := params.get("skip"):
         qs = qs.filter(enrichment__skip_reason=skip)
     if label := params.get("label"):
@@ -1075,6 +1142,59 @@ def case_facets(params, user):
     ]
 
 
+#: The signals the wire rules record under `detected_by`, measured across
+#: March 2026 Mizzou on 2026-09-07 (7,555 rows carrying `wire_detection`):
+#:
+#:     canonical_cross_domain      4,807
+#:     meta_author                 2,514
+#:     jsonld_author               1,159
+#:     og_distributor_category       381
+#:     jsonld_isBasedOn               95
+#:     jsonld_mainEntity              95
+#:     jsonld_contentSourceCode       95
+#:
+#: Listed rather than read from the rows because reading them means
+#: decoding every metadata blob in the queue, and the set changes when a
+#: rule is added, not when the corpus does.
+WIRE_METHODS = (
+    "canonical_cross_domain",
+    "meta_author",
+    "jsonld_author",
+    "og_distributor_category",
+    "jsonld_isBasedOn",
+    "jsonld_mainEntity",
+    "jsonld_contentSourceCode",
+)
+
+
+def _wire_services(user, limit=60):
+    """Every syndication named on a flagged wire row, by volume.
+
+    Read from the rows rather than from a list, so the filter offers what
+    is actually there. Ordered by how many articles each accounts for,
+    because that is the order in which reviewing them is worth anything:
+    the head of this list is where the corpus was actually spent.
+    """
+    from collections import Counter
+
+    counts: Counter = Counter()
+    values = (
+        base_queryset(user)
+        .filter(status=CASE_STATUS[WIRE_EXCLUSION])
+        .values_list("wire", flat=True)
+    )
+    for value in values:
+        if not value:
+            continue
+        # A JSON array, decoded by the model. A bare string is tolerated
+        # rather than assumed away: this column has held both shapes.
+        names = value if isinstance(value, list) else [value]
+        for name in names:
+            if isinstance(name, str) and name.strip():
+                counts[name.strip()] += 1
+    return [name for name, _count in counts.most_common(limit)]
+
+
 def vocab(user):
     """Filter vocabularies read from the data, or None when the crawler
     database is not reachable."""
@@ -1101,6 +1221,14 @@ def vocab(user):
                 .distinct()
                 if value
             ),
+            # The syndications the wire case can be worked one at a time.
+            # Flattened from `articles.wire`, which is a JSON array: one
+            # article can name several, and each of them is a separate
+            # thing to be right or wrong about.
+            "services": _wire_services(user),
+            # The rules that decided, most-used first. A method is what a
+            # precision figure attaches to; a syndication is not.
+            "methods": WIRE_METHODS,
         }
     except DatabaseError as exc:
         # A missing crawler database is "not connected"; a query this
