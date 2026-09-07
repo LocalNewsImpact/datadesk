@@ -523,6 +523,7 @@ verification:
 | `discovered_by` (rss, homepage, section crawl, newspaper4k) | discovery method correlates with URL shape; a model trained on one method's URLs does not transfer |
 | `discovered_at`, `reviewed_at`, reviewer | drift, and inter-reviewer disagreement |
 | **stratum**: which facet the row came from | the single most important field, below |
+| **selection probability**: the chance this row had of being shown | turns the doubt-ranked rows from unmeasurable into weightable, below |
 
 ### The stratum field decides what the set can be used for
 
@@ -540,6 +541,58 @@ So: random rows are held out as the evaluation set and are never trained
 on. Doubt-ranked rows train only. The stratum column is what keeps that
 honest six months later, when nobody remembers which query produced which
 row.
+
+### Two different probabilities, and only one of them exists
+
+The word means two things here and they are not related, so this says
+which is which before either is used.
+
+**The model's confidence** — how sure the classifier was — is the one
+anybody asks for first, because ranking review by it is obvious and
+right. It does not exist. §5 measured it: `predict_proba` on the
+saturated GaussianNB puts 5,959 of 6,000 URLs at exactly 0.0 or 1.0, so
+there is no uncertain band to draw from and a threshold on it returns the
+verdict a second time. Disagreement between the mechanisms is the
+uncertainty signal that does exist, which is why the first three facets
+are built on it. When the labels here train a calibrated model, its
+confidence joins these as a fourth signal and the row records it — it
+will be needed, because the overruled facet is ~17,300 rows and nothing
+ranks within it today.
+
+**The selection probability** — how likely this row was to be shown — is
+a property of the queue, not of the model, and it can be recorded from
+the first day. That is the one below.
+
+### And the probability that row had of being shown
+
+The stratum says which pile a row came from. The probability says how
+likely it was to be picked out of that pile, and it is what lets the
+doubt-ranked rows be used for measurement instead of thrown away.
+
+With an inclusion probability recorded per row, a population estimate is
+the labels weighted by the inverse of their own odds: a row drawn from a
+facet of 400 where 40 were shown counts for ten of itself, a randomly
+drawn row counts for its own share of the corpus. That is ordinary
+inverse-probability weighting, and it means an error rate can be computed
+from **every** label rather than only from the random slice — which
+matters because the random slice is the smallest and slowest-growing part
+of the set.
+
+Two conditions, and neither is automatic:
+
+- **The queue must draw rows, not offer them.** A probability is a
+  property of a sampling design. If a reviewer works down a ranked list
+  in whatever order suits them and stops when they are tired, the design
+  probability is not the realised one and the weights are wrong. The
+  queue decides what is in the batch; the reviewer decides the answers.
+- **It is recorded at selection, never recomputed.** The facet a row was
+  drawn from changes size every day as the pipeline runs. A probability
+  recalculated later describes a population that no longer exists, and
+  is worse than not having one, because it looks correct.
+
+The random stratum stays. Weighting recovers an estimate from biased
+rows; it does not produce a clean held-out set, and evaluating a model
+on rows it was selected against is not evaluation.
 
 ### Splitting by publisher, not at random
 
