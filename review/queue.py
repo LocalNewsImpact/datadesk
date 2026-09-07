@@ -1003,7 +1003,18 @@ def doubtful_q():
 
 #: The filters that mean somebody asked for a particular set of rows,
 #: rather than arriving at the queue.
-_EXPLICIT = ("case", "band", "skip", "label", "byline", "publisher", "dataset", "all")
+#:
+#: `dataset` is NOT one of them. Choosing a dataset says which corpus to
+#: work, not that the reader wants everything flagged in it -- it is a
+#: scope, and what is left inside it is still a backlog. Asking for a
+#: case, a band or a publisher is asking to see a particular set.
+#:
+#: It was on this list, and that was survivable while the flagged set was
+#: 1,956 rows for Mizzou. Once wire, weather, opinion and paywall had
+#: cases it was 60,169, and picking a dataset turned the narrowing off and
+#: asked the page to count all of them nine times over for the facet
+#: chips. The page stopped answering.
+_EXPLICIT = ("case", "band", "skip", "label", "byline", "publisher", "all")
 
 
 def _asked_for_something(params) -> bool:

@@ -345,12 +345,31 @@ def test_case_facet_counts(client, viewer, flagged):
 
 
 def test_dataset_filter_follows_membership(client, viewer, flagged):
+    """A dataset is a scope, so the landing narrowing stays on.
+
+    It used to come off, and picking a dataset asked for everything
+    flagged in it. That was 1,956 rows for Mizzou and survivable. Once
+    wire, weather, opinion and paywall had cases it was 60,169, counted
+    nine times over for the facet chips, and the page stopped answering.
+
+    "Fair pictures" is flagged and not doubted, so it is no longer here.
+    It is still reachable: choosing its case is asking to see that set,
+    and that does turn the narrowing off.
+    """
     titles = _titles(client.get(URL, {"dataset": "missouri"}))
     assert set(titles) == {
         "Subscribers only: council votes",
         "Paywalled: county budget",
-        "Fair pictures",
     }
+
+
+def test_a_case_inside_a_dataset_still_shows_everything(client, viewer, flagged):
+    """The narrowing a dataset keeps, a case still lifts."""
+    titles = _titles(
+        client.get(URL, {"dataset": "missouri", "case": "minimal_capture"})
+    )
+
+    assert "Fair pictures" in set(titles)
 
 
 def test_publisher_filter(client, viewer, flagged):
