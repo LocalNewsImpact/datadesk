@@ -27,3 +27,7 @@ data/sources/*
 .coverage
 coverage.xml
 htmlcov/
+
+# Pre-push hook output. Local run logs: 23 were committed by accident
+# before this rule existed, and every push since has offered more.
+logs/pre-push/

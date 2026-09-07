@@ -159,6 +159,23 @@ SECTION_GROUPS = (
         ),
     },
     {
+        # ROADMAP item 19. The operator's view: is anything running, is it
+        # failing, how far has it got. Item 8's per-dataset page answers
+        # "how is this dataset doing" and shares these queries.
+        "label": "Processing",
+        "requires": EDITOR,
+        "sections": (
+            {
+                "url": "explorer:processing",
+                "label": "Live Logs",
+                "note": (
+                    "What the pipeline is doing now: runs, domains being "
+                    "worked, and the errors it reported."
+                ),
+            },
+        ),
+    },
+    {
         "label": "Admin",
         "requires": ADMIN,
         "sections": (

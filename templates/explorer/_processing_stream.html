@@ -1,0 +1,140 @@
+{% comment %}
+  Replaces itself every 15 seconds. The hx-* attributes have to be on this
+  element rather than on a wrapper in the page: the swap is outerHTML, so
+  whatever carries them is what gets replaced, and they must come back.
+{% endcomment %}
+<div id="stream"
+     hx-get="{% url 'explorer:processing' %}{% if dataset %}?dataset={{ dataset }}{% endif %}"
+     hx-trigger="every 15s"
+     hx-swap="outerHTML">
+
+  <p class="hint stream-state">
+    {% if summary.idle %}
+      Nothing has run in the last {{ window_hours }} hours.
+    {% else %}
+      {{ summary.runs }} run{{ summary.runs|pluralize }},
+      {{ summary.running }} still going{% if summary.stale %},
+      {{ summary.stale }} started but never reported finishing{% endif %}{% if summary.failed %},
+      {{ summary.failed }} failed{% endif %}.
+      {% if summary.processed %}{{ summary.processed }} records processed.{% endif %}
+    {% endif %}
+    <span class="stream-tick">updated {% now "H:i:s" %}</span>
+  </p>
+
+  <h2>Backlog</h2>
+  <table class="counts">
+    <thead>
+      <tr><th>discovered</th><th>to extract</th><th>extracted</th><th>labelled</th><th>enriched</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>{{ stages.discovered|default:"0" }}</td>
+        <td>{{ stages.article|default:"0" }}</td>
+        <td>{{ stages.extracted|default:"0" }}</td>
+        <td>{{ stages.labeled|default:"0" }}</td>
+        <td>{{ stages.enriched|default:"0" }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Runs</h2>
+  {% if jobs %}
+  <table>
+    <thead>
+      <tr><th>job</th><th>started</th><th>state</th><th>processed</th><th>created</th><th>errors</th></tr>
+    </thead>
+    <tbody>
+      {% for job in jobs %}
+      <tr>
+        <td>{{ job.job_name|default:job.job_type }}</td>
+        <td>{{ job.started_at|date:"H:i:s" }}</td>
+        <td>
+          {% if job.finished_at %}{{ job.exit_status|default:"finished" }}
+          {% else %}running{% endif %}
+        </td>
+        {% comment %}
+          A dash, not a zero: a run that processed nothing and a run that
+          never recorded its counters are different facts, and every row
+          written before 2026-09-07 is the second kind.
+        {% endcomment %}
+        <td>{% if job.records_processed is None %}—{% else %}{{ job.records_processed }}{% endif %}</td>
+        <td>{% if job.records_created is None %}—{% else %}{{ job.records_created }}{% endif %}</td>
+        <td>{% if job.errors_count is None %}—{% else %}{{ job.errors_count }}{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="hint">No runs in the window.</p>
+  {% endif %}
+
+  <h2>Domains being worked</h2>
+  {% if domains %}
+  <table>
+    <thead>
+      <tr><th>domain</th><th>attempts</th><th>succeeded</th><th>failed</th><th>last</th></tr>
+    </thead>
+    <tbody>
+      {% for row in domains %}
+      <tr>
+        <td>{{ row.host|default:"—" }}</td>
+        <td>{{ row.attempts }}</td>
+        <td>{{ row.succeeded }}</td>
+        <td>{{ row.failed }}</td>
+        <td>{{ row.latest|date:"H:i:s" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="hint">No extraction in the window.</p>
+  {% endif %}
+
+  <h2>Errors</h2>
+  {% comment %}
+    Only what the extractor itself called an error. A URL filtered as wire
+    or weather is a decision that worked, and a paused source is not an
+    event -- neither belongs in a list a person reads to find trouble.
+  {% endcomment %}
+  {% if errors %}
+  <table>
+    <thead>
+      <tr><th>when</th><th>domain</th><th>status</th><th>error</th></tr>
+    </thead>
+    <tbody>
+      {% for row in errors %}
+      <tr>
+        <td>{{ row.created_at|date:"H:i:s" }}</td>
+        <td>{{ row.host|default:"—" }}</td>
+        <td>{{ row.http_status_code|default:"—" }}</td>
+        <td class="error-text">{{ row.error_type|default:"" }} {{ row.error_message|truncatechars:160 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="hint">No errors reported in the window.</p>
+  {% endif %}
+
+  <h2>Latest extractions</h2>
+  {% if milestones %}
+  <table>
+    <thead>
+      <tr><th>when</th><th>publisher</th><th>result</th><th>chars</th><th>ms</th></tr>
+    </thead>
+    <tbody>
+      {% for row in milestones %}
+      <tr>
+        <td>{{ row.created_at|date:"H:i:s" }}</td>
+        <td>{{ row.publisher|default:row.host|default:"—" }}</td>
+        <td>{% if row.is_success %}extracted{% else %}no article{% endif %}</td>
+        <td>{{ row.content_length|default:"—" }}</td>
+        <td>{{ row.total_duration_ms|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="hint">Nothing extracted in the window.</p>
+  {% endif %}
+</div>

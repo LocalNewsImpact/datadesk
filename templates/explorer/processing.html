@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Live Logs — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>Live Logs</h1>
+  <p class="hint">
+    What the pipeline has done in the last {{ window_hours }} hours, refreshed
+    every 15 seconds. A stage with nothing recent is idle, not broken — the
+    crawler is started and stopped deliberately.
+  </p>
+
+  {% if crawler_absent %}
+  <p class="notice">
+    Crawler database not connected. Set CRAWLER_DB_USER (and run the Cloud
+    SQL Auth Proxy locally) to see pipeline activity.
+  </p>
+  {% else %}
+
+  {% if show_filter %}
+  <form method="get" action="{% url 'explorer:processing' %}" class="filter-bar"
+        hx-get="{% url 'explorer:processing' %}" hx-target="#stream"
+        hx-trigger="change, submit" hx-push-url="true">
+    <label>Dataset
+      <select name="dataset">
+        <option value="">all mine</option>
+        {% for d in datasets %}
+        <option value="{{ d.slug }}" {% if dataset == d.slug %}selected{% endif %}>{{ d.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <noscript><button type="submit">Filter</button></noscript>
+  </form>
+  {% endif %}
+
+  {% comment %}
+    The poll re-requests only this subtree, so a refresh costs the panel
+    queries rather than the whole page. The polling attributes live in the
+    partial, not here: an outerHTML swap replaces this element, and a
+    wrapper defined only in the page would take its own hx-trigger away on
+    the first tick and stop refreshing.
+  {% endcomment %}
+  {% include "explorer/_processing_stream.html" %}
+
+  {% endif %}
+</section>
+{% endblock %}

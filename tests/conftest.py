@@ -115,7 +115,26 @@ _CRAWLER_TABLES = {
     ),
     "candidate_links": (
         "(id VARCHAR PRIMARY KEY, url VARCHAR, source VARCHAR, source_id "
-        "VARCHAR, dataset_id VARCHAR)"
+        "VARCHAR, dataset_id VARCHAR, status VARCHAR)"
+    ),
+    # What a run did, and what it did it to. Both gained `dataset_id` in
+    # the crawler on 2026-09-07; before that a per-dataset question about
+    # either meant joining back to candidate_links on URL text.
+    "jobs": (
+        "(id VARCHAR PRIMARY KEY, job_type VARCHAR, job_name VARCHAR, "
+        "started_at TIMESTAMP, finished_at TIMESTAMP, exit_status VARCHAR, "
+        "dataset_id VARCHAR, records_processed INTEGER, "
+        "records_created INTEGER, records_updated INTEGER, "
+        "errors_count INTEGER)"
+    ),
+    "extraction_telemetry_v2": (
+        "(id SERIAL PRIMARY KEY, operation_id VARCHAR, url VARCHAR, "
+        "publisher VARCHAR, host VARCHAR, start_time TIMESTAMP, "
+        "end_time TIMESTAMP, total_duration_ms INTEGER, "
+        "http_status_code INTEGER, content_length INTEGER, "
+        "is_success BOOLEAN, error_message TEXT, error_type VARCHAR, "
+        "created_at TIMESTAMP, dataset_id VARCHAR, "
+        "candidate_link_id VARCHAR)"
     ),
     "articles": (
         "(id VARCHAR PRIMARY KEY, candidate_link_id VARCHAR, url VARCHAR, "
