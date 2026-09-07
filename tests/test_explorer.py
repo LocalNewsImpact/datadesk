@@ -247,7 +247,6 @@ def test_the_sql_grants_cover_every_writable_field():
     import re
     from pathlib import Path
 
-    from explorer.models import Article, ArticleEnrichment, Dataset, Source
     from review.services import WRITABLE
 
     sql = (
@@ -261,12 +260,12 @@ def test_the_sql_grants_cover_every_writable_field():
     ):
         granted[table] = {c.strip() for c in columns.split(",")}
 
-    tables = {
-        Article: "articles",
-        ArticleEnrichment: "article_enrichment",
-        Source: "sources",
-        Dataset: "datasets",
-    }
+    # Derived from WRITABLE, not listed beside it. A hardcoded map
+    # checks the models somebody remembered to add to it: a model gaining
+    # a writable field would be granted nothing and pass, which is the
+    # failure this test exists to catch, arriving as a runtime
+    # permission error on the reviewer's click.
+    tables = {model: model._meta.db_table for model in WRITABLE}
 
     def column_of(model, field):
         """The database column, which is not always the field's name --
@@ -281,3 +280,40 @@ def test_the_sql_grants_cover_every_writable_field():
             "does not allow it. Widen create_crawler_write_role.sql and apply "
             "it, or narrow WRITABLE."
         )
+
+
+def test_the_console_may_restore_a_rejected_url():
+    """The discovery queue's one verb that writes, granted ahead of it.
+
+    A URL rejected before extraction leaves no article row, no status and
+    no telemetry -- nothing downstream can see it was lost -- so putting
+    one back is the only repair for a type II error, and it has to happen
+    on `candidate_links` or not at all.
+
+    Pinned separately from the WRITABLE check above because the grant is
+    applied to production by hand: this says the file records what was
+    applied, and the check above will cover it the moment
+    `review/services.py` starts writing it.
+    """
+    import re
+    from pathlib import Path
+
+    sql = (
+        Path(__file__).resolve().parent.parent
+        / "infra/sql/create_crawler_write_role.sql"
+    ).read_text()
+    granted = {
+        table: {c.strip() for c in columns.split(",")}
+        for columns, table in re.findall(
+            r"GRANT UPDATE \(([^)]*)\)\s*ON (\w+) TO datadesk_rw", sql, re.S
+        )
+    }
+    assert granted.get("candidate_links") == {"status"}, (
+        "the discovery queue restores a URL by setting status, and nothing "
+        "else on this table is the console's to change"
+    )
+    # No INSERT or DELETE: the console does not create candidate links and
+    # does not destroy them.
+    assert "ON candidate_links" not in re.sub(
+        r"GRANT UPDATE \([^)]*\)\s*ON candidate_links TO datadesk_rw", "", sql
+    )
