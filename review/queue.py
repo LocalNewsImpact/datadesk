@@ -677,6 +677,9 @@ def base_queryset(user):
 #: A default that hides rows has to be visible, or it reads as data
 #: missing. The window is a filter chip like any other and says which one
 #: it is.
+#: The window is what keeps the counting cheap: the paginator counts the
+#: whole set and `case_facets` runs a conditional aggregate per case over
+#: it, so this bounds the work the page does before it can draw anything.
 DEFAULT_DAYS = 30
 
 #: What the window can be set to. `all` is here because a question about
