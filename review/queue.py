@@ -1001,8 +1001,41 @@ def doubtful_q():
     )
 
 
-#: The filters that mean somebody asked for a particular set of rows,
-#: rather than arriving at the queue.
+#: Cases deliberately absent from the landing view.
+#:
+#: The landing view holds what there is RECORDED REASON to doubt. For
+#: these there is none: the wire writers record which service they
+#: matched, not how sure they were, and the topic detector's confidence
+#: counts matched signals rather than estimating correctness. Nothing
+#: distinguishes a wire row worth reading from one that is not, so putting
+#: all 47,419 on the landing view would bury the cases that do carry a
+#: reason -- which is the backlog problem the narrowing exists to solve.
+#:
+#: They are not hidden. Each has a chip with its own count, and choosing
+#: it shows every row. That is the difference between a case nobody is
+#: shown and a case nobody is shown BY DEFAULT.
+#:
+#: Give one a doubt signal and it belongs in `doubtful_q`. The obituary
+#: case earned its way in that way, on the headline.
+CASES_OFF_THE_LANDING_VIEW = frozenset(
+    {
+        "wire_exclusion",
+        "weather_exclusion",
+        "opinion_exclusion",
+        "paywall_exclusion",
+    }
+)
+
+#: Filters that say WHICH CORPUS to work, not which rows to see.
+#:
+#: A scope keeps the landing narrowing on: what is left inside it is still
+#: a backlog nobody works, which is the whole reason the narrowing exists.
+#: The queue holds what there is reason to doubt, and that is all it is
+#: for.
+_SCOPES = ("dataset", "days", "since", "until", "state")
+
+#: Filters that ask for a particular set of rows, and so lift the
+#: narrowing: asking for a case is asking to see what matches.
 #:
 #: `dataset` is NOT one of them. Choosing a dataset says which corpus to
 #: work, not that the reader wants everything flagged in it -- it is a
@@ -1014,7 +1047,17 @@ def doubtful_q():
 #: cases it was 60,169, and picking a dataset turned the narrowing off and
 #: asked the page to count all of them nine times over for the facet
 #: chips. The page stopped answering.
-_EXPLICIT = ("case", "band", "skip", "label", "byline", "publisher", "all")
+_EXPLICIT = (
+    "case",
+    "band",
+    "skip",
+    "service",
+    "method",
+    "label",
+    "byline",
+    "publisher",
+    "all",
+)
 
 
 def _asked_for_something(params) -> bool:
