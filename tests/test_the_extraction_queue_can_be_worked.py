@@ -18,6 +18,7 @@ button -- and none of its behaviour:
 - No decided state. There was no way to see what had been decided.
 """
 
+import inspect
 import json
 
 import pytest
@@ -33,6 +34,7 @@ from explorer.models import (
     DatasetSource,
     Source,
 )
+from review import dispositions
 from review import queue as review_queue
 from review.dispositions import ENRICHMENT, EXTRACTION, record
 from review.models import ReviewDecision
@@ -420,17 +422,40 @@ def test_a_decision_does_not_flatten_the_metadata_the_crawler_keeps(reviewer, fl
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_the_write_path_is_granted_the_column_it_writes():
+def test_the_write_path_is_granted_every_column_it_writes():
     """Postgres enforces the boundary, so a column the console writes and
-    the role cannot must fail here rather than in production."""
+    the role cannot must fail here rather than in production.
+
+    This test used to name `metadata` and check only that. It therefore
+    passed on the day `enrichment_attempts` joined the write set without
+    joining the grant, and every submit that rewound a row answered 500.
+    The write set is read out of `record()` now, so adding a column to it
+    and not to the grant fails here.
+    """
+    import re
+
     from django.conf import settings
 
+    source = inspect.getsource(dispositions.record)
+
+    written = set()
+    initial = re.search(r'written = \[([^\]]*)\]', source)
+    if initial:
+        written.update(re.findall(r'"(\w+)"', initial.group(1)))
+    written.update(re.findall(r'written\.append\("(\w+)"\)', source))
+
+    assert written, "the write set could not be read out of record()"
+
     grants = (settings.BASE_DIR / "infra/sql/create_crawler_write_role.sql").read_text()
-    articles = grants[grants.index("ON articles TO datadesk_rw") - 400 :]
-    articles = articles[: articles.index("ON articles TO datadesk_rw")]
-    assert "metadata" in articles, (
-        "record() writes articles.metadata; datadesk_rw is not granted it, "
-        "so the write fails in production and passes here"
+    granted_block = grants[: grants.index("ON articles TO datadesk_rw")]
+    granted_block = granted_block[granted_block.rindex("GRANT UPDATE (") :]
+    granted = set(re.findall(r"(\w+)", granted_block)) - {"GRANT", "UPDATE"}
+
+    missing = written - granted
+    assert not missing, (
+        f"record() writes articles.{sorted(missing)}; datadesk_rw is not "
+        "granted them, so the write fails in production and passes here. "
+        "Widen create_crawler_write_role.sql and apply it to the database."
     )
 
 
