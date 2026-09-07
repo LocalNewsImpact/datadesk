@@ -96,6 +96,33 @@ EXPORTED_UNENRICHED = "exported_unenriched"
 #: looking at the article, not to a heuristic guessing ahead of them.
 WIRE_EXCLUSION = "wire_exclusion"
 
+#: The topic rules, one case each.
+#:
+#: Separate rather than one "excluded by topic" case because a precision
+#: figure attaches to a rule, not to a category: `matched_weather_signals`
+#: and `matched_opinion_signals` are different rules and will not be
+#: equally right. One chip each is what lets each be measured and promoted
+#: on its own.
+#:
+#: Every row, not a doubted subset. `DOUBTED_CONTENT_TYPE` narrows
+#: obituaries at `confidence_score < 0.30`, a threshold these never reach
+#: -- the detector scores them in sixths and the weakest is 0.333, so that
+#: filter would select none of them. Together they are 638 rows in March
+#: 2026 Mizzou, small enough to read rather than sample.
+WEATHER_EXCLUSION = "weather_exclusion"
+OPINION_EXCLUSION = "opinion_exclusion"
+PAYWALL_EXCLUSION = "paywall_exclusion"
+
+#: Cases that are simply their status, with nothing further to narrow on.
+PLAIN_STATUS_CASES = (
+    WIRE_EXCLUSION,
+    WEATHER_EXCLUSION,
+    OPINION_EXCLUSION,
+    PAYWALL_EXCLUSION,
+    MINIMAL_CAPTURE,
+    HELD_FOR_REVIEW,
+)
+
 # article_enrichment.skip_reason, as production actually holds it. Three
 # spellings mean one finding: the bulk March update wrote
 # paywall_stub_exported_unenriched, the LLM content gate writes
@@ -188,29 +215,38 @@ CORROBORATING_EVIDENCE_KEYS = ("url", "title_patterns", "title")
 WIRE_SUSPECT_METHOD = "canonical_cross_domain"
 
 
-def _doubted_detection_ids():
-    """Articles whose detector recorded low confidence and no corroboration.
-
-    A subquery on ids rather than a join, so the row query never multiplies
-    an article by its telemetry -- the table is a log and an article can
-    have several rows. De-duplicating afterwards with `.distinct()` is not
-    an option: `articles` carries json columns, and DISTINCT over a row
-    containing one fails in Postgres with "could not identify an equality
-    operator for type json".
-    """
-    from explorer.models import ContentTypeDetection
-
-    corroborated = Q()
-    for key in CORROBORATING_EVIDENCE_KEYS:
-        # Containment, not a JSON operator: `evidence` is TEXT in Postgres
-        # and `has_any_keys` emits `?|`, which it has no operator for.
-        corroborated |= Q(evidence__contains=f'"{key}"')
-
-    return (
-        ContentTypeDetection.objects.filter(confidence_score__lt=0.30)
-        .exclude(corroborated)
-        .values("article_id")
-    )
+#: A headline that reads as a sentence rather than a name.
+#:
+#: An obituary headline is a person: "Alice Theresa Kline", "ANNA LEE
+#: VANSKIKE", "Allen Ray Shaeffer (December 30, 1949 - March 9, 2026)".
+#: A news story about a death is a sentence: "Carthage man killed in
+#: motorcycle crash", "Community pays tribute to Missouri deputies",
+#: "Former SEMO Sports Information Director Ron Hines passes away at 82".
+#:
+#: The discriminator is a lowercase word. Names are capitalised; verbs and
+#: prepositions are not. `\m` and `\M` are Postgres word boundaries, and
+#: they matter: written with `$` the allowlist only ever matched a
+#: particle as the last word of the headline, so "Hendrik van der Berg"
+#: read as a sentence and every Dutch surname went to review.
+#:
+#: Measured on the 236 March 2026 Mizzou obituaries a reviewer has ruled
+#: on -- 208 upheld, 28 overturned:
+#:
+#:     held back as names   183 obituaries, 2 not
+#:     sent to review        51 rows, 26 of them real errors (51.0%)
+#:
+#: Against a base rate of 11.9%, so a reviewer meets a mistake in every
+#: second row rather than every eighth, and the March queue holds 66 rows
+#: rather than 745.
+#:
+#: The two held back wrongly are "Rev. Jesse Jackson's Son Criticizes
+#: Those Who Politicized Funeral", Title Case throughout and so carrying
+#: no lowercase word, and "Taylor News". Not perfect; it reduces the false
+#: positives, which is what it is for.
+SENTENCE_HEADLINE = (
+    r"\m(?!(of|the|a|an|and|or|to|in|at|on|for|van|von|der|den|de|del"
+    r"|la|le|du|da|di|dos|jr|sr|nee)\M)[a-z]{2,}"
+)
 
 
 def _evidence_mentions(keys):
@@ -382,19 +418,37 @@ CASE_STATUS = {
     HELD_FOR_REVIEW: "in_review",
     EXPORTED_UNENRICHED: "enrichment_skipped",
     WIRE_EXCLUSION: "wire",
+    WEATHER_EXCLUSION: "weather",
+    OPINION_EXCLUSION: "opinion",
+    PAYWALL_EXCLUSION: "paywall",
 }
 
 CASE_LABELS = {
     PAYWALL_STUB: "Paywall stubs",
     MINIMAL_CAPTURE: "Minimal or empty captures",
     SCOPE_MISLABEL: "Wrong geographic scope",
-    DOUBTED_CONTENT_TYPE: "Barely-confident content types",
+    DOUBTED_CONTENT_TYPE: "Obituaries that read as stories",
     HELD_FOR_REVIEW: "Held: a field is wrong",
     EXPORTED_UNENRICHED: "Exported without enrichment",
     WIRE_EXCLUSION: "Excluded as wire",
+    WEATHER_EXCLUSION: "Excluded as weather",
+    OPINION_EXCLUSION: "Excluded as opinion",
+    PAYWALL_EXCLUSION: "Excluded as paywalled",
 }
 
 CASE_NOTES = {
+    WEATHER_EXCLUSION: (
+        "Excluded as a forecast. The rule scores in sixths and half of "
+        "these matched two signals of six, which is the end to start at."
+    ),
+    OPINION_EXCLUSION: (
+        "Excluded as commentary. Same rule shape as weather, a different "
+        "signal list, and its own precision to establish."
+    ),
+    PAYWALL_EXCLUSION: (
+        "Excluded as behind a paywall, which is a fact about access "
+        "rather than about the article."
+    ),
     WIRE_EXCLUSION: (
         "Excluded as syndicated. The pipeline already tells local "
         "syndicators from wire services and files the first as `local`, "
@@ -417,9 +471,9 @@ CASE_NOTES = {
         "releases them."
     ),
     DOUBTED_CONTENT_TYPE: (
-        "The detector recorded its own confidence and it is at the floor: "
-        "0.17, on one phrase in the body, with neither the URL nor the "
-        "title agreeing. Where they do agree the calls are right."
+        "Obituaries whose headline reads as a sentence rather than a "
+        "name -- a story about a death rather than a death notice. "
+        "Roughly half of these are wrongly excluded."
     ),
     SCOPE_MISLABEL: (
         "Excluded for being about somewhere else, and kept for export "
@@ -491,22 +545,42 @@ def _case_q(case):
             | Q(enrichment__skip_reason__isnull=True)
             | Q(enrichment__skip_reason="")
         )
-    if case == WIRE_EXCLUSION:
-        # Every row, not a doubted subset. DOUBTED_CONTENT_TYPE can narrow
-        # obituaries because the detector records a confidence to narrow
-        # on; the wire writers record which service they matched, which
-        # says what the decision was and not how sure it was.
-        return Q(status=CASE_STATUS[WIRE_EXCLUSION])
-    if case == MINIMAL_CAPTURE:
-        return Q(status=CASE_STATUS[MINIMAL_CAPTURE])
-    if case == HELD_FOR_REVIEW:
-        return Q(status=CASE_STATUS[HELD_FOR_REVIEW])
+    if case in PLAIN_STATUS_CASES:
+        # The status is the whole selector. DOUBTED_CONTENT_TYPE can narrow
+        # obituaries because the detector records a confidence worth
+        # narrowing on; these either record no confidence at all (the wire
+        # writers record which service they matched, not how sure they
+        # were) or record one that never falls below its threshold.
+        return Q(status=CASE_STATUS[case])
     if case == DOUBTED_CONTENT_TYPE:
-        # Selected on the recorded evidence rather than the status alone:
-        # 2,840 of 3,940 obituary verdicts ARE obituaries, and the URL or
-        # title agreeing is what separates them.
+        # Every obituary, not the low-confidence ones.
+        #
+        # This used to select `confidence_score < 0.30` and no
+        # corroborating evidence, on the reading that a low score marks a
+        # doubtful call. Measured against the reviews, it does not:
+        #
+        #   785 March 2026 Mizzou obituaries, scored 0.167 to 0.667
+        #   311 fall under the old threshold
+        #   every obituary a reviewer has decided scored 0.167
+        #   of those, 208 upheld and 27 overturned -- 88.5% correct
+        #
+        # A score of one signal in six being right 88.5% of the time means
+        # the number is a tally of matched signals, not a probability, and
+        # it does not rank. The filter therefore did not surface doubtful
+        # obituaries; it surfaced the bottom band and called it doubt.
+        #
+        # Worse for what comes next: it meant every label ever collected
+        # came from that one band. A categoriser trained on them would
+        # learn from a corner of the distribution and inherit its skew.
+        # Drawing from the whole population was the prerequisite for the
+        # model, and it is still what the labels have to come from -- but
+        # not by reading 745 obituaries to find 28 mistakes.
+        #
+        # The headline separates them. An obituary headline is a name; a
+        # story about a death is a sentence, and a sentence has a
+        # lowercase word in it. See SENTENCE_HEADLINE for the measurement.
         return Q(status=CASE_STATUS[DOUBTED_CONTENT_TYPE]) & Q(
-            id__in=_doubted_detection_ids()
+            title__regex=SENTENCE_HEADLINE
         )
     return Q()
 
@@ -729,7 +803,7 @@ def flag_of(article):
     if status == CASE_STATUS[MINIMAL_CAPTURE]:
         return _words("minimal_capture", "Body is too short to be a story")
     if status == CASE_STATUS[DOUBTED_CONTENT_TYPE]:
-        return _words("doubted_type", "The detector barely believed its own call")
+        return _words("doubted_type", "Called an obituary; the headline is a sentence")
     if status == CASE_STATUS[EXPORTED_UNENRICHED]:
         # Reached only with no reason of any kind: every branch above
         # returns when one exists, and this status carries one whenever
@@ -894,8 +968,11 @@ def doubtful_q():
       11 of 12 bylined, one an 18,044-character bylined feature), where
       the capture is long, where a byline survived, or where the body is
       undecoded ROT47 -- never a correct rejection.
-    - a content type called below 0.30 with neither URL nor title
-      agreeing.
+    - an obituary whose headline reads as a sentence rather than a name.
+      This replaced "called below 0.30 with neither URL nor title
+      agreeing", which did not narrow on anything: every obituary a
+      reviewer has ruled on scored 0.167, the floor, and 88.5% of them
+      were right. See SENTENCE_HEADLINE.
     """
     reasonless_gate = Q(enrichment__isnull=False) & Q(
         enrichment__content_gate_reason__isnull=True

@@ -331,9 +331,13 @@ def test_case_facet_counts(client, viewer, flagged):
         # Every fixture row here has a recorded reason, which is what
         # this case is the absence of.
         "exported_unenriched": 0,
-        # No fixture row is status='wire'. The case counts zero here and
-        # 9,335 in March 2026 Mizzou, which is why it exists.
+        # No fixture row carries one of the machine-exclusion statuses.
+        # They count zero here and, in March 2026 Mizzou, 9,335 / 361 /
+        # 277 / 2 -- which is why the cases exist.
         "wire_exclusion": 0,
+        "weather_exclusion": 0,
+        "opinion_exclusion": 0,
+        "paywall_exclusion": 0,
     }
 
 
