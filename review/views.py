@@ -58,6 +58,8 @@ QUEUE_FILTER_KEYS = (
     "case",
     "band",
     "skip",
+    "service",
+    "method",
     "label",
     "byline",
     "publisher",

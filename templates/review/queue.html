@@ -81,6 +81,22 @@
         {% endfor %}
       </select>
     </label>
+    <label>Detected by
+      <select name="method">
+        <option value="">any</option>
+        {% for m in vocab.methods %}
+        <option {% if params.method == m %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Syndication
+      <select name="service">
+        <option value="">any</option>
+        {% for s in vocab.services %}
+        <option {% if params.service == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <label>Skip reason
       <select name="skip">
         <option value="">any</option>
