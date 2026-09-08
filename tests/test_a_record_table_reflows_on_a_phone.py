@@ -123,3 +123,70 @@ def test_every_data_cell_says_which_column_it_answers(path, table):
             f"{path}: {cell.strip()} carries no column head, so on a phone "
             "it stacks as an unlabelled value"
         )
+
+
+# --- the nav, which the queue starts underneath ------------------------------
+#
+# Below 60rem the sidebar was already a wrapped row rather than a column,
+# and still six groups: the queue's heading sat 330px down an 844px screen,
+# so working on a phone began by scrolling past the navigation. Closed, the
+# sidebar is the brand and a button, and the heading is at 165px.
+
+JS = Path("static/js/nav-menu.js")
+
+
+@pytest.fixture
+def a_reader(db):
+    from django.contrib.auth.models import User
+
+    from accounts.models import DATADESK, Grant
+
+    user = User.objects.create_user("nav", email="nav@localnewsimpact.org")
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="reviewer")
+    return user
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_menu_is_open_in_the_markup(client, a_reader, crawler_schema):
+    """The script closes it; the markup does not. That order is what
+    leaves somebody whose script failed with the navigation they have
+    always had, rather than with none."""
+    from django.urls import reverse
+
+    client.force_login(a_reader)
+    body = client.get(reverse("review:queue")).content.decode()
+    nav = body[body.index('<nav id="site-nav"') :][:200]
+    assert "hidden" not in nav.split(">")[0]
+    assert 'aria-expanded="true"' in body
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_button_says_what_it_controls(client, a_reader, crawler_schema):
+    from django.urls import reverse
+
+    client.force_login(a_reader)
+    body = client.get(reverse("review:queue")).content.decode()
+    assert 'class="nav-toggle"' in body
+    assert 'aria-controls="site-nav"' in body
+
+
+def test_the_button_is_not_there_on_a_desktop():
+    """`.nav-toggle { display: none }` at the top level, turned on only
+    inside the width where the nav collapses."""
+    css = CSS.read_text()
+    assert ".nav-toggle { display: none; }" in css
+    narrow = css[css.index("@media (max-width: 60rem)") :]
+    assert ".nav-toggle {" in narrow[: narrow.index("\n}\n")]
+
+
+def test_a_wider_window_never_leaves_the_nav_hidden():
+    """A phone-width window dragged wider with the menu closed would
+    otherwise have no navigation and no button to bring it back."""
+    js = JS.read_text()
+    assert "matchMedia" in js
+    assert "show(!narrow.matches)" in js
+
+
+def test_the_script_closes_rather_than_opens():
+    js = JS.read_text()
+    assert "nav.hidden = !open" in js
