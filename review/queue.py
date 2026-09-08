@@ -1084,7 +1084,16 @@ def _apply_common(qs, params):
         # precision, and those do not earn a reviewer's time; the filter
         # is what lets the uncertain ones be worked without the certain
         # ones burying them.
-        qs = qs.filter(wire__icontains=service)
+        # Expanded back to every spelling the label covers. The list
+        # offers one Associated Press; the corpus holds three names for
+        # it, and a filter matching only the label would find 1,725 of
+        # 2,653 and look like the answer.
+        from review.syndicators import spellings_of
+
+        matches = Q()
+        for spelling in spellings_of(service):
+            matches |= Q(wire__icontains=spelling)
+        qs = qs.filter(matches)
     if skip := params.get("skip"):
         qs = qs.filter(enrichment__skip_reason=skip)
     if label := params.get("label"):
@@ -1587,6 +1596,12 @@ def _wire_services(user, params=None, limit=60):
         .values("wire_text")
         .annotate(rows_holding_it=Count("*"))
     )
+    # Folded once, outside the loop: the vocabulary is one query and this
+    # runs over every distinct wire value.
+    from review.syndicators import groups, label_for
+
+    folded = groups()
+
     counts: Counter = Counter()
     for row in rows:
         try:
@@ -1594,7 +1609,7 @@ def _wire_services(user, params=None, limit=60):
         except ValueError:
             continue
         for name in service_names(value):
-            counts[name] += row["rows_holding_it"]
+            counts[label_for(name, folded)] += row["rows_holding_it"]
     return [name for name, _count in counts.most_common(limit)]
 
 
