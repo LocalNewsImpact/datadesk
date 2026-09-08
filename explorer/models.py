@@ -14,6 +14,8 @@ crawler's schema; Django only needs the join paths.
 import json
 
 from django.db import models
+from django.db.models import Value
+from django.db.models.functions import Coalesce, Length
 
 
 class DecodedJSONField(models.JSONField):
@@ -211,6 +213,26 @@ class Article(CrawlerModel):
     raw_gcs_path = models.TextField(null=True)
     status = models.TextField()
     wire_check_status = models.TextField()
+    #: Characters of captured text, whichever column holds it. Generated
+    #: on the crawler's side (crawler #539), so it is never stale and never
+    #: written from here -- and `GeneratedField` is what tells the ORM not
+    #: to try: a plain IntegerField goes into every INSERT as NULL, which
+    #: Postgres refuses on a generated column. Reading it is an integer
+    #: fetch; computing it was reading the body out of TOAST, which is
+    #: where 16.7 of the queue's 254 seconds went.
+    text_length = models.GeneratedField(
+        expression=Length(
+            Coalesce(
+                "content",
+                "text",
+                "text_excerpt",
+                Value(""),
+                output_field=models.TextField(),
+            )
+        ),
+        output_field=models.IntegerField(),
+        db_persist=True,
+    )
     # The wire check's own findings: a JSON array naming the syndication
     # services detected. Empty or absent on a local story.
     wire = DecodedJSONField(null=True)
