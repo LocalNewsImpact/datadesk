@@ -178,7 +178,7 @@ nothing has looked, and a reviewer cannot tell which.
             not pending. The record was never at risk; the page just could
             not say so.
             {% endcomment %}
-            <td class="option decided-outcome" colspan="3">
+            <td class="option decided-outcome" colspan="3" data-label="Decision">
               <span class="decided-verb {{ p.state }}">{{ p.state_label }}</span>
               {% if p.final_value %}
               <span class="val proposed">{{ p.final_value }}</span>
@@ -191,7 +191,7 @@ nothing has looked, and a reviewer cannot tell which.
               </span>
             </td>
             {% else %}
-            <td class="option">
+            <td class="option" data-label="Proposed change">
               {% if p.proposed_value %}
               <span class="val proposed">{{ p.proposed_value }}</span>
               <button type="button" class="verb accept" data-verb="accept">
@@ -200,12 +200,12 @@ nothing has looked, and a reviewer cannot tell which.
               <span class="val none">nothing to propose</span>
               {% endif %}
             </td>
-            <td class="option">
+            <td class="option" data-label="Current text">
               <span class="val">{% if p.current_value %}{{ p.current_value }}{% else %}<span class="none">empty</span>{% endif %}</span>
               <button type="button" class="verb reject" data-verb="reject">
                 <b>Keep</b><i>No Change</i></button>
             </td>
-            <td class="option">
+            <td class="option" data-label="Something else">
               {% comment %}
               A field with a controlled vocabulary has a right answer and
               a list of them, so a reviewer picks one. Typing is how

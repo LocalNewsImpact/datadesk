@@ -2417,3 +2417,157 @@ table.rec-table.queue-rows tbody th .rec-read { overflow-wrap: anywhere; }
 /* The wire verdict sits under the status it qualifies and matches it. */
 .queue-rows .wire-note { margin-top: .25rem; }
 .queue-rows .wire-note .chip { font-size: .7rem; }
+
+/* ===========================================================================
+   A record table on a phone
+   ===========================================================================
+   A queue row is four columns -- the story, what was flagged, what the
+   article has, and the decision -- and narrowing them is not reading them.
+   At 700px each column is 175px; below that the headline wraps a word per
+   line and the decision buttons are too small to hit. The table did not
+   reflow, it only got narrower.
+
+   So below 48rem the row stops being a row and becomes a card: the row
+   header is its heading, each cell carries the column head it answers to,
+   and the decision runs full width at the bottom where a thumb is. Above
+   48rem nothing here applies and the table is exactly what it was.
+
+   On `.rec-table` itself rather than on the two queues that exist today.
+   Every record table in this console is the same shape -- a row header, a
+   few facts, something to do about them -- and a queue that has not been
+   built yet (discovery) should be readable on a phone because it used the
+   table, not because somebody remembered a second class. What a new table
+   does have to bring is `data-label` on its data cells; the stacking works
+   without them and reads as a list of unlabelled values, so a test holds
+   every rec-table to carrying them. */
+
+@media (max-width: 48rem) {
+  .rec-table,
+  .rec-table tbody,
+  .rec-table tr,
+  .rec-table tbody th,
+  .rec-table td {
+    display: block;
+  }
+
+  /* The column heads move onto the cells, so the header row has nothing
+     left to say. `colgroup` widths are meaningless once nothing is a
+     column. */
+  .rec-table thead,
+  .rec-table colgroup {
+    display: none;
+  }
+
+  .rec-table tr {
+    padding: var(--s-3);
+    border-bottom: 1px solid var(--border);
+  }
+  .rec-table tr:last-child { border-bottom: 0; }
+
+  /* `table.rec-table th, table.rec-table td` sets the cell padding and the
+     rule between cells, and it is (0,1,2). Written as `.rec-table td` this
+     reset is (0,1,1) and loses: the cells kept an 11px indent and drew a
+     line under each one, so a card read as four little rows -- the
+     narrowed table this was meant to replace. Matched specificity, on
+     purpose. */
+  table.rec-table tbody th,
+  table.rec-table tbody td {
+    padding: 0;
+    border: 0;
+    white-space: normal;
+  }
+
+  /* The story is the card's heading: it identifies the row, which is what
+     a scope="row" cell was already for. */
+  .rec-table tbody th[scope="row"] {
+    font-size: var(--fs-sm);
+    color: var(--text);
+    margin-bottom: var(--s-2);
+  }
+
+  /* Titles and URLs are the one thing here long enough to push the page
+     sideways, and a page that scrolls sideways on a phone loses the
+     decision column off the edge -- which is where this started. */
+  .rec-table .rec-read,
+  .rec-table .val {
+    overflow-wrap: anywhere;
+  }
+
+  .rec-table td + td { margin-top: var(--s-3); }
+
+  /* Which question the cell answers. Stacked, "Local" and "Exported
+     unenriched" sit under each other with nothing saying which is the
+     flag and which is the label. */
+  .rec-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.15rem;
+    font-size: var(--fs-2xs);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+
+  /* The decision, last and full width. 2.75rem is the smallest thing a
+     thumb hits reliably; the buttons were 1.6rem tall. */
+  .rec-table td.option { margin-top: var(--s-3); }
+  .rec-table .verb {
+    width: 100%;
+    min-height: 2.75rem;
+    justify-content: center;
+    padding: var(--s-2) var(--s-3);
+  }
+  .rec-table .verb + .verb { margin-top: var(--s-2); }
+
+  /* 16px, because iOS zooms the page when a field smaller than that takes
+     focus, and it does not zoom back out. */
+  .rec-table .fixval,
+  .filter-bar select,
+  .filter-bar input {
+    font-size: 1rem;
+    min-height: 2.75rem;
+  }
+
+  /* Three nested gutters -- main, card, row -- were 104px of a 355px
+     screen before a word of the story. The row keeps its 12px, because
+     that is the space that makes a headline look placed rather than
+     jammed against a border; the two outer ones give theirs back. The
+     card edge sits 8px off the screen and the text 32px, leaving 82% of
+     the width for the story instead of 76%. */
+  main { padding: var(--s-2); }
+  .card { padding: var(--s-3); }
+
+  /* The publisher and who owns it, stacked rather than pushed apart by a
+     margin that has nowhere to push to. */
+  .rec-head { flex-wrap: wrap; gap: var(--s-1) var(--s-2); }
+  .rec-src { margin-left: 0; flex-basis: 100%; }
+
+  /* Each filter takes a whole row rather than half of a ragged one. */
+  .filter-bar { gap: var(--s-2); }
+  .filter-bar label { flex: 1 1 100%; }
+
+  /* The topbar is one non-wrapping flex row, so a narrow screen shrinks
+     its items instead of moving them: the theme toggle went under its
+     own content width and `overflow: hidden` -- there to round the pill
+     -- clipped "Auto" to "Au". It wraps now, and the pill does not
+     shrink. */
+  .topbar {
+    flex-wrap: wrap;
+    gap: var(--s-1) var(--s-3);
+    padding: var(--s-2) var(--s-3);
+  }
+  .theme-toggle { flex-shrink: 0; margin-right: 0; }
+
+  /* The dock wraps, and clears the home indicator on a phone that has
+     one. The queue's own bottom padding grows to match, or the last row
+     sits under it. */
+  .queue-dock {
+    flex-wrap: wrap;
+    gap: var(--s-1) var(--s-3);
+    padding: var(--s-2) var(--s-3);
+    padding-bottom: max(var(--s-2), env(safe-area-inset-bottom));
+  }
+  .q-submit { min-height: 2.75rem; }
+  .queue { padding-bottom: 9rem; }
+}
