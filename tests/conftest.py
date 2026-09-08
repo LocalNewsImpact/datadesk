@@ -144,7 +144,11 @@ _CRAWLER_TABLES = {
         "wire_check_status VARCHAR, wire JSON, created_at TIMESTAMP, "
         "primary_label VARCHAR, primary_label_confidence DOUBLE PRECISION, "
         "alternate_label VARCHAR, alternate_label_confidence DOUBLE "
-        "PRECISION)"
+        # The same generated column production has (crawler #539). Generated
+        # here too, so a fixture that writes content gets the length the
+        # queue will filter and sort on, exactly as production does.
+        "PRECISION, text_length INTEGER GENERATED ALWAYS AS "
+        "(length(coalesce(content, text, text_excerpt, ''))) STORED)"
     ),
     "article_enrichment": (
         "(article_id TEXT PRIMARY KEY, profile_version INTEGER, skip_reason "

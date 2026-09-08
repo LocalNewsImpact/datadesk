@@ -32,8 +32,8 @@ module deliberately contains no write path.
 """
 
 from django.db.models import Case as SQLCase
-from django.db.models import Count, F, Func, IntegerField, Q, TextField, Value, When
-from django.db.models.functions import Coalesce, Length
+from django.db.models import Count, F, IntegerField, Q, When
+from django.db.models.functions import Coalesce
 
 from accounts.privileges import WRITE
 from explorer.models import Article, DatasetSource
@@ -598,22 +598,12 @@ def _flagged_q(cases=None):
     return query & ~Q(enrichment__skip_reason=HUMAN_REMOVAL_SKIP_REASON)
 
 
-#: Characters of captured text, whichever column holds it.
-TEXT_LENGTH = Length(
-    Coalesce("content", "text", "text_excerpt", Value(""), output_field=TextField())
-)
-
-#: The sort key for "longest captures first", without reading the bodies.
-#:
-#: Sorting by TEXT_LENGTH detoasts every article in the population to
-#: rank them, page 1 included. `pg_column_size` reads the stored size off
-#: the row without detoasting, which ranks the same way for the purpose --
-#: a long body is a large column -- at a fraction of the cost.
-STORED_SIZE = Func(
-    Coalesce("content", "text", "text_excerpt", Value(""), output_field=TextField()),
-    function="pg_column_size",
-    output_field=IntegerField(),
-)
+#: Characters of captured text. A generated, indexed column on
+#: `articles` now (crawler #539); it used to be computed here as
+#: `Length(Coalesce(content, text, text_excerpt))`, which read every body
+#: out of TOAST on every query that asked. Same fallback order, so every
+#: band and threshold means what it always meant.
+TEXT_LENGTH = F("text_length")
 
 
 def base_queryset_unscoped():
@@ -628,19 +618,6 @@ def base_queryset_unscoped():
     """
     return (
         Article.objects.select_related("candidate_link__source")
-        # alias(), not annotate(): the length is available to every filter
-        # that needs it and is NOT in the SELECT list. Annotated, it was
-        # computed for every row of every query on the page -- the
-        # paginator's count and nine conditional aggregates for the facet
-        # chips -- and computing it means reading each article body out
-        # of TOAST. On March 2026 Mizzou, 11,833 flagged rows: 7.5s to
-        # count them, 30.5s to count them while measuring their text.
-        # Times ten per page load is the four-minute queue.
-        #
-        # The 50 rows actually shown get it annotated in `queued`.
-        .alias(
-            text_length=TEXT_LENGTH,
-        )
         .annotate(
             enr_skip_reason=F("enrichment__skip_reason"),
             enr_gate_reason=F("enrichment__content_gate_reason"),
@@ -663,19 +640,6 @@ def base_queryset(user):
     """
     return narrow(
         Article.objects.select_related("candidate_link__source")
-        # alias(), not annotate(): the length is available to every filter
-        # that needs it and is NOT in the SELECT list. Annotated, it was
-        # computed for every row of every query on the page -- the
-        # paginator's count and nine conditional aggregates for the facet
-        # chips -- and computing it means reading each article body out
-        # of TOAST. On March 2026 Mizzou, 11,833 flagged rows: 7.5s to
-        # count them, 30.5s to count them while measuring their text.
-        # Times ten per page load is the four-minute queue.
-        #
-        # The 50 rows actually shown get it annotated in `queued`.
-        .alias(
-            text_length=TEXT_LENGTH,
-        )
         .annotate(
             enr_skip_reason=F("enrichment__skip_reason"),
             enr_gate_reason=F("enrichment__content_gate_reason"),
@@ -854,7 +818,6 @@ def _within_the_window(qs, params):
     """
     from datetime import timedelta
 
-    from django.db.models.functions import Coalesce
     from django.utils import timezone
 
     window = params.get("days") or str(DEFAULT_DAYS)
@@ -890,7 +853,6 @@ def _between_two_dates(qs, params):
     reviewer asking for one month is asking for rows they can place in it,
     and an undated row is not in any month.
     """
-    from django.db.models.functions import Coalesce
 
     since = _parse_date(params.get("since"))
     until = _parse_date(params.get("until"))
@@ -1111,12 +1073,10 @@ def queued(params, user):
     band = params.get("band")
     if band in BAND_BOUNDS:
         qs = _apply_band(qs, band)
-    # Annotated here and nowhere else: these are the rows the page shows,
-    # and the template prints the count. Sorted by stored size rather than
-    # by the annotation, so ranking does not read every body.
-    return qs.annotate(text_length=TEXT_LENGTH).order_by(
-        STORED_SIZE.desc(nulls_last=True), "-created_at"
-    )
+    # `text_length` is a column with a descending index, so "longest
+    # first" is an index scan. It used to be computed per row, which read
+    # every body in the population to rank the first page: 16.8s, now 1s.
+    return qs.order_by("-text_length", "-created_at")
 
 
 def _without_answered(qs):
