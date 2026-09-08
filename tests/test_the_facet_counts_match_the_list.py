@@ -42,7 +42,10 @@ def flagged(crawler_schema):
     made = []
     for n in range(3):
         link = CandidateLink.objects.create(
-            id=f"cl{n}", source_id=source.id, url=f"https://a.example/{n}"
+            id=f"cl{n}",
+            source_id=source.id,
+            dataset_id=dataset.id,
+            url=f"https://a.example/{n}",
         )
         made.append(
             Article.objects.create(
@@ -135,7 +138,10 @@ def test_the_empty_band_still_advertises_what_the_landing_view_hides(
     way as the list made it read 0, so nobody would ever click it."""
     source = Source.objects.get(id="s1")
     link = CandidateLink.objects.create(
-        id="cl-empty", source_id=source.id, url="https://a.example/empty"
+        id="cl-empty",
+        source_id=source.id,
+        dataset_id="d1",
+        url="https://a.example/empty",
     )
     Article.objects.create(
         id="a-empty",

@@ -44,7 +44,9 @@ def work(crawler_schema):
         has_paywall=True,
     )
     DatasetSource.objects.create(id="ds1", dataset=mo, source_id=source.id)
-    link = CandidateLink.objects.create(id="c1", source_id=source.id, url="u")
+    link = CandidateLink.objects.create(
+        id="c1", source_id=source.id, dataset_id=mo.id, url="u"
+    )
     Article.objects.create(
         id="a1",
         candidate_link=link,

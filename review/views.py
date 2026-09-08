@@ -616,10 +616,15 @@ def queue(request):
             page_number = int(request.GET.get("page", "1"))
         except ValueError:
             page_number = 1
-        paginator = Paginator(
-            review_queue.queued(request.GET, request.user), QUEUE_PAGE_SIZE
-        )
-        page = paginator.get_page(page_number)
+        with review_queue.hash_joins_for_the_queue():
+            paginator = Paginator(
+                review_queue.queued(request.GET, request.user), QUEUE_PAGE_SIZE
+            )
+            page = paginator.get_page(page_number)
+            # Pulled inside the pin: the paginator's count and the page
+            # rows are what walk the population.
+            rows = list(page.object_list)
+            page.object_list = rows
         # Which verbs each row can actually carry out, decided per row
         # rather than in the template: a button that cannot act is worse
         # than no button.
@@ -661,8 +666,9 @@ def queue(request):
         context["page"] = page
         context["publishers"] = _by_publisher(page)
         context["exported_statuses"] = dispositions.EXPORTED_STATUSES
-        context["bands"] = review_queue.band_facets(request.GET, request.user)
-        context["cases"] = review_queue.case_facets(request.GET, request.user)
+        with review_queue.hash_joins_for_the_queue():
+            context["bands"] = review_queue.band_facets(request.GET, request.user)
+            context["cases"] = review_queue.case_facets(request.GET, request.user)
 
     template = (
         "review/_queue_results.html"
