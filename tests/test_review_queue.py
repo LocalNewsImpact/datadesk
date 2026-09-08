@@ -89,7 +89,13 @@ def flagged(crawler_schema):
         canonical_name="Herald",
     )
     DatasetSource.objects.create(id="ds1", dataset=dataset, source=tribune)
-    cl1 = CandidateLink.objects.create(id="cl1", url="https://t/", source=tribune)
+    # The link carries its dataset, as every production link does since the
+    # 2,898 that lacked it were filled on 2026-09-08. The queue filters on
+    # this column rather than walking dataset_sources: same answer, one
+    # indexed comparison instead of every link in the dataset.
+    cl1 = CandidateLink.objects.create(
+        id="cl1", url="https://t/", source=tribune, dataset_id=dataset.id
+    )
     cl2 = CandidateLink.objects.create(id="cl2", url="https://h/", source=herald)
 
     stub = _article(

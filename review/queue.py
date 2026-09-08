@@ -31,12 +31,13 @@ Read-only. Phase 2b adds the three dispositions as audited writes; this
 module deliberately contains no write path.
 """
 
+from contextlib import contextmanager
+
 from django.db.models import Case as SQLCase
 from django.db.models import Count, F, IntegerField, Q, When
-from django.db.models.functions import Coalesce
 
 from accounts.privileges import WRITE
-from explorer.models import Article, DatasetSource
+from explorer.models import Article, Dataset
 from explorer.scoping import narrow
 
 PAYWALL_STUB = "paywall_stub"
@@ -807,6 +808,35 @@ def flag_of(article):
     return _words("flagged", "")
 
 
+def _dated_on_or_after(moment):
+    """publish_date on or after `moment`, or -- where there is none -- created_at.
+
+    The same fallback COALESCE(publish_date, created_at) expressed, but
+    as two indexed comparisons rather than one function the planner
+    cannot see through.
+
+    With COALESCE, no index on either date can be used, so the planner
+    has nowhere to start but the dataset side: it walked all 236,815
+    Mizzou candidate links, looked up each one's article, and only THEN
+    applied the date. 27 seconds for the facet chips, 7 for the count,
+    every page load. Written as `publish_date >= x OR (publish_date IS
+    NULL AND created_at >= x)`, both branches hit
+    ix_articles_publish_date_created, the planner starts from the 11k
+    articles in the window, and the same count takes one second.
+    """
+    return Q(publish_date__gte=moment) | (
+        Q(publish_date__isnull=True) & Q(created_at__gte=moment)
+    )
+
+
+def _dated_before(moment):
+    """The upper bound, same shape. Exclusive: `until` is a date, and a
+    row published at 14:00 on that date is on it."""
+    return Q(publish_date__lt=moment) | (
+        Q(publish_date__isnull=True) & Q(created_at__lt=moment)
+    )
+
+
 def _within_the_window(qs, params):
     """Narrow to the chosen window, on the date a reader would recognise.
 
@@ -835,8 +865,9 @@ def _within_the_window(qs, params):
     # the worst captures in the corpus, and the ones this queue is for.
     # Dropping them would make the window hide exactly what it should
     # surface.
-    return qs.annotate(_dated=Coalesce("publish_date", "created_at")).filter(
-        Q(_dated__gte=cutoff) | Q(_dated__isnull=True)
+    return qs.filter(
+        _dated_on_or_after(cutoff)
+        | (Q(publish_date__isnull=True) & Q(created_at__isnull=True))
     )
 
 
@@ -858,11 +889,24 @@ def _between_two_dates(qs, params):
     until = _parse_date(params.get("until"))
     if not since and not until:
         return qs
-    qs = qs.annotate(_dated=Coalesce("publish_date", "created_at"))
+    from datetime import datetime, time, timedelta
+
+    from django.utils import timezone as tz
+
+    # Date bounds become timestamp bounds. `since` at midnight, and
+    # `until` as midnight of the FOLLOWING day with a strict less-than,
+    # which is "on or before `until`" without a ::date cast -- the cast is
+    # what stopped the index being used.
     if since:
-        qs = qs.filter(_dated__date__gte=since)
+        qs = qs.filter(
+            _dated_on_or_after(tz.make_aware(datetime.combine(since, time.min)))
+        )
     if until:
-        qs = qs.filter(_dated__date__lte=until)
+        qs = qs.filter(
+            _dated_before(
+                tz.make_aware(datetime.combine(until + timedelta(days=1), time.min))
+            )
+        )
     return qs
 
 
@@ -873,10 +917,25 @@ def _apply_common(qs, params):
     if (case := params.get("case")) and case in CASE_STATUS:
         qs = qs.filter(_case_q(case))
     if slug := params.get("dataset"):
-        member_sources = DatasetSource.objects.filter(dataset__slug=slug).values(
-            "source_id"
+        # The link's own dataset, not its source's membership.
+        #
+        # This went through dataset_sources: slug -> dataset -> its 211
+        # sources -> every candidate link on those sources -> each link's
+        # article -> THEN the date. The planner drove from the dataset side
+        # and walked all 236,815 Mizzou links on every count, every page
+        # load: 27 seconds for the facet chips alone.
+        #
+        # `candidate_links.dataset_id` is one indexed column that says the
+        # same thing, and the planner starts from the 11k articles in the
+        # window instead. Same count, 5.7s -> 0.56s. It agrees with
+        # dataset_sources exactly -- 11,840 rows both ways -- because the
+        # 2,898 links that lacked it were filled on 2026-09-08; the 424
+        # still null belong to no dataset under either reading.
+        qs = qs.filter(
+            candidate_link__dataset_id__in=Dataset.objects.filter(slug=slug).values(
+                "id"
+            )
         )
-        qs = qs.filter(candidate_link__source_id__in=member_sources)
     if publisher := params.get("publisher"):
         # Publishers are searched by name: a hostname is not an
         # identifier and must not be matched on (it changes, and
@@ -1103,6 +1162,33 @@ def _population(qs, params, *, landing_narrowing=True):
         doubtful_ids = qs.filter(doubtful_q()).values("id")
         qs = qs.filter(id__in=doubtful_ids)
     return qs
+
+
+@contextmanager
+def hash_joins_for_the_queue():
+    """Keep the planner off nested loops for the queue's reads.
+
+    The population is filtered on both sides of a join -- dataset on
+    candidate_links, status and date on articles -- and the planner has
+    to pick a side to start from. It picks the dataset: 236,908 Mizzou
+    links, one random index probe into articles for each, and then the
+    date. Fresh statistics did not change its mind.
+
+    That plan's cost is whatever is in memory. Measured back to back on
+    the same query with nothing else running: 6s, 22s, 62s. The hash
+    plan reads both sides once and was 4s every time.
+
+    SET LOCAL, so it lasts exactly one transaction and touches nothing
+    else the connection does. This is a pin, not a fix: the fix is
+    `dataset_id` on `articles`, which removes the join from the filter
+    and makes the population a single index scan.
+    """
+    from django.db import connections, transaction
+
+    with transaction.atomic(using="crawler"):
+        with connections["crawler"].cursor() as cursor:
+            cursor.execute("SET LOCAL enable_nestloop = off")
+        yield
 
 
 def queued(params, user):

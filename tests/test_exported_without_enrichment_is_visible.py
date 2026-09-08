@@ -50,7 +50,10 @@ def dataset(crawler_schema):
 
 def _article(source, pk, **kwargs):
     link = CandidateLink.objects.create(
-        id=f"c-{pk}", source_id=source.id, url=f"https://a.example/{pk}"
+        id=f"c-{pk}",
+        source_id=source.id,
+        dataset_id="d1",
+        url=f"https://a.example/{pk}",
     )
     fields = {
         "title": f"Story {pk}",
