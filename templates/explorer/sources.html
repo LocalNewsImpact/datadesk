@@ -43,10 +43,10 @@
     <tbody>
     {% for source in sources %}
       <tr>
-        <td>{{ source.canonical_name|default:source.host }}</td>
-        <td>{{ source.owner|default:"—" }}</td>
-        <td>{{ source.city|default:"—" }}</td>
-        <td><a href="{% url 'datasets:source_propose' source.id %}">Propose a change</a></td>
+        <th scope="row">{{ source.canonical_name|default:source.host }}</th>
+        <td data-label="Owner">{{ source.owner|default:"—" }}</td>
+        <td data-label="City">{{ source.city|default:"—" }}</td>
+        <td data-label="Change"><a href="{% url 'datasets:source_propose' source.id %}">Propose a change</a></td>
       </tr>
     {% empty %}
       <tr><td colspan="4">No sources in the datasets you can see.</td></tr>

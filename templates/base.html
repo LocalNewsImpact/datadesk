@@ -23,13 +23,37 @@
   paint, or a dark reader sees a white flash on every page.
   {% endcomment %}
   <script src="{% static 'js/datadesk-theme.js' %}"></script>
+  {% comment %}
+  Deferred, unlike the theme stamp: an open menu closing on load is a
+  visible change but not a wrong one, while an unstyled theme flash is.
+  {% endcomment %}
+  <script src="{% static 'js/nav-menu.js' %}" defer></script>
 </head>
 <body>
   <div class="shell{% if not has_access %} no-sidebar{% endif %}">
     {% if has_access %}
     <aside class="sidebar">
-      <div class="brand"><a href="/">Datadesk</a></div>
-      <nav>
+      {% todo_count as waiting %}
+      <div class="brand">
+        <a href="/">Datadesk</a>
+        {% comment %}
+        The menu button, for the width where the nav is six stacked groups
+        and 330px of a phone screen before the page starts.
+
+        Rendered always and shown by CSS only under 60rem, and the nav is
+        open in the markup: with no script the menu is the list it has
+        always been, which is the state somebody with a failed script
+        should be left in. The script closes it, not the other way round.
+
+        The count rides on the button because it is the reason to open it.
+        {% endcomment %}
+        <button type="button" class="nav-toggle" aria-controls="site-nav"
+                aria-expanded="true">
+          <span class="nav-toggle-bars" aria-hidden="true"></span>
+          Menu{% if waiting %} <span class="nav-count">{{ waiting }}</span>{% endif %}
+        </button>
+      </div>
+      <nav id="site-nav">
         {% comment %}
         A group renders only for roles that reach it. That is
         presentation, not access control: every view behind these links
@@ -40,7 +64,6 @@
         landing page: somebody three pages deep should not have to go home
         to find out something arrived.
         {% endcomment %}
-        {% todo_count as waiting %}
         {% if waiting %}
         <div class="nav-group">
           <a class="nav-item {% nav_active 'landing' %}" href="{% url 'landing' %}">

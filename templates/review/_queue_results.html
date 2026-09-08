@@ -119,7 +119,7 @@ marked on the way down.
         Exported unenriched -- an outcome, which a reviewer then had to
         work backwards from to the reason, on every row.
         {% endcomment %}
-        <td>
+        <td data-label="Flagged as">
           <span class="val flag">{{ article.flag }}</span>
           {% if article.flag_hint %}<span class="sub">{{ article.flag_hint }}</span>{% endif %}
           <span class="sub status-note">status:
@@ -135,13 +135,13 @@ marked on the way down.
             <span class="chip" data-wire="{{ article.wire_check_status|wire_tone }}" title="{{ article.wire_check_status }}">{{ article.wire_check_status|wire_label }}{% if article.wire_services %}: {{ article.wire_services|join:", " }}{% endif %}</span>
           </span>
         </td>
-        <td>
+        <td data-label="What the article has">
           {% if article.primary_label %}
           <span class="val">{{ article.primary_label }}</span>
           {% include "_confidence.html" with value=article.primary_label_confidence %}
           {% else %}<span class="none">no CIN label</span>{% endif %}
         </td>
-        <td class="option decide">
+        <td class="option decide" data-label="Decision">
           {% if article.decision %}
           {% comment %}
           Already answered, shown as answered. With live buttons it would
