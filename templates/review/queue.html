@@ -181,6 +181,13 @@
   visible whenever the URL says `days=custom`, which is the state the
   server renders; this only spares a reviewer the sight of them while
   they are on "Last 30 days".
+
+  Picking "From" places "To" the default window later -- the same
+  {{ default_days }} days the window select means -- so a custom range
+  starts as a window that begins where the reviewer pointed, and only
+  the second date needs touching when that is not what they meant. A
+  "To" the reviewer typed is theirs and is never moved; a "To" the
+  script placed follows "From" until they edit it.
   {% endcomment %}
   <script>
 (function () {
@@ -190,6 +197,20 @@
   const show = () => range.classList.toggle("hidden", select.value !== "custom");
   select.addEventListener("change", show);
   show();
+
+  const since = range.querySelector('input[name="since"]');
+  const until = range.querySelector('input[name="until"]');
+  if (!since || !until) return;
+  const windowDays = {{ default_days }};
+  let placed = null;
+  since.addEventListener("change", () => {
+    if (!since.value) return;
+    if (until.value && until.value !== placed) return;
+    const end = new Date(since.value + "T00:00:00Z");
+    end.setUTCDate(end.getUTCDate() + windowDays);
+    placed = end.toISOString().slice(0, 10);
+    until.value = placed;
+  });
 })();
   </script>
   <script defer src="{% static 'js/record-editor.js' %}"></script>
