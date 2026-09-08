@@ -38,6 +38,9 @@ STALLED = "stalled"
 BODY_UNUSABLE = "body unusable"
 #: Queued and moving when the pipeline next runs. Not a failure.
 WAITING = "waiting"
+#: Two rows that disagree about the same record. Nothing is stopped, but
+#: one of them is wrong and any count drawn from the wrong one is too.
+INCONSISTENT = "inconsistent"
 
 #: (group, label, why it matters, SQL) -- one row of the report each.
 #:
@@ -50,16 +53,21 @@ CHECKS = (
     (
         NEVER_FETCHED,
         "Paused after repeated 403s",
-        "The site refused often enough that the crawler stopped asking.",
-        "SELECT count(*) FROM candidate_links "
-        "WHERE status = 'paused' AND error_message LIKE '%%403%%'",
+        "The site refused often enough that the crawler stopped asking, "
+        "and nothing was ever fetched.",
+        "SELECT count(*) FROM candidate_links cl "
+        "WHERE cl.status = 'paused' AND cl.error_message LIKE '%%403%%' "
+        "AND NOT EXISTS "
+        "(SELECT 1 FROM articles a WHERE a.candidate_link_id = cl.id)",
     ),
     (
         NEVER_FETCHED,
         "Paused with no reason recorded",
-        "Held, and the row does not say what stopped it.",
-        "SELECT count(*) FROM candidate_links "
-        "WHERE status = 'paused' AND error_message IS NULL",
+        "Held with nothing fetched, and the row does not say what stopped it.",
+        "SELECT count(*) FROM candidate_links cl "
+        "WHERE cl.status = 'paused' AND cl.error_message IS NULL "
+        "AND NOT EXISTS "
+        "(SELECT 1 FROM articles a WHERE a.candidate_link_id = cl.id)",
     ),
     (
         NEVER_FETCHED,
@@ -157,6 +165,17 @@ CHECKS = (
         "WHERE coalesce(content, text, text_excerpt, '') = ''",
     ),
     (
+        INCONSISTENT,
+        "Link says paused, article finished",
+        "The link was fetched and its article went all the way through -- "
+        "932 of March's are enriched -- and the link status was never "
+        "moved off 'paused'. Nothing is blocked; the link is lying.",
+        "SELECT count(*) FROM candidate_links cl "
+        "JOIN articles a ON a.candidate_link_id = cl.id "
+        "WHERE cl.status = 'paused' "
+        "AND a.status IN ('enriched', 'labeled', 'enrichment_skipped')",
+    ),
+    (
         WAITING,
         "Labelled, waiting on enrichment",
         "Queued and correct. This moves on its own when the enrichment "
@@ -252,7 +271,14 @@ def grouped():
     rows = inventory()
     if rows is None:
         return None
-    order = (NEVER_FETCHED, FETCH_FAILED, STALLED, BODY_UNUSABLE, WAITING)
+    order = (
+        NEVER_FETCHED,
+        FETCH_FAILED,
+        STALLED,
+        BODY_UNUSABLE,
+        INCONSISTENT,
+        WAITING,
+    )
     out = []
     for group in order:
         in_group = [r for r in rows if r["group"] == group and r["count"]]
@@ -272,4 +298,8 @@ def blocked_total():
     rows = inventory()
     if rows is None:
         return None
-    return sum(r["count"] for r in rows if r["group"] != WAITING)
+    # Neither the backlog nor the bookkeeping: one is queued and the
+    # other is already through. Counting either as blocked was how
+    # this page first read 26,918 never-fetched when the true
+    # figure was 8,407.
+    return sum(r["count"] for r in rows if r["group"] not in (WAITING, INCONSISTENT))

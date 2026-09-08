@@ -42,8 +42,28 @@ def test_the_groups_are_the_stages_a_record_dies_at():
         blockages.FETCH_FAILED,
         blockages.STALLED,
         blockages.BODY_UNUSABLE,
+        blockages.INCONSISTENT,
         blockages.WAITING,
     }
+
+
+def test_a_paused_link_that_was_fetched_is_not_counted_as_never_fetched():
+    """7,360 links are paused with no reason and only 1,142 were never
+    fetched; 19,683 are paused on 403s and only 3,362 were. The rest have
+    an article, most of them finished. Counting the totals read 26,918
+    never-fetched where the true figure is 8,407."""
+    for group, label, _why, sql in blockages.CHECKS:
+        if group == blockages.NEVER_FETCHED and "Paused" in label:
+            assert "NOT EXISTS" in sql, f"{label}: counts links that were fetched"
+
+
+def test_bookkeeping_is_not_counted_as_a_blockage():
+    """20,209 links say paused while their article is enriched or
+    labelled. One of the two rows is wrong, but nothing is stopped."""
+    inconsistent = [c for c in blockages.CHECKS if c[0] == blockages.INCONSISTENT]
+    assert inconsistent, "the group exists"
+    for _g, _label, why, _sql in inconsistent:
+        assert "blocked" in why.lower()
 
 
 def test_a_backlog_is_not_counted_as_a_failure():

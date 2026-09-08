@@ -532,11 +532,27 @@ def _no_recorded_wire_evidence():
     March's 9,455 rows, and 47% of the corpus-wide 47,441 drops out
     without a reviewer ever needing to look at it.
 
-    This is a ranking, not a claim that the rest are correct. A method
-    that has been checked 15 times is not a method that has been
-    validated; when one of these is shown to be wrong, it belongs back
-    here, and the way to notice is that its rows still carry the method
-    that decided them.
+    WHAT HAS ACTUALLY BEEN CHECKED, AND WHAT HAS NOT
+    ------------------------------------------------
+    Recording a method is not the same as having tested it, and the
+    decisions alone cover the methods very unevenly:
+
+        canonical_cross_domain      12,293 rows   800 read, 0 errors
+        jsonld_author                3,104 rows    25 read, 0 errors
+        meta_author                  2,276 rows     6 decisions
+        og_distributor_category      1,470 rows    25 read, 0 errors
+        everything else              3,255 rows    a handful or none
+
+    The two 25-row samples were drawn on 2026-09-08 precisely because
+    those methods had never had a single article reviewed while
+    suppressing 4,574 rows between them. Zero errors in 25 puts the error
+    rate under roughly 6% -- enough to rule out a weak method, not enough
+    to tell 99% from 100%, and nobody should read it as more than that.
+
+    So this is a ranking, not a claim that the rest are correct. When one
+    of these methods is shown to be wrong it belongs back here, and the
+    way to notice is that its rows still carry the method that decided
+    them.
     """
     doubted = Q()
     for key in WIRE_EVIDENCE_KEYS:
