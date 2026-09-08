@@ -518,6 +518,37 @@ BAND_BOUNDS = {key: (low, high) for key, _label, low, high in BANDS}
 WIRE_EVIDENCE_KEYS = ("wire_detection", "detected_services")
 
 
+#: Where a wire call wrote down its reason, third of three.
+#:
+#: `byline.wire_services` is the byline cleaner's own record of the
+#: service it found and removed from the author field. It is not the
+#: same key as the wire writers' `wire_detection` or the content-type
+#: detector's `detected_services`, and a row can carry only this one.
+#:
+#: A reviewer read the 703 March rows this case first surfaced and found
+#: them obvious -- "JON GAMBRELL ... Associated Press", "Rudi Keller
+#: Missouri Independent". 663 of them had a service recorded right here.
+#: The rule was asking two of the three places the pipeline writes its
+#: reasons and calling the silence an absent reason.
+#:
+#: Read from the field rather than matched against a list of names.
+#: Matching the author text was the first attempt and caught 500 of the
+#: 663: it needs every spelling of every service written down here, and
+#: one newsroom alone arrives as "Rudi Keller Missouri Independent",
+#: "Rudi Keller | Missouri Independent", "Rudi Keller - MISSOURI
+#: INDEPENDENT" and "Annelise Hanshaw ~ Missouri Independent". The
+#: cleaner has already resolved all of those to one name; there is no
+#: reason to do it again, worse.
+BYLINE_SERVICE_KEY = "primary_wire_service"
+
+
+def _byline_names_a_service():
+    """The byline cleaner recorded which service it took out."""
+    return ~Q(metadata__icontains='"primary_wire_service": null') & Q(
+        metadata__icontains=BYLINE_SERVICE_KEY
+    )
+
+
 def _no_recorded_wire_evidence():
     """A wire call that never said why.
 
@@ -528,9 +559,14 @@ def _no_recorded_wire_evidence():
     of the wrong calls a reviewer found sat in the rows that recorded
     nothing, 28 keeps to 2 restores.
 
-    So the case holds what has no evidence behind it. That is 1,010 of
-    March's 9,455 rows, and 47% of the corpus-wide 47,441 drops out
-    without a reviewer ever needing to look at it.
+    So the case holds what has no evidence behind it -- and "evidence"
+    means the byline too, not only what the detector wrote down. A
+    reviewer reading the first cut of this case found it full of "JON
+    GAMBRELL ... Associated Press" and "Rudi Keller Missouri
+    Independent". The reason was recorded on 663 of those 703, in the
+    third of the three places the pipeline writes one: 280 Associated
+    Press, 265 Missouri Independent, 55 nbc, 47 CNN NewsSource. Forty
+    had nothing recorded anywhere, and those are the case.
 
     WHAT HAS ACTUALLY BEEN CHECKED, AND WHAT HAS NOT
     ------------------------------------------------
@@ -605,7 +641,13 @@ def _case_q(case):
             | Q(enrichment__skip_reason="")
         )
     if case == WIRE_EXCLUSION:
-        return Q(status=CASE_STATUS[WIRE_EXCLUSION]) & _no_recorded_wire_evidence()
+        # Doubtful means nothing says why: no method recorded, and no
+        # service named in the byline either.
+        return (
+            Q(status=CASE_STATUS[WIRE_EXCLUSION])
+            & _no_recorded_wire_evidence()
+            & ~_byline_names_a_service()
+        )
     if case in PLAIN_STATUS_CASES:
         # The status is the whole selector. DOUBTED_CONTENT_TYPE can narrow
         # obituaries because the detector records a confidence worth

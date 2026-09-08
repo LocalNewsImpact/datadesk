@@ -273,3 +273,38 @@ def test_the_chip_counts_what_the_list_shows(crawler_schema):
     )
     selector = q._case_q(q.WIRE_EXCLUSION)
     assert Article.objects.filter(selector).count() == 1
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_recorded_byline_service_is_not_doubtful(crawler_schema):
+    """The byline cleaner records the service it removed from the author
+    field, and that is the third of three places the pipeline writes a
+    reason. 663 of the 703 March rows this case first surfaced carried
+    one; the rule was reading two of the three."""
+    for i, service in enumerate(
+        ["The Associated Press", "The Missouri Independent", "CNN NewsSource", "nbc"]
+    ):
+        _article(
+            id=f"a-svc-{i}",
+            link_id=f"cl-svc-{i}",
+            url=f"https://a.example/svc/{i}",
+            author="A Reporter",
+            metadata={"byline": {"primary_wire_service": service}},
+        )
+    assert not Article.objects.filter(q._case_q(q.WIRE_EXCLUSION)).exists()
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_byline_the_cleaner_found_nothing_in_is_doubtful(crawler_schema):
+    """`Dave Skretta` is an AP writer, and the cleaner recorded no
+    service for him -- `primary_wire_service` is null. That a reviewer
+    recognises the name is not something the row records, so it stays in
+    the queue where somebody decides it."""
+    _article(
+        id="a-none",
+        link_id="cl-none",
+        url="https://a.example/none",
+        author="Dave Skretta",
+        metadata={"byline": {"primary_wire_service": None, "wire_services": []}},
+    )
+    assert Article.objects.filter(q._case_q(q.WIRE_EXCLUSION)).count() == 1
