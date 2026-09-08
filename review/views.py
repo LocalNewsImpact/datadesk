@@ -1232,6 +1232,7 @@ def schema(request):
     from datasets.publishers import fold_value
     from datasets.schema import ALIASES, FIELDS, VOCABULARY
     from datasets.terms import forget
+    from review import syndicators
     from review import vocabulary as review_vocabulary
 
     notice = ""
@@ -1242,6 +1243,11 @@ def schema(request):
         # or a flag is CALLED is a word; which status a type writes is not,
         # and is not editable here (review/vocabulary.py says why).
         names |= {review_vocabulary.TYPE_WORDS, review_vocabulary.FLAG_WORDS}
+        # Syndicator spellings are the same kind of list: what the corpus
+        # writes for one wire service, folded to one label. Editable here
+        # for the same reason the publisher kinds are -- a new spelling
+        # arrives on a Tuesday and should not wait for a deploy.
+        names |= {syndicators.SYNDICATOR_WORDS}
         if vocabulary not in names:
             raise Http404("No such vocabulary")
         retire = (request.POST.get("retire") or "").strip()
@@ -1371,8 +1377,33 @@ def schema(request):
             "notice": request.session.pop("schema_notice", ""),
             "vocabulary_rule": VOCABULARY,
             "review": _extraction_review_schema(),
+            "syndicators": _syndicator_groups(),
         },
     )
+
+
+def _syndicator_groups():
+    """The syndicator labels and the spellings each covers.
+
+    Seeded in `review/syndicators.py` and overridden by rows, so this
+    shows both: the groups that ship and the ones somebody added. A seed
+    group with no row still appears, or the page would say the corpus
+    folds nothing while it is folding five names into two.
+    """
+    from datasets.models import VocabularyTerm
+    from review.syndicators import SEED, SYNDICATOR_WORDS
+
+    held = {}
+    for label, spellings in SEED:
+        held[label] = {"label": label, "words": list(spellings), "seeded": True}
+    for term in VocabularyTerm.objects.filter(
+        vocabulary=SYNDICATOR_WORDS, retired=False
+    ):
+        label = term.label or term.value
+        group = held.setdefault(label, {"label": label, "words": [], "seeded": False})
+        if term.value not in group["words"]:
+            group["words"].append(term.value)
+    return sorted(held.values(), key=lambda g: g["label"])
 
 
 def _extraction_review_schema():

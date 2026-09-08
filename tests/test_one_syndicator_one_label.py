@@ -79,3 +79,70 @@ def test_the_seed_only_groups_what_the_corpus_spells_twice():
     deliberately does not have."""
     for label, spellings in SEED:
         assert len(spellings) > 1, f"{label} groups a single spelling"
+
+
+# --- maintained on the schema page ------------------------------------------
+
+
+@pytest.fixture
+def an_admin(db):
+    from django.contrib.auth.models import User
+
+    from accounts.models import DATADESK, Grant
+
+    user = User.objects.create_user("adm", email="adm@localnewsimpact.org")
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="admin")
+    return user
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_groups_are_on_the_schema_page(client, an_admin):
+    """Seeded groups appear too, or the page says the corpus folds
+    nothing while it is folding five names into two."""
+    from django.urls import reverse
+
+    client.force_login(an_admin)
+    body = client.get(reverse("review:schema")).content.decode()
+    assert "Syndicators" in body
+    assert "The Associated Press" in body
+    assert "ap national" in body
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_spelling_can_be_added_from_the_page(client, an_admin):
+    """A new spelling arrives on a Tuesday and should not wait for a
+    deploy -- the argument the publisher vocabularies already make."""
+    from django.urls import reverse
+
+    from datasets.models import VocabularyTerm
+
+    client.force_login(an_admin)
+    client.post(
+        reverse("review:schema"),
+        {"vocabulary": "syndicator", "label": "Talker News", "value": "Talker.News"},
+    )
+    # Folded on save: "Talker.News" and "talker.news" are one spelling.
+    term = VocabularyTerm.objects.get(vocabulary="syndicator", value="talker.news")
+    assert term.label == "Talker News"
+    assert label_for("talker.news") == "Talker News"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_spelling_can_be_retired_and_stops_folding(client, an_admin):
+    """Retired, never deleted: the spelling is still on records written
+    while it was folded."""
+    from django.urls import reverse
+
+    from datasets.models import VocabularyTerm
+    from review.syndicators import SYNDICATOR_WORDS
+
+    VocabularyTerm.objects.create(
+        vocabulary=SYNDICATOR_WORDS, value="talker.news", label="Talker News"
+    )
+    client.force_login(an_admin)
+    client.post(
+        reverse("review:schema"),
+        {"vocabulary": "syndicator", "retire": "talker.news"},
+    )
+    assert VocabularyTerm.objects.get(value="talker.news").retired is True
+    assert label_for("talker.news") == "talker.news"
