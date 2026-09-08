@@ -115,7 +115,11 @@ _CRAWLER_TABLES = {
     ),
     "candidate_links": (
         "(id VARCHAR PRIMARY KEY, url VARCHAR, source VARCHAR, source_id "
-        "VARCHAR, dataset_id VARCHAR, status VARCHAR)"
+        # `error_message` is why a link is paused, and the Blocked page
+        # reads it to tell a 403 wall from a link held for some other
+        # reason. Absent here, that page's query failed 42703 while
+        # production answered it.
+        "VARCHAR, dataset_id VARCHAR, status VARCHAR, error_message TEXT)"
     ),
     # What a run did, and what it did it to. Both gained `dataset_id` in
     # the crawler on 2026-09-07; before that a per-dataset question about
@@ -148,7 +152,7 @@ _CRAWLER_TABLES = {
         # The same generated column production has (crawler #539). Generated
         # here too, so a fixture that writes content gets the length the
         # queue will filter and sort on, exactly as production does.
-        "PRECISION, text_length INTEGER GENERATED ALWAYS AS "
+        "PRECISION, extracted_at TIMESTAMP, text_length INTEGER GENERATED ALWAYS AS "
         "(length(coalesce(content, text, text_excerpt, ''))) STORED)"
     ),
     "article_enrichment": (

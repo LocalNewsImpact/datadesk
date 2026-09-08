@@ -12,5 +12,6 @@ urlpatterns = [
     path("enrichment/", views.enrichment, name="enrichment"),
     path("costs/", views.costs, name="costs"),
     path("processing/", views.processing, name="processing"),
+    path("blocked/", views.blocked, name="blocked"),
     path("articles/<str:article_id>/", views.article_detail, name="article_detail"),
 ]

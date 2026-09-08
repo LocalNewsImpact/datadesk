@@ -173,6 +173,14 @@ SECTION_GROUPS = (
                     "worked, and the errors it reported."
                 ),
             },
+            {
+                "url": "explorer:blocked",
+                "label": "Blocked",
+                "note": (
+                    "Everything standing between a discovered URL and a "
+                    "finished article, and which publishers account for it."
+                ),
+            },
         ),
     },
     {

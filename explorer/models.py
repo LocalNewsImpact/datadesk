@@ -168,6 +168,11 @@ class CandidateLink(CrawlerModel):
     #: content rule after it. `extraction_telemetry_v2` is what tells the
     #: two apart -- neither writer records which one it was.
     status = models.TextField(null=True)
+    #: Why a link is held. "Auto-paused: multiple HTTP 403 responses" on
+    #: 19,683 of them, and nothing at all on 7,360 -- which is the
+    #: difference between a site that refuses and a link nobody can
+    #: account for.
+    error_message = models.TextField(null=True)
 
     class Meta(CrawlerModel.Meta):
         db_table = "candidate_links"
