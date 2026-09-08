@@ -202,3 +202,74 @@ def test_a_particle_inside_a_name_is_not_a_sentence(crawler_schema):
     )
 
     assert ids == set()
+
+
+# --- the case holds what has no evidence behind it -----------------------------
+#
+# Measured on 2026-09-08 against every wire decision a reviewer had made:
+# each method that recorded a reason was right every time it was checked,
+# and both wrong calls sat in the rows that recorded nothing. Showing all
+# 47,441 asked a reviewer to read 46 correct exclusions for every doubtful
+# one; March alone was 9,455 rows against 1,010 worth reading.
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_wire_call_that_recorded_its_method_is_not_surfaced(crawler_schema):
+    """`wire_detection` is the wire writers' own key."""
+    _article(
+        id="a-method",
+        link_id="cl-method",
+        url="https://a.example/method",
+        metadata={"wire_detection": {"AP": {"detected_by": "canonical_cross_domain"}}},
+    )
+    assert not Article.objects.filter(q._case_q(q.WIRE_EXCLUSION)).exists()
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_detector_that_named_the_service_is_not_surfaced(crawler_schema):
+    """The content-type detector records the same fact under a different
+    key -- `content_type_detection.evidence.detected_services` -- when it
+    reaches the verdict by byline, dateline, metadata or URL."""
+    _article(
+        id="a-tier",
+        link_id="cl-tier",
+        url="https://a.example/tier",
+        metadata={
+            "content_type_detection": {
+                "reason": "wire_service_detected",
+                "evidence": {
+                    "detection_tier": "byline",
+                    "detected_services": ["Associated Press"],
+                },
+            }
+        },
+    )
+    assert not Article.objects.filter(q._case_q(q.WIRE_EXCLUSION)).exists()
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_wire_call_with_no_reason_is_surfaced(crawler_schema):
+    """25,043 rows record nothing at all. Both wrong calls found so far
+    were among them."""
+    _article(
+        id="a-silent",
+        link_id="cl-silent",
+        url="https://a.example/silent",
+        metadata={"extraction_method": "mcmetadata"},
+    )
+    assert Article.objects.filter(q._case_q(q.WIRE_EXCLUSION)).count() == 1
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_chip_counts_what_the_list_shows(crawler_schema):
+    """The count and the rows come from one selector, so a narrowed case
+    cannot advertise a number it will not show."""
+    _article(id="a-1", link_id="cl-1", url="https://a.example/1", metadata={})
+    _article(
+        id="a-2",
+        link_id="cl-2",
+        url="https://a.example/2",
+        metadata={"wire_detection": {"AP": {"detected_by": "meta_author"}}},
+    )
+    selector = q._case_q(q.WIRE_EXCLUSION)
+    assert Article.objects.filter(selector).count() == 1
