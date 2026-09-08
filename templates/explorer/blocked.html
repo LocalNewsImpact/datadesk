@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Blocked — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>Blocked</h1>
+  <p class="hint">
+    Everything standing between a discovered URL and a finished article.
+    {% comment %}
+    Said on the page because the distinction decides what a reader should
+    do about a number. The queues ask whether a call was right; this asks
+    why nothing happened, and a 404 is not an opinion somebody can accept
+    or reject.
+    {% endcomment %}
+    A report, not a queue: there is nothing here to decide, only things to
+    fix.
+  </p>
+
+  {% if not crawler_connected %}
+  <p class="notice">
+    Crawler database not connected. Set CRAWLER_DB_USER (and run the Cloud
+    SQL Auth Proxy locally) to see what is blocked.
+  </p>
+  {% else %}
+
+  {% if blocked_total %}
+  <p class="result-count">
+    <strong>{{ blocked_total }}</strong> record{{ blocked_total|pluralize }} will
+    not move until something changes
+  </p>
+  {% endif %}
+
+  {% for group in groups %}
+  {% comment %}
+  `waiting` is last and reads differently on purpose: it is the largest
+  number here and it is not a fault. Ranked among the failures it would
+  make a switched-off pipeline look like a broken one.
+  {% endcomment %}
+  <article class="rec" data-group="{{ group.group }}">
+    <header class="rec-head">
+      <h2>{{ group.group|capfirst }}</h2>
+      <span class="rec-src">{{ group.total }}</span>
+    </header>
+    <table class="rec-table">
+      <thead>
+        <tr>
+          <th scope="col">What</th>
+          <th scope="col">Records</th>
+          <th scope="col">Which publishers</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in group.rows %}
+        <tr>
+          <th scope="row">
+            {{ row.label }}
+            <span class="sub">{{ row.why }}</span>
+          </th>
+          <td data-label="Records"><span class="val">{{ row.count }}</span></td>
+          <td data-label="Which publishers">
+            {% if row.publishers %}
+            {% for p in row.publishers %}
+            <span class="sub">{{ p.publisher }} <span class="val">{{ p.count }}</span></span>
+            {% endfor %}
+            {% else %}
+            {% comment %}
+            Blank rather than a dash: a blockage no publisher explains is
+            not one a reader should go looking for a publisher in.
+            {% endcomment %}
+            <span class="none">not one publisher's</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+  {% empty %}
+  <p class="notice">Nothing is blocked.</p>
+  {% endfor %}
+
+  {% endif %}
+</section>
+{% endblock %}

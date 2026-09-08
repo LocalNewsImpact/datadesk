@@ -781,6 +781,28 @@ PROCESSING_PRIVILEGE = COST_PRIVILEGE
 
 
 @requires(PROCESSING_PRIVILEGE)
+def blocked(request):
+    """What is standing between a discovered URL and a finished article.
+
+    A report, not a queue: nothing here is a judgement to accept or
+    reject, so it carries no verbs. The queues answer "was this call
+    right"; this answers "why has nothing happened".
+    """
+    from explorer import blocked as blockages
+
+    groups = blockages.grouped()
+    return render(
+        request,
+        "explorer/blocked.html",
+        {
+            "crawler_connected": groups is not None,
+            "groups": groups or [],
+            "blocked_total": blockages.blocked_total(),
+        },
+    )
+
+
+@requires(PROCESSING_PRIVILEGE)
 def processing(request):
     """Live view of what the pipeline is doing (ROADMAP item 19).
 

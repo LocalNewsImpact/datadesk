@@ -503,6 +503,63 @@ BANDS = (
 BAND_BOUNDS = {key: (low, high) for key, _label, low, high in BANDS}
 
 
+#: Where a wire call wrote down its reason.
+#:
+#: `wire_detection` is the wire writers' own key; `detected_services` is
+#: what the content-type detector records under
+#: `content_type_detection.evidence` when it reaches the same verdict by
+#: byline, dateline, metadata or URL. A row carrying either says which
+#: method decided and can be judged on that method's record.
+#:
+#: Matched as text because these are Postgres `json`, not `jsonb`: the
+#: column has no equality operator and Django renders `icontains` as
+#: `metadata::text LIKE`, which is exact enough for two key names that
+#: appear nowhere else.
+WIRE_EVIDENCE_KEYS = ("wire_detection", "detected_services")
+
+
+def _no_recorded_wire_evidence():
+    """A wire call that never said why.
+
+    Measured against the reviewed decisions on 2026-09-08: every method
+    that recorded a reason was right every time it was checked --
+    canonical_cross_domain 11 keeps and 0 restores, canonical+meta_author
+    15 and 0, meta_author 5 and 0, the jsonld combinations 3 and 0. Both
+    of the wrong calls a reviewer found sat in the rows that recorded
+    nothing, 28 keeps to 2 restores.
+
+    So the case holds what has no evidence behind it. That is 1,010 of
+    March's 9,455 rows, and 47% of the corpus-wide 47,441 drops out
+    without a reviewer ever needing to look at it.
+
+    WHAT HAS ACTUALLY BEEN CHECKED, AND WHAT HAS NOT
+    ------------------------------------------------
+    Recording a method is not the same as having tested it, and the
+    decisions alone cover the methods very unevenly:
+
+        canonical_cross_domain      12,293 rows   800 read, 0 errors
+        jsonld_author                3,104 rows    25 read, 0 errors
+        meta_author                  2,276 rows     6 decisions
+        og_distributor_category      1,470 rows    25 read, 0 errors
+        everything else              3,255 rows    a handful or none
+
+    The two 25-row samples were drawn on 2026-09-08 precisely because
+    those methods had never had a single article reviewed while
+    suppressing 4,574 rows between them. Zero errors in 25 puts the error
+    rate under roughly 6% -- enough to rule out a weak method, not enough
+    to tell 99% from 100%, and nobody should read it as more than that.
+
+    So this is a ranking, not a claim that the rest are correct. When one
+    of these methods is shown to be wrong it belongs back here, and the
+    way to notice is that its rows still carry the method that decided
+    them.
+    """
+    doubted = Q()
+    for key in WIRE_EVIDENCE_KEYS:
+        doubted &= ~Q(metadata__icontains=f'"{key}"')
+    return doubted
+
+
 def _case_q(case):
     """The rows one case selects, as a Q over Article.
 
@@ -547,12 +604,15 @@ def _case_q(case):
             | Q(enrichment__skip_reason__isnull=True)
             | Q(enrichment__skip_reason="")
         )
+    if case == WIRE_EXCLUSION:
+        return Q(status=CASE_STATUS[WIRE_EXCLUSION]) & _no_recorded_wire_evidence()
     if case in PLAIN_STATUS_CASES:
         # The status is the whole selector. DOUBTED_CONTENT_TYPE can narrow
         # obituaries because the detector records a confidence worth
-        # narrowing on; these either record no confidence at all (the wire
-        # writers record which service they matched, not how sure they
-        # were) or record one that never falls below its threshold.
+        # narrowing on; these either record no confidence at all (the topic
+        # detector's confidence counts matched signals rather than
+        # estimating correctness) or record one that never falls below its
+        # threshold.
         return Q(status=CASE_STATUS[case])
     if case == DOUBTED_CONTENT_TYPE:
         # Every obituary, not the low-confidence ones.
