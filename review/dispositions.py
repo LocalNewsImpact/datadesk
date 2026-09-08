@@ -394,6 +394,15 @@ TYPE_BECOMES = {
     "event": "not_article",
     "column": "not_article",
     "e_edition": "not_article",
+    # Sponsored copy running as editorial, which no detector looks for.
+    # `Financial Focus(R)` is an Edward Jones column carried unbylined by
+    # the Carthage Press; "Make health gains with whole grains" ran
+    # verbatim in four unrelated county papers. Both reached the wire
+    # queue with no reason recorded anywhere, because there is no byline
+    # naming a service, no canonical pointing home and no meta tag --
+    # nothing any rule reads. What a reviewer can see is that it is an
+    # advertisement, and now they can say so.
+    "advertorial": "not_article",
     BAD_CAPTURE: REEXTRACT_TO,
 }
 
@@ -418,6 +427,7 @@ CONTENT_TYPES = (
     # bare identifier. The hyphen is in the label, which is what a
     # reviewer reads.
     {"value": "e_edition", "label": "E-edition"},
+    {"value": "advertorial", "label": "Advertorial"},
     {
         "value": BAD_CAPTURE,
         "label": "An article, but the body is garbage",
