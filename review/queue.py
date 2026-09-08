@@ -31,6 +31,7 @@ Read-only. Phase 2b adds the three dispositions as audited writes; this
 module deliberately contains no write path.
 """
 
+import contextlib
 from contextlib import contextmanager
 
 from django.db.models import Case as SQLCase
@@ -921,6 +922,26 @@ def _between_two_dates(qs, params):
     return qs.filter(_dated_before(end))
 
 
+def _in_dataset(qs, slug):
+    """Articles in one dataset, by the column on the article itself.
+
+    This has been three things. Through dataset_sources: slug -> dataset
+    -> its 211 sources -> every candidate link on them -> each link's
+    article -> THEN the date; 27 seconds for the facet chips. Then the
+    link's `dataset_id`, which took the paginator 7.4s -> 0.11s but still
+    joined candidate_links -- and on an instance with 128 MB of
+    shared_buffers, the hash of that join read 24,331 pages on every
+    count. `articles.dataset_id` is filled from the link
+    (MizzouNewsCrawler#540), so the count is a bitmap over the dataset's
+    own rows.
+
+    One definition because the page and its filter dropdowns both ask
+    this question, and a dropdown built over a different population than
+    the list offers values that return nothing.
+    """
+    return qs.filter(dataset_id__in=Dataset.objects.filter(slug=slug).values("id"))
+
+
 def _apply_common(qs, params):
     """Filters shared by the queue and its facet counts."""
     qs = _within_the_window(qs, params)
@@ -928,20 +949,7 @@ def _apply_common(qs, params):
     if (case := params.get("case")) and case in CASE_STATUS:
         qs = qs.filter(_case_q(case))
     if slug := params.get("dataset"):
-        # The article's own dataset: one indexed column on the row being
-        # counted, no join.
-        #
-        # This has been three things. Through dataset_sources: slug ->
-        # dataset -> its 211 sources -> every candidate link on them -> each
-        # link's article -> THEN the date; 27 seconds for the facet chips.
-        # Then the link's `dataset_id`, which took the paginator 7.4s ->
-        # 0.11s but still joined candidate_links -- and on an instance with
-        # 128 MB of shared_buffers, the hash of that join read 24,331 pages
-        # of candidate_links on every count. Warm, 0.6s; first touch, the
-        # page took 11 to 18 seconds. `articles.dataset_id` is filled from
-        # the link (MizzouNewsCrawler#540), so the count is a bitmap over
-        # the dataset's own rows in the window.
-        qs = qs.filter(dataset_id__in=Dataset.objects.filter(slug=slug).values("id"))
+        qs = _in_dataset(qs, slug)
     if publisher := params.get("publisher"):
         # Publishers are searched by name: a hostname is not an
         # identifier and must not be matched on (it changes, and
@@ -1384,47 +1392,150 @@ WIRE_METHODS = (
 )
 
 
-def _wire_services(user, limit=60):
+#: The scopes a filter dropdown is built under.
+#:
+#: A dropdown exists to be chosen from, so every value on it should
+#: return rows on the page the reviewer is looking at. `state` is a
+#: scope for the list but not for the vocabularies: it says which
+#: decisions to show, and a service should not vanish from the filter
+#: because the last article naming it was decided.
+_VOCAB_SCOPES = ("dataset", "days", "since", "until")
+
+#: How long the filter dropdowns are held.
+#:
+#: They are read from the corpus, and the corpus does not change between
+#: two page loads by the same reviewer. Five minutes, matching
+#: review/todo.py: long enough that paging through a queue does not
+#: rebuild them, short enough that what a crawl added shows up while
+#: somebody is still working.
+VOCAB_CACHE_SECONDS = 300
+
+
+def _scoped_to_the_page(qs, params):
+    """The dataset and window the page is under, and nothing else.
+
+    The vocabularies go through this rather than reading the whole
+    corpus. Unscoped they cost what the page used to: a DISTINCT over
+    every article and a pass over every flagged wire row, on every load,
+    regardless of which dataset or month was being worked. They were the
+    slowest thing left once the counts were fixed -- 5.2 seconds of a
+    cold page, and never the rows on it.
+    """
+    qs = _within_the_window(qs, params)
+    if slug := params.get("dataset"):
+        qs = _in_dataset(qs, slug)
+    return qs
+
+
+def service_names(value):
+    """The syndication names in one `articles.wire` value.
+
+    Three shapes, all of them in production on 2026-09-08: a JSON array
+    of names (18,117 flagged rows), an object carrying `provider`
+    (24,521), and a bare string. Only the arrays used to be read, so
+    nine services covering 394 articles named a syndication that could
+    not be chosen in the filter built to work them -- an exclusion with
+    no way to review it, which is the expensive kind.
+
+    A shape nobody anticipated names nothing rather than raising. This
+    fills a dropdown; an unreadable value should cost one absent option,
+    not the page.
+    """
+    if not value:
+        return ()
+    if isinstance(value, str):
+        value = [value]
+    elif isinstance(value, dict):
+        value = [value.get("provider")]
+    if not isinstance(value, list):
+        return ()
+    return tuple(
+        name.strip() for name in value if isinstance(name, str) and name.strip()
+    )
+
+
+def _wire_services(user, params=None, limit=60):
     """Every syndication named on a flagged wire row, by volume.
 
     Read from the rows rather than from a list, so the filter offers what
     is actually there. Ordered by how many articles each accounts for,
     because that is the order in which reviewing them is worth anything:
     the head of this list is where the corpus was actually spent.
+
+    Grouped in the database, weighted here. The wire case holds 47,423
+    articles and 446 distinct `wire` values, and this used to fetch one
+    row per article and count them in Python -- 47,423 JSON values across
+    the wire on every page load, for a dropdown. Counting the distinct
+    values and multiplying by how many rows hold each gives the same
+    tally from 446 rows.
     """
+    import json
     from collections import Counter
 
-    counts: Counter = Counter()
-    values = (
-        base_queryset(user)
+    from django.db.models import Count, TextField
+    from django.db.models.functions import Cast
+
+    rows = (
+        _scoped_to_the_page(base_queryset(user), params or {})
         .filter(status=CASE_STATUS[WIRE_EXCLUSION])
-        .values_list("wire", flat=True)
+        # `wire` is Postgres `json`, which has no equality operator, so it
+        # cannot be grouped on directly -- the cast is what makes GROUP BY
+        # legal, and the text is what the driver would have sent anyway.
+        .annotate(wire_text=Cast("wire", TextField()))
+        .values("wire_text")
+        .annotate(rows_holding_it=Count("*"))
     )
-    for value in values:
-        if not value:
+    counts: Counter = Counter()
+    for row in rows:
+        try:
+            value = json.loads(row["wire_text"]) if row["wire_text"] else None
+        except ValueError:
             continue
-        # A JSON array, decoded by the model. A bare string is tolerated
-        # rather than assumed away: this column has held both shapes.
-        names = value if isinstance(value, list) else [value]
-        for name in names:
-            if isinstance(name, str) and name.strip():
-                counts[name.strip()] += 1
+        for name in service_names(value):
+            counts[name] += row["rows_holding_it"]
     return [name for name, _count in counts.most_common(limit)]
 
 
-def vocab(user):
+def _vocab_key(user, params):
+    """Per reader, per scope. Two people may be granted different
+    datasets, so a vocabulary built for one is not shown to the other."""
+    import hashlib
+
+    scope = "&".join(f"{key}={params.get(key, '')}" for key in _VOCAB_SCOPES)
+    digest = hashlib.sha256(scope.encode()).hexdigest()[:16]
+    return f"review.vocab.{user.pk}.{digest}"
+
+
+def vocab(user, params=None):
     """Filter vocabularies read from the data, or None when the crawler
-    database is not reachable."""
+    database is not reachable.
+
+    Scoped to the page's dataset and window, and held for
+    VOCAB_CACHE_SECONDS. Both for the same reason: these are read from
+    the corpus so that every value offered returns rows, and reading the
+    whole corpus for them cost more than the page's own queries once
+    those were fixed.
+    """
+    from django.core.cache import cache
     from django.db import DatabaseError
 
     from explorer.dberrors import absent_or_raise
     from explorer.models import Dataset
 
+    params = params or {}
+    key = _vocab_key(user, params)
+    held = cache.get(key)
+    if held is not None:
+        return held
+
     try:
-        return {
+        built = {
+            # NOT scoped: this is the picker that changes the scope, so
+            # narrowing it to the current dataset would offer one option.
             "datasets": list(Dataset.objects.order_by("label").values("slug", "label")),
             "labels": sorted(
-                Article.objects.filter(primary_label__isnull=False)
+                _scoped_to_the_page(base_queryset(user), params)
+                .filter(primary_label__isnull=False)
                 .values_list("primary_label", flat=True)
                 .distinct()
             ),
@@ -1433,7 +1544,7 @@ def vocab(user):
             # never holds, is never offered as a filter.
             "skip_reasons": sorted(
                 value
-                for value in base_queryset(user)
+                for value in _scoped_to_the_page(base_queryset(user), params)
                 .values_list("enrichment__skip_reason", flat=True)
                 .distinct()
                 if value
@@ -1442,7 +1553,7 @@ def vocab(user):
             # Flattened from `articles.wire`, which is a JSON array: one
             # article can name several, and each of them is a separate
             # thing to be right or wrong about.
-            "services": _wire_services(user),
+            "services": _wire_services(user, params),
             # The rules that decided, most-used first. A method is what a
             # precision figure attaches to; a syndication is not.
             "methods": WIRE_METHODS,
@@ -1452,3 +1563,10 @@ def vocab(user):
         # repository got wrong is not, and used to be reported as one.
         absent_or_raise(exc, "review.queue.vocab")
         return None
+
+    # Not held when the crawler is unreachable: `None` means "ask again",
+    # and caching it would keep the page saying "not connected" for five
+    # minutes after the database came back.
+    with contextlib.suppress(Exception):
+        cache.set(key, built, VOCAB_CACHE_SECONDS)
+    return built
