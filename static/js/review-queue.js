@@ -129,8 +129,15 @@
     // rather than quickly and reversibly.
     const chosen = field.value === button.dataset.verb ? "" : button.dataset.verb;
     mark(row, chosen);
+    // Only the control this verb writes into. The row holds one value
+    // control and it belongs to a single verb -- the template names that
+    // verb on it -- so focusing it on any press put the reject list up on
+    // Accept and on Restore too. On a phone that is a native picker
+    // covering the row being decided, opened by a button that has nothing
+    // to do with it.
     const value = fixval(row);
-    if (chosen && value && !value.value.trim()) value.focus();
+    const itsOwn = value && value.dataset.verb === chosen;
+    if (chosen && itsOwn && !value.value.trim()) value.focus();
     recount();
   });
 

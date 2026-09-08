@@ -130,6 +130,23 @@ def test_the_submit_count_does_not_come_from_the_dock():
     assert "decided +=" not in loop, "the submit count is being summed from the dock"
 
 
+def test_only_the_verb_that_writes_a_value_opens_its_list():
+    """A row holds one value control and it belongs to one verb, named on
+    it by the template. Focusing it on any press put the reject list up
+    on Accept and on Restore -- on a phone, a native picker covering the
+    row being decided, opened by a button with nothing to do with it."""
+    from pathlib import Path
+
+    js = (
+        Path(__file__).resolve().parent.parent / "static" / "js" / "review-queue.js"
+    ).read_text()
+    focus = js[js.index("value.focus()") - 400 : js.index("value.focus()") + 20]
+    assert "value.dataset.verb === chosen" in focus, (
+        "the value control is focused without checking which verb it "
+        "belongs to, so every verb opens it"
+    )
+
+
 @pytest.mark.django_db(databases=["default", "crawler"])
 def test_submitting_a_decision_records_it(client, reviewer, rows):
     client.post(URL, {"d-with-body": "accept"})
