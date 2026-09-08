@@ -208,6 +208,47 @@
         <button type="submit">Save</button>
       </form>
 
+      {% comment %}
+        The query, where a visual has one.
+
+        This page's own note said it is where a visual's plumbing is
+        changed -- "its data source, its query, its snapshot" -- and the
+        query was the one thing missing. A BigQuery visual's SELECT could
+        be written at creation and never read again except in the
+        database, so a wrong or outdated query could not be corrected
+        from the console that owns it.
+
+        Shown for the kinds that have a source to edit. A corpus pivot is
+        configured by the form above and an uploaded CSV carries its own
+        data, so neither has anything to put here.
+      {% endcomment %}
+      {% if visual.source_kind == "bigquery" or visual.source_kind == "gcs" %}
+      <fieldset>
+        <legend>Source · {{ visual.get_source_kind_display }}</legend>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="form" value="source">
+          {% if visual.source_kind == "bigquery" %}
+          <label>SQL
+            <textarea name="query" rows="14" class="mono"
+                      style="width:100%">{{ visual.query }}</textarea>
+          </label>
+          <p class="hint">
+            The SELECT the snapshot runs. Saving stores it; the data does
+            not change until you refresh below, so a query can be read
+            back before it replaces what everyone is looking at.
+          </p>
+          {% else %}
+          <label>Bucket object
+            <input type="text" name="bucket_path" class="mono" style="width:100%"
+                   value="{{ visual.bucket_path }}" placeholder="gs://bucket/path.json">
+          </label>
+          {% endif %}
+          <button type="submit">Save source</button>
+        </form>
+      </fieldset>
+      {% endif %}
+
       <fieldset>
         <legend>Data · snapshot {% if snapshot %}v{{ snapshot.version }} ({{ snapshot.created_at|date:"Y-m-d H:i" }}){% else %}none{% endif %}</legend>
         {% if visual.source_kind == "inline" %}

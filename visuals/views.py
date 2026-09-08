@@ -1002,6 +1002,37 @@ def builder_edit(request, slug):
                     update_fields=["spec", "source_kind", "datasets", "updated_at"]
                 )
                 refresh_snapshot(visual, request.user)
+            elif form == "source":
+                # The query and the bucket path are a visual's plumbing,
+                # and this page says it is where plumbing is changed --
+                # but the field was never here, so a BigQuery visual's
+                # SELECT could be written once at creation and never read
+                # or corrected. The only way to see it was the database.
+                #
+                # Validated through the model, so the rule that a
+                # BigQuery visual needs a query is enforced in one place
+                # rather than restated here.
+                before = {"query": visual.query, "bucket_path": visual.bucket_path}
+                visual.query = request.POST.get("query", "").strip()
+                visual.bucket_path = request.POST.get("bucket_path", "").strip()
+                visual.full_clean(exclude=["datasets"])
+                visual.save(update_fields=["query", "bucket_path", "updated_at"])
+                AuditLogEntry.objects.create(
+                    actor=request.user,
+                    action="visual:source",
+                    target_table="visuals",
+                    target_ids=[visual.slug],
+                    before=before,
+                    after={
+                        "query": visual.query,
+                        "bucket_path": visual.bucket_path,
+                    },
+                    reason=f"source edited for {visual.slug}",
+                )
+                # Not refreshed here. Changing the query and running it
+                # are separate acts: a reviewer correcting a SELECT
+                # should be able to read it back before it replaces the
+                # snapshot everyone is looking at.
             elif form == "refresh":
                 refresh_snapshot(visual, request.user)
             elif form == "upload":
@@ -1018,6 +1049,16 @@ def builder_edit(request, slug):
                 unpublish(visual, request.user)
         except (BuilderError, DataSourceError, NotPublishable) as exc:
             error = str(exc)
+        except ValidationError as exc:
+            # The model's own rules, shown rather than raised. A BigQuery
+            # visual with its query emptied is the case that matters: the
+            # rule already exists in Visual.clean(), and without this it
+            # reached the reader as a 500.
+            error = "; ".join(
+                f"{field}: {' '.join(problems)}"
+                for field, problems in exc.message_dict.items()
+            )
+            visual.refresh_from_db()
         else:
             return redirect("visuals:builder_edit", visual.slug)
 
