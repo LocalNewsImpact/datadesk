@@ -276,44 +276,35 @@ def test_the_chip_counts_what_the_list_shows(crawler_schema):
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_a_byline_naming_a_service_is_not_doubtful(crawler_schema):
-    """The first cut of this case surfaced 703 March rows and a reviewer
-    found them obvious: 500 named a wire service or a syndicator in the
-    byline. The detector had recorded nothing, so the rule called them
-    unexplained -- but the explanation was in the author field."""
-    for i, byline in enumerate(
-        [
-            "JON GAMBRELL, DAVID RISING and SAMY MAGDY Associated Press",
-            "Sandee LaMotte, CNN",
-            # Eight spellings of one newsroom reached production; a rule
-            # needing the punctuation to agree would catch a quarter.
-            "Rudi Keller Missouri Independent",
-            "Rudi Keller | Missouri Independent",
-            "Rudi Keller - MISSOURI INDEPENDENT",
-            "Annelise Hanshaw ~ Missouri Independent",
-            "NBC Olympics",
-        ]
+def test_a_recorded_byline_service_is_not_doubtful(crawler_schema):
+    """The byline cleaner records the service it removed from the author
+    field, and that is the third of three places the pipeline writes a
+    reason. 663 of the 703 March rows this case first surfaced carried
+    one; the rule was reading two of the three."""
+    for i, service in enumerate(
+        ["The Associated Press", "The Missouri Independent", "CNN NewsSource", "nbc"]
     ):
         _article(
-            id=f"a-named-{i}",
-            link_id=f"cl-named-{i}",
-            url=f"https://a.example/named/{i}",
-            author=byline,
-            metadata={"extraction_method": "mcmetadata"},
+            id=f"a-svc-{i}",
+            link_id=f"cl-svc-{i}",
+            url=f"https://a.example/svc/{i}",
+            author="A Reporter",
+            metadata={"byline": {"primary_wire_service": service}},
         )
     assert not Article.objects.filter(q._case_q(q.WIRE_EXCLUSION)).exists()
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
-def test_a_byline_that_explains_nothing_is_still_doubtful(crawler_schema):
-    """`Dave Skretta` is an AP writer whose byline lost the agency. That
-    the reviewer can recognise him is not something the row records, so
-    it stays in the queue where somebody decides it."""
+def test_a_byline_the_cleaner_found_nothing_in_is_doubtful(crawler_schema):
+    """`Dave Skretta` is an AP writer, and the cleaner recorded no
+    service for him -- `primary_wire_service` is null. That a reviewer
+    recognises the name is not something the row records, so it stays in
+    the queue where somebody decides it."""
     _article(
-        id="a-bare",
-        link_id="cl-bare",
-        url="https://a.example/bare",
+        id="a-none",
+        link_id="cl-none",
+        url="https://a.example/none",
         author="Dave Skretta",
-        metadata={"extraction_method": "mcmetadata"},
+        metadata={"byline": {"primary_wire_service": None, "wire_services": []}},
     )
     assert Article.objects.filter(q._case_q(q.WIRE_EXCLUSION)).count() == 1

@@ -518,53 +518,35 @@ BAND_BOUNDS = {key: (low, high) for key, _label, low, high in BANDS}
 WIRE_EVIDENCE_KEYS = ("wire_detection", "detected_services")
 
 
-#: Names that are themselves the reason an article is wire.
+#: Where a wire call wrote down its reason, third of three.
 #:
-#: A reviewer reading the 703 rows this case first surfaced found them
-#: obvious: bylines saying "JON GAMBRELL ... Associated Press", "Sandee
-#: LaMotte, CNN", "Rudi Keller Missouri Independent". The detector had
-#: recorded nothing, so the rule called them unexplained -- but the
-#: explanation was in the author field the whole time. Absence of a
-#: recorded reason is not absence of a reason.
+#: `byline.wire_services` is the byline cleaner's own record of the
+#: service it found and removed from the author field. It is not the
+#: same key as the wire writers' `wire_detection` or the content-type
+#: detector's `detected_services`, and a row can carry only this one.
 #:
-#: The syndicating newsrooms are here beside the wire services because
-#: the reviewer settled that question directly: the Missouri Independent
-#: and the Columbia Missourian are newsrooms AND syndicators, and their
-#: work on another outlet is correctly wire.
+#: A reviewer read the 703 March rows this case first surfaced and found
+#: them obvious -- "JON GAMBRELL ... Associated Press", "Rudi Keller
+#: Missouri Independent". 663 of them had a service recorded right here.
+#: The rule was asking two of the three places the pipeline writes its
+#: reasons and calling the silence an absent reason.
 #:
-#: Matched as a substring on purpose. The byline arrives in eight
-#: spellings for one newsroom -- "Rudi Keller Missouri Independent",
+#: Read from the field rather than matched against a list of names.
+#: Matching the author text was the first attempt and caught 500 of the
+#: 663: it needs every spelling of every service written down here, and
+#: one newsroom alone arrives as "Rudi Keller Missouri Independent",
 #: "Rudi Keller | Missouri Independent", "Rudi Keller - MISSOURI
-#: INDEPENDENT", "Rudi Keller, Missouri Independent" -- and a rule that
-#: needed the punctuation to agree would catch a quarter of them.
-WIRE_BYLINE_NAMES = (
-    "associated press",
-    "reuters",
-    "bloomberg",
-    "cnn",
-    "npr",
-    "pbs",
-    "usa today",
-    "tribune news service",
-    "gray news",
-    "nexstar",
-    "stacker",
-    "brandpoint",
-    "the conversation",
-    "states newsroom",
-    "missouri independent",
-    "columbia missourian",
-    "nbc olympics",
-    "hearst stations",
-)
+#: INDEPENDENT" and "Annelise Hanshaw ~ Missouri Independent". The
+#: cleaner has already resolved all of those to one name; there is no
+#: reason to do it again, worse.
+BYLINE_SERVICE_KEY = "primary_wire_service"
 
 
 def _byline_names_a_service():
-    """The author field says who syndicated it."""
-    named = Q()
-    for name in WIRE_BYLINE_NAMES:
-        named |= Q(author__icontains=name)
-    return named
+    """The byline cleaner recorded which service it took out."""
+    return ~Q(metadata__icontains='"primary_wire_service": null') & Q(
+        metadata__icontains=BYLINE_SERVICE_KEY
+    )
 
 
 def _no_recorded_wire_evidence():
@@ -581,9 +563,10 @@ def _no_recorded_wire_evidence():
     means the byline too, not only what the detector wrote down. A
     reviewer reading the first cut of this case found it full of "JON
     GAMBRELL ... Associated Press" and "Rudi Keller Missouri
-    Independent": 500 of 703 named a service or a syndicator in the
-    author field, and another 112 had no byline at all. 91 were actually
-    unexplained.
+    Independent". The reason was recorded on 663 of those 703, in the
+    third of the three places the pipeline writes one: 280 Associated
+    Press, 265 Missouri Independent, 55 nbc, 47 CNN NewsSource. Forty
+    had nothing recorded anywhere, and those are the case.
 
     WHAT HAS ACTUALLY BEEN CHECKED, AND WHAT HAS NOT
     ------------------------------------------------
