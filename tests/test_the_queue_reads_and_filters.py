@@ -239,6 +239,19 @@ def test_the_custom_option_and_its_two_dates_are_on_the_page(
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
+def test_picking_from_places_to_one_window_later(client, reviewer, dated_articles):
+    """The page script places "To" at "From" plus the default window when
+    "From" is picked. The length comes from the view's constant, so the
+    fill and the "Last N days" option cannot say different numbers."""
+    client.force_login(reviewer)
+    body = client.get(reverse("review:queue")).content.decode()
+    assert f"const windowDays = {review_queue.DEFAULT_DAYS};" in body
+    assert 'since.addEventListener("change"' in body
+    # A "To" the reviewer typed is theirs: the script only moves one it placed.
+    assert "until.value !== placed" in body
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
 def test_the_dates_are_rendered_open_when_the_url_asks_for_them(
     client, reviewer, dated_articles
 ):
