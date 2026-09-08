@@ -122,11 +122,13 @@ def stage_counts(dataset_ids=None):
     if dataset_ids is not None:
         ids = list(dataset_ids)
         links = links.filter(dataset_id__in=ids)
-        # `articles` has no dataset_id -- it reaches one through its
-        # candidate link, and under the deferred sharing design
-        # (docs/CROSS_DATASET_SHARING.md in the crawler) it should not
-        # have one, because an article may belong to several datasets.
-        articles = articles.filter(candidate_link__dataset_id__in=ids)
+        # The article's own dataset: the one it was extracted for, recorded
+        # on the row from its link (MizzouNewsCrawler#540). Under the
+        # deferred sharing design (docs/CROSS_DATASET_SHARING.md in the
+        # crawler) a second dataset adopting the article would be a
+        # membership relation; this column stays the one that did the work,
+        # which is what a backlog count wants.
+        articles = articles.filter(dataset_id__in=ids)
 
     return {
         "discovered": links.filter(status="discovered").count(),

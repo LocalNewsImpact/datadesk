@@ -137,8 +137,9 @@ _CRAWLER_TABLES = {
         "candidate_link_id VARCHAR)"
     ),
     "articles": (
-        "(id VARCHAR PRIMARY KEY, candidate_link_id VARCHAR, url VARCHAR, "
-        "title TEXT, author VARCHAR, publish_date TIMESTAMP, content TEXT, "
+        "(id VARCHAR PRIMARY KEY, candidate_link_id VARCHAR, dataset_id "
+        "VARCHAR, url VARCHAR, title TEXT, author VARCHAR, publish_date "
+        "TIMESTAMP, content TEXT, "
         "text TEXT, text_excerpt VARCHAR(500), raw_gcs_path VARCHAR, "
         "enrichment_attempts SMALLINT, metadata JSON, status VARCHAR, "
         "wire_check_status VARCHAR, wire JSON, created_at TIMESTAMP, "
@@ -196,6 +197,32 @@ _CRAWLER_TABLES = {
 }
 
 
+# Rules the crawler's write path enforces that a fixture would otherwise
+# have to restate. An article's dataset is its candidate link's: the
+# crawler's INSERT derives it by primary key (MizzouNewsCrawler#540), so
+# a test that puts a link in a dataset and writes an article on it gets
+# the same row production would, and the queue's dataset filter -- one
+# indexed column on articles, no join -- sees it.
+_CRAWLER_RULES = (
+    """
+    CREATE FUNCTION an_article_takes_its_links_dataset() RETURNS trigger AS $$
+    BEGIN
+        IF NEW.dataset_id IS NULL THEN
+            SELECT dataset_id INTO NEW.dataset_id
+              FROM candidate_links WHERE id = NEW.candidate_link_id;
+        END IF;
+        RETURN NEW;
+    END
+    $$ LANGUAGE plpgsql
+    """,
+    """
+    CREATE TRIGGER an_article_takes_its_links_dataset
+    BEFORE INSERT ON articles FOR EACH ROW
+    EXECUTE FUNCTION an_article_takes_its_links_dataset()
+    """,
+)
+
+
 @pytest.fixture
 def crawler_schema():
     from django.db import connections
@@ -203,7 +230,10 @@ def crawler_schema():
     with connections["crawler"].cursor() as c:
         for table, columns in _CRAWLER_TABLES.items():
             c.execute(f"CREATE TABLE {table} {columns}")
+        for statement in _CRAWLER_RULES:
+            c.execute(statement)
     yield
     with connections["crawler"].cursor() as c:
         for table in reversed(list(_CRAWLER_TABLES)):
             c.execute(f"DROP TABLE {table}")
+        c.execute("DROP FUNCTION an_article_takes_its_links_dataset()")

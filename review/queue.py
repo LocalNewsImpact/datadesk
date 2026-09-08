@@ -837,6 +837,21 @@ def _dated_before(moment):
     )
 
 
+def _dated_within(start, end):
+    """Both bounds, grouped so the index sees both.
+
+    `_dated_on_or_after(a) & _dated_before(b)` says the same thing as
+    `(A or B) and (C or D)`, and the planner can only give a bitmap scan
+    one of the two OR-groups: it ranged on `publish_date >= a` -- every
+    row since March, 101,167 of them -- and applied `< b` on the heap.
+    Regrouped as `(A and C) or (B and D)`, each arm is one range over
+    exactly the rows in the window.
+    """
+    return (Q(publish_date__gte=start) & Q(publish_date__lt=end)) | (
+        Q(publish_date__isnull=True) & Q(created_at__gte=start) & Q(created_at__lt=end)
+    )
+
+
 def _within_the_window(qs, params):
     """Narrow to the chosen window, on the date a reader would recognise.
 
@@ -897,17 +912,13 @@ def _between_two_dates(qs, params):
     # `until` as midnight of the FOLLOWING day with a strict less-than,
     # which is "on or before `until`" without a ::date cast -- the cast is
     # what stopped the index being used.
-    if since:
-        qs = qs.filter(
-            _dated_on_or_after(tz.make_aware(datetime.combine(since, time.min)))
-        )
-    if until:
-        qs = qs.filter(
-            _dated_before(
-                tz.make_aware(datetime.combine(until + timedelta(days=1), time.min))
-            )
-        )
-    return qs
+    start = since and tz.make_aware(datetime.combine(since, time.min))
+    end = until and tz.make_aware(datetime.combine(until + timedelta(days=1), time.min))
+    if start and end:
+        return qs.filter(_dated_within(start, end))
+    if start:
+        return qs.filter(_dated_on_or_after(start))
+    return qs.filter(_dated_before(end))
 
 
 def _apply_common(qs, params):
@@ -917,25 +928,20 @@ def _apply_common(qs, params):
     if (case := params.get("case")) and case in CASE_STATUS:
         qs = qs.filter(_case_q(case))
     if slug := params.get("dataset"):
-        # The link's own dataset, not its source's membership.
+        # The article's own dataset: one indexed column on the row being
+        # counted, no join.
         #
-        # This went through dataset_sources: slug -> dataset -> its 211
-        # sources -> every candidate link on those sources -> each link's
-        # article -> THEN the date. The planner drove from the dataset side
-        # and walked all 236,815 Mizzou links on every count, every page
-        # load: 27 seconds for the facet chips alone.
-        #
-        # `candidate_links.dataset_id` is one indexed column that says the
-        # same thing, and the planner starts from the 11k articles in the
-        # window instead. Same count, 5.7s -> 0.56s. It agrees with
-        # dataset_sources exactly -- 11,840 rows both ways -- because the
-        # 2,898 links that lacked it were filled on 2026-09-08; the 424
-        # still null belong to no dataset under either reading.
-        qs = qs.filter(
-            candidate_link__dataset_id__in=Dataset.objects.filter(slug=slug).values(
-                "id"
-            )
-        )
+        # This has been three things. Through dataset_sources: slug ->
+        # dataset -> its 211 sources -> every candidate link on them -> each
+        # link's article -> THEN the date; 27 seconds for the facet chips.
+        # Then the link's `dataset_id`, which took the paginator 7.4s ->
+        # 0.11s but still joined candidate_links -- and on an instance with
+        # 128 MB of shared_buffers, the hash of that join read 24,331 pages
+        # of candidate_links on every count. Warm, 0.6s; first touch, the
+        # page took 11 to 18 seconds. `articles.dataset_id` is filled from
+        # the link (MizzouNewsCrawler#540), so the count is a bitmap over
+        # the dataset's own rows in the window.
+        qs = qs.filter(dataset_id__in=Dataset.objects.filter(slug=slug).values("id"))
     if publisher := params.get("publisher"):
         # Publishers are searched by name: a hostname is not an
         # identifier and must not be matched on (it changes, and

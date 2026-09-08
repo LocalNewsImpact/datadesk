@@ -182,6 +182,9 @@ class Article(CrawlerModel):
         db_constraint=False,
         related_name="articles",
     )
+    # The link's dataset, recorded on the article by the crawler at insert
+    # (MizzouNewsCrawler#540) so a dataset's articles are one index range.
+    dataset_id = models.TextField(null=True)
     url = models.TextField(null=True)
     title = models.TextField(null=True)
     author = models.TextField(null=True)

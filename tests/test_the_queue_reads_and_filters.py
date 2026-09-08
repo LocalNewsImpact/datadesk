@@ -173,6 +173,27 @@ def test_a_custom_range_takes_both_bounds(reviewer, dated_articles):
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
+def test_both_bounds_are_one_range_over_each_date(reviewer, dated_articles):
+    """`(A or B) and (C or D)` lets the planner range on one bound and
+    filter the other on the heap: every row since March 1, then drop the
+    ones after March 31. `(A and C) or (B and D)` is one range per arm.
+    The tell: the ungrouped form has two undated arms for every upper
+    bound; the grouped form has one. Counted as a ratio because the
+    landing view repeats its filter inside a subquery."""
+    since = (timezone.now() - timedelta(days=60)).date().isoformat()
+    until = (timezone.now() - timedelta(days=20)).date().isoformat()
+    sql = str(
+        review_queue.queued(
+            {"days": "custom", "since": since, "until": until}, reviewer
+        ).query
+    )
+    undated_arms = sql.count('"publish_date" IS NULL')
+    upper_bounds = sql.count('"publish_date" < ')
+    assert upper_bounds >= 1
+    assert undated_arms == upper_bounds
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
 def test_one_bound_is_a_real_question(reviewer, dated_articles):
     """ "Everything before the March export" needs no start."""
     until = (timezone.now() - timedelta(days=200)).date().isoformat()
