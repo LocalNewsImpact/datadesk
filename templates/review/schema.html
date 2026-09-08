@@ -254,4 +254,94 @@
     </tbody>
   </table>
 </section>
+
+{% comment %}
+Syndicators, and the spellings each one arrives under.
+
+`articles.wire` records what each detector found: a byline says
+"Associated Press", a dateline "AP National", a canonical tag
+"tvinsider.com". March 2026 read as five syndicators where there are
+two, and the service filter offered every spelling separately, each
+finding part of the work.
+
+Same shape as the vocabularies above, and here for the same reason: a
+new spelling turns up on a Tuesday and should not wait for a deploy.
+{% endcomment %}
+<section class="card card-wide">
+  <h2>Syndicators</h2>
+  <p class="hint">
+    One syndicator arrives under several names, because each detector
+    writes what it found. These fold to one label wherever the queue
+    counts or filters them. A syndicator nothing else names keeps its
+    domain, which is the record rather than a gap.
+  </p>
+
+  <table class="rec-table">
+    <thead>
+      <tr>
+        <th scope="col">Called</th>
+        <th scope="col">Spellings it covers</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for group in syndicators %}
+      <tr>
+        <th scope="row">
+          {{ group.label }}
+          {% if group.seeded %}<span class="sub">shipped</span>{% endif %}
+        </th>
+        <td data-label="Spellings it covers">
+          <div class="chips">
+            {% for word in group.words %}
+            <span class="word">
+              <code>{{ word }}</code>
+              {% comment %}
+              Seeded spellings carry no retire button: they are in the
+              code, and a button that cannot do anything is worse than
+              no button.
+              {% endcomment %}
+              {% if not group.seeded %}
+              <form method="post" class="inline-form">
+                {% csrf_token %}
+                <input type="hidden" name="vocabulary" value="syndicator">
+                <input type="hidden" name="retire" value="{{ word }}">
+                <button type="submit" class="link" title="Stop folding this spelling">×</button>
+              </form>
+              {% endif %}
+            </span>
+            {% endfor %}
+          </div>
+          <form method="post" class="add-word">
+            {% csrf_token %}
+            <input type="hidden" name="vocabulary" value="syndicator">
+            <input type="hidden" name="label" value="{{ group.label }}">
+            <input type="text" name="value"
+                   placeholder="another spelling of {{ group.label }}">
+            <button type="submit">Add</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <details class="values new-kind">
+    <summary>Add a syndicator</summary>
+    {% comment %}
+    The name a reader should see, and the first spelling the corpus
+    already holds for it. More spellings are added on the row afterwards.
+    {% endcomment %}
+    <form method="post" class="add-term">
+      {% csrf_token %}
+      <input type="hidden" name="vocabulary" value="syndicator">
+      <label class="stacked">Called
+        <input type="text" name="label" placeholder="Talker News" required>
+      </label>
+      <label class="stacked">A spelling the corpus holds
+        <input type="text" name="value" placeholder="talker.news" required>
+      </label>
+      <button type="submit" class="primary">Add</button>
+    </form>
+  </details>
+</section>
 {% endblock %}
