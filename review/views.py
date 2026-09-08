@@ -572,7 +572,7 @@ def queue(request):
     if restored is not None:
         return restored
 
-    vocabulary = review_queue.vocab(request.user)
+    vocabulary = review_queue.vocab(request.user, request.GET)
     params = request.GET.copy()
     params.pop("page", None)
     # Facet links replace their own dimension rather than appending a
