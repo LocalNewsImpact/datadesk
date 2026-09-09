@@ -438,6 +438,85 @@ cannot finish as assigned:
 That last one needs throughput history, so it is worth recording
 `completed_at` from the start even though nothing reads it yet.
 
+## 7c. The size of the thing
+
+**1,000 records to start; 30,000 as the goal.** At three coders each
+that is **3,000 dispositions**, then **90,000**.
+
+| | records | dispositions | coder-hours @2–3 min |
+| --- | ---: | ---: | ---: |
+| first cohorts | 1,000 | 3,000 | 100–150 |
+| the goal | 30,000 | 90,000 | 3,000–4,500 |
+
+Elapsed time is a function of how many coders and how many hours each,
+and the range is wide enough that it should be planned rather than
+discovered:
+
+| coders | hours each per week | elapsed |
+| ---: | ---: | ---: |
+| 10 | 4 | ~94 weeks |
+| 25 | 10 | ~15 weeks |
+| 50 | 10 | ~8 weeks |
+| 100 | 4 | ~9 weeks |
+
+### What 30,000 changes about the draw
+
+At 1,000 records the corpus distribution is useless — Transportation
+Systems would get 19 — so the draw is stratified to about 100 a class.
+
+At 30,000 the natural distribution is nearly sufficient on its own:
+
+| label | share | records at natural rate |
+| --- | ---: | ---: |
+| Civic Life | 25.0% | 7,488 |
+| Sports | 17.9% | 5,376 |
+| Civic information | 16.8% | 5,035 |
+| Emergencies and Public Safety | 13.9% | 4,176 |
+| Political life | 9.3% | 2,804 |
+| Environment and Planning | 4.8% | 1,448 |
+| Health | 4.2% | 1,257 |
+| Education | 3.6% | 1,074 |
+| Economic Development | 2.6% | 768 |
+| Transportation Systems | 1.9% | 573 |
+
+Every class clears 500, which is the bottom of the useful range for
+fine-tuning. So at scale the draw should move **toward** the natural
+distribution and away from equal strata — a model trained on a flattened
+distribution learns a prior the world does not have — while still
+boosting the rarest one or two classes.
+
+That is a different draw from the first cohort's, and the sampling code
+has to take the shape as a parameter rather than hard-coding either.
+
+### What a large group of coders changes
+
+Two things the plan does not currently have, and both become necessary
+somewhere between ten coders and a hundred.
+
+**Embedded checks.** In a group of that size some proportion of
+dispositions will be produced without reading the article. The
+established remedy is a small number of records with a known answer,
+seeded invisibly into every coder's assignments at a low rate, and a
+per-coder accuracy figure computed against them.
+
+This is not the same measurement as inter-coder reliability. Alpha says
+whether coders agree with each other; three coders who all click the
+first checkbox agree perfectly. The check records are the only thing
+that catches that, and they cost about 1% of the work.
+
+**A path for a coder whose work is not usable.** Per-coder agreement and
+check accuracy are already computable from
+`ClassificationDecision`. What is missing is what follows: a coder can
+be deactivated, their outstanding assignments released for reassignment,
+and — the question worth settling early — a decision about whether their
+completed dispositions are withdrawn from the training set or kept.
+
+Withdrawing is the safer answer and it is not free: a record loses a
+disposition and drops below three, so it returns to the queue. At 90,000
+dispositions a single bad coder can send thousands of records back
+around, which is a reason to catch one early rather than a reason not
+to withdraw.
+
 ## 7a. Inter-coder reliability, and who sees it
 
 Three reviewers per record exist to produce a defensible label. The same
