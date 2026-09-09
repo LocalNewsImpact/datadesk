@@ -6,10 +6,143 @@
   <h1>Coders</h1>
 
   <p class="lede">
-    Who can classify, which cohort each is granted, and how much each has
-    done.
+    Open a cohort, choose who works it, and see how far each has got.
   </p>
 
+  {% for kind, message in notices %}
+  <p class="notice {{ kind }}">{{ message }}</p>
+  {% endfor %}
+
+  {% comment %}
+  Drawing and granting were shell operations: a cohort made by hand, its
+  articles inserted a statement at a time, its grants written directly
+  into the table. The queue could be worked and never started.
+  {% endcomment %}
+  <h2>Open a cohort</h2>
+  <form method="post" class="inline-form">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="draw">
+    <div class="field">
+      <label for="size">Articles</label>
+      <input type="number" id="size" name="size" min="1" max="20000"
+             value="1000" required>
+      <span class="field-note quiet">
+        Split in equal quarters between the four strata &mdash; confident,
+        uncertain, random and unlabelled. A quarter that runs short is
+        reported rather than topped up from another.
+      </span>
+    </div>
+    <div class="field">
+      <label for="target_coders">Coders per record</label>
+      <input type="number" id="target_coders" name="target_coders"
+             min="1" max="10" value="3" required>
+      <span class="field-note quiet">
+        How many people must dispose of each article before it counts
+        toward training. Three gives thirds in the label distribution;
+        the original study had two.
+      </span>
+    </div>
+    <div class="field">
+      <label for="note">Note</label>
+      <input type="text" id="note" name="note" maxlength="200"
+             placeholder="what this cohort is for">
+    </div>
+    <button type="submit" class="primary">Draw</button>
+  </form>
+
+  <h2>Cohorts</h2>
+  {% if cohorts %}
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Cohort</th>
+          <th scope="col" class="num">Articles</th>
+          <th scope="col" class="num">Coders</th>
+          <th scope="col" class="num">Per record</th>
+          <th scope="col" class="num">Assigned</th>
+          <th scope="col" class="num">Done</th>
+          <th scope="col">Coders on it</th>
+          <th scope="col">Add a coder</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in cohorts %}
+        <tr>
+          <th scope="row">
+            Cohort {{ row.cohort.number }}
+            {% if row.cohort.closed_at %}<span class="rec-sub quiet">closed</span>{% endif %}
+            {% if row.cohort.note %}<span class="rec-sub">{{ row.cohort.note }}</span>{% endif %}
+          </th>
+          <td class="num">{{ row.drawn }}</td>
+          <td class="num">{{ row.granted }}</td>
+          <td class="num">{{ row.cohort.target_coders }}</td>
+          <td class="num">
+            {{ row.assignments }}
+            {% if row.short %}
+            <span class="rec-sub warn">{{ row.short }} short of target</span>
+            {% endif %}
+          </td>
+          <td class="num">
+            {{ row.done }}{% if row.percent is not None %}
+            <span class="rec-sub quiet">{{ row.percent }}%</span>{% endif %}
+          </td>
+          <td>
+            <ul class="plain">
+              {% for coder in coders %}
+              {% if row.cohort.slug in coder.cohorts %}
+              <li>
+                {{ coder.user }}
+                <form method="post" class="inline">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="revoke">
+                  <input type="hidden" name="cohort" value="{{ row.cohort.slug }}">
+                  <input type="hidden" name="user" value="{{ coder.user.pk }}">
+                  <button type="submit" class="linklike danger"
+                          title="Withdraws their outstanding assignments; decisions already made are kept">remove</button>
+                </form>
+              </li>
+              {% endif %}
+              {% endfor %}
+            </ul>
+            {% if not row.granted %}<span class="quiet">nobody yet</span>{% endif %}
+          </td>
+          <td>
+            <form method="post" class="inline-form tight">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="grant">
+              <input type="hidden" name="cohort" value="{{ row.cohort.slug }}">
+              <label class="visually-hidden" for="user-{{ row.cohort.number }}">Coder</label>
+              <select id="user-{{ row.cohort.number }}" name="user">
+                {% for candidate in candidates %}
+                <option value="{{ candidate.pk }}">{{ candidate }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit">Grant</button>
+            </form>
+            {% comment %}
+            Separate from granting on purpose. Granting says who may work
+            a cohort; assigning hands out the records, and the two are not
+            the same decision -- a cohort is normally granted to several
+            people before anyone is given anything.
+            {% endcomment %}
+            <form method="post" class="inline">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="assign">
+              <input type="hidden" name="cohort" value="{{ row.cohort.slug }}">
+              <button type="submit" title="Hands every record to the target number of coders, round-robin. Safe to run again after adding a coder.">Assign records</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="notice">No cohort has been drawn. Classifiers have nothing to work.</p>
+  {% endif %}
+
+  <h2>Who has done what</h2>
   <dl class="stat-row">
     <div><dt>Coders</dt><dd class="big">{{ coders|length }}</dd></div>
     <div><dt>Decisions</dt><dd class="big">{{ total }}</dd></div>
@@ -21,16 +154,18 @@
       <thead>
         <tr>
           <th scope="col">Coder</th>
-          <th scope="col">Cohort</th>
-          <th scope="col" class="num">Decisions</th>
+          <th scope="col">Cohorts</th>
+          <th scope="col" class="num">Done</th>
+          <th scope="col" class="num">Outstanding</th>
         </tr>
       </thead>
       <tbody>
         {% for row in coders %}
         <tr>
           <th scope="row">{{ row.user }}</th>
-          <td>{{ row.cohort }}</td>
+          <td>{{ row.cohorts|join:", " }}</td>
           <td class="num">{{ row.done }}</td>
+          <td class="num {% if row.outstanding %}warn{% endif %}">{{ row.outstanding }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -38,44 +173,10 @@
   </div>
   {% else %}
   <p class="notice">
-    Nobody holds the classifier role yet. A classifier is granted a
-    cohort rather than a dataset, and holds no other access unless it is
-    granted separately.
+    Nobody holds the classifier role yet. A classifier is granted a cohort
+    rather than a dataset, and holds no other access unless it is granted
+    separately.
   </p>
-  {% endif %}
-
-  <h2>Open cohorts</h2>
-  {% comment %}
-  The alert the design calls for: a cohort cannot be used for training
-  until enough coders have disposed of each record, and the predictable
-  way this fails is one absent coder leaving records short of target
-  indefinitely.
-  {% endcomment %}
-  {% if open_cohorts %}
-  <div class="table-scroll">
-    <table>
-      <thead>
-        <tr>
-          <th scope="col">Cohort</th>
-          <th scope="col" class="num">Coders per record</th>
-          <th scope="col" class="num">Reassign after</th>
-          <th scope="col">Opened</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for cohort in open_cohorts %}
-        <tr>
-          <th scope="row">Cohort {{ cohort.number }}</th>
-          <td class="num">{{ cohort.target_coders }}</td>
-          <td class="num">{{ cohort.stale_after_days }} days</td>
-          <td class="quiet">{{ cohort.opened_at|date:"j M Y" }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <p class="notice">No cohort is open. Classifiers have nothing to work.</p>
   {% endif %}
 </section>
 {% endblock %}
