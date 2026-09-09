@@ -404,3 +404,14 @@ class WorklistCount(models.Model):
 
     def __str__(self):
         return f"{self.dataset_slug}/{self.queue}: {self.count}"
+
+
+# The classification queue's tables. Kept in their own module because
+# they are a self-contained set with a long rationale, and imported here
+# because Django finds models through the app's `models` module.
+from review.classification import (  # noqa: E402,F401  (import for discovery)
+    ClassificationAssignment,
+    ClassificationCohort,
+    ClassificationDecision,
+    ClassificationSample,
+)
