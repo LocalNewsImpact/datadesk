@@ -359,6 +359,59 @@ text" and one picks a label, the record is not training data, and the
 agreement between the two is worth counting against the pipeline's own
 `paywall_stub_rule` and boilerplate detector.
 
+## 7a. Inter-coder reliability, and who sees it
+
+Three reviewers per record exist to produce a defensible label. The same
+rows also measure the reviewers, and that measurement is wanted three
+ways: **overall, within each dataset, and per CIN category.**
+
+No schema is needed for it. `ClassificationDecision` already carries
+article, reviewer, label, dataset and stratum; reliability is a query
+over those, not a stored figure.
+
+**The metric has to suit the shape of the data.** Fleiss' kappa assumes
+a fixed number of raters per item, and this queue will not have one —
+articles sit at one or two dispositions while they wait for a third, and
+a rejection is a disposition that is not a label. Krippendorff's alpha
+handles a varying number of coders and missing values, which is the
+actual shape here. Whatever is chosen should be named in the report
+beside the number, because a bare "0.71 agreement" is not interpretable
+without it.
+
+**Per category is where it gets useful.** An overall alpha averages away
+the thing worth knowing. If reviewers agree readily on Sports and
+Obituaries but scatter across Civic Life and Civic information, that is
+a finding about the *label scheme* rather than about the reviewers or
+the model, and it is the single most likely reason a retrained model
+would still perform badly. Two categories humans cannot separate will
+not be separated by a classifier trained on their labels.
+
+**Per dataset**, subject to section 3's arithmetic: Mizzou will support
+a reliability figure comfortably; Lehigh Valley and VT coarsely; WSU not
+at all.
+
+### Not shown to classifiers
+
+The dashboard is admin-only, and a classifier must not see their own
+agreement rate or anyone else's.
+
+This is not about secrecy. A reviewer who can see their agreement score
+has been given a target that is not accuracy, and the cheapest way to
+raise it is to guess what other reviewers would say rather than to read
+the article. That converts three independent judgements into one
+judgement copied three times, which is exactly the thing the third
+reviewer was bought to prevent.
+
+The same argument bars showing a classifier how many others have already
+answered a record, or what they said.
+
+### Deferred
+
+The admin views themselves — layout, cuts, what is charted — are not
+designed here. They should be settled once the queue is wired and there
+are real dispositions to look at, because the useful cuts will be
+obvious then and are guesses now.
+
 ## 8. Schema
 
 **Datadesk (its own database):**
@@ -438,3 +491,8 @@ reasons, the receipt. No filters, and not the shared header.
 **Phase 5 — the export.** Whatever shape training consumes. Not
 designed here, because it depends on an answer this document does not
 have.
+
+**Phase 6 — the admin dashboard.** Inter-coder reliability overall, by
+dataset and by category; throughput; the contested pile. Admin only.
+Designed after the queue is wired, when there are real dispositions to
+look at and the useful cuts are obvious rather than guessed.
