@@ -100,11 +100,18 @@ GRANT UPDATE (canonical_name, city, county, owner, type, metadata,
 -- candidate links and does not destroy them. Setting it to `discovered`
 -- puts the URL back where the pipeline picks it up on the next run.
 --
--- Narrow on purpose. This is the console's first write to a table the
+-- `meta` carries the verdict itself, under `review_verdict`
+-- (lnic_contracts.discovery_verdict). The status says "fetch this
+-- again"; the verdict says what the reviewer decided it is, which is
+-- what stops the pipeline re-classifying it with the model that
+-- misjudged it in the first place. Restoring a URL without it is half an
+-- answer -- a reviewer who said "opinion" got the article enriched.
+--
+-- Narrow on purpose. This is the console's only write to a table the
 -- crawler fills, and every other column on it -- the URL, the source,
 -- when it was found -- is the crawler's record of what it saw, which a
 -- reviewer has no business editing.
-GRANT UPDATE (status) ON candidate_links TO datadesk_rw;
+GRANT UPDATE (status, meta) ON candidate_links TO datadesk_rw;
 
 -- Phase 4: dataset management (SCOPE.md §2.4). Creation columns include
 -- the NOT-NULL-without-server-default pair on sources; everything else

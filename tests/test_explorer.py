@@ -314,6 +314,11 @@ def test_the_console_may_restore_a_rejected_url():
     one back is the only repair for a type II error, and it has to happen
     on `candidate_links` or not at all.
 
+    Two columns, not one. `status` says "fetch this again" and `meta`
+    carries what the reviewer decided it is: without the second the
+    pipeline re-classifies the URL with the model that misjudged it, and
+    a reviewer who said "opinion" gets the article enriched.
+
     Pinned separately from the WRITABLE check above because the grant is
     applied to production by hand: this says the file records what was
     applied, and the check above will cover it the moment
@@ -332,9 +337,10 @@ def test_the_console_may_restore_a_rejected_url():
             r"GRANT UPDATE \(([^)]*)\)\s*ON (\w+) TO datadesk_rw", sql, re.S
         )
     }
-    assert granted.get("candidate_links") == {"status"}, (
-        "the discovery queue restores a URL by setting status, and nothing "
-        "else on this table is the console's to change"
+    assert granted.get("candidate_links") == {"status", "meta"}, (
+        "the discovery queue restores a URL by setting status and records "
+        "what the reviewer decided it is in meta; nothing else on this "
+        "table is the console's to change"
     )
     # No INSERT or DELETE: the console does not create candidate links and
     # does not destroy them.

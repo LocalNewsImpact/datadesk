@@ -58,10 +58,13 @@ WRITABLE_SOURCE_FIELDS = tuple(
 WRITABLE = {
     Article: ("author", "title", "content", "text", "status", "wire_check_status"),
     # The discovery queue's only write to the crawler's link table, and
-    # it is one column. "It is a story" returns a URL to the pipeline by
-    # setting it back to 'discovered'; nothing here deletes or creates a
-    # link. See docs/DISCOVERY_REVIEW_QUEUE.md section 9.
-    CandidateLink: ("status",),
+    # it is two columns. `status` returns a URL to the pipeline by
+    # setting it back to 'discovered'; `meta` carries what the reviewer
+    # decided it is, under `review_verdict`, which is what stops the
+    # pipeline re-classifying it with the model that misjudged it.
+    # Nothing here deletes or creates a link.
+    # See docs/DISCOVERY_REVIEW_QUEUE.md section 9.
+    CandidateLink: ("status", "meta"),
     ArticleEnrichment: (
         "skip_reason",
         "geo_skip_reason",
