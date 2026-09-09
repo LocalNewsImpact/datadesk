@@ -430,3 +430,84 @@ def test_the_header_carries_the_shared_controls(client, reviewer, crawler_schema
     assert 'name="dataset"' in body
     assert 'name="days"' in body
     assert 'name="decision"' in body
+
+
+# ------------------------------------------- the verdict reaches the crawler
+
+
+def test_calling_it_a_story_records_what_kind(client, reviewer, crawler_schema):
+    """The status says "fetch this again"; the verdict says what it is.
+
+    Without the second half the pipeline re-classifies the URL with the
+    model that misjudged it badly enough to put it in this queue, and a
+    reviewer who said "opinion" watched the article get enriched.
+    """
+    from lnic_contracts import discovery_verdict
+
+    link = _link(crawler_schema, "kindly", status="not_article")
+    _verification(crawler_schema, link, 5.0, True)
+    client.force_login(reviewer)
+    _answer(client, "kindly", discovery.IT_IS_A_STORY, "opinion")
+
+    link.refresh_from_db()
+    assert link.status == discovery_verdict.RESTORED_STATUS
+    note = (link.meta or {})[discovery_verdict.METADATA_KEY]
+    assert discovery_verdict.is_readable(note)
+    assert note["kind"] == "opinion"
+    # The half the crawler acts on: opinion is a status no enrichment
+    # stage selects, so recording it IS the instruction not to enrich.
+    assert discovery_verdict.status_for(note) == "opinion"
+
+
+def test_an_ordinary_story_is_restored_without_deciding_its_status(
+    client, reviewer, crawler_schema
+):
+    """News IS the ordinary pipeline. The verdict is still recorded -- it
+    is what a reviewer said -- but it must not override the detector, or
+    articles the corpus wants enriched would stop."""
+    from lnic_contracts import discovery_verdict
+
+    link = _link(crawler_schema, "ordinary", status="not_article")
+    _verification(crawler_schema, link, 5.0, True)
+    client.force_login(reviewer)
+    _answer(client, "ordinary", discovery.IT_IS_A_STORY, "news")
+
+    link.refresh_from_db()
+    note = (link.meta or {})[discovery_verdict.METADATA_KEY]
+    assert note["kind"] == "news"
+    assert discovery_verdict.status_for(note) is None
+
+
+def test_not_a_story_writes_nothing_to_the_link(client, reviewer, crawler_schema):
+    """The link's status already excludes it, and there will be no
+    article to give a verdict to."""
+    link = _link(crawler_schema, "untouched", status="not_article")
+    _verification(crawler_schema, link, 5.0, True)
+    client.force_login(reviewer)
+    _answer(client, "untouched", discovery.NOT_A_STORY, "homepage")
+
+    link.refresh_from_db()
+    assert link.status == "not_article"
+    assert not (link.meta or {})
+
+
+def test_the_verdict_does_not_trample_what_the_crawler_wrote(
+    client, reviewer, crawler_schema
+):
+    """`meta` is the crawler's column. Writing the verdict must add a key
+    to it, not replace it -- everything else in there is the record of
+    what the crawler saw."""
+    from lnic_contracts import discovery_verdict
+
+    link = _link(crawler_schema, "keepmine", status="not_article")
+    CandidateLink.objects.using("crawler").filter(pk=link.pk).update(
+        meta={"discovered_by": "rss", "crawl_depth": 2}
+    )
+    _verification(crawler_schema, link, 5.0, True)
+    client.force_login(reviewer)
+    _answer(client, "keepmine", discovery.IT_IS_A_STORY, "obituary")
+
+    link.refresh_from_db()
+    assert link.meta["discovered_by"] == "rss"
+    assert link.meta["crawl_depth"] == 2
+    assert link.meta[discovery_verdict.METADATA_KEY]["kind"] == "obituary"

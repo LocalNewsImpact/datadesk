@@ -344,6 +344,8 @@ def apply_discovery(verification, verb, value, user):
     does not create rows in the crawler's tables (SCOPE.md 2.5), and a
     label kept in two places is a label that can disagree with itself.
     """
+    from lnic_contracts import discovery_verdict
+
     from review.services import audited_update
 
     # The stratum and its draw probability are annotated onto the row by
@@ -359,14 +361,30 @@ def apply_discovery(verification, verb, value, user):
     after = before
 
     if verb.name == IT_IS_A_STORY and link is not None:
+        # Both halves, in one write. The status says "fetch this again";
+        # the verdict says what the reviewer decided it is, and without
+        # it the pipeline re-classifies the URL with the model that
+        # misjudged it badly enough to put it in this queue. A reviewer
+        # who said "opinion" watched the article get enriched.
+        #
+        # `obituary`, `opinion` and `weather` are statuses no enrichment
+        # stage selects, so the type IS the instruction not to enrich --
+        # there is no second flag to keep in step
+        # (lnic_contracts.discovery_verdict.status_for).
+        meta = dict(getattr(link, "meta", None) or {})
+        meta[discovery_verdict.METADATA_KEY] = discovery_verdict.build(
+            verdict=discovery_verdict.IS_A_STORY,
+            kind=value or "other",
+            decided_by=getattr(user, "username", "") or "",
+        )
         audited_update(
             user,
             [link],
-            {"status": "discovered"},
+            {"status": discovery_verdict.RESTORED_STATUS, "meta": meta},
             action="discovery:restore",
             reason="Reviewer says this URL is a story",
         )
-        after = "discovered"
+        after = discovery_verdict.RESTORED_STATUS
 
     return {
         "label": (verification.url or "")[:300],
