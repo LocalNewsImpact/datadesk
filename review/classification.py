@@ -31,6 +31,8 @@ from django.conf import settings
 from django.db import models
 from lnic_contracts import cin_labels
 
+from accounts.privileges import CLASSIFIER
+
 #: The ten Critical Information Needs categories, in the order the
 #: codebook introduces them -- which is the order a person reads them in
 #: and the right one for a dropdown.
@@ -567,37 +569,304 @@ def agreement_report():
 
 
 def coder_report():
-    """Who can classify, what each is granted, and how much each has done."""
+    """Who can classify, what each is granted, how much each has done, and
+    the state of every cohort.
+
+    Also the pool to choose from. "Users with the classifier role" cannot
+    mean "holds an unscoped classifier grant", because an unscoped grant
+    is an application-wide one -- see `grant_cohort`. A classifier IS
+    somebody granted a cohort, so the pool to offer is the console's
+    users, and granting a cohort is what makes one.
+    """
     from django.contrib.auth import get_user_model
 
     from accounts.models import DATADESK, Grant
-    from accounts.privileges import CLASSIFIER
 
-    grants = (
+    counts, outstanding = {}, {}
+    for user_id in ClassificationDecision.objects.values_list(
+        "decided_by_id", flat=True
+    ):
+        counts[user_id] = counts.get(user_id, 0) + 1
+    for user_id in ClassificationAssignment.objects.filter(
+        completed_at__isnull=True
+    ).values_list("assigned_to_id", flat=True):
+        outstanding[user_id] = outstanding.get(user_id, 0) + 1
+
+    # Every cohort each classifier holds, so one row per person rather
+    # than one per grant: a coder on three cohorts read as three coders.
+    held = {}
+    for grant in (
         Grant.objects.filter(app=DATADESK, role=CLASSIFIER)
         .select_related("user")
-        .order_by("user__username")
-    )
-    counts = {}
-    for row in ClassificationDecision.objects.values_list("decided_by_id", flat=True):
-        counts[row] = counts.get(row, 0) + 1
+        .order_by("scope")
+    ):
+        held.setdefault(grant.user, []).append(grant.scope)
 
-    coders = [
-        {
-            "user": grant.user,
-            "cohort": grant.scope or "—",
-            "done": counts.get(grant.user_id, 0),
-        }
-        for grant in grants
-    ]
+    coders = sorted(
+        (
+            {
+                "user": user,
+                "cohorts": scopes,
+                "done": counts.get(user.id, 0),
+                "outstanding": outstanding.get(user.id, 0),
+            }
+            for user, scopes in held.items()
+        ),
+        key=lambda row: (-row["done"], str(row["user"])),
+    )
+
+    cohorts = []
+    for cohort in ClassificationCohort.objects.order_by("-number"):
+        drawn = ClassificationSample.objects.filter(cohort=cohort).count()
+        assignments = ClassificationAssignment.objects.filter(cohort=cohort)
+        made = assignments.count()
+        done = assignments.filter(completed_at__isnull=False).count()
+        granted = len(coders_for(cohort))
+        # What the cohort still needs to be usable for training: every
+        # record disposed of by `target_coders` people.
+        needed = drawn * min(cohort.target_coders, granted or cohort.target_coders)
+        cohorts.append(
+            {
+                "cohort": cohort,
+                "drawn": drawn,
+                "granted": granted,
+                "assignments": made,
+                "done": done,
+                "needed": needed,
+                "short": max(needed - made, 0),
+                "percent": round(100 * done / made, 1) if made else None,
+            }
+        )
+
     return {
         "coders": coders,
-        "total": sum(c["done"] for c in coders),
-        # Cohorts still short of their target, which is the alert: a
-        # cohort cannot be used for training until enough coders have
-        # disposed of each record.
-        "open_cohorts": ClassificationCohort.objects.filter(
-            closed_at__isnull=True
-        ).order_by("-number"),
-        "user_model": get_user_model().__name__,
+        "total": sum(row["done"] for row in coders),
+        "cohorts": cohorts,
+        "open_cohorts": [row for row in cohorts if row["cohort"].closed_at is None],
+        # Offered in the picker. Superusers included: somebody has to be
+        # able to work a cohort on a fresh install.
+        "candidates": get_user_model().objects.order_by("username"),
     }
+
+
+# ------------------------------------------------- drawing and assigning
+#
+# The models existed and nothing filled them. A cohort had to be made in
+# a shell, its articles inserted by hand, and its coders granted one SQL
+# statement at a time -- so the queue could be worked but never started.
+
+
+#: How a cohort is divided between the four strata. Equal quarters, and
+#: confident/uncertain equal to each other by construction: the whole
+#: point of those two is a direct comparison, which an unequal draw
+#: blurs. `docs/CLASSIFICATION_REVIEW_QUEUE.md` sets out why.
+STRATUM_SHARE = {
+    ClassificationSample.CONFIDENT: 0.25,
+    ClassificationSample.UNCERTAIN: 0.25,
+    ClassificationSample.RANDOM: 0.25,
+    ClassificationSample.UNLABELLED: 0.25,
+}
+
+#: The confidence bands. The middle (0.5-0.7) is deliberately in neither:
+#: it is neither claim, and including it blurs the one thing these two
+#: strata exist to separate. Those rows stay reachable at random.
+CONFIDENT_AT_OR_ABOVE = 0.7
+UNCERTAIN_BELOW = 0.5
+
+#: What the crawler considers classifiable -- the same statuses
+#: `analysis.py` feeds the model, so the queue reviews the population the
+#: model actually sees rather than a wider one.
+CLASSIFIABLE_STATUSES = ("cleaned", "local")
+
+
+def _stratum_pool(stratum):
+    """The articles a stratum may draw from, as an unordered queryset."""
+    from explorer.models import Article
+
+    rows = Article.objects.using("crawler").filter(status__in=CLASSIFIABLE_STATUSES)
+    if stratum == ClassificationSample.CONFIDENT:
+        return rows.filter(primary_label_confidence__gte=CONFIDENT_AT_OR_ABOVE)
+    if stratum == ClassificationSample.UNCERTAIN:
+        return rows.filter(
+            primary_label_confidence__lt=UNCERTAIN_BELOW,
+            primary_label_confidence__isnull=False,
+        )
+    if stratum == ClassificationSample.UNLABELLED:
+        return rows.filter(primary_label__isnull=True)
+    # Random draws from everything classifiable, including the middle
+    # band and the rows the other strata already cover. That overlap is
+    # the point: it is the only stratum whose rate is an unbiased
+    # estimate of anything.
+    return rows
+
+
+def draw_cohort(size, *, target_coders=3, note="", stale_after_days=14):
+    """Open a cohort and draw `size` articles into it.
+
+    Returns (cohort, drawn) where `drawn` maps each stratum to how many it
+    actually contributed. A short stratum is reported rather than
+    silently topped up from elsewhere: a cohort whose unlabelled quarter
+    came out of the random pool is not the cohort the design describes,
+    and a caller that cannot see the difference cannot correct for it.
+
+    Articles already drawn into any earlier cohort are excluded. Cohort
+    membership is permanent, and one article in two cohorts would make
+    each of their rates depend on the other.
+    """
+    from django.db import transaction
+
+    taken = set(ClassificationSample.objects.values_list("article_id", flat=True))
+    with transaction.atomic():
+        number = (
+            ClassificationCohort.objects.aggregate(models.Max("number"))["number__max"]
+            or 0
+        ) + 1
+        cohort = ClassificationCohort.objects.create(
+            number=number,
+            slug=f"cohort-{number}",
+            target_coders=target_coders,
+            stale_after_days=stale_after_days,
+            note=note,
+        )
+
+        drawn, samples = {}, []
+        for stratum, share in STRATUM_SHARE.items():
+            want = int(round(size * share))
+            available = _stratum_pool(stratum).exclude(id__in=taken)
+            # Counted before the slice: the chance a row in this stratum
+            # had of being drawn cannot be recovered later, and without it
+            # an oversampled draw cannot be weighted back to corpus rates.
+            total = available.count()
+            rows = list(
+                available.order_by("?").values_list(
+                    "id", "dataset_id", "primary_label", "primary_label_confidence"
+                )[:want]
+            )
+            probability = (len(rows) / total) if total else 1.0
+            for article_id, dataset_id, label, confidence in rows:
+                taken.add(article_id)
+                samples.append(
+                    ClassificationSample(
+                        cohort=cohort,
+                        article_id=article_id,
+                        stratum=stratum,
+                        inclusion_probability=probability,
+                        dataset_id=dataset_id or "",
+                        model_label=label or "",
+                        model_confidence=confidence,
+                    )
+                )
+            drawn[stratum] = len(rows)
+
+        ClassificationSample.objects.bulk_create(samples, batch_size=500)
+    return cohort, drawn
+
+
+def coders_for(cohort):
+    """The users granted this cohort, in a stable order."""
+    from accounts.models import DATADESK, Grant
+
+    return [
+        grant.user
+        for grant in Grant.objects.filter(
+            app=DATADESK, role=CLASSIFIER, scope=cohort.slug
+        )
+        .select_related("user")
+        .order_by("user__username")
+    ]
+
+
+def grant_cohort(user, cohort):
+    """Give one classifier one cohort. Idempotent.
+
+    The scope is always a cohort slug and never blank. `WHOLE_APPLICATION`
+    is the empty string and `permitted_scopes` returns ALL_SCOPES for it,
+    so a classifier granted with no scope could work every cohort there
+    is -- the opposite of the point. Controlling which records a coder is
+    given is the reason this role is scoped at all.
+    """
+    from accounts.models import DATADESK, WHOLE_APPLICATION, Grant
+
+    if not cohort.slug or cohort.slug == WHOLE_APPLICATION:
+        raise ValueError("a classifier grant must name a cohort")
+    grant, _ = Grant.objects.get_or_create(
+        user=user, app=DATADESK, role=CLASSIFIER, scope=cohort.slug
+    )
+    return grant
+
+
+def revoke_cohort(user, cohort):
+    """Take it back, and withdraw anything outstanding.
+
+    Completed decisions stay: they are data. Outstanding assignments do
+    not, or the cohort waits forever on somebody who can no longer open
+    it -- the quiet way this design fails.
+    """
+    from accounts.models import DATADESK, Grant
+
+    Grant.objects.filter(
+        user=user, app=DATADESK, role=CLASSIFIER, scope=cohort.slug
+    ).delete()
+    return ClassificationAssignment.objects.filter(
+        cohort=cohort, assigned_to=user, completed_at__isnull=True
+    ).delete()[0]
+
+
+def assign_cohort(cohort):
+    """Hand every record in the cohort to `target_coders` coders.
+
+    Round-robin over the granted coders, so each carries within one record
+    of the same load -- "assign coders to assure each gets the same
+    number" is the requirement, and an uneven split makes a cohort finish
+    at the pace of its slowest member.
+
+    Nobody is given the same record twice: a `target_coders` above the
+    number granted assigns as many as exist rather than duplicating,
+    because two decisions from one person on one article is not the
+    overlap agreement is measured over.
+
+    Idempotent. Re-running after granting a fourth coder tops the cohort
+    up to target rather than starting again.
+    """
+    from django.db import transaction
+
+    coders = coders_for(cohort)
+    if not coders:
+        return 0
+
+    existing = {}
+    for user_id, article_id in ClassificationAssignment.objects.filter(
+        cohort=cohort
+    ).values_list("assigned_to_id", "article_id"):
+        existing.setdefault(article_id, set()).add(user_id)
+
+    wanted = min(cohort.target_coders, len(coders))
+    made, offset = [], 0
+    article_ids = list(
+        ClassificationSample.objects.filter(cohort=cohort)
+        .order_by("id")
+        .values_list("article_id", flat=True)
+    )
+    for article_id in article_ids:
+        already = existing.get(article_id, set())
+        # Rotate the starting point per article so the same pair does not
+        # share every record: overlap spread across the group is what lets
+        # agreement be read per coder rather than for one pairing.
+        start = offset % len(coders)
+        order = coders[start:] + coders[:start]
+        offset += 1
+        for user in order:
+            if len(already) >= wanted:
+                break
+            if user.id in already:
+                continue
+            already.add(user.id)
+            made.append(
+                ClassificationAssignment(
+                    cohort=cohort, article_id=article_id, assigned_to=user
+                )
+            )
+
+    with transaction.atomic():
+        ClassificationAssignment.objects.bulk_create(made, batch_size=500)
+    return len(made)

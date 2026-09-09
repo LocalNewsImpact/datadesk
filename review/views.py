@@ -2325,10 +2325,89 @@ def cin_reporting(request):
 
 @requires_admin
 def cin_coders(request):
-    """Who can classify, what they are granted, and how much they have done."""
-    from review.classification import coder_report
+    """Who can classify, what they are granted, and how much they have done.
 
-    return render(request, "review/cin_coders.html", coder_report())
+    Also where a cohort is opened and its coders are chosen. Those were
+    shell operations -- a cohort made by hand, its articles inserted one
+    statement at a time, its grants written directly -- so the queue could
+    be worked but never started.
+    """
+    from review.classification import (
+        ClassificationCohort,
+        assign_cohort,
+        coder_report,
+        draw_cohort,
+        grant_cohort,
+        revoke_cohort,
+    )
+
+    notices = []
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "draw":
+            try:
+                size = int(request.POST.get("size") or 0)
+                target = int(request.POST.get("target_coders") or 3)
+            except ValueError:
+                size, target = 0, 3
+            if size < 1:
+                notices.append(("bad", "A cohort needs at least one article."))
+            elif target < 1:
+                notices.append(("bad", "A record needs at least one coder."))
+            else:
+                cohort, drawn = draw_cohort(
+                    size,
+                    target_coders=target,
+                    note=(request.POST.get("note") or "").strip(),
+                )
+                total = sum(drawn.values())
+                notices.append(
+                    (
+                        "good" if total == size else "warn",
+                        f"Cohort {cohort.number}: drew {total} of {size} "
+                        + ", ".join(f"{n} {s}" for s, n in drawn.items())
+                        + ("." if total == size else " — a stratum ran short."),
+                    )
+                )
+        elif action in {"grant", "revoke", "assign"}:
+            cohort = ClassificationCohort.objects.filter(
+                slug=request.POST.get("cohort")
+            ).first()
+            if cohort is None:
+                notices.append(("bad", "No such cohort."))
+            elif action == "assign":
+                made = assign_cohort(cohort)
+                notices.append(
+                    ("good", f"Cohort {cohort.number}: {made} assignments made.")
+                    if made
+                    else ("warn", f"Cohort {cohort.number} has no coders granted yet.")
+                )
+            else:
+                from django.contrib.auth import get_user_model
+
+                user = (
+                    get_user_model().objects.filter(pk=request.POST.get("user")).first()
+                )
+                if user is None:
+                    notices.append(("bad", "No such user."))
+                elif action == "grant":
+                    grant_cohort(user, cohort)
+                    notices.append(
+                        ("good", f"{user} can now work cohort {cohort.number}.")
+                    )
+                else:
+                    withdrawn = revoke_cohort(user, cohort)
+                    notices.append(
+                        (
+                            "good",
+                            f"{user} removed from cohort {cohort.number}; "
+                            f"{withdrawn} outstanding assignment(s) withdrawn.",
+                        )
+                    )
+
+    context = coder_report()
+    context["notices"] = notices
+    return render(request, "review/cin_coders.html", context)
 
 
 @requires_admin
