@@ -21,7 +21,12 @@ if [ ! -f "$SCRIPT" ] && [ -f "$(dirname "$0")/$SCRIPT" ]; then
   SCRIPT="$(dirname "$0")/$SCRIPT"
 fi
 [ -f "$SCRIPT" ] || { echo "no such SQL file: $1" >&2; exit 1; }
-INSTANCE="${INSTANCE:-mizzou-news-crawler:us-central1:mizzou-db-prod}"
+# The live instance, and the same one the deploy and the scheduled jobs
+# connect to. It was `mizzou-db-prod` until the move to SSD; that instance
+# no longer exists, so this script could not connect at all -- found when
+# the discovery queue's grant needed applying and the default pointed at
+# nothing. A test holds this to what cloudbuild uses.
+INSTANCE="${INSTANCE:-mizzou-news-crawler:us-central1:mizzou-db-prod-ssd}"
 SQL_PROJECT="${SQL_PROJECT:-mizzou-news-crawler}"
 APP_PROJECT="${APP_PROJECT:-lnic-datadesk}"
 PORT="${PORT:-5440}"
