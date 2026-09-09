@@ -31,7 +31,7 @@ whose fix box invites it is a queue creating the defect it exists to
 clear. Free text only where there is no vocabulary to offer.
 {% endcomment %}
 {% if verb.values %}
-<select class="fixval" name="v-{{ subject_id }}" data-verb="{{ verb.name }}"
+<select class="fixval" name="v-{{ subject_id }}-{{ verb.name }}" data-verb="{{ verb.name }}"
         aria-label="{{ verb.sublabel|default:verb.label }}">
   <option value="">{{ verb.label|lower }}…</option>
   {% for choice in verb.values %}
@@ -39,7 +39,7 @@ clear. Free text only where there is no vocabulary to offer.
   {% endfor %}
 </select>
 {% else %}
-<input type="text" class="fixval" name="v-{{ subject_id }}"
+<input type="text" class="fixval" name="v-{{ subject_id }}-{{ verb.name }}"
        data-verb="{{ verb.name }}"
        value="" aria-label="A value for {{ verb.label|lower }}">
 {% endif %}

@@ -37,7 +37,13 @@
   const incompleteNote = document.getElementById("q-incomplete");
 
   const store = (row) => row.querySelector('input[type="hidden"]');
-  const fixval = (row) => row.querySelector(".fixval");
+  // The box belonging to the verb that was pressed, where the row has
+  // one box per verb. A row whose verbs take different vocabularies has
+  // two, and testing the first one asked about a list the reviewer was
+  // not answering.
+  const fixval = (row, verb) =>
+    (verb && row.querySelector(`.fixval[data-verb="${verb}"]`)) ||
+    row.querySelector(".fixval");
   const rows = () => form.querySelectorAll(".prop");
 
   function describe(row) {
@@ -64,7 +70,7 @@
       // Rejecting says the call was wrong and the list says what it
       // should have been; half an answer waits rather than submitting.
       const chosen = row.querySelector(`.verb[data-verb="${field.value}"]`);
-      const value = fixval(row);
+      const value = fixval(row, field.value);
       if (value && field.value === (row.dataset.fixVerb || "fix") && !value.value.trim()) {
         incomplete += 1;
       }
@@ -135,7 +141,7 @@
     // Accept and on Restore too. On a phone that is a native picker
     // covering the row being decided, opened by a button that has nothing
     // to do with it.
-    const value = fixval(row);
+    const value = fixval(row, chosen);
     const itsOwn = value && value.dataset.verb === chosen;
     if (chosen && itsOwn && !value.value.trim()) value.focus();
     recount();
@@ -170,8 +176,12 @@
     // A browser restores form fields across a refresh, so a session that
     // looks new would carry decisions nobody made in it.
     rows().forEach((row) => {
-      const value = fixval(row);
-      if (value) value.value = "";
+      // Every box on the row, not the first: a row whose verbs take
+      // different vocabularies carries one each, and clearing only the
+      // first left the other holding an answer nobody could see.
+      row.querySelectorAll(".fixval").forEach((value) => {
+        value.value = "";
+      });
       mark(row, "");
     });
     recount();
