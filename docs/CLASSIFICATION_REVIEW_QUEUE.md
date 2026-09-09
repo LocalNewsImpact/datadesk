@@ -359,6 +359,85 @@ text" and one picks a label, the record is not training data, and the
 agreement between the two is worth counting against the pipeline's own
 `paywall_stub_rule` and boilerplate detector.
 
+## 7b. Cohorts, assignment and coverage
+
+Three dispositions per record is a coverage requirement, and coverage
+does not happen by itself. Serving whatever has fewer than three
+answers, first come first served, gives no guarantee: a keen reviewer
+answers a thousand records once each and nothing reaches three.
+
+So records are **assigned**, in **cohorts**.
+
+### A cohort
+
+A named batch of records drawn together and worked as a unit —
+identified by number and carrying the window it covers.
+
+    ClassificationCohort
+        number        1, 2, 3 — what people will call it
+        opened_at     when it was drawn
+        closed_at     when it stopped taking work, or null
+        target_coders how many must dispose of each record (3)
+        note          why this batch exists
+
+Cohorts are what makes "how are we doing" answerable. Without them there
+is one undifferentiated pile, and the questions that actually get asked
+— has last month's batch finished, did agreement improve after the
+instructions were rewritten, is this week slower than last — have
+nowhere to attach.
+
+### An assignment
+
+    ClassificationAssignment
+        cohort        which batch
+        article_id    which record          } unique together
+        assigned_to   which coder
+        assigned_at
+        completed_at  set when a decision lands, null while outstanding
+
+Unique on (cohort, article_id, assigned_to). Drawing a cohort creates
+exactly `target_coders` assignments per record, spread evenly across the
+available coders, so every record gets the same number of evaluators and
+every coder gets roughly the same amount of work.
+
+A coder's queue is then simply their outstanding assignments, oldest
+first. They are never shown a record they were not assigned, and never
+the same record twice.
+
+### The failure this must survive
+
+**Pre-assignment plus an absent coder leaves records stuck at two
+dispositions forever.** Somebody is ill, or leaves, or was granted the
+role and never signed in, and every record assigned to them is short one
+evaluator with nothing in the system trying to fix it. That is the
+predictable way this design fails, and it fails quietly.
+
+So an assignment **expires**. An outstanding assignment older than the
+cohort's staleness window is reassigned to another coder who has not
+already answered that record. The expiry is what turns a stalled batch
+into a slow one.
+
+Expired-and-reassigned is worth recording rather than overwriting: a
+coder whose assignments are routinely reassigned is a fact worth
+knowing, and so is a cohort that needed a lot of it.
+
+### When more coding is needed
+
+The admin alert (phase 6) fires on the conditions that mean the work
+cannot finish as assigned:
+
+- records in an open cohort short of `target_coders` with no outstanding
+  assignment — nobody is going to answer them
+- outstanding assignments past the staleness window
+- fewer active coders than `target_coders`, which makes full coverage
+  arithmetically impossible
+- a cohort whose outstanding work exceeds what the current coders have
+  historically completed in its window — it will not land on time, and
+  saying so early is the point
+
+That last one needs throughput history, so it is worth recording
+`completed_at` from the start even though nothing reads it yet.
+
 ## 7a. Inter-coder reliability, and who sees it
 
 Three reviewers per record exist to produce a defensible label. The same
@@ -425,12 +504,9 @@ obvious then and are guesses now.
   together. Section 7.
 - `ReviewDecision` — untouched. This queue does not use it.
 
-The queue serves a reviewer articles from the sample that they have not
-themselves answered and that have fewer than three dispositions,
-oldest-drawn first. That is the whole scheduling rule: no assignment
-table, no locking, no reservation. Two reviewers answering the same
-article at the same moment is fine — that is what three of them are
-for.
+- `ClassificationCohort` and `ClassificationAssignment` — section 7b.
+  A coder's queue is their outstanding assignments, oldest first; they
+  are never shown an unassigned record, and never the same one twice.
 
 **Crawler:** nothing. This queue reads `articles` and `article_labels`
 and writes neither.
@@ -479,9 +555,10 @@ things". Whoever holds it can read every article in scope.
 test, and the section listing that shows a classifier only classification
 queues. Nothing user-visible yet.
 
-**Phase 2 — the sample.** `ClassificationSample`, the four strata, and a
-management command that draws them. Reviewable as a table before any UI
-exists, which is when the sampling can still be argued with.
+**Phase 2 — the sample and the cohort.** `ClassificationSample`, the
+four strata, and a management command that draws a cohort and assigns
+it. Reviewable as a table before any UI exists, which is when the
+sampling and the balance can still be argued with.
 
 **Phase 3 — the queue.** The page, the single-select, the reject
 reasons, the receipt. No filters, and not the shared header.
