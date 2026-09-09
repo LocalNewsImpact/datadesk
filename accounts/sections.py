@@ -114,6 +114,17 @@ SECTION_GROUPS = (
                 ),
             },
             {
+                # The only section a classifier reaches. `requires` is
+                # the flag: a section wanting `classify` is
+                # classification work, one wanting `write` is not.
+                "url": "review:classification",
+                "label": "Classification",
+                "requires": CLASSIFIER,
+                "note": (
+                    "Say what an assigned story is about, for the " "training set."
+                ),
+            },
+            {
                 "url": "review:queue",
                 "label": "Extraction",
                 "note": "Articles automated triage could not use, awaiting a decision.",

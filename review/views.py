@@ -16,9 +16,10 @@ from django.utils.http import urlencode
 from django.views.decorators.http import require_POST
 
 from accounts.decorators import APP, requires, requires_admin, requires_import
-from accounts.privileges import EXPORT_PRIVILEGE, WRITE
+from accounts.privileges import CLASSIFY, EXPORT_PRIVILEGE, WRITE
 from audit.models import AuditLogEntry
 from explorer.models import Article, ArticleEnrichment
+from explorer.scoping import scopes_for
 from explorer.views import _filtered_articles
 from review import audit_entries
 from review import kernel as _kernel
@@ -2113,3 +2114,163 @@ def _submit_discovery_decisions(request):
     receipt = review_submit.submit(queue_def, decisions, subjects, request.user)
     request.session["discovery_receipt"] = dict(receipt, queue=queue_def.key)
     return redirect(f"{reverse('review:discovery')}?{urlencode(request.GET)}")
+
+
+# --------------------------------------------------------------------
+# The classification queue
+# --------------------------------------------------------------------
+
+#: How much of the body a coder reads. The model sees title + body
+#: truncated at 512 BERT tokens, roughly 350-400 words, and the
+#: historical cohorts showed a median article of 255 words. A window
+#: much larger than the model's input means some disagreement measures
+#: the truncation rather than the model.
+READING_WORDS = 250
+
+
+def _reading_window(article):
+    """The first `READING_WORDS` of the body, and whether there is more.
+
+    `text` is the cleaned body and `content` the raw capture, in that
+    order: classifying the raw capture means classifying navigation
+    menus and cookie notices, which is how 3% of stored articles got a
+    CIN label derived from a list of section names.
+    """
+    body = ""
+    for field in ("text", "content"):
+        value = getattr(article, field, None)
+        if isinstance(value, str) and value.strip():
+            body = value.strip()
+            break
+    words = body.split()
+    return " ".join(words[:READING_WORDS]), len(words) > READING_WORDS
+
+
+@requires(CLASSIFY)
+def classification_queue(request):
+    """One assigned story at a time: headline, URL, body, and a judgement.
+
+    No filters. Not by dataset, not by date, not by publisher — choosing
+    what to look at is how a sample stops being one, and the coder is
+    shown what the draw assigned them.
+
+    Nothing about the pipeline's own opinion appears: no CIN label, no
+    confidence, no status, no wire flag. A label produced by somebody who
+    has seen the model's answer cannot be used to score the model.
+    """
+    from explorer.models import Article
+    from review.classification import (
+        CIN_LABELS,
+        ClassificationAssignment,
+        ClassificationCohort,
+        ClassificationDecision,
+    )
+
+    if request.method == "POST":
+        return _submit_classification(request)
+
+    cohorts = ClassificationCohort.objects.filter(
+        slug__in=scopes_for(request.user, CLASSIFY) or []
+    )
+    outstanding = (
+        ClassificationAssignment.objects.filter(
+            assigned_to=request.user, completed_at__isnull=True, cohort__in=cohorts
+        )
+        .select_related("cohort")
+        .order_by("assigned_at")
+    )
+
+    assignment = outstanding.first()
+    article = None
+    if assignment is not None:
+        article = (
+            Article.objects.using("crawler").filter(id=assignment.article_id).first()
+        )
+
+    body, truncated = ("", False)
+    if article is not None:
+        body, truncated = _reading_window(article)
+
+    done = ClassificationDecision.objects.filter(decided_by=request.user).count()
+    return render(
+        request,
+        "review/classification.html",
+        {
+            "assignment": assignment,
+            "article": article,
+            "body": body,
+            "truncated": truncated,
+            "labels": CIN_LABELS,
+            "rejections": ClassificationDecision.REJECTIONS,
+            "remaining": outstanding.count(),
+            "done": done,
+            "reading_words": READING_WORDS,
+        },
+    )
+
+
+@require_POST
+@requires(CLASSIFY)
+def _submit_classification(request):
+    """Record one coder's judgement and close their assignment."""
+    from django.utils import timezone
+
+    from review.classification import (
+        ClassificationAssignment,
+        ClassificationDecision,
+        ClassificationSample,
+    )
+
+    assignment = ClassificationAssignment.objects.filter(
+        pk=request.POST.get("assignment"),
+        assigned_to=request.user,
+        completed_at__isnull=True,
+    ).first()
+    if assignment is None:
+        # Somebody else's assignment, or one already answered. Not an
+        # error worth a page: the queue simply moves on.
+        return redirect("review:classification")
+
+    primary = (request.POST.get("primary") or "").strip()
+    secondary = (request.POST.get("secondary") or "").strip()
+    reject = (request.POST.get("reject") or "").strip()
+    if not primary and not reject:
+        messages.error(request, "Choose a category, or say why you cannot.")
+        return redirect("review:classification")
+
+    # A rejection is not a label. Storing one as a category is what made
+    # the historical primary column unusable without filtering.
+    if reject:
+        primary, secondary = "", ""
+
+    sample = ClassificationSample.objects.filter(
+        cohort=assignment.cohort, article_id=assignment.article_id
+    ).first()
+
+    ClassificationDecision.objects.create(
+        cohort=assignment.cohort,
+        article_id=assignment.article_id,
+        decided_by=request.user,
+        primary_label=primary,
+        secondary_label=secondary,
+        reject_reason=reject,
+        stratum=getattr(sample, "stratum", ""),
+        inclusion_probability=getattr(sample, "inclusion_probability", 1.0),
+        dataset_id=getattr(sample, "dataset_id", ""),
+        seconds_spent=_seconds_spent(request.POST.get("opened_at")),
+    )
+    assignment.completed_at = timezone.now()
+    assignment.save(update_fields=["completed_at"])
+    return redirect("review:classification")
+
+
+def _seconds_spent(opened_at):
+    """How long the coder had the row open, or None.
+
+    The cheapest defence against somebody clicking through, short of the
+    seeded check records, and it costs nothing to record.
+    """
+    try:
+        return max(0, int(float(opened_at)))
+    except (TypeError, ValueError):
+        return None
