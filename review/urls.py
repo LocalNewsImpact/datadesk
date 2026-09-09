@@ -8,6 +8,7 @@ app_name = "review"
 
 urlpatterns = [
     path("queue/", views.queue, name="queue"),
+    path("discovery/", views.discovery_queue, name="discovery"),
     path(
         "extraction-problems/",
         views.extraction_problems,

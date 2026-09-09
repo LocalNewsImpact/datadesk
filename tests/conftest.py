@@ -119,7 +119,29 @@ _CRAWLER_TABLES = {
         # reads it to tell a 403 wall from a link held for some other
         # reason. Absent here, that page's query failed 42703 while
         # production answered it.
-        "VARCHAR, dataset_id VARCHAR, status VARCHAR, error_message TEXT)"
+        "VARCHAR, dataset_id VARCHAR, status VARCHAR, error_message TEXT, "
+        # The discovery queue's cohort is cut on `discovered_at`: a link
+        # rejected before extraction has no article and so no publish
+        # date to group by. `meta` is `json` in production, like
+        # articles.metadata, and declaring it TEXT here would hide the
+        # same missing-equality-operator defect.
+        "discovered_at TIMESTAMP, discovered_by VARCHAR, meta JSON)"
+    ),
+    # One row per verification decision. `verification_confidence` is
+    # DOUBLE PRECISION and holds a log-odds margin running to thousands,
+    # not a probability in 0..1 -- a NUMERIC(3,2) here would pass every
+    # test and truncate production's actual values.
+    "url_verifications": (
+        "(id VARCHAR PRIMARY KEY, candidate_link_id VARCHAR, "
+        "verification_job_id VARCHAR, url VARCHAR, "
+        "storysniffer_result BOOLEAN, "
+        "verification_confidence DOUBLE PRECISION, "
+        "verified_at TIMESTAMP, verification_time_ms DOUBLE PRECISION, "
+        "previous_status VARCHAR, new_status VARCHAR, "
+        "verification_error VARCHAR, retry_count INTEGER, meta JSON, "
+        "article_headline VARCHAR, article_excerpt TEXT, "
+        "human_label VARCHAR, human_notes TEXT, reviewed_by VARCHAR, "
+        "reviewed_at TIMESTAMP, created_at TIMESTAMP, dataset_id VARCHAR)"
     ),
     # What a run did, and what it did it to. Both gained `dataset_id` in
     # the crawler on 2026-09-07; before that a per-dataset question about

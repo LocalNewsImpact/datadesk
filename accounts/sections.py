@@ -145,6 +145,23 @@ SECTION_GROUPS = (
         ),
     },
     {
+        # docs/DISCOVERY_REVIEW_QUEUE.md section 6, phase 2. Between
+        # Sources and Extraction because that is where the judgement sits:
+        # after a URL is found, before anything is fetched.
+        "label": "Discovery",
+        "requires": EDITOR,
+        "sections": (
+            {
+                "url": "review:discovery",
+                "label": "Discovery review",
+                "note": (
+                    "URLs judged before any body was fetched: what the "
+                    "classifier could not call, and what a rule overruled."
+                ),
+            },
+        ),
+    },
+    {
         "label": "Extraction",
         "requires": EDITOR,
         "sections": (

@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Discovery review queue — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>Discovery review queue</h1>
+  <p class="lede">
+    URLs judged before anything was fetched. There is no body here and no
+    byline — only the address, its publisher, and the verdict verification
+    recorded, so the link is the evidence and it opens in its own tab.
+  </p>
+
+  {% if not crawler_connected %}
+  <p class="notice">
+    Crawler database not connected. Set CRAWLER_DB_USER (and run the Cloud
+    SQL Auth Proxy locally) to work the queue.
+  </p>
+  {% else %}
+
+  {% if receipt %}
+  <p class="receipt">
+    {% for line in receipt %}<span>{{ line.n }} {{ line.past }}</span>{% endfor %}
+  </p>
+  {% endif %}
+
+  {% comment %}
+  The three strata answer two different questions and a reviewer should
+  be able to see which one they are in: a doubt-ranked set finds errors
+  and can never say how many there are, and the random sample says how
+  many and finds almost none.
+  {% endcomment %}
+  <nav class="facets strata" aria-label="Which rows">
+    {% for s in strata %}
+    <a class="facet{% if s.selected %} on{% endif %}"
+       href="?{{ stratum_params.urlencode }}{% if not s.selected %}&amp;stratum={{ s.key }}{% endif %}">
+      <span class="facet-label">{{ s.label }}</span>
+      <span class="facet-count">{{ s.count }}</span>
+      <span class="facet-note">{{ s.description }}</span>
+    </a>
+    {% endfor %}
+  </nav>
+
+  <p class="stratum-note">
+    Showing <strong>{{ rows|length }}</strong> of
+    <strong>{{ population }}</strong> in “{{ stratum_label }}”,
+    cohort {{ cohort_start|date:"j M Y" }} to {{ cohort_end|date:"j M Y" }}.
+    {% if probability < 1 %}
+    Each row had a {{ probability|floatformat:3 }} chance of being drawn,
+    recorded with the decision so the labels can be weighted.
+    {% else %}
+    Reviewed in full, so every label carries equal weight.
+    {% endif %}
+    {% if decided %}<a href="?{{ params.urlencode }}&amp;state=all">Including {{ decided }} already answered</a>{% endif %}
+  </p>
+
+  <form method="post" class="queue-form">
+    {% csrf_token %}
+    <table class="rec-table queue-rows">
+      <thead>
+        <tr>
+          <th scope="col">The URL</th>
+          <th scope="col">Publisher</th>
+          <th scope="col">What the pipeline said</th>
+          <th scope="col">What the model said</th>
+          <th scope="col" class="decide">Is it a story?</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <th scope="row">
+            {% comment %}
+            The whole judgement rests on opening this, so it is the first
+            thing in the row and a real link rather than text to copy.
+            rel="noopener" because target="_blank" otherwise hands the
+            opened page a handle on this one.
+            {% endcomment %}
+            <a class="rec-read discovery-url" href="{{ row.url }}"
+               target="_blank" rel="noopener noreferrer"
+               title="{{ row.url }}">{{ row.url }}</a>
+            {% if row.article_headline %}
+            <span class="rec-sub">{{ row.article_headline }}</span>
+            {% endif %}
+            <span class="rec-sub quiet">found {{ row.candidate_link.discovered_at|date:"j M Y" }}</span>
+          </th>
+          <td data-label="Publisher">
+            {{ row.candidate_link.source.canonical_name|default:row.candidate_link.source_name_raw|default:"—" }}
+          </td>
+          <td data-label="What the pipeline said">
+            <span class="val">{{ row.new_status|default:"—" }}</span>
+          </td>
+          <td data-label="What the model said">
+            {% if row.storysniffer_result %}
+            <span class="val yes">story</span>
+            {% else %}
+            <span class="val no">not a story</span>
+            {% endif %}
+            {% comment %}
+            The margin is a log-odds score, not a probability: it orders
+            URLs and its scale means nothing. Shown because a rejection
+            carrying a large POSITIVE margin was not the model's call at
+            all — an override made it — and that is the difference
+            between a model to retrain and a rule to fix.
+            {% endcomment %}
+            <span class="rec-sub quiet">margin {{ row.verification_confidence|floatformat:1 }}</span>
+          </td>
+          <td class="option decide" data-label="Is it a story?">
+            <input type="hidden" name="stratum-{{ row.candidate_link_id }}" value="{{ stratum }}">
+            <input type="hidden" name="probability-{{ row.candidate_link_id }}" value="{{ probability }}">
+            <div class="prop" data-id="{{ row.candidate_link_id }}">
+              {% include "review/_verbs.html" with subject_id=row.candidate_link_id verbs=row.offered_verbs %}
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5">Nothing left to answer in this stratum.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if rows %}
+    <div class="dock">
+      <button type="submit" class="primary">Submit decisions</button>
+    </div>
+    {% endif %}
+  </form>
+
+  {% if page.has_other_pages %}
+  <nav class="pager">
+    {% if page.has_previous %}
+    <a href="?{{ params.urlencode }}&amp;page={{ page.previous_page_number }}">← previous</a>
+    {% endif %}
+    <span>page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}
+    <a href="?{{ params.urlencode }}&amp;page={{ page.next_page_number }}">next →</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,6 +1,7 @@
 """Review and cleanup views (SCOPE.md §2.2). Editor role throughout."""
 
 import io
+from datetime import UTC, datetime
 
 from django.contrib import messages
 from django.core.cache import cache
@@ -1799,3 +1800,154 @@ def paywalls(request):
             "notice": request.session.pop("paywall_notice", ""),
         },
     )
+
+
+# --------------------------------------------------------------------
+# The discovery queue
+# --------------------------------------------------------------------
+
+#: The cohort the queue opens on. March is where the reviewed corpus is,
+#: and a queue that opens on 236,160 rows opens on nothing anybody can
+#: act on. Timezone-aware, because `discovered_at` is compared against
+#: these and a naive bound is read in whatever zone the process happens
+#: to be in.
+DISCOVERY_COHORT = (
+    datetime(2026, 3, 1, tzinfo=UTC),
+    datetime(2026, 4, 1, tzinfo=UTC),
+)
+
+
+def _discovery_rows(stratum, start, end):
+    """One stratum's rows, drawn and annotated with how they were drawn."""
+    from explorer.models import UrlVerification
+    from review import discovery
+
+    base = UrlVerification.objects.select_related(
+        "candidate_link", "candidate_link__source"
+    ).filter(discovery.predicate(stratum))
+    base = discovery.in_cohort(base, start, end)
+    population = base.count()
+    rows = list(discovery.drawn(base, stratum))
+    probability = discovery.inclusion_probability(stratum, population)
+    for row in rows:
+        row._stratum = stratum
+        row._probability = probability
+    return rows, population, probability
+
+
+@requires(WRITE)
+def discovery_queue(request):
+    """URLs the pipeline judged before any body was fetched.
+
+    The subject is a candidate link: a URL, its publisher, and the
+    verdict verification recorded. There is nothing to read, so the live
+    URL is the record's primary affordance and opens in its own tab --
+    a reviewer cannot answer "is this a story" without looking at it.
+    """
+    from review import discovery
+
+    if request.method == "POST":
+        return _submit_discovery_decisions(request)
+
+    start, end = DISCOVERY_COHORT
+    chosen = request.GET.get("stratum", discovery.DOUBTFUL)
+    if chosen not in discovery.STRATUM_LABELS:
+        chosen = discovery.DOUBTFUL
+
+    params = request.GET.copy()
+    params.pop("page", None)
+    stratum_params = params.copy()
+    stratum_params.pop("stratum", None)
+
+    strata, rows, population, probability = [], [], 0, 1.0
+    connected = True
+    try:
+        for key, label, description in discovery.STRATA:
+            drawn_rows, size, _p = _discovery_rows(key, start, end)
+            strata.append(
+                {
+                    "key": key,
+                    "label": label,
+                    "description": description,
+                    "count": len(drawn_rows),
+                    "population": size,
+                    "selected": key == chosen,
+                }
+            )
+            if key == chosen:
+                rows, population, probability = drawn_rows, size, _p
+    except DatabaseError:
+        connected = False
+
+    already = set()
+    if rows:
+        from review.models import ReviewDecision
+
+        already = set(
+            ReviewDecision.objects.filter(
+                subject_type="candidate_link",
+                subject_id__in=[str(r.candidate_link_id or r.id) for r in rows],
+            ).values_list("subject_id", flat=True)
+        )
+    if request.GET.get("state") != "all":
+        rows = [r for r in rows if str(r.candidate_link_id or r.id) not in already]
+
+    queue_def = _kernel.get(discovery.DISCOVERY_QUEUE_KEY)
+    for row in rows:
+        row.offered_verbs = queue_def.offered(row)
+
+    page = Paginator(rows, 50).get_page(request.GET.get("page"))
+    return render(
+        request,
+        "review/discovery.html",
+        {
+            "crawler_connected": connected,
+            "strata": strata,
+            "stratum": chosen,
+            "stratum_label": discovery.STRATUM_LABELS.get(chosen, ""),
+            "population": population,
+            "probability": probability,
+            "params": params,
+            "stratum_params": stratum_params,
+            "state": request.GET.get("state", ""),
+            "cohort_start": start,
+            "cohort_end": end,
+            "page": page,
+            "rows": page.object_list,
+            "queue_verbs": queue_def.verbs,
+            "decided": len(already),
+            "receipt": _receipt_counts(request.session.pop("discovery_receipt", None)),
+        },
+    )
+
+
+@require_POST
+@requires(WRITE)
+def _submit_discovery_decisions(request):
+    """Apply a session of discovery decisions.
+
+    The same submit path every other queue uses, so the receipt, the
+    audit entry and the already-answered filter are the ones that already
+    exist rather than a second implementation of them.
+    """
+    from explorer.models import UrlVerification
+    from review import discovery
+    from review import submit as review_submit
+
+    queue_def = _kernel.get(discovery.DISCOVERY_QUEUE_KEY)
+    decisions = review_submit.posted(request.POST)
+
+    subjects = {}
+    for row in UrlVerification.objects.select_related("candidate_link").filter(
+        candidate_link_id__in=list(decisions)
+    ):
+        key = str(row.candidate_link_id or row.id)
+        # The stratum travels on the form: sample membership follows from
+        # nothing about the row, so it cannot be recomputed here.
+        row._stratum = request.POST.get(f"stratum-{key}", "")
+        row._probability = float(request.POST.get(f"probability-{key}", "1") or 1)
+        subjects[key] = row
+
+    receipt = review_submit.submit(queue_def, decisions, subjects, request.user)
+    request.session["discovery_receipt"] = dict(receipt, queue=queue_def.key)
+    return redirect(f"{reverse('review:discovery')}?{urlencode(request.GET)}")
