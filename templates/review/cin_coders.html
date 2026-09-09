@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Coders — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>Coders</h1>
+
+  <p class="lede">
+    Who can classify, which cohort each is granted, and how much each has
+    done.
+  </p>
+
+  <dl class="stat-row">
+    <div><dt>Coders</dt><dd class="big">{{ coders|length }}</dd></div>
+    <div><dt>Decisions</dt><dd class="big">{{ total }}</dd></div>
+  </dl>
+
+  {% if coders %}
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Coder</th>
+          <th scope="col">Cohort</th>
+          <th scope="col" class="num">Decisions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in coders %}
+        <tr>
+          <th scope="row">{{ row.user }}</th>
+          <td>{{ row.cohort }}</td>
+          <td class="num">{{ row.done }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="notice">
+    Nobody holds the classifier role yet. A classifier is granted a
+    cohort rather than a dataset, and holds no other access unless it is
+    granted separately.
+  </p>
+  {% endif %}
+
+  <h2>Open cohorts</h2>
+  {% comment %}
+  The alert the design calls for: a cohort cannot be used for training
+  until enough coders have disposed of each record, and the predictable
+  way this fails is one absent coder leaving records short of target
+  indefinitely.
+  {% endcomment %}
+  {% if open_cohorts %}
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Cohort</th>
+          <th scope="col" class="num">Coders per record</th>
+          <th scope="col" class="num">Reassign after</th>
+          <th scope="col">Opened</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cohort in open_cohorts %}
+        <tr>
+          <th scope="row">Cohort {{ cohort.number }}</th>
+          <td class="num">{{ cohort.target_coders }}</td>
+          <td class="num">{{ cohort.stale_after_days }} days</td>
+          <td class="quiet">{{ cohort.opened_at|date:"j M Y" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="notice">No cohort is open. Classifiers have nothing to work.</p>
+  {% endif %}
+</section>
+{% endblock %}

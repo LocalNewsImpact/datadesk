@@ -46,6 +46,195 @@ from lnic_contracts import cin_labels
 #: class ids.
 CIN_LABELS = cin_labels.CODEBOOK_ORDER
 
+#: What a coder is shown about each category, from `docs/CODEBOOK.md`.
+#:
+#: The codebook is the specification the model is built on, and it was a
+#: PDF attachment until this repository transcribed it. A coder working
+#: the queue cannot read a PDF attachment, so the parts they need while
+#: deciding travel here: what the category covers, and the action test
+#: line -- what a reader could DO having read the story, which is the
+#: instrument the codebook gives for choosing between categories.
+#:
+#: Compressed from the full definitions deliberately. The whole text is
+#: 90 lines and a panel nobody finishes reading is a panel nobody reads.
+#: The full definitions are one link away, in the same document.
+#:
+#: `test_every_category_has_guidance` holds this to CIN_LABELS, so a
+#: category can never appear in the menu with nothing said about it. It
+#: caught two on the first run.
+#:
+#: The keys are cased as the vocabulary cases them -- "Civic
+#: information" and "Political life" beside "Civic Life". That is not a
+#: typo to tidy: these strings are the model's class names, and the
+#: codebook's own worked-examples table spells two of them differently
+#: from the vocabulary the classifier was trained on.
+CODING_GUIDE = {
+    "Emergencies and Public Safety": (
+        "Dangerous weather, biohazards, terrorism and amber alerts, "
+        "policing and neighborhood public safety.",
+        "know where to seek shelter from a tornado",
+    ),
+    "Health": (
+        "Local health and healthcare: availability, quality and cost of "
+        "care, public health programs, disease spread and vaccination.",
+        "learn where to get a flu vaccine",
+    ),
+    "Education": (
+        "Quality and administration of local schools, school "
+        "alternatives and charters, enrichment and afterschool, adult "
+        "education and job training, local higher education.",
+        "decide which school to send their children to",
+    ),
+    "Transportation Systems": (
+        "Mass transit at neighborhood, city and regional level; traffic "
+        "and road conditions including closings; public debate on roads "
+        "and transit.",
+        "plan their bus route across town",
+    ),
+    "Environment and Planning": (
+        "Water and air quality, toxic hazards and brownfields, natural "
+        "resource development, sustainability, access to recreation and "
+        "habitat restoration.",
+        "plant sustainable native flora in their front yard",
+    ),
+    "Economic Development": (
+        "Employment and job openings, training, retraining and "
+        "apprenticeship, small business startup assistance and capital, "
+        "major development initiatives.",
+        "find a new job opportunity",
+    ),
+    "Civic information": (
+        "Major civic institutions, nonprofits and associations -- their "
+        "services, accessibility and opportunities to take part. "
+        "Libraries and community information services.",
+        "volunteer at the library",
+    ),
+    "Civic Life": (
+        "Things to do and places to go: cultural arts, recreation, "
+        "community social services and programs, religious institutions, "
+        "and profiles of the people behind them.",
+        "pick a restaurant for lunch",
+    ),
+    "Political life": (
+        "Candidates and elections at every local level, neighborhood "
+        "councils and school boards, public meetings and their outcomes, "
+        "voter registration and absentee rules.",
+        "select their candidate in the next city election",
+    ),
+    "Sports": (
+        "Game stories, athlete profiles, and coverage of organizations "
+        "and facilities tied to athletic competition.",
+        "check the box score from last night's game",
+    ),
+}
+
+
+def guidance():
+    """The guide in menu order, as rows a template can walk.
+
+    Ordered by CIN_LABELS rather than by the dict, so the panel and the
+    menu can never disagree about what comes first.
+    """
+    return [
+        {
+            "label": label,
+            "covers": CODING_GUIDE[label][0],
+            "reader_could": CODING_GUIDE[label][1],
+        }
+        for label in CIN_LABELS
+        if label in CODING_GUIDE
+    ]
+
+
+#: What the instructions panel says before anybody edits it, from
+#: `docs/CODEBOOK.md`. A default rather than fixed text: the wording is
+#: expected to change, and changing it is how agreement gets tested.
+DEFAULT_INSTRUCTIONS = """\
+Consider what specific understanding or action - on balance - might be
+undertaken as a result of the content.
+
+That is the test the codebook gives, and it is the one to reach for when
+two categories both look plausible: ask what the reader could go and do,
+not what the story is about.
+
+A primary category is required. Where the story genuinely carries a
+second, set a secondary - but only where you have significant confidence
+it is present. A secondary added on a hunch is worth less than none:
+these labels become training weights, and a doubtful second category is
+scored at half the weight of the first rather than discarded.
+
+Reach for a rejection rather than forcing a category. "Not local" was
+the most used of these in the original coding, and a wire story given a
+CIN category teaches the model that wire is local.
+
+Civic information and Civic Life are the pair coders disagreed on most.
+Civic information is the institution - a library, a nonprofit, a
+community service, and how to reach it or take part. Civic Life is the
+going-out: things to do, places to go, arts and recreation, and the
+people behind them. Volunteering at the library is Civic information;
+the exhibition in its gallery is Civic Life.
+"""
+
+
+class CodebookSettings(models.Model):
+    """The coding instructions, editable without a deploy.
+
+    The codebook is the specification the classifier is built on, and it
+    spent its life as a PDF attachment. Transcribing it to
+    `docs/CODEBOOK.md` made it readable; it did not make it changeable
+    by the people who own it, because a coder-facing wording change
+    still meant a pull request and a deploy.
+
+    That matters more here than in most places. The definitions are
+    known to be imperfect -- agreement across the original cohorts was
+    64.6% exact, and Civic information behaves as a catch-all -- so the
+    guidance WILL be rewritten, and the whole point of rewriting it is
+    to measure whether agreement moves afterwards. `updated_at` is what
+    lets a later analysis cut agreement by which wording was live when
+    the decision was made.
+
+    One row. `load()` is the only way in, and it seeds from the codebook
+    rather than starting blank: an empty instructions panel on a fresh
+    database would be a queue shipped without its specification.
+    """
+
+    #: Shown in the classifier's instructions panel, above the category
+    #: table. Markdown-free: it is rendered as paragraphs, because a
+    #: text box that silently accepts HTML from an admin is a stored
+    #: XSS waiting for the first person who pastes from Word.
+    instructions = models.TextField(blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+
+    class Meta:
+        verbose_name_plural = "codebook settings"
+
+    def __str__(self):
+        return f"codebook settings, updated {self.updated_at:%Y-%m-%d}"
+
+    @classmethod
+    def load(cls):
+        """The single row, seeded from the codebook on first use."""
+        row = cls.objects.first()
+        if row is None:
+            row = cls.objects.create(instructions=DEFAULT_INSTRUCTIONS)
+        return row
+
+    def paragraphs(self):
+        """The instructions as paragraphs, split on blank lines.
+
+        Rendered as text rather than markup for the reason the field
+        comment gives.
+        """
+        blocks = [b.strip() for b in self.instructions.split("\n\n")]
+        return [" ".join(b.split()) for b in blocks if b.strip()]
+
 
 class ClassificationCohort(models.Model):
     """A batch of records drawn together and worked as a unit.
@@ -282,3 +471,133 @@ class ClassificationDecision(models.Model):
     @property
     def is_rejection(self):
         return bool(self.reject_reason)
+
+
+# ------------------------------------------------------------- the reports
+#
+# What the CIN admin section answers. Kept here rather than in the view
+# because the agreement arithmetic is the substance -- a view should not
+# be where "do two coders agree" is decided.
+
+
+def _pairs(decisions):
+    """Every unordered pair of decisions on the same article."""
+    from itertools import combinations
+
+    by_article = {}
+    for d in decisions:
+        by_article.setdefault(d.article_id, []).append(d)
+    for made in by_article.values():
+        yield from combinations(made, 2)
+
+
+def _agree(a, b):
+    """Whether two coders said the same thing.
+
+    Exact agreement on the primary label. Not set overlap: the primary
+    is what the model is trained on, and a pair matching only on
+    secondaries has not agreed about what the story is.
+
+    A rejection is a real answer, so two coders who both said "not
+    local" agree. That is the honest reading -- they reached the same
+    conclusion about the record -- and it is also the one that keeps a
+    cohort of unreadable articles from scoring as total disagreement.
+    """
+    if a.primary_label or b.primary_label:
+        return a.primary_label == b.primary_label
+    return a.reject_reason == b.reject_reason
+
+
+def agreement_report():
+    """Agreement overall, by dataset and by category.
+
+    Percent agreement, and not kappa. Kappa needs a chance-agreement
+    term over a fixed category distribution, and this queue oversamples
+    low-incidence categories deliberately -- so the distribution is a
+    sampling choice, not a property of the corpus, and a kappa computed
+    against it would move when the sampling changed rather than when
+    the coding did. The historical kappa (0.583) was computed once,
+    over a fixed set, and is reported in the codebook annotations
+    instead.
+    """
+    decisions = list(
+        ClassificationDecision.objects.select_related("cohort").order_by("article_id")
+    )
+    pairs = list(_pairs(decisions))
+
+    by_category, by_cohort = {}, {}
+    agreed = 0
+    for a, b in pairs:
+        ok = _agree(a, b)
+        agreed += ok
+        # Attributed to both answers when they differ: a disagreement
+        # between Civic information and Civic Life is a fact about both,
+        # and charging it only to the first would understate whichever
+        # category happens to sort earlier.
+        for label in {a.primary_label, b.primary_label} - {""}:
+            hit, total = by_category.get(label, (0, 0))
+            by_category[label] = (hit + ok, total + 1)
+        number = a.cohort.number
+        hit, total = by_cohort.get(number, (0, 0))
+        by_cohort[number] = (hit + ok, total + 1)
+
+    def rate(hit, total):
+        return round(100 * hit / total, 1) if total else None
+
+    return {
+        "pairs": len(pairs),
+        "articles_multiply_coded": len({a.article_id for a, _ in pairs}),
+        "decisions": len(decisions),
+        "overall": rate(agreed, len(pairs)),
+        "categories": sorted(
+            (
+                {"label": label, "rate": rate(hit, total), "pairs": total}
+                for label, (hit, total) in by_category.items()
+            ),
+            key=lambda row: row["rate"] if row["rate"] is not None else 101,
+        ),
+        "cohorts": sorted(
+            (
+                {"number": number, "rate": rate(hit, total), "pairs": total}
+                for number, (hit, total) in by_cohort.items()
+            ),
+            key=lambda row: -row["number"],
+        ),
+    }
+
+
+def coder_report():
+    """Who can classify, what each is granted, and how much each has done."""
+    from django.contrib.auth import get_user_model
+
+    from accounts.models import DATADESK, Grant
+    from accounts.privileges import CLASSIFIER
+
+    grants = (
+        Grant.objects.filter(app=DATADESK, role=CLASSIFIER)
+        .select_related("user")
+        .order_by("user__username")
+    )
+    counts = {}
+    for row in ClassificationDecision.objects.values_list("decided_by_id", flat=True):
+        counts[row] = counts.get(row, 0) + 1
+
+    coders = [
+        {
+            "user": grant.user,
+            "cohort": grant.scope or "—",
+            "done": counts.get(grant.user_id, 0),
+        }
+        for grant in grants
+    ]
+    return {
+        "coders": coders,
+        "total": sum(c["done"] for c in coders),
+        # Cohorts still short of their target, which is the alert: a
+        # cohort cannot be used for training until enough coders have
+        # disposed of each record.
+        "open_cohorts": ClassificationCohort.objects.filter(
+            closed_at__isnull=True
+        ).order_by("-number"),
+        "user_model": get_user_model().__name__,
+    }

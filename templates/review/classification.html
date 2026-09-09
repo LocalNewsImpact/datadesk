@@ -114,16 +114,62 @@
     <button type="submit" class="primary">Save and next</button>
   </form>
 
+
+  {% endif %}
+
+  {% comment %}
+  Outside the assignment branch. The "Instructions" link above is shown
+  whether or not anything is assigned, and the panel used to be rendered
+  only when it was -- so a coder waiting on a cohort, which is exactly
+  when somebody reads the instructions rather than working, clicked a
+  link to nothing.
+  {% endcomment %}
   <div id="instructions" class="instructions" hidden>
     <h2>How to categorise a story</h2>
-    <p>
-      Consider what specific understanding or action — on balance — might
-      be undertaken as a result of the content.
-    </p>
+
+    {% comment %}
+    From CodebookSettings, edited under CIN > Codebook rather than
+    deployed. The definitions are known to be imperfect, so the wording
+    will be rewritten, and rewriting it is how agreement gets tested.
+
+    Rendered as paragraphs of text. The field takes plain text and this
+    escapes it: a textarea an admin pastes into from Word is not a place
+    to start trusting markup.
+    {% endcomment %}
+    {% for paragraph in instructions %}
+    <p{% if forloop.first %} class="lede"{% endif %}>{{ paragraph }}</p>
+    {% endfor %}
+
+    <h3>The ten categories</h3>
+    <table class="guide">
+      <thead>
+        <tr>
+          <th scope="col">Category</th>
+          <th scope="col">What it covers</th>
+          <th scope="col">A reader could&hellip;</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in guidance %}
+        <tr>
+          <th scope="row">{{ row.label }}</th>
+          <td>{{ row.covers }}</td>
+          <td class="quiet">{{ row.reader_could }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+
+
+
     <p class="quiet">
-      The full definitions are in the codebook. This panel will carry
-      them once the text is settled.
+      The full definitions, worked examples and the tags this panel
+      summarises are in
+      <a href="https://github.com/LocalNewsImpact/datadesk/blob/main/docs/CODEBOOK.md"
+         target="_blank" rel="noopener noreferrer">the codebook</a>.
     </p>
+
     <button type="button" class="linklike instructions-close">Close</button>
   </div>
 
@@ -170,7 +216,5 @@
     }
   })();
   </script>
-
-  {% endif %}
 </section>
 {% endblock %}

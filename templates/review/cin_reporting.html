@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}CIN reporting — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>Agreement</h1>
+
+  <p class="lede">
+    How often two coders reading the same story reached the same answer.
+  </p>
+
+  {% comment %}
+  Measured over records that reached two coders, not over every decision
+  made. A rate computed across singly-coded records is not an agreement
+  rate, and it would read highest exactly when a cohort had been worked
+  least.
+  {% endcomment %}
+  <dl class="stat-row">
+    <div><dt>Agreement</dt>
+      <dd class="big">{% if overall is not None %}{{ overall }}%{% else %}&mdash;{% endif %}</dd></div>
+    <div><dt>Pairs compared</dt><dd class="big">{{ pairs }}</dd></div>
+    <div><dt>Stories with two or more coders</dt>
+      <dd class="big">{{ articles_multiply_coded }}</dd></div>
+    <div><dt>Decisions recorded</dt><dd class="big">{{ decisions }}</dd></div>
+  </dl>
+
+  {% if not pairs %}
+  <p class="notice">
+    Nothing to compare yet. Agreement needs two coders on the same story,
+    so this stays empty until a cohort has been worked far enough for
+    assignments to overlap.
+  </p>
+  {% else %}
+
+  <h2>By category</h2>
+  <p class="quiet">
+    Worst first, because that is what a codebook revision is aimed at. A
+    disagreement counts against both categories named, not just the one
+    that sorts earlier.
+  </p>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Category</th>
+          <th scope="col" class="num">Agreement</th>
+          <th scope="col" class="num">Pairs</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in categories %}
+        <tr>
+          <th scope="row">{{ row.label }}</th>
+          <td class="num">{{ row.rate }}%</td>
+          <td class="num quiet">{{ row.pairs }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h2>By cohort</h2>
+  <p class="quiet">
+    Whether agreement moved after the guidance changed is a comparison
+    between cohorts, which is what cohorts are for.
+  </p>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Cohort</th>
+          <th scope="col" class="num">Agreement</th>
+          <th scope="col" class="num">Pairs</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in cohorts %}
+        <tr>
+          <th scope="row">Cohort {{ row.number }}</th>
+          <td class="num">{{ row.rate }}%</td>
+          <td class="num quiet">{{ row.pairs }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <p class="quiet">
+    Percent agreement, not kappa. This queue oversamples low-incidence
+    categories on purpose, so the category distribution is a sampling
+    choice rather than a property of the corpus &mdash; a kappa computed
+    against it would move when the sampling changed rather than when the
+    coding did.
+  </p>
+</section>
+{% endblock %}
