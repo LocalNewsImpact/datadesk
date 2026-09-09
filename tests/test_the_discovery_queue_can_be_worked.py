@@ -221,6 +221,64 @@ def test_the_qualifier_keeps_a_profile_page_apart_from_a_story():
     """Extraction has produced article rows for /profile/ pages titled
     with the paper's own name. A vocabulary that cannot say "tag or author
     page" teaches a model that those are stories."""
-    values = dict(discovery.WHAT_IT_IS)
+    values = discovery.what_it_is_labels()
     assert "tag_or_author" in values and "section_index" in values
     assert values["story"] == "Story"
+
+
+def test_every_qualifier_choice_is_a_dict_the_template_can_render():
+    """`review/_verbs.html` renders `choice.value` and `choice.label`.
+    Given 2-tuples, Django resolves neither -- attribute, then key, then
+    numeric index, and "value" is none of them -- so the list rendered
+    with every option blank and the queue could not be answered."""
+    for choice in discovery.WHAT_IT_IS:
+        assert isinstance(choice, dict), choice
+        assert choice["value"] and choice["label"]
+
+
+def test_the_page_offers_the_qualifier_options(client, reviewer, crawler_schema):
+    link = _link(crawler_schema, "options")
+    _verification(crawler_schema, link, 5.0, True)
+    client.force_login(reviewer)
+    body = client.get(reverse("review:discovery")).content.decode()
+    assert 'value="section_index"' in body, "the dropdown rendered empty"
+    assert "Tag or author page" in body
+
+
+def test_the_page_loads_the_session_script(client, reviewer, crawler_schema):
+    """Without it the verbs record nothing and Submit stays disabled with
+    nothing able to enable it: a queue that can be read and not worked."""
+    link = _link(crawler_schema, "script")
+    _verification(crawler_schema, link, 5.0, True)
+    client.force_login(reviewer)
+    body = client.get(reverse("review:discovery")).content.decode()
+    assert "js/review-queue.js" in body
+    # The three things that script looks for by name.
+    assert 'id="queue-form"' in body
+    assert 'id="q-submit"' in body
+    assert 'class="prop"' in body or 'prop"' in body
+
+
+def test_a_margin_is_shown_as_a_percentile_not_a_probability(
+    client, reviewer, crawler_schema
+):
+    """The margin runs to six figures and means nothing to a reader.
+    Nothing here is calibrated, so the page gives the percentile rather
+    than a probability it cannot support."""
+    # Inside the doubtful band, which is the stratum the page opens on.
+    link = _link(crawler_schema, "ranked")
+    _verification(crawler_schema, link, 5.0, True)
+    client.force_login(reviewer)
+    body = client.get(reverse("review:discovery")).content.decode()
+    assert "percentile" in body
+    # The raw score belongs in the tooltip, not the column.
+    assert "margin 5.0" not in body.split("title=")[0]
+
+
+def test_the_percentile_places_a_margin_in_the_cohort():
+    cuts = [float(n) for n in range(0, 101)]  # a flat 0..100 cohort
+    assert discovery.percentile(-50.0, cuts) == 0
+    assert discovery.percentile(50.0, cuts) == 50
+    assert discovery.percentile(10_000.0, cuts) == 100
+    assert discovery.percentile(None, cuts) is None
+    assert discovery.percentile(5.0, []) is None

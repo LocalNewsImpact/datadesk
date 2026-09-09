@@ -253,15 +253,11 @@ def test_the_source_directory_sits_under_sources():
 
 
 def test_the_groups_read_in_the_order_the_sidebar_shows_them(client, crawler_schema):
-    """Data, Review, Sources, Discovery, Extraction, Processing, Admin.
+    """Data, Review, Sources, Extraction, Processing, then Admin.
 
     Review sits second because it is what somebody signs in to do. The
     groups below it are the reference material the review is made
     against, and Admin is last because it is the least often wanted.
-
-    Discovery sits between Sources and Extraction because that is where
-    its judgement sits: after a URL is found, before anything is fetched
-    (docs/DISCOVERY_REVIEW_QUEUE.md section 6).
 
     Cost had a group of its own, because ROADMAP item 1 put spend on
     `write` and a group labelled Admin containing a page an editor can
@@ -274,7 +270,6 @@ def test_the_groups_read_in_the_order_the_sidebar_shows_them(client, crawler_sch
         "Data",
         "Review",
         "Sources",
-        "Discovery",
         "Extraction",
         # Operational rather than editorial: a reader looking for work to
         # do passes it, and a reader asking whether the machine is running

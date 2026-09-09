@@ -649,3 +649,51 @@ class ExtractionTelemetry(CrawlerModel):
 
     class Meta(CrawlerModel.Meta):
         db_table = "extraction_telemetry_v2"
+
+
+class BlockedInventory(models.Model):
+    """The Blocked page's counts, computed out of band.
+
+    Datadesk's own table, not the crawler's -- the router only diverts
+    models carrying `crawler_db`, so this is written to `default`.
+
+    THE PAGE CANNOT COMPUTE THESE
+    -----------------------------
+    The twenty-one questions behind the Blocked report cost about 97
+    seconds against production: several are sequential scans of a 1.5 GB
+    `articles` table and an 838 MB telemetry table, and indexing the
+    columns that could be indexed took the worst of them from 375s to
+    5.8s without changing that. Ninety-seven seconds is a batch job, not
+    a page, and Cloud Run cuts a request at 300.
+
+    So the page reads the newest row here and renders immediately, and
+    `daily_housekeeping` does the counting -- that job rather than one of
+    its own, which is the decision that command already documents: "a
+    second Cloud Run job and a second Cloud Scheduler entry per task is
+    how a task comes to have neither."
+
+    A day-old snapshot is the right trade for an operations page. Nothing
+    on it is actionable within the minute, the pipeline it reports on
+    moves in bursts when the crons run, and a number that is a day stale
+    is worth incomparably more than a number that never arrives. The page
+    shows the age, so staleness is visible rather than assumed.
+
+    History is kept rather than upserted onto one row, because whether
+    "never fetched" is growing is a different and more useful question
+    than what it is now. At one row a day, 30 days is 30 rows.
+    """
+
+    computed_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    #: The inventory as `blocked.inventory()` returns it: a list of
+    #: {group, label, why, count, publishers}.
+    rows = models.JSONField(default=list)
+    #: What the counting cost, so a page that has gone stale can say
+    #: whether the job is slow or simply not running.
+    took_ms = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ["-computed_at"]
+        verbose_name_plural = "blocked inventories"
+
+    def __str__(self):
+        return f"blocked inventory at {self.computed_at:%Y-%m-%d %H:%M}"

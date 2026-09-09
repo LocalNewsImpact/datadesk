@@ -16,10 +16,18 @@
     fix.
   </p>
 
-  {% if not crawler_connected %}
+  {% comment %}
+  These counts are read, never computed here: the twenty-one questions
+  behind them cost about 97 seconds against production, which is a batch
+  job rather than a page. `refresh_blocked_inventory` runs them on a
+  schedule and this shows the newest answer, with its age, because an
+  operations number without a time on it invites being read as "now".
+  {% endcomment %}
+  {% if not have_snapshot %}
   <p class="notice">
-    Crawler database not connected. Set CRAWLER_DB_USER (and run the Cloud
-    SQL Auth Proxy locally) to see what is blocked.
+    No count has been taken yet. The daily housekeeping job writes one;
+    if this persists, that job is not running. Nothing here does not mean
+    nothing is blocked.
   </p>
   {% else %}
 
@@ -29,6 +37,11 @@
     not move until something changes
   </p>
   {% endif %}
+  <p class="quiet as-of">
+    Counted {{ computed_at|timesince }} ago
+    ({{ computed_at|date:"j M Y, H:i" }} UTC), took
+    {{ took_ms|floatformat:0 }}&thinsp;ms.
+  </p>
 
   {% for group in groups %}
   {% comment %}

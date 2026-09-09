@@ -39,6 +39,9 @@ URLs and is what the bands below are cut on. Its magnitudes run to
 thousands and mean nothing on their own -- see `UrlVerification`.
 """
 
+import bisect
+
+from django.core.cache import cache
 from django.db.models import Q
 
 from review import kernel
@@ -86,6 +89,12 @@ STRATA = (
 STRATUM_LABELS = {key: label for key, label, _ in STRATA}
 
 
+def what_it_is_labels():
+    """{value: label} for the qualifier, for anything that needs the map
+    rather than the rendered list."""
+    return {choice["value"]: choice["label"] for choice in WHAT_IT_IS}
+
+
 def predicate(stratum):
     """The rows a stratum covers, before any sampling.
 
@@ -103,6 +112,66 @@ def predicate(stratum):
             storysniffer_result=False,
         )
     return Q()
+
+
+#: One cut per percentile, plus the top. Small enough to cache; the
+#: alternative was 47,901 floats, which is the same answer at 400 kB.
+PERCENTILE_STEPS = 101
+
+#: Six hours. The margins do not change unless the crawler re-verifies,
+#: and a scale that is half a day stale moves a reading by a point.
+PERCENTILE_TTL = 60 * 60 * 6
+
+
+def margin_cuts(start, end):
+    """The cohort's margins at each percentile.
+
+    The margin is a log-odds score running from -210 to 630,787 and it
+    means nothing to a reader: it orders URLs and its scale is arbitrary.
+    `predict_proba` is not the answer either -- it saturates, scoring
+    97.5% of URLs at exactly 0.0 or 1.0, which is why this queue ranks on
+    the margin in the first place.
+
+    What can be said honestly is which percentile a URL falls in among
+    the others the same classifier scored. These cuts turn a margin into
+    that.
+    """
+    from explorer.models import UrlVerification
+
+    key = f"discovery:margin-cuts:{start:%Y%m%d}:{end:%Y%m%d}"
+    cuts = cache.get(key)
+    if cuts is not None:
+        return cuts
+
+    values = sorted(
+        v
+        for v in in_cohort(UrlVerification.objects.all(), start, end).values_list(
+            "verification_confidence", flat=True
+        )
+        if v is not None
+    )
+    if not values:
+        return []
+    last = len(values) - 1
+    cuts = [
+        values[min(last, (len(values) * step) // (PERCENTILE_STEPS - 1))]
+        for step in range(PERCENTILE_STEPS)
+    ]
+    cache.set(key, cuts, PERCENTILE_TTL)
+    return cuts
+
+
+def percentile(margin, cuts):
+    """The margin's percentile within the cohort, 0-100, or None.
+
+    A percentile, and named one. It is not the probability that the URL
+    is a story: `predict_proba` would be that and it saturates, scoring
+    97.5% of URLs at exactly 0.0 or 1.0. Nothing here is calibrated, so
+    printing "87% likely a story" would be the more comfortable lie.
+    """
+    if margin is None or not cuts:
+        return None
+    return max(0, min(100, bisect.bisect_right(cuts, margin) - 1))
 
 
 def in_cohort(qs, start, end):
@@ -164,17 +233,21 @@ NOT_A_STORY = "not_story"
 #: titled with the paper's own name, so "an article row exists" is not a
 #: usable label and a model trained on the two conflated learns the wrong
 #: boundary.
+#: Dicts, not pairs: `review/_verbs.html` renders `choice.value` and
+#: `choice.label`, and a 2-tuple resolves to neither -- Django tries
+#: attribute, then key, then numeric index, and "value" is none of them.
+#: The list rendered with every option blank.
 WHAT_IT_IS = (
-    ("story", "Story"),
-    ("section_index", "Section index"),
-    ("tag_or_author", "Tag or author page"),
-    ("video", "Video"),
-    ("gallery", "Photo gallery"),
-    ("event", "Event listing"),
-    ("obituary_index", "Obituary listing page"),
-    ("account", "Subscribe or account page"),
-    ("homepage", "Homepage"),
-    ("other", "Other"),
+    {"value": "story", "label": "Story"},
+    {"value": "section_index", "label": "Section index"},
+    {"value": "tag_or_author", "label": "Tag or author page"},
+    {"value": "video", "label": "Video"},
+    {"value": "gallery", "label": "Photo gallery"},
+    {"value": "event", "label": "Event listing"},
+    {"value": "obituary_index", "label": "Obituary listing page"},
+    {"value": "account", "label": "Subscribe or account page"},
+    {"value": "homepage", "label": "Homepage"},
+    {"value": "other", "label": "Other"},
 )
 
 

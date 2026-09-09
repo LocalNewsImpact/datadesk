@@ -76,14 +76,29 @@ def test_a_backlog_is_not_counted_as_a_failure():
         assert "cron" in why or "waiting" in why or "queued" in why
 
 
+def _count_it():
+    """Take the count the page reads.
+
+    The page stopped counting for itself: twenty-one queries at about 97
+    seconds is a batch job, not a request. `refresh_blocked_inventory`
+    does it on a schedule, so a test that seeds the crawler and then
+    expects the page to show it has to run the count in between.
+    """
+    from django.core.management import call_command
+
+    call_command("refresh_blocked_inventory")
+
+
 @pytest.mark.django_db(databases=["default", "crawler"])
 def test_the_page_answers_without_a_crawler(client, an_editor):
-    """The crawler alias is empty in tests unless a fixture builds it, so
-    this is the degraded path: it must say so rather than 500."""
+    """The page reads a snapshot from Datadesk's own database and never
+    touches the crawler, so an absent crawler cannot break it. What it
+    must not do is render an empty page that reads as "nothing is
+    blocked"."""
     client.force_login(an_editor)
     response = client.get(reverse("explorer:blocked"))
     assert response.status_code == 200
-    assert b"not connected" in response.content
+    assert b"No count has been taken yet" in response.content
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
@@ -111,6 +126,7 @@ def test_the_page_reports_what_it_finds(client, an_editor, crawler_schema):
         content="Some prose k^Am more prose",
     )
 
+    _count_it()
     client.force_login(an_editor)
     body = client.get(reverse("explorer:blocked")).content.decode()
     assert "Paused after repeated 403s" in body
@@ -137,6 +153,7 @@ def test_a_blockage_no_publisher_explains_says_so(client, an_editor, crawler_sch
         wire_check_status="complete",
         content="A body.",
     )
+    _count_it()
     client.force_login(an_editor)
     body = client.get(reverse("explorer:blocked")).content.decode()
     assert "Held for review" in body
@@ -145,6 +162,8 @@ def test_a_blockage_no_publisher_explains_says_so(client, an_editor, crawler_sch
 
 @pytest.mark.django_db(databases=["default", "crawler"])
 def test_nothing_blocked_is_said_plainly(client, an_editor, crawler_schema):
+    """A count that found nothing, which is not the same as no count."""
+    _count_it()
     client.force_login(an_editor)
     body = client.get(reverse("explorer:blocked")).content.decode()
     assert "Nothing is blocked." in body

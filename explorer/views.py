@@ -789,15 +789,27 @@ def blocked(request):
     right"; this answers "why has nothing happened".
     """
     from explorer import blocked as blockages
+    from explorer.models import BlockedInventory
 
-    groups = blockages.grouped()
+    # Read, never counted. The twenty-one questions behind this report
+    # cost about 97 seconds against production -- a batch job, not a
+    # page, and Cloud Run cuts a request at 300 -- so
+    # `refresh_blocked_inventory` counts them on a schedule and this
+    # renders the newest row.
+    snapshot = BlockedInventory.objects.order_by("-computed_at").first()
+    rows = snapshot.rows if snapshot else None
+    groups = blockages.grouped(rows) if rows is not None else []
     return render(
         request,
         "explorer/blocked.html",
         {
-            "crawler_connected": groups is not None,
+            # A page with no snapshot yet is not a page with nothing
+            # blocked, and must not read as one.
+            "have_snapshot": snapshot is not None,
+            "computed_at": snapshot.computed_at if snapshot else None,
+            "took_ms": snapshot.took_ms if snapshot else 0,
             "groups": groups or [],
-            "blocked_total": blockages.blocked_total(),
+            "blocked_total": blockages.blocked_total(rows) if rows else None,
         },
     )
 

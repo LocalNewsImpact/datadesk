@@ -1893,8 +1893,12 @@ def discovery_queue(request):
         rows = [r for r in rows if str(r.candidate_link_id or r.id) not in already]
 
     queue_def = _kernel.get(discovery.DISCOVERY_QUEUE_KEY)
+    # The margin is a log-odds score whose scale means nothing to a
+    # reader. Its percentile within the cohort does.
+    cuts = discovery.margin_cuts(start, end) if rows else []
     for row in rows:
         row.offered_verbs = queue_def.offered(row)
+        row.percentile = discovery.percentile(row.verification_confidence, cuts)
 
     page = Paginator(rows, 50).get_page(request.GET.get("page"))
     return render(
