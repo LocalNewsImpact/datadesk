@@ -101,6 +101,13 @@ def test_no_migrations_reach_the_crawler_alias():
     assert router.allow_migrate("default", "explorer") is None
 
 
+#: Models in `explorer` that are Datadesk's own rather than views over
+#: the crawler's schema. Named one by one so that adding a model still
+#: has to be a deliberate act: the guard below is what stops a new
+#: unmanaged model silently querying `default`.
+DATADESK_OWNED = {"BlockedInventory"}
+
+
 def test_every_explorer_model_reads_from_the_crawler_alias():
     """Adding a model to explorer must not silently query `default`."""
     from django.apps import apps
@@ -111,9 +118,26 @@ def test_every_explorer_model_reads_from_the_crawler_alias():
     models = apps.get_app_config("explorer").get_models()
     assert models, "explorer declares no models"
     for model in models:
+        if model.__name__ in DATADESK_OWNED:
+            continue
         assert router.db_for_read(model) == "crawler", model.__name__
         assert model._meta.managed is False, model.__name__
         assert model._meta.db_table, model.__name__
+
+
+def test_a_datadesk_owned_model_in_explorer_is_migrated_here():
+    """The exceptions above are real tables in Datadesk's own database,
+    not views over the crawler's. If one ever carried `crawler_db` it
+    would be routed to a read-only alias and its writes would fail."""
+    from django.apps import apps
+
+    from explorer.routers import CrawlerRouter
+
+    router = CrawlerRouter()
+    for name in DATADESK_OWNED:
+        model = apps.get_app_config("explorer").get_model(name)
+        assert router.db_for_read(model) is None, name
+        assert model._meta.managed is True, name
 
 
 def test_application_models_stay_on_the_default_alias():

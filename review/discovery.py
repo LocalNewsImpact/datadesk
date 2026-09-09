@@ -39,6 +39,9 @@ URLs and is what the bands below are cut on. Its magnitudes run to
 thousands and mean nothing on their own -- see `UrlVerification`.
 """
 
+import bisect
+
+from django.core.cache import cache
 from django.db.models import Q
 
 from review import kernel
@@ -86,6 +89,12 @@ STRATA = (
 STRATUM_LABELS = {key: label for key, label, _ in STRATA}
 
 
+def what_it_is_labels():
+    """{value: label} for the qualifier, for anything that needs the map
+    rather than the rendered list."""
+    return {choice["value"]: choice["label"] for choice in WHAT_IT_IS}
+
+
 def predicate(stratum):
     """The rows a stratum covers, before any sampling.
 
@@ -103,6 +112,67 @@ def predicate(stratum):
             storysniffer_result=False,
         )
     return Q()
+
+
+#: How many cut points the scale below is kept at. 101 gives a 0-100
+#: reading and is small enough to cache; the alternative was 47,901
+#: floats, which is the same answer at 400 kB.
+LIKENESS_STEPS = 101
+
+#: Six hours. The margins do not change unless the crawler re-verifies,
+#: and a scale that is half a day stale moves a reading by a point.
+LIKENESS_TTL = 60 * 60 * 6
+
+
+def margin_cuts(start, end):
+    """Percentile cut points for the cohort's margins.
+
+    The margin is a log-odds score running from -210 to 630,787 and it
+    means nothing to a reader: it orders URLs and its scale is arbitrary.
+    `predict_proba` is not the answer either -- it saturates, scoring
+    97.5% of URLs at exactly 0.0 or 1.0, which is why this queue ranks on
+    the margin in the first place.
+
+    What can be said honestly is where a URL sits against the others the
+    same classifier scored. These cuts turn a margin into that, and the
+    page calls it a rank rather than a probability, because it is one.
+    """
+    from explorer.models import UrlVerification
+
+    key = f"discovery:margin-cuts:{start:%Y%m%d}:{end:%Y%m%d}"
+    cuts = cache.get(key)
+    if cuts is not None:
+        return cuts
+
+    values = sorted(
+        v
+        for v in in_cohort(UrlVerification.objects.all(), start, end).values_list(
+            "verification_confidence", flat=True
+        )
+        if v is not None
+    )
+    if not values:
+        return []
+    last = len(values) - 1
+    cuts = [
+        values[min(last, (len(values) * step) // (LIKENESS_STEPS - 1))]
+        for step in range(LIKENESS_STEPS)
+    ]
+    cache.set(key, cuts, LIKENESS_TTL)
+    return cuts
+
+
+def likeness(margin, cuts):
+    """A margin as its place in the cohort, 0-100, or None.
+
+    Read as "more story-like than this many per cent of the URLs the
+    classifier scored in the same window" -- not as a probability that
+    the URL is a story. Nothing here is calibrated, and saying 87% when
+    the number is a rank would be the more comfortable lie.
+    """
+    if margin is None or not cuts:
+        return None
+    return max(0, min(100, bisect.bisect_right(cuts, margin) - 1))
 
 
 def in_cohort(qs, start, end):
@@ -164,17 +234,21 @@ NOT_A_STORY = "not_story"
 #: titled with the paper's own name, so "an article row exists" is not a
 #: usable label and a model trained on the two conflated learns the wrong
 #: boundary.
+#: Dicts, not pairs: `review/_verbs.html` renders `choice.value` and
+#: `choice.label`, and a 2-tuple resolves to neither -- Django tries
+#: attribute, then key, then numeric index, and "value" is none of them.
+#: The list rendered with every option blank.
 WHAT_IT_IS = (
-    ("story", "Story"),
-    ("section_index", "Section index"),
-    ("tag_or_author", "Tag or author page"),
-    ("video", "Video"),
-    ("gallery", "Photo gallery"),
-    ("event", "Event listing"),
-    ("obituary_index", "Obituary listing page"),
-    ("account", "Subscribe or account page"),
-    ("homepage", "Homepage"),
-    ("other", "Other"),
+    {"value": "story", "label": "Story"},
+    {"value": "section_index", "label": "Section index"},
+    {"value": "tag_or_author", "label": "Tag or author page"},
+    {"value": "video", "label": "Video"},
+    {"value": "gallery", "label": "Photo gallery"},
+    {"value": "event", "label": "Event listing"},
+    {"value": "obituary_index", "label": "Obituary listing page"},
+    {"value": "account", "label": "Subscribe or account page"},
+    {"value": "homepage", "label": "Homepage"},
+    {"value": "other", "label": "Other"},
 )
 
 

@@ -98,6 +98,13 @@ SECTION_GROUPS = (
                 "note": "Publisher records the scan flagged, awaiting a decision.",
             },
             {
+                "url": "review:discovery",
+                "label": "Discovery",
+                "note": (
+                    "URLs judged before any body was fetched, awaiting a " "decision."
+                ),
+            },
+            {
                 "url": "review:queue",
                 "label": "Extraction",
                 "note": "Articles automated triage could not use, awaiting a decision.",
@@ -140,23 +147,6 @@ SECTION_GROUPS = (
                 "note": (
                     "The registry of local news outlets: the record of "
                     "record, its public widget and versioned exports."
-                ),
-            },
-        ),
-    },
-    {
-        # docs/DISCOVERY_REVIEW_QUEUE.md section 6, phase 2. Between
-        # Sources and Extraction because that is where the judgement sits:
-        # after a URL is found, before anything is fetched.
-        "label": "Discovery",
-        "requires": EDITOR,
-        "sections": (
-            {
-                "url": "review:discovery",
-                "label": "Discovery review",
-                "note": (
-                    "URLs judged before any body was fetched: what the "
-                    "classifier could not call, and what a rule overruled."
                 ),
             },
         ),

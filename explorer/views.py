@@ -798,7 +798,7 @@ def blocked(request):
     # renders the newest row.
     snapshot = BlockedInventory.objects.order_by("-computed_at").first()
     rows = snapshot.rows if snapshot else None
-    groups = blockages.grouped(rows) if rows is not None else None
+    groups = blockages.grouped(rows) if rows is not None else []
     return render(
         request,
         "explorer/blocked.html",
@@ -808,7 +808,6 @@ def blocked(request):
             "have_snapshot": snapshot is not None,
             "computed_at": snapshot.computed_at if snapshot else None,
             "took_ms": snapshot.took_ms if snapshot else 0,
-            "crawler_connected": groups is not None,
             "groups": groups or [],
             "blocked_total": blockages.blocked_total(rows) if rows else None,
         },

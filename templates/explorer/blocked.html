@@ -29,11 +29,6 @@
     if this persists, that job is not running. Nothing here does not mean
     nothing is blocked.
   </p>
-  {% elif not crawler_connected %}
-  <p class="notice">
-    Crawler database not connected. Set CRAWLER_DB_USER (and run the Cloud
-    SQL Auth Proxy locally) to see what is blocked.
-  </p>
   {% else %}
 
   {% if blocked_total %}
