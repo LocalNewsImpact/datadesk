@@ -135,19 +135,69 @@ queue must still never show the label.
 
 ## 3. The strata
 
-Four, and each answers a different question. Every decision records
-which drew it and with what probability — a rate measured over rows that
-were not equally likely to be drawn is not a rate.
+Every decision records which stratum drew it and with what probability —
+a rate measured over rows that were not equally likely to be drawn is
+not a rate.
 
 | stratum | drawn from | answers |
 | --- | --- | --- |
-| **Precision** | the model's output, stratified by predicted label | of what it called C, how much is C |
-| **Uncertain** | confidence below 0.5 | where a label is worth most as training data |
+| **Confident** | confidence ≥ 0.7, balanced across predicted labels | does a human agree where the model is sure |
+| **Uncertain** | confidence < 0.5, balanced across predicted labels | does it agree where the model is guessing |
 | **Random** | the whole corpus, uniformly | recall for the common labels, and the only unbiased estimate of anything |
 | **Unlabelled** | articles the analysis stage has not reached | training data outright: nothing to agree with, so nothing to bias it |
 
+### Why confident and uncertain are drawn in balance
+
+Agreement is not one number. A model that is right when it is sure and
+wrong when it is guessing is a usable model with a threshold; a model
+that is equally wrong in both is a different problem, and the two are
+indistinguishable from an overall accuracy figure.
+
+Drawing the two bands in equal size makes the comparison direct and
+gives the confidence score a meaning that can be checked rather than
+assumed. It also concentrates the training value: the uncertain half is
+where a human label teaches the model most, and the confident half is
+what stops a retrain on that half alone from teaching it that everything
+is hard.
+
+The middle band (0.5–0.7) is deliberately left out of the agreement
+comparison. It is neither claim, and including it blurs the one thing
+these two strata exist to separate. Rows there are still reachable
+through the random stratum.
+
 The random stratum is not optional and cannot be replaced by the others.
 A doubt-ranked sample finds errors and can never say how many there are.
+
+### Every dataset, and reported by dataset
+
+The queue draws from all datasets, and each decision records which one
+the article came from, so agreement can be reported per dataset rather
+than as one number over a corpus that is 98% Mizzou.
+
+That reporting is feasible for some datasets and not others, and the
+plan should not pretend otherwise. Labelled articles today:
+
+| dataset | high ≥0.7 | mid | low <0.5 | total |
+| --- | ---: | ---: | ---: | ---: |
+| Mizzou Missouri State | 63,760 | 29,899 | 30,188 | 123,847 |
+| Lehigh Valley | 591 | 270 | 247 | 1,108 |
+| VT Community News | 600 | 255 | 218 | 1,073 |
+| (no dataset) | 72 | 36 | 42 | 150 |
+| WSU Washington State | 1 | 2 | 1 | **4** |
+
+- **Mizzou** supports per-label precision at any interval worth having.
+- **Lehigh Valley and VT** support a per-dataset agreement rate — about
+  97 rows each for ±10% — but not a per-label one: 1,100 articles across
+  ten labels leaves the rare classes with single figures.
+- **WSU has four labelled articles.** No sampling design produces a
+  number from that. It is a dataset that has not been analysed, not a
+  dataset the model does badly on, and a report that renders it as 0%
+  agreement would be a lie of arithmetic.
+
+A per-dataset comparison is worth having precisely because the model was
+trained on Missouri copy and the other datasets are the test of whether
+it travels. That question cannot be answered yet for WSU, and can be
+answered coarsely for the other two.
 
 The unlabelled stratum is empty while the crons are suspended and fills
 as soon as they are not. Its size is therefore a function of how far
@@ -205,6 +255,15 @@ which ones a classifier may open.
 
 ## 6. What the page shows, and what it must not
 
+**No filters.** Not by dataset, not by date, not by publisher. A
+reviewer is presented with entries and answers them; choosing what to
+look at is how a sample stops being one. The shared queue header the
+other three queues carry is deliberately not used here — its whole
+purpose is to let a reviewer narrow, and narrowing is the thing this
+queue must not permit.
+
+The draw decides what is shown, and the draw is recorded (section 3).
+
 Shown:
 
 - the headline
@@ -241,30 +300,64 @@ agreement between a human and `paywall_stub_rule` is worth counting.
 
 ## 7. Where the decisions go
 
-`ReviewDecision` in Datadesk's own database, `subject_type="article"`,
-`queue="classification"` — the same record every other queue writes, so
-the audit entry, the receipt and the revert path are the ones that exist.
+**Its own table, not `ReviewDecision`.** Three reviewers must dispose of
+a record before it counts, and `ReviewDecision` has a unique constraint
+on (subject_type, subject_id, field, question) — one decision per
+article per question. Reusing it would permit exactly one rater, which
+is the opposite of the requirement.
 
-**One caveat, and it is a real one.** `ReviewDecision` has a unique
-constraint on (subject_type, subject_id, field, question). That permits
-one decision per article per question, so two classifiers cannot label
-the same article.
+    ClassificationDecision
+        article_id        which article
+        decided_by        which reviewer      } unique together
+        label             one of the ten, or empty if rejected
+        reject_reason     paywall stub, not an article, garbage text,
+                          opinion, obituary, other error
+        stratum           which draw put it in front of somebody
+        inclusion_probability
+        dataset_id        recorded at decision time, so a per-dataset
+                          rate does not depend on a later join
+        decided_at
 
-That is fine for measuring the model — one human label per article is
-enough to score it — and it forecloses measuring the humans. Inter-rater
-agreement, which is how a training set is usually defended, needs the
-same article labelled twice.
-
-**Decision needed:** whether that matters now. If it does, the queue
-needs its own table rather than `ReviewDecision`, and that is better
-known before it is built than after.
+Unique on (article_id, decided_by): a reviewer answers a given article
+once, and three of them answer it independently.
 
 Nothing is written to the crawler. `article_labels` is the model's
 record of its own output; a human label written there would corrupt the
 thing being measured and flow into BigQuery as though the model had
 produced it.
 
----
+### Three reviewers, and what "agreement" then means
+
+A record is eligible for training data once **three reviewers have
+disposed of it**. That buys two things at once: a defensible label, and
+a measurement of the labellers rather than only of the model.
+
+It also triples the cost. Every figure in section 2 is articles, not
+dispositions — 970 articles at ±10% per label is **2,910 dispositions**,
+and at ±5% it is 11,550. Whatever interval is chosen, multiply by three
+before deciding whether it is affordable.
+
+**Decision needed: what counts as settled.** Three plausible rules, and
+they produce different training sets:
+
+- **Unanimous (3/3).** The cleanest training data and the smallest set.
+  On ten classes with genuinely ambiguous stories, expect to discard a
+  large fraction.
+- **Majority (2/3).** Keeps far more, and the discarded third is itself
+  a useful signal: articles three people cannot agree on are articles
+  the model should not be scored against either.
+- **Majority, with disagreement kept separately.** The same set, plus a
+  recorded pile of contested articles worth reading before the next
+  round.
+
+I would take the third: it costs nothing extra to record, and "which
+articles do humans disagree about" is the most interesting question this
+queue can answer that nobody has asked yet.
+
+**A rejection is a disposition too.** If two reviewers say "garbage
+text" and one picks a label, the record is not training data, and the
+agreement between the two is worth counting against the pipeline's own
+`paywall_stub_rule` and boilerplate detector.
 
 ## 8. Schema
 
@@ -275,7 +368,16 @@ produced it.
   reasons: an estimate needs to know how a row was selected, and the
   queue has to be stable, so a reviewer coming back tomorrow sees the
   same set rather than a fresh random draw.
-- `ReviewDecision` — unchanged, unless multi-rater is wanted.
+- `ClassificationDecision` — one row per reviewer per article, unique
+  together. Section 7.
+- `ReviewDecision` — untouched. This queue does not use it.
+
+The queue serves a reviewer articles from the sample that they have not
+themselves answered and that have fewer than three dispositions,
+oldest-drawn first. That is the whole scheduling rule: no assignment
+table, no locking, no reservation. Two reviewers answering the same
+article at the same moment is fine — that is what three of them are
+for.
 
 **Crawler:** nothing. This queue reads `articles` and `article_labels`
 and writes neither.
@@ -286,6 +388,13 @@ a CharField with choices, and existing rows are untouched.
 ---
 
 ## 9. Risks
+
+**Three dispositions per article, and the arithmetic that follows.**
+Every sample size in section 2 counts articles. Three reviewers each
+means the reviewer-minutes are three times that, and the difference
+between ±10% and ±5% becomes 2,910 dispositions against 11,550. The
+interval is the single biggest lever on whether this queue is finished
+in a month or a year.
 
 **The sample is read but not used.** The largest risk is not technical.
 Three thousand human labels are worth nothing until a retraining run
@@ -322,7 +431,7 @@ management command that draws them. Reviewable as a table before any UI
 exists, which is when the sampling can still be argued with.
 
 **Phase 3 — the queue.** The page, the single-select, the reject
-reasons, the receipt. Uses the shared queue header.
+reasons, the receipt. No filters, and not the shared header.
 
 **Phase 4 — the instructions.** A modal, text supplied separately.
 
