@@ -288,18 +288,31 @@ NOT_A_STORY = "not_story"
 #: One list per verb. The two questions have no answers in common, and a
 #: single shared list offered "homepage" as a kind of story.
 
-#: What kind of story, asked after "It is a story". The values are the
-#: extraction queue's own (`dispositions.CONTENT_TYPES`), so the same
-#: judgement reads the same in both queues rather than growing a second
-#: spelling of "obituary".
+#: What kind of story, asked after "It is a story" -- and only the kinds
+#: that change what the pipeline does with it.
+#:
+#: `News` is deliberately absent. Most stories are ordinary ones -- news,
+#: sport, business, features -- and offering "News" as the shortest way
+#: to say "it is a story" is how a sports story comes to be labelled
+#: `news`: a category invented by the list rather than observed. "It is a
+#: story" stands alone for all of them, and the pipeline classifies them
+#: as it would any other.
+#:
+#: What remains are the three statuses no enrichment stage selects. Those
+#: are worth a reviewer's click because naming one IS the instruction to
+#: keep the article and stop before enrichment
+#: (lnic_contracts.discovery_verdict.status_for). Anything that does not
+#: change the outcome does not belong in a list somebody has to read.
+#:
+#: `wire` is absent for a different reason: it is settled by evidence in
+#: the body -- a byline, a canonical pointing elsewhere -- which a
+#: reviewer judging a bare URL has not seen, and the crawler refuses a
+#: verdict over it. Offering it would promise something that does not
+#: happen.
 STORY_KINDS = (
-    {"value": "news", "label": "News"},
-    {"value": "opinion", "label": "Opinion"},
     {"value": "obituary", "label": "Obituary"},
+    {"value": "opinion", "label": "Opinion"},
     {"value": "weather", "label": "Weather"},
-    {"value": "column", "label": "Column"},
-    {"value": "wire", "label": "Wire"},
-    {"value": "other", "label": "Other"},
 )
 
 #: What it is instead, asked after "Not a story".
@@ -372,9 +385,13 @@ def apply_discovery(verification, verb, value, user):
         # there is no second flag to keep in step
         # (lnic_contracts.discovery_verdict.status_for).
         meta = dict(getattr(link, "meta", None) or {})
+        # An empty kind is a complete answer: it says "an ordinary
+        # story", and the pipeline classifies it as it would any other.
+        # `or "other"` was here and was wrong -- it invented a category
+        # for every story a reviewer did not categorise.
         meta[discovery_verdict.METADATA_KEY] = discovery_verdict.build(
             verdict=discovery_verdict.IS_A_STORY,
-            kind=value or "other",
+            kind=value or "",
             decided_by=getattr(user, "username", "") or "",
         )
         audited_update(
@@ -429,6 +446,12 @@ DISCOVERY_QUEUE = kernel.register(
                 past="restored",
                 tone="fix",
                 takes_value=True,
+                # Offered, not required. An ordinary story -- news,
+                # sport, business, a feature -- is one click, and the
+                # list is only for the three kinds that change what
+                # happens next.
+                value_required=False,
+                value_blank="an ordinary story",
                 values=STORY_KINDS,
             ),
             kernel.Verb(

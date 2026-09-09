@@ -19,7 +19,7 @@ should have been, and one without the other is half an answer -- so the
 row does not submit until it is chosen.
 {% endcomment %}
 <button type="button" class="verb {{ verb.tone }}" data-verb="{{ verb.name }}"
-        {% if verb.takes_value and not verb.values %}data-needs-value="1"{% endif %}
+        {% if verb.takes_value and verb.value_required and not verb.values %}data-needs-value="1"{% endif %}
         aria-pressed="false"{% if verb.sublabel %} title="{{ verb.sublabel }}"{% endif %}>
   <b>{{ verb.label }}</b>{% if verb.sublabel %}<i>{{ verb.sublabel }}</i>{% endif %}
 </button>
@@ -33,7 +33,7 @@ clear. Free text only where there is no vocabulary to offer.
 {% if verb.values %}
 <select class="fixval" name="v-{{ subject_id }}-{{ verb.name }}" data-verb="{{ verb.name }}"
         aria-label="{{ verb.sublabel|default:verb.label }}">
-  <option value="">{{ verb.label|lower }}…</option>
+  <option value="">{% if verb.value_blank %}{{ verb.value_blank }}{% else %}{{ verb.label|lower }}…{% endif %}</option>
   {% for choice in verb.values %}
   <option value="{{ choice.value }}">{{ choice.label }}</option>
   {% endfor %}

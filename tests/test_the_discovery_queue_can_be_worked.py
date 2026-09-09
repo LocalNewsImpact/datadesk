@@ -230,8 +230,10 @@ def test_each_verb_asks_its_own_question():
     common. One shared list offered `homepage` as a kind of story."""
     story = {c["value"] for c in discovery.STORY_KINDS}
     not_story = {c["value"] for c in discovery.NOT_STORY_KINDS}
-    # `other` is the one honest overlap: both questions can be unanswerable.
-    assert story & not_story == {"other"}
+    # Nothing in common. The story list once carried `other` for the
+    # unanswerable case; leaving the box empty says that now, and says it
+    # better -- "an ordinary story" is an answer, not a shrug.
+    assert not story & not_story
     for wrong in ("homepage", "section_index", "video", "tag_or_author"):
         assert wrong not in story, f"{wrong} is offered as a kind of story"
     for wrong in ("news", "opinion", "obituary", "weather"):
@@ -245,9 +247,65 @@ def test_the_story_kinds_are_the_extraction_queue_s_words():
 
     known = {c["value"] for c in CONTENT_TYPES}
     for choice in discovery.STORY_KINDS:
-        if choice["value"] == "other":
-            continue
         assert choice["value"] in known, choice["value"]
+
+
+def test_the_story_list_holds_only_what_changes_the_outcome():
+    """Every kind offered has to change what the pipeline does with the
+    article, or it is a question asked for nothing.
+
+    `news` is the one that mattered: offering it as the shortest way to
+    say "it is a story" is how a sports story gets labelled `news` -- a
+    category invented by the list rather than observed.
+    """
+    from lnic_contracts import discovery_verdict
+
+    for choice in discovery.STORY_KINDS:
+        note = discovery_verdict.build(
+            verdict=discovery_verdict.IS_A_STORY, kind=choice["value"]
+        )
+        assert discovery_verdict.status_for(note) == choice["value"], choice
+
+    offered = {c["value"] for c in discovery.STORY_KINDS}
+    assert "news" not in offered
+    # Wire is settled by evidence in the body, which a reviewer judging a
+    # bare URL has not seen, and the crawler refuses a verdict over it.
+    assert "wire" not in offered
+
+
+def test_it_is_a_story_submits_without_a_category(client, reviewer, crawler_schema):
+    """One click for the ordinary story. Requiring a choice is what put a
+    category on stories nobody had categorised."""
+    from lnic_contracts import discovery_verdict
+
+    link = _link(crawler_schema, "plain", status="not_article")
+    _verification(crawler_schema, link, 5.0, True)
+    client.force_login(reviewer)
+    client.post(
+        reverse("review:discovery"),
+        {
+            "d-plain": discovery.IT_IS_A_STORY,
+            f"v-plain-{discovery.IT_IS_A_STORY}": "",
+            "stratum-plain": discovery.DOUBTFUL,
+            "probability-plain": "1.0",
+        },
+    )
+    link.refresh_from_db()
+    assert link.status == discovery_verdict.RESTORED_STATUS, "it did not submit"
+    note = (link.meta or {})[discovery_verdict.METADATA_KEY]
+    assert note["kind"] == "", "a category was invented"
+    assert discovery_verdict.status_for(note) is None, "the pipeline must classify it"
+
+
+def test_a_rejection_still_needs_to_say_what_it_is(client, reviewer, crawler_schema):
+    """A count of which kind, against a rule or a publisher, is what a fix
+    gets built from -- so the other verb still requires its value."""
+    story, not_story = (
+        discovery.DISCOVERY_QUEUE.verb(discovery.IT_IS_A_STORY),
+        discovery.DISCOVERY_QUEUE.verb(discovery.NOT_A_STORY),
+    )
+    assert story.takes_value and not story.value_required
+    assert not_story.takes_value and not_story.value_required
 
 
 def test_every_qualifier_choice_is_a_dict_the_template_can_render():
