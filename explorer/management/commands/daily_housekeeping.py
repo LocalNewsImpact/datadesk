@@ -39,6 +39,11 @@ TASKS = (
         "publishers whose parser returns the same string every time",
         (),
     ),
+    (
+        "refresh_blocked_inventory",
+        "what is blocked, which the page cannot count for itself",
+        (),
+    ),
 )
 
 
