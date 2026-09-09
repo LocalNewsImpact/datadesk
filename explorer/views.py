@@ -790,14 +790,16 @@ def blocked(request):
     """
     from explorer import blocked as blockages
 
-    groups = blockages.grouped()
+    # One inventory, read twice. Each call used to run all 21 queries.
+    rows = blockages.inventory()
+    groups = blockages.grouped(rows)
     return render(
         request,
         "explorer/blocked.html",
         {
             "crawler_connected": groups is not None,
             "groups": groups or [],
-            "blocked_total": blockages.blocked_total(),
+            "blocked_total": blockages.blocked_total(rows),
         },
     )
 

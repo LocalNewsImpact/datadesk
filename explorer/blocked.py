@@ -260,15 +260,26 @@ def inventory():
         return None
 
 
-def grouped():
+#: Distinguishes "no rows were passed" from "the crawler was unreachable
+#: and inventory() returned None", which are different and both legal.
+_NOT_GIVEN = object()
+
+
+def grouped(rows=_NOT_GIVEN):
     """The inventory as the page shows it: by group, worst first inside.
 
     `waiting` is kept last and apart. It is the largest number on the
     page and it is not a fault, so putting it in rank order with the
     failures would make the page read as though the pipeline were broken
     when it is merely switched off.
+
+    Takes the rows so the page can count them once. Calling this and
+    `blocked_total()` ran the whole inventory twice -- 21 queries at 97
+    seconds, then 21 queries again -- and the second pass is what put the
+    page over Cloud Run's 300-second ceiling.
     """
-    rows = inventory()
+    if rows is _NOT_GIVEN:
+        rows = inventory()
     if rows is None:
         return None
     order = (
@@ -293,9 +304,10 @@ def grouped():
     return out
 
 
-def blocked_total():
+def blocked_total(rows=_NOT_GIVEN):
     """Everything that will not move until somebody changes something."""
-    rows = inventory()
+    if rows is _NOT_GIVEN:
+        rows = inventory()
     if rows is None:
         return None
     # Neither the backlog nor the bookkeeping: one is queued and the
