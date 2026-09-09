@@ -557,6 +557,172 @@ are the same, the articles are not. They remain usable as training data,
 because the headline and body are in the files, but nothing in them can
 score the current model.
 
+## 7e. What the thesis records
+
+De Jesus, *ydejesus_ThesisDocFinalcopy2.pdf*, documents how the ground
+truth and the model were built. It answers questions this plan had left
+open and raises two the plan has to be careful about.
+
+### The ground truth is smaller than anyone would guess
+
+**1,003 articles.** Per class, before balancing:
+
+| class | training rows |
+| --- | ---: |
+| Emergencies and Public Safety | 272 |
+| Sports | 191 |
+| Environment and Planning | 105 |
+| Civic Life | 101 |
+| Civic information | 86 |
+| Economic Development | 60 |
+| Health | 58 |
+| Political life | 46 |
+| Transportation Systems | 45 |
+| **Education** | **39** |
+
+Education was learned from 39 examples. That reframes the whole
+programme: **1,000 new well-labelled records would double the ground
+truth; 30,000 would be thirty times it.** The earlier estimate in
+section 7c — 500–1,000 gold examples a class before the curve flattens
+— is not a target plucked from the literature, it is roughly ten times
+what exists.
+
+### The consensus rule already exists, and it is documented
+
+The thesis's weighted voting scheme is a direct answer to the open
+question in section 7:
+
+- primary counts 1.0, secondary counts 0.5
+- concatenate all coders' primaries and secondaries, sum the weights,
+  highest total wins
+- **confidence follows from which combination won:** primary–primary
+  **0.9**, primary–secondary **0.7**, secondary–secondary **0.4**
+- rows at 0.4 were **discarded** — 14 of 1,017
+
+That produced "Clean" (0.9 only, 860 rows) and "Fuzzy" (0.9 + 0.7,
+1,003), and the model was evaluated against both as a sensitivity check.
+
+The new queue should reuse this rather than invent one. It is already
+the scheme the production labels were built on, three coders make it
+stronger than two, and it answers "what counts as settled" with
+precedent instead of preference.
+
+### Reliability was known to be weak
+
+**Krippendorff's alpha 0.399**, recorded in the thesis. That is
+consistent with what this plan measured independently from the cohort
+files — 64.6% exact primary agreement, 78.6% set overlap — and it means
+the weak agreement is not a new finding, it is a known property of the
+ground truth the production model learned from.
+
+### The codebook is why the Civic pair fails
+
+From the original codebook (*Mizzou ML News Labeling CODEBOOK*, adapted
+from Friedland et al. 2016), verbatim:
+
+> **7. Civic Information:** Communities need information about major
+> civic institutions, **nonprofit organizations, and associations**,
+> including their services, accessibility, and opportunities for
+> participation in: libraries and community-based information services.
+
+> **8. Civic Life:** Residents need information about things to do and
+> places to go in town that are related to not just active
+> participation, but also consumption of cultural arts and services;
+> recreational opportunities; **nonprofit groups and associations**;
+> community-based social services and programs; and religious
+> institutions and programs...
+
+**Both categories explicitly name nonprofits and associations.** Both
+cover community-based services and programs. A story about a nonprofit
+satisfies each by the literal text of its definition, so two coders
+reading carefully and honestly will file it in different places. That is
+not a training failure or a coder-quality failure; it is a codebook that
+puts one subject in two categories, and it is why Civic information sits
+at 14.4% agreement while Sports reaches 93.9%.
+
+### The fix the codebook already contains
+
+The same document carries a test the thesis appendix dropped, and it is
+the sharpest instrument here:
+
+> When classifying articles into categories, consider what specific
+> understanding or **action** — on balance — might be undertaken as a
+> result of the content.
+
+With worked examples that do separate the pair:
+
+> Pick a restaurant for lunch. → **Civic Life**
+> Volunteer at the library. → **Civic Info**
+
+And the short-form definitions carry the distinction the expanded ones
+lose:
+
+> 7. Civic information, including the availability of civic institutions
+> and **opportunities to associate with others**
+> 8. Civic life, including information and advice related to **daily
+> activities and planning**
+
+So the intended line is **participation versus consumption**: joining,
+volunteering, accessing an institution's services is Civic Information;
+attending, watching, eating, doing is Civic Life.
+
+**Proposed:** restate both definitions around the action test, and
+assign nonprofits and associations to one of them by that test rather
+than naming them in both. A nonprofit's volunteer drive is Civic
+Information; its fundraising gala is Civic Life.
+
+This costs an afternoon of editing and a 200–300 article re-test. It is
+the cheapest available improvement to the model, and nothing else in
+this plan comes close per hour spent — a distinction the coders cannot
+make is one the classifier will never learn, however many rows it is
+given.
+
+### Two things the thesis's headline numbers do not mean
+
+Both matter because they will otherwise be quoted as the production
+model's performance.
+
+**The thesis model is not the production model.** The thesis selects
+`MultinomialNB` — "NBE-1" — and reports Cohen's kappa 0.8855 and
+accuracy 0.876 for it. The crawler runs a fine-tuned
+`bert-base-uncased` (`productionmodel.pt`, 438 MB,
+`AutoModelForSequenceClassification`). Whatever relationship those two
+have, the thesis's figures describe a Naive Bayes classifier and cannot
+be cited for the BERT in production.
+
+**SMOTE was applied before the split.** Table 4.2 balances 1,003 rows to
+1,102 by oversampling the minority classes, and the test set of 331 has
+Transportation Systems at 34 rows where the real distribution would give
+about 6. So 0.876 is accuracy on a rebalanced, partly synthetic sample,
+not on the corpus as it occurs. It is not a wrong number, it is a number
+about a different distribution.
+
+**Which is the strongest argument for this queue.** There is currently
+no measurement of the production model against real, unbalanced,
+independently-labelled data. That is precisely what the evaluation
+strata in section 3 would produce, and it does not exist yet.
+
+### The instructions exist
+
+Appendix B carries the coder instructions, and most of them are JotForm
+and Google Sheets logistics this queue removes — entering article ids,
+tracking position in a spreadsheet, duplicate submissions. What survives
+is the substance: read the headline and text, assign a required primary,
+add a secondary **only with significant confidence**, and the four
+reasons a story cannot be categorised (NOT LOCAL, NO APPROPRIATE
+CATEGORY, TOO SHORT, TECHNICAL ERROR).
+
+Those four are the empirical basis for the reject list in section 6, and
+"only with significant confidence" is the instruction that makes the
+secondary label mean something — without it the 0.5 weight is noise.
+
+The instructions to carry over, then, are the definitions, the action
+test, the worked examples, the secondary-confidence rule and the four
+reject reasons. Everything about article ids, assignment sheets, tab
+management and duplicate submissions is logistics this queue removes,
+and reproducing it would be reproducing the workflow rather than the
+method.
+
 ## 7c. The size of the thing
 
 **1,000 records to start; 30,000 as the goal.** At three coders each
