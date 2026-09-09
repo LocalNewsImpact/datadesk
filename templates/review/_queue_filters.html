@@ -1,0 +1,71 @@
+{% comment %}
+The filters every review queue offers, in the order a reviewer narrows:
+which dataset, over what period, and then what has already been said
+about the rows.
+
+Included INSIDE each queue's own `<form class="filter-bar">`, so a queue
+can add the fields only it has -- extraction's detection method, its
+syndication service, its CIN label -- after these without either
+template owning the other's.
+
+Expects `params`, `day_windows`, `default_days`, `datasets`, and
+`decisions` (the verbs this queue can have recorded, as {name, past}).
+Any of them may be absent: a queue that does not know about datasets
+simply does not pass them, and that field is not rendered.
+{% endcomment %}
+
+{% if datasets %}
+<label>Dataset
+  <select name="dataset">
+    <option value="">all</option>
+    {% for d in datasets %}
+    <option value="{{ d.slug }}" {% if params.dataset == d.slug %}selected{% endif %}>{{ d.label }}</option>
+    {% endfor %}
+  </select>
+</label>
+{% endif %}
+
+{% comment %}
+The window is on before anybody chooses anything, so it has to be
+visible: a default that hides rows reads as data missing.
+{% endcomment %}
+<label>Dated
+  <select name="days" class="js-window">
+    {% for value, label in day_windows %}
+    <option value="{{ value }}" {% if params.days == value or not params.days and value == default_days %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+</label>
+
+{% comment %}
+The two dates behind "Custom…". In the markup rather than built by
+script, so the range works without JavaScript and a bookmarked
+`?days=custom&since=…&until=…` renders what it says.
+{% endcomment %}
+<span class="js-custom-range{% if params.days != 'custom' %} hidden{% endif %}">
+  <label>From
+    <input type="date" name="since" value="{{ params.since|default:'' }}">
+  </label>
+  <label>To
+    <input type="date" name="until" value="{{ params.until|default:'' }}">
+  </label>
+</span>
+
+{% if decisions %}
+{% comment %}
+What has been said already. "Including decided" was a link that could
+only be on or off, so there was no way to ask the one question a
+reviewer asks afterwards -- what did I mark as wire last week, and was I
+right. Named by the verb's own past tense, which is what the receipt and
+the dock already say.
+{% endcomment %}
+<label>Decision
+  <select name="decision">
+    <option value="">not yet answered</option>
+    <option value="any" {% if params.decision == "any" %}selected{% endif %}>any, answered or not</option>
+    {% for verb in decisions %}
+    <option value="{{ verb.name }}" {% if params.decision == verb.name %}selected{% endif %}>{{ verb.past }}</option>
+    {% endfor %}
+  </select>
+</label>
+{% endif %}

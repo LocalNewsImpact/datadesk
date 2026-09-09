@@ -66,31 +66,19 @@
   there. A directory with nothing outstanding is worth showing -- it is
   the difference between "nothing wrong here" and "nobody has looked".
   {% endcomment %}
-  {% if datasets %}
-  <nav class="queue-facets" aria-label="Which directory">
-    <a href="?flag={{ flag }}&state={{ state }}"
-       class="facet-chip {% if not dataset %}on{% endif %}">
-      Every directory <span>{{ pending_total }}</span>
-    </a>
-    {% for slug, label, count in datasets %}
-    <a href="?dataset={{ slug|urlencode }}&flag={{ flag }}&state={{ state }}"
-       class="facet-chip {% if dataset == slug %}on{% endif %}{% if not count %} done{% endif %}">{{ label }} <span>{% if count %}{{ count }}{% else %}no work{% endif %}</span></a>
-    {% endfor %}
-  </nav>
-  {% endif %}
+  {% include "review/_queue_facets.html" %}
 
-  <nav class="queue-facets" aria-label="What is wrong">
-    <a href="?dataset={{ dataset|urlencode }}&state={{ state }}"
-       class="facet-chip {% if not flag %}on{% endif %}">
-      Review all <span>{{ pending_here }}</span>
-    </a>
-    {% for key, label, defect, count in flags %}
-    <a href="?dataset={{ dataset|urlencode }}&flag={{ key }}&state={{ state }}" title="{{ defect }}"
-       class="facet-chip {% if flag == key %}on{% endif %}">{{ label }} <span>{{ count }}</span></a>
-    {% endfor %}
-    <a href="?dataset={{ dataset|urlencode }}&flag={{ flag }}&state=all"
-       class="facet-chip {% if state == 'all' %}on{% endif %}">Including decided</a>
-  </nav>
+  {% comment %}
+  The same filter bar the other two queues carry. The directory used to
+  be a second row of chips and "Including decided" a chip that could only
+  be on or off; both are controls the other queues already had, and three
+  markups for one header is how they drifted apart.
+  {% endcomment %}
+  <form method="get" action="{% url 'review:proposals' %}" class="filter-bar">
+    <input type="hidden" name="flag" value="{{ flag }}">
+    {% include "review/_queue_filters.html" with datasets=datasets_for_filter %}
+    <noscript><button type="submit">Filter</button></noscript>
+  </form>
 
   {% comment %}
 The scan is what puts questions here. Without a way to run it and a line

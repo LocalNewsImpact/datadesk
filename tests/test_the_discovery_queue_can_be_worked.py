@@ -19,7 +19,7 @@ from django.contrib.auth.models import User
 from django.urls import reverse
 
 from accounts.models import DATADESK, Grant
-from explorer.models import CandidateLink, Source, UrlVerification
+from explorer.models import CandidateLink, Dataset, Source, UrlVerification
 from review import discovery
 from review.models import ReviewDecision
 
@@ -336,3 +336,97 @@ def test_a_queue_posting_the_bare_name_still_works():
         "reject",
         "opinion",
     )
+
+
+def test_the_counts_fall_as_rows_are_answered(client, reviewer, crawler_schema):
+    """The chip is the number a reviewer works down.
+
+    It was `len(drawn)`, taken before the answered rows were removed, so
+    a stratum said 746 and went on saying 746 however many had been
+    decided -- and the page below it emptied while the count stood still.
+    """
+    for n in range(3):
+        link = _link(crawler_schema, f"count{n}")
+        _verification(crawler_schema, link, 5.0, True)
+    client.force_login(reviewer)
+
+    def doubtful_count():
+        response = client.get(reverse("review:discovery"))
+        return next(
+            s["count"]
+            for s in response.context["strata"]
+            if s["key"] == discovery.DOUBTFUL
+        )
+
+    assert doubtful_count() == 3
+    client.post(
+        reverse("review:discovery"),
+        {
+            "d-count0": discovery.NOT_A_STORY,
+            f"v-count0-{discovery.NOT_A_STORY}": "homepage",
+            "stratum-count0": discovery.DOUBTFUL,
+            "probability-count0": "1.0",
+        },
+    )
+    assert doubtful_count() == 2
+
+
+def _answer(client, link_id, verb, value):
+    client.post(
+        reverse("review:discovery"),
+        {
+            f"d-{link_id}": verb,
+            f"v-{link_id}-{verb}": value,
+            f"stratum-{link_id}": discovery.DOUBTFUL,
+            f"probability-{link_id}": "1.0",
+        },
+    )
+
+
+def _doubtful(client, **query):
+    response = client.get(reverse("review:discovery"), query)
+    return next(
+        s["count"] for s in response.context["strata"] if s["key"] == discovery.DOUBTFUL
+    )
+
+
+def test_asking_for_any_shows_answered_rows_again(client, reviewer, crawler_schema):
+    link = _link(crawler_schema, "seen")
+    _verification(crawler_schema, link, 5.0, True)
+    client.force_login(reviewer)
+    _answer(client, "seen", discovery.NOT_A_STORY, "homepage")
+    assert _doubtful(client) == 0, "an answered row is not still waiting"
+    assert _doubtful(client, decision="any") == 1
+
+
+def test_the_decision_filter_asks_which_way(client, reviewer, crawler_schema):
+    """ "Including decided" could only be on or off, so there was no way to
+    ask the question a reviewer asks afterwards: what did I mark, and was
+    I right."""
+    for name in ("kept", "dropped"):
+        link = _link(crawler_schema, name)
+        _verification(crawler_schema, link, 5.0, True)
+    client.force_login(reviewer)
+    _answer(client, "kept", discovery.IT_IS_A_STORY, "news")
+    _answer(client, "dropped", discovery.NOT_A_STORY, "homepage")
+
+    assert _doubtful(client, decision=discovery.IT_IS_A_STORY) == 1
+    assert _doubtful(client, decision=discovery.NOT_A_STORY) == 1
+    assert _doubtful(client, decision="any") == 2
+    assert _doubtful(client) == 0
+
+
+def test_the_header_carries_the_shared_controls(client, reviewer, crawler_schema):
+    """All three queues wear the same header: chips, then dataset, then
+    the window, then what has already been said."""
+    Dataset.objects.using("crawler").create(
+        id="d1", slug="mizzou", label="Mizzou Missouri State"
+    )
+    link = _link(crawler_schema, "header")
+    _verification(crawler_schema, link, 5.0, True)
+    client.force_login(reviewer)
+    body = client.get(reverse("review:discovery")).content.decode()
+    assert 'class="queue-facets"' in body
+    assert 'name="dataset"' in body
+    assert 'name="days"' in body
+    assert 'name="decision"' in body

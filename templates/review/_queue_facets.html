@@ -1,0 +1,25 @@
+{% comment %}
+The chips every review queue wears: what can be looked at, and how much
+of it is left.
+
+The three queues grew three of these. Extraction had `case` chips and a
+separate "Including decided" link, proposals had two rows of chips with
+the dataset in one of them, and discovery had a third shape again with
+the description stacked inside each chip. Same control, three markups,
+so a change to one was a change to one.
+
+Expects `facets`: [{key, label, count, note, href, selected}] and
+`facet_target` for the htmx swap. `count` of 0 renders as "no work" --
+a chip with a zero on it reads as broken rather than finished.
+{% endcomment %}
+<nav class="queue-facets" aria-label="{{ facet_label|default:'What to look at' }}">
+  {% for facet in facets %}
+  <a class="facet-chip{% if facet.selected %} on{% endif %}{% if not facet.count %} done{% endif %}"
+     {% if facet.note %}title="{{ facet.note }}"{% endif %}
+     href="{{ facet.href }}"
+     {% if facet_target %}hx-get="{{ facet.href }}" hx-target="{{ facet_target }}"
+     hx-indicator="{{ facet_target }}"{% endif %}>
+    {{ facet.label }} <span>{% if facet.count %}{{ facet.count }}{% else %}no work{% endif %}</span>
+  </a>
+  {% endfor %}
+</nav>

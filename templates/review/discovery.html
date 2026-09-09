@@ -24,34 +24,29 @@
   </p>
   {% endif %}
 
+  {% include "review/_queue_facets.html" %}
+
   {% comment %}
-  The three strata answer two different questions and a reviewer should
-  be able to see which one they are in: a doubt-ranked set finds errors
-  and can never say how many there are, and the random sample says how
-  many and finds almost none.
+  The same filter bar the other two queues carry, in the same order a
+  reviewer narrows: which dataset, over what period, and what has already
+  been said. Discovery adds nothing of its own — there is no byline, no
+  detection method and no CIN label on a URL nobody has fetched.
   {% endcomment %}
-  <nav class="facets strata" aria-label="Which rows">
-    {% for s in strata %}
-    <a class="facet{% if s.selected %} on{% endif %}"
-       href="?{{ stratum_params.urlencode }}{% if not s.selected %}&amp;stratum={{ s.key }}{% endif %}">
-      <span class="facet-label">{{ s.label }}</span>
-      <span class="facet-count">{{ s.count }}</span>
-      <span class="facet-note">{{ s.description }}</span>
-    </a>
-    {% endfor %}
-  </nav>
+  <form method="get" action="{% url 'review:discovery' %}" class="filter-bar">
+    <input type="hidden" name="stratum" value="{{ stratum }}">
+    {% include "review/_queue_filters.html" %}
+    <noscript><button type="submit">Filter</button></noscript>
+  </form>
 
   <p class="stratum-note">
     Showing <strong>{{ rows|length }}</strong> of
-    <strong>{{ population }}</strong> in “{{ stratum_label }}”,
-    cohort {{ cohort_start|date:"j M Y" }} to {{ cohort_end|date:"j M Y" }}.
+    <strong>{{ population }}</strong> in “{{ stratum_label }}”.
     {% if probability < 1 %}
     Each row had a {{ probability|floatformat:3 }} chance of being drawn,
     recorded with the decision so the labels can be weighted.
     {% else %}
     Reviewed in full, so every label carries equal weight.
     {% endif %}
-    {% if decided %}<a href="?{{ params.urlencode }}&amp;state=all">Including {{ decided }} already answered</a>{% endif %}
   </p>
 
   <form method="post" id="queue-form" class="queue-form" autocomplete="off">

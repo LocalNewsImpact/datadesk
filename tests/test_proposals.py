@@ -1694,7 +1694,10 @@ def test_the_queue_can_be_worked_one_directory_at_a_time(client, mo, vt, editor)
     call_command("scan_sources", stdout=io.StringIO())
 
     every = client.get(URL).content.decode()
-    assert "Every directory" in every, "no way to choose a directory"
+    # The directory used to be a row of chips and is now the Dataset
+    # select every review queue carries. Same choice, one markup.
+    assert 'name="dataset"' in every, "no way to choose a directory"
+    assert 'value="mo"' in every and 'value="vt"' in every
 
     only_mo = client.get(URL + "?dataset=mo").content.decode()
     assert "mo3.example" in only_mo
