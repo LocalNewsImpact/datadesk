@@ -40,6 +40,7 @@ thousands and mean nothing on their own -- see `UrlVerification`.
 """
 
 import bisect
+from datetime import UTC
 
 from django.core.cache import cache
 from django.db.models import Q
@@ -140,7 +141,9 @@ def margin_cuts(start, end):
     """
     from explorer.models import UrlVerification
 
-    key = f"discovery:margin-cuts:{start:%Y%m%d}:{end:%Y%m%d}"
+    since = f"{start:%Y%m%d}" if start else "any"
+    until = f"{end:%Y%m%d}" if end else "any"
+    key = f"discovery:margin-cuts:{since}:{until}"
     cuts = cache.get(key)
     if cuts is not None:
         return cuts
@@ -176,6 +179,47 @@ def percentile(margin, cuts):
     return max(0, min(100, bisect.bisect_right(cuts, margin) - 1))
 
 
+#: What the discovery cohort opens on. The corpus this queue reviews was
+#: discovered in March 2026 and the crawler has been idle since August,
+#: so a relative window ("last 30 days") opens on nothing. The window
+#: control still offers the usual ones; this is only where it starts.
+DEFAULT_SINCE = "2026-03-01"
+DEFAULT_UNTIL = "2026-04-01"
+
+
+def window_for(params):
+    """The cohort bounds a reviewer asked for, as aware datetimes.
+
+    The same vocabulary the extraction queue uses -- `days` of 30, 90,
+    365, all, or `custom` with two dates -- so the control reads the same
+    on every queue. `all` is a real question here: 236,160 verifications
+    exist and "has this publisher ever had a URL rejected" is asked of
+    the lot.
+    """
+    from datetime import datetime, timedelta
+
+    from django.utils import timezone
+
+    def _date(value, fallback):
+        try:
+            return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=UTC)
+        except (TypeError, ValueError):
+            return fallback
+
+    window = params.get("days")
+    if window == "all":
+        return None, None
+    if window == "custom" or not window:
+        since = params.get("since") or (None if window else DEFAULT_SINCE)
+        until = params.get("until") or (None if window else DEFAULT_UNTIL)
+        return _date(since, None), _date(until, None)
+    try:
+        days = int(window)
+    except ValueError:
+        days = 30
+    return timezone.now() - timedelta(days=days), None
+
+
 def in_cohort(qs, start, end):
     """The links discovered in a window.
 
@@ -184,10 +228,11 @@ def in_cohort(qs, start, end):
     article. Both bounds are applied to the one column so the window
     cannot be satisfied by two different rows.
     """
-    return qs.filter(
-        candidate_link__discovered_at__gte=start,
-        candidate_link__discovered_at__lt=end,
-    )
+    if start is not None:
+        qs = qs.filter(candidate_link__discovered_at__gte=start)
+    if end is not None:
+        qs = qs.filter(candidate_link__discovered_at__lt=end)
+    return qs
 
 
 def drawn(qs, stratum):
@@ -259,18 +304,22 @@ STORY_KINDS = (
 
 #: What it is instead, asked after "Not a story".
 #:
-#: `section index` and `tag or author page` are kept apart from a story
+#: `Section Front` and `Tag or author page` are kept apart from a story
 #: deliberately: extraction has produced article rows for /profile/ pages
 #: titled with the paper's own name, so "an article row exists" is not a
 #: usable label, and a model trained on the two conflated learns the
 #: wrong boundary.
+#:
+#: "Front" rather than "index": a section front and an obituary front are
+#: what a newsroom calls them, and the stored values are unchanged so no
+#: decision already recorded is affected.
 NOT_STORY_KINDS = (
-    {"value": "section_index", "label": "Section index"},
+    {"value": "section_index", "label": "Section Front"},
     {"value": "tag_or_author", "label": "Tag or author page"},
     {"value": "video", "label": "Video"},
     {"value": "photo_gallery", "label": "Photo gallery"},
     {"value": "event", "label": "Event listing"},
-    {"value": "obituary_index", "label": "Obituary listing page"},
+    {"value": "obituary_index", "label": "Obituary Front"},
     {"value": "account", "label": "Subscribe or account page"},
     {"value": "homepage", "label": "Homepage"},
     {"value": "e_edition", "label": "E-edition"},

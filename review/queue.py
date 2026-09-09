@@ -1204,7 +1204,7 @@ CASES_OFF_THE_LANDING_VIEW = frozenset(
 #: a backlog nobody works, which is the whole reason the narrowing exists.
 #: The queue holds what there is reason to doubt, and that is all it is
 #: for.
-_SCOPES = ("dataset", "days", "since", "until", "state")
+_SCOPES = ("dataset", "days", "since", "until", "state", "decision")
 
 #: Filters that ask for a particular set of rows, and so lift the
 #: narrowing: asking for a case is asking to see what matches.
@@ -1267,8 +1267,14 @@ def _population(qs, params, *, landing_narrowing=True):
     # Keyed on (article, question), never on the article alone: a byline
     # later found to be garbage is a NEW question about an article whose
     # classification was settled, and must still be askable.
-    if params.get("state") != "all":
+    # `decision` is the shared control every queue now carries; `state`
+    # is the name this one used before it was shared, kept working
+    # because bookmarks and the "Including decided" link still send it.
+    wanted = params.get("decision") or ("any" if params.get("state") == "all" else "")
+    if wanted == "":
         qs = _without_answered(qs)
+    elif wanted != "any":
+        qs = _answered_with(qs, wanted)
 
     # The landing view holds what there is recorded reason to doubt: at
     # 175 extraction rejections per active day against roughly 815
@@ -1331,6 +1337,21 @@ def queued(params, user):
     # first" is an index scan. It used to be computed per row, which read
     # every body in the population to rank the first page: 16.8s, now 1s.
     return qs.order_by("-text_length", "-created_at")
+
+
+def _answered_with(qs, verb):
+    """Only the rows somebody answered with this verb.
+
+    The question a reviewer asks after a session rather than during one:
+    what did I mark as wire last week, and was I right. "Including
+    decided" could only be on or off, so it could not be asked.
+    """
+    from review.models import ReviewDecision
+
+    answered = ReviewDecision.objects.filter(
+        subject_type="article", verb=verb
+    ).values_list("subject_id", flat=True)
+    return qs.filter(id__in=list(answered))
 
 
 def _without_answered(qs):

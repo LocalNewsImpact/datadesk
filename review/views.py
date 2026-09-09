@@ -671,6 +671,24 @@ def queue(request):
             context["bands"] = review_queue.band_facets(request.GET, request.user)
             context["cases"] = review_queue.case_facets(request.GET, request.user)
 
+    # The shared header's shapes. `cases` keeps its own name because the
+    # results partial reads it; this is the same list under the name the
+    # partial every queue includes expects.
+    context["facets"] = [
+        dict(
+            case,
+            href=(
+                "?"
+                + case_params.urlencode()
+                + ("" if case.get("selected") else f"&case={case['key']}")
+            ),
+        )
+        for case in context.get("cases", [])
+    ]
+    context["facet_label"] = "What was flagged"
+    context["datasets"] = (vocabulary or {}).get("datasets", [])
+    context["decisions"] = _kernel.get("extraction").verbs
+
     template = (
         "review/_queue_results.html"
         if request.headers.get("HX-Request")
@@ -794,7 +812,19 @@ def proposals(request):
         return _submit_proposals(request)
 
     flag = request.GET.get("flag") or ""
-    state = request.GET.get("state") or ChangeProposal.PENDING
+    # `decision` is the shared control every queue now carries; `state` is
+    # the name this one used before it was shared, kept working because
+    # bookmarks and the old "Including decided" chip still send it.
+    #
+    # The values line up without translation: a proposal's state IS what
+    # was decided about it.
+    wanted = request.GET.get("decision")
+    if wanted == "any":
+        state = "all"
+    elif wanted:
+        state = wanted
+    else:
+        state = request.GET.get("state") or ChangeProposal.PENDING
     # Which directory to work in. Scanning every dataset is what makes
     # the queue complete and what makes it long: 894 Vermont publishers
     # with no owner recorded would otherwise sit on top of the twelve
@@ -872,6 +902,46 @@ def proposals(request):
             "flag": flag,
             "state": state,
             "dataset": dataset,
+            # The shared header's shapes. The chips keep their own names
+            # for this template's other uses; these are the same lists
+            # under the names the partial every queue includes expects.
+            "facets": [
+                {
+                    "key": "",
+                    "label": "Review all",
+                    "count": scoped.count(),
+                    "selected": not flag,
+                    "href": f"?dataset={dataset}&state={state}",
+                }
+            ]
+            + [
+                {
+                    "key": f.key,
+                    "label": f.label,
+                    "note": f.defect,
+                    "count": counts.get(f.key, 0),
+                    "selected": flag == f.key,
+                    "href": f"?dataset={dataset}&flag={f.key}&state={state}",
+                }
+                for f in ALL_FLAGS
+                if counts.get(f.key, 0)
+            ],
+            "facet_label": "What is wrong",
+            "decisions": [
+                {"name": ChangeProposal.ACCEPTED, "past": "accepted"},
+                {"name": ChangeProposal.REJECTED, "past": "rejected"},
+                {"name": ChangeProposal.FIXED, "past": "fixed"},
+            ],
+            # The count travels in the label. The directory used to be a
+            # row of chips, each carrying its own number, and a bare
+            # select would have dropped the one thing that says where the
+            # work is -- including the zero that says a directory is
+            # finished rather than unscanned.
+            "datasets_for_filter": [
+                {"slug": slug, "label": f"{label} ({n})"}
+                for slug, label, n in by_dataset
+            ],
+            "params": request.GET,
             # Every directory with something pending in it, biggest
             # first, and what "" means said in words: a proposal on a
             # record in no dataset is still somebody's to answer.
@@ -1817,7 +1887,49 @@ DISCOVERY_COHORT = (
 )
 
 
-def _discovery_rows(stratum, start, end):
+def _discovery_datasets():
+    """The datasets that have verifications, for the Dataset filter.
+
+    From `datasets` rather than distinct values on the links: a dataset
+    with nothing left to review should still be offerable, or a reviewer
+    cannot ask why it is empty.
+    """
+    from explorer.models import Dataset
+
+    try:
+        return [
+            {"slug": d.id, "label": d.label or d.slug or d.id}
+            for d in Dataset.objects.all().order_by("label")
+        ]
+    except DatabaseError:
+        return []
+
+
+def _subject_of(verification):
+    """What a decision about this row is keyed on."""
+    return str(verification.candidate_link_id or verification.id)
+
+
+def _decided_candidate_links(rows):
+    """{subject id: verb} for the links already answered, in one query.
+
+    The verb and not just the fact, because the Decision filter offers
+    "restored" and "confirmed" separately -- a reviewer asking what they
+    marked last week is asking which way.
+    """
+    from review.models import ReviewDecision
+
+    ids = {_subject_of(row) for row in rows}
+    if not ids:
+        return {}
+    return dict(
+        ReviewDecision.objects.filter(
+            subject_type="candidate_link", subject_id__in=list(ids)
+        ).values_list("subject_id", "verb")
+    )
+
+
+def _discovery_rows(stratum, start, end, dataset=""):
     """One stratum's rows, drawn and annotated with how they were drawn."""
     from explorer.models import UrlVerification
     from review import discovery
@@ -1826,6 +1938,8 @@ def _discovery_rows(stratum, start, end):
         "candidate_link", "candidate_link__source"
     ).filter(discovery.predicate(stratum))
     base = discovery.in_cohort(base, start, end)
+    if dataset:
+        base = base.filter(candidate_link__dataset_id=dataset)
     population = base.count()
     rows = list(discovery.drawn(base, stratum))
     probability = discovery.inclusion_probability(stratum, population)
@@ -1849,7 +1963,7 @@ def discovery_queue(request):
     if request.method == "POST":
         return _submit_discovery_decisions(request)
 
-    start, end = DISCOVERY_COHORT
+    start, end = discovery.window_for(request.GET)
     chosen = request.GET.get("stratum", discovery.DOUBTFUL)
     if chosen not in discovery.STRATUM_LABELS:
         chosen = discovery.DOUBTFUL
@@ -1859,40 +1973,60 @@ def discovery_queue(request):
     stratum_params = params.copy()
     stratum_params.pop("stratum", None)
 
+    queue_def = _kernel.get(discovery.DISCOVERY_QUEUE_KEY)
+    # What has already been said about a row. "Including decided" was a
+    # link that could only be on or off; this is the same control the
+    # other two queues now carry, named by the verb's own past tense.
+    wanted = request.GET.get("decision", "")
+    dataset = request.GET.get("dataset", "")
+
     strata, rows, population, probability = [], [], 0, 1.0
     connected = True
     try:
+        drawn = {}
+        for key, _label, _description in discovery.STRATA:
+            drawn[key] = _discovery_rows(key, start, end, dataset)
+
+        # Every stratum's rows, resolved against the decisions in one
+        # query. The counts on the chips used to be `len(drawn)`, taken
+        # before the decided rows were removed, so a chip said 746 and
+        # went on saying 746 however many of them had been answered --
+        # the one number a reviewer works down.
+        answered = _decided_candidate_links(
+            row for rows_, _size, _p in drawn.values() for row in rows_
+        )
+
+        def _left(rows_):
+            if wanted == "any":
+                return list(rows_)
+            if wanted:
+                # Answered with this verb, which is the question a
+                # reviewer asks afterwards: what did I mark, and was I
+                # right.
+                return [r for r in rows_ if answered.get(_subject_of(r)) == wanted]
+            return [r for r in rows_ if _subject_of(r) not in answered]
+
         for key, label, description in discovery.STRATA:
-            drawn_rows, size, _p = _discovery_rows(key, start, end)
+            drawn_rows, size, _p = drawn[key]
+            remaining = _left(drawn_rows)
             strata.append(
                 {
                     "key": key,
                     "label": label,
                     "description": description,
-                    "count": len(drawn_rows),
+                    "count": len(remaining),
+                    "drawn": len(drawn_rows),
+                    "decided": len(drawn_rows) - len(remaining),
                     "population": size,
                     "selected": key == chosen,
                 }
             )
             if key == chosen:
-                rows, population, probability = drawn_rows, size, _p
+                rows, population, probability = remaining, size, _p
     except DatabaseError:
         connected = False
+        answered = {}
 
-    already = set()
-    if rows:
-        from review.models import ReviewDecision
-
-        already = set(
-            ReviewDecision.objects.filter(
-                subject_type="candidate_link",
-                subject_id__in=[str(r.candidate_link_id or r.id) for r in rows],
-            ).values_list("subject_id", flat=True)
-        )
-    if request.GET.get("state") != "all":
-        rows = [r for r in rows if str(r.candidate_link_id or r.id) not in already]
-
-    queue_def = _kernel.get(discovery.DISCOVERY_QUEUE_KEY)
     # The margin is a log-odds score whose scale means nothing to a
     # reader. Its percentile within the cohort does.
     cuts = discovery.margin_cuts(start, end) if rows else []
@@ -1907,6 +2041,23 @@ def discovery_queue(request):
         {
             "crawler_connected": connected,
             "strata": strata,
+            "facets": [
+                dict(
+                    stratum,
+                    href=(
+                        "?"
+                        + stratum_params.urlencode()
+                        + ("" if stratum["selected"] else f"&stratum={stratum['key']}")
+                    ),
+                    note=stratum["description"],
+                )
+                for stratum in strata
+            ],
+            "facet_label": "Which rows",
+            "day_windows": review_queue.DAY_WINDOWS,
+            "default_days": "custom",
+            "datasets": _discovery_datasets(),
+            "decisions": queue_def.verbs,
             "stratum": chosen,
             "stratum_label": discovery.STRATUM_LABELS.get(chosen, ""),
             "population": population,
@@ -1919,7 +2070,7 @@ def discovery_queue(request):
             "page": page,
             "rows": page.object_list,
             "queue_verbs": queue_def.verbs,
-            "decided": len(already),
+            "decided": sum(s["decided"] for s in strata),
             "receipt": _receipt_counts(request.session.pop("discovery_receipt", None)),
         },
     )

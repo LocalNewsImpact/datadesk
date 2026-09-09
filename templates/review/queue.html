@@ -26,61 +26,14 @@
   wall to read before the first decision, and the queue's own lede
   already says what it holds.
   {% endcomment %}
-  <nav class="queue-facets" aria-label="What was flagged">
-    {% for case in cases %}
-    <a class="facet-chip{% if case.selected %} on{% endif %}{% if not case.count %} done{% endif %}"
-       title="{{ case.note }}"
-       href="?{{ case_params.urlencode }}{% if not case.selected %}&amp;case={{ case.key }}{% endif %}">
-      {{ case.label }} <span>{% if case.count %}{{ case.count }}{% else %}no work{% endif %}</span>
-    </a>
-    {% endfor %}
-  </nav>
+  {% include "review/_queue_facets.html" %}
 
   <form method="get" action="{% url 'review:queue' %}" class="filter-bar"
         hx-get="{% url 'review:queue' %}" hx-target="#queue-results" hx-indicator="#queue-results"
         hx-trigger="change, submit" hx-push-url="true">
     <input type="hidden" name="case" value="{{ params.case|default:'' }}">
     <input type="hidden" name="band" value="{{ params.band|default:'' }}">
-    {% comment %}
-    First, because it is the one filter that is on before anybody
-    chooses anything. Every article ever crawled is not a queue, it is an
-    archive -- but a default that hides rows has to be visible, or the
-    page reads as data missing.
-    {% endcomment %}
-    <label>Dated
-      <select name="days" class="js-window">
-        {% for value, label in day_windows %}
-        <option value="{{ value }}" {% if params.days == value or not params.days and value == default_days %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    {% comment %}
-    The two dates behind "Custom…". Present in the markup rather than
-    built by script, so the range works without JavaScript and a
-    bookmarked `?days=custom&since=…&until=…` renders what it says. The
-    script only hides them when another window is chosen.
-
-    `type="date"` is the browser's own calendar. A text field with a
-    format hint was the alternative and is worse: every reviewer here is
-    on a browser that has one, and a typed date is a typed date to get
-    wrong.
-    {% endcomment %}
-    <span class="js-custom-range{% if params.days != 'custom' %} hidden{% endif %}">
-      <label>From
-        <input type="date" name="since" value="{{ params.since|default:'' }}">
-      </label>
-      <label>To
-        <input type="date" name="until" value="{{ params.until|default:'' }}">
-      </label>
-    </span>
-    <label>Dataset
-      <select name="dataset">
-        <option value="">all</option>
-        {% for d in vocab.datasets %}
-        <option value="{{ d.slug }}" {% if params.dataset == d.slug %}selected{% endif %}>{{ d.label }}</option>
-        {% endfor %}
-      </select>
-    </label>
+    {% include "review/_queue_filters.html" %}
     <label>Detected by
       <select name="method">
         <option value="">any</option>

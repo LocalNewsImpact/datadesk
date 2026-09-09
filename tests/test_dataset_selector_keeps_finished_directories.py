@@ -66,16 +66,25 @@ def queue(directories, reviewer):
 
 @pytest.mark.django_db(databases=["default", "crawler"])
 def test_a_finished_directory_still_appears(queue):
+    """A directory with nothing outstanding is worth offering: it is the
+    difference between "nothing wrong here" and "nobody has looked".
+
+    It was a row of chips and is now the Dataset select every review
+    queue carries. The count moved into the option's own label, because a
+    select has no room for a chip's number and dropping it would lose the
+    zero that says finished rather than unscanned.
+    """
     body = queue.get(reverse("review:proposals")).content.decode()
-    assert "Mizzou-Missouri-State" in body or "Missouri" in body
-    assert "no work" in body
+    assert "Missouri" in body
+    assert "(0)" in body, "a finished directory shows no count"
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
 def test_the_selector_is_drawn_even_with_one_directory_holding_work(queue):
     """The row vanished entirely; that is what was reported."""
     body = queue.get(reverse("review:proposals")).content.decode()
-    assert 'aria-label="Which directory"' in body
+    assert 'name="dataset"' in body
+    assert 'value="Mizzou-Missouri-State"' in body
 
 
 @pytest.mark.django_db(databases=["default", "crawler"])
@@ -99,6 +108,8 @@ def test_the_counts_follow_the_state_being_viewed(queue):
     body = queue.get(
         reverse("review:proposals"), {"state": "accepted"}
     ).content.decode()
-    marker = body[body.index('aria-label="Which directory"') :]
-    marker = marker[: marker.index("</nav>")]
-    assert "no work" not in marker or "Vermont" in marker
+    picker = body[body.index('name="dataset"') :]
+    picker = picker[: picker.index("</select>")]
+    # Missouri holds an accepted proposal, so viewing accepted must not
+    # show it as empty.
+    assert "Missouri (0)" not in picker, picker
