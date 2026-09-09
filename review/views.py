@@ -2038,6 +2038,18 @@ def discovery_queue(request):
         # applies a whitelist and a blacklist afterwards, so a URL can
         # score +477 and still come back False.
         row.model_said = discovery.model_said(row.verification_confidence)
+        # One plain phrase, because the cell used to print the verdict,
+        # then a marker repeating it, then a raw score and an ordinal:
+        #
+        #     story scores a story now; it was not kept rescored 25, 4th percentile
+        #
+        # No reviewer can act on that. The score is log-odds, whose scale
+        # means nothing without the cohort, and the percentile it needed
+        # to be read against was sitting right next to it unexplained.
+        # Both now travel inside the phrase, or in the tooltip.
+        row.reading = discovery.how_the_model_read_it(
+            row.verification_confidence, row.percentile
+        )
         row.disagrees = discovery.disagrees_with_outcome(
             row.verification_confidence, row.new_status
         )
