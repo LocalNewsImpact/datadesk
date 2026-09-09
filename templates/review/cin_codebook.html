@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Codebook — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>Codebook</h1>
+
+  <p class="lede">
+    What coders are shown in the instructions panel, and the category
+    definitions behind it.
+  </p>
+
+  {% if saved %}
+  <p class="notice good">
+    Saved. Every classifier sees this on their next record.
+  </p>
+  {% endif %}
+
+  {% comment %}
+  Editable rather than deployed because the wording is expected to
+  change: agreement across the original cohorts was 64.6% exact, and
+  rewriting the guidance is how that gets tested. A deploy between a
+  decision and its effect made that loop a day long.
+  {% endcomment %}
+  <form method="post">
+    {% csrf_token %}
+    <label for="instructions">Instructions</label>
+    <p class="field-note quiet">
+      Shown above the category table. Blank lines separate paragraphs.
+      Plain text: markup is escaped, not rendered.
+    </p>
+    <textarea id="instructions" name="instructions" rows="18"
+              class="wide">{{ settings.instructions }}</textarea>
+    <div class="actions">
+      <button type="submit" class="primary">Save</button>
+      <span class="quiet">
+        Last changed {{ settings.updated_at|date:"j M Y, H:i" }}
+        {% if settings.updated_by %}by {{ settings.updated_by }}{% endif %}
+      </span>
+    </div>
+  </form>
+
+  <h2>The ten categories</h2>
+  <p class="quiet">
+    Shown to coders beneath the instructions. These come from the
+    codebook in the repository and change with a deploy, because the
+    category names are the model's own class vocabulary &mdash; renaming
+    one here would not rename it in the classifier.
+  </p>
+  <div class="table-scroll">
+    <table class="guide">
+      <thead>
+        <tr>
+          <th scope="col">Category</th>
+          <th scope="col">What it covers</th>
+          <th scope="col">A reader could&hellip;</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in guidance %}
+        <tr>
+          <th scope="row">{{ row.label }}</th>
+          <td>{{ row.covers }}</td>
+          <td class="quiet">{{ row.reader_could }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="quiet">
+    The full definitions, worked examples and tags are in
+    <a href="https://github.com/LocalNewsImpact/datadesk/blob/main/docs/CODEBOOK.md"
+       target="_blank" rel="noopener noreferrer">the codebook</a>.
+  </p>
+</section>
+{% endblock %}

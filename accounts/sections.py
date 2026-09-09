@@ -132,6 +132,47 @@ SECTION_GROUPS = (
         ),
     },
     {
+        # The work ABOUT the classification queue, as distinct from the
+        # queue itself, which lives under Review with the other two.
+        #
+        # Editors and admins only. A classifier reaches exactly one
+        # section in this console and it is not in here: they must not
+        # see how their own agreement scores, because a coder who can
+        # watch their agreement with the others has an incentive to code
+        # toward the others rather than toward the codebook, and the
+        # measurement stops meaning anything.
+        "label": "CIN",
+        "requires": EDITOR,
+        "sections": (
+            {
+                "url": "review:cin_reporting",
+                "label": "Reporting",
+                "note": (
+                    "Agreement between coders overall, by dataset and by "
+                    "category, and how far each cohort has got."
+                ),
+            },
+            {
+                "url": "review:cin_coders",
+                "label": "Coders",
+                "requires": ADMIN,
+                "note": (
+                    "Who can classify, which cohort each is granted, and "
+                    "how much each has done."
+                ),
+            },
+            {
+                "url": "review:cin_codebook",
+                "label": "Codebook",
+                "requires": ADMIN,
+                "note": (
+                    "The instructions coders are shown, and the category "
+                    "definitions behind them."
+                ),
+            },
+        ),
+    },
+    {
         # "Proposed changes" does not say what it covers. Under this
         # header it does: these are publisher records.
         "label": "Sources",

@@ -2176,6 +2176,8 @@ def classification_queue(request):
         ClassificationAssignment,
         ClassificationCohort,
         ClassificationDecision,
+        CodebookSettings,
+        guidance,
     )
 
     if request.method == "POST":
@@ -2213,6 +2215,13 @@ def classification_queue(request):
             "body": body,
             "truncated": truncated,
             "labels": CIN_LABELS,
+            # What each category covers and the action test for it. The
+            # codebook was a PDF attachment; a coder deciding between
+            # Civic information and Civic Life cannot open a PDF
+            # attachment.
+            "guidance": guidance(),
+            # Edited under CIN > Codebook, not deployed.
+            "instructions": CodebookSettings.load().paragraphs(),
             "rejections": ClassificationDecision.REJECTIONS,
             "remaining": outstanding.count(),
             "done": done,
@@ -2286,3 +2295,71 @@ def _seconds_spent(opened_at):
         return max(0, int(float(opened_at)))
     except (TypeError, ValueError):
         return None
+
+
+# ---------------------------------------------------------------- CIN admin
+#
+# The work ABOUT the classification queue: whether the coders agree,
+# who is doing it, and what they are told to do. The queue itself is
+# under Review with the other two.
+#
+# None of it is reachable by a classifier. Agreement is measured
+# BETWEEN coders, and a coder who can watch their own agreement has an
+# incentive to code toward the others rather than toward the codebook.
+
+
+@requires(WRITE)
+def cin_reporting(request):
+    """Agreement between coders, and how far each cohort has got.
+
+    Agreement needs at least two coders on the same record, so this
+    reports over records that reached that -- not over every decision
+    made. A percentage computed across singly-coded records is not an
+    agreement rate, and would read highest exactly when a cohort had
+    been worked least.
+    """
+    from review.classification import agreement_report
+
+    return render(request, "review/cin_reporting.html", agreement_report())
+
+
+@requires_admin
+def cin_coders(request):
+    """Who can classify, what they are granted, and how much they have done."""
+    from review.classification import coder_report
+
+    return render(request, "review/cin_coders.html", coder_report())
+
+
+@requires_admin
+def cin_codebook(request):
+    """The instructions coders are shown, edited here rather than deployed.
+
+    The definitions are known to be imperfect -- 64.6% exact agreement
+    across the original cohorts -- so the wording will be rewritten, and
+    rewriting it is how agreement gets tested. Requiring a deploy for
+    that put a day between a decision and its effect.
+    """
+    from review.classification import (
+        DEFAULT_INSTRUCTIONS,
+        CodebookSettings,
+        guidance,
+    )
+
+    row = CodebookSettings.load()
+    saved = False
+    if request.method == "POST":
+        row.instructions = request.POST.get("instructions", "").strip()
+        row.updated_by = request.user
+        row.save()
+        saved = True
+    return render(
+        request,
+        "review/cin_codebook.html",
+        {
+            "settings": row,
+            "guidance": guidance(),
+            "saved": saved,
+            "default": DEFAULT_INSTRUCTIONS,
+        },
+    )

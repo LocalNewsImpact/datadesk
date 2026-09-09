@@ -10,6 +10,10 @@ urlpatterns = [
     path("queue/", views.queue, name="queue"),
     path("discovery/", views.discovery_queue, name="discovery"),
     path("classification/", views.classification_queue, name="classification"),
+    # The CIN admin: the work about the queue, not the queue.
+    path("cin/", views.cin_reporting, name="cin_reporting"),
+    path("cin/coders/", views.cin_coders, name="cin_coders"),
+    path("cin/codebook/", views.cin_codebook, name="cin_codebook"),
     path(
         "extraction-problems/",
         views.extraction_problems,
