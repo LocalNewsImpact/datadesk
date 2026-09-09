@@ -21,11 +21,21 @@ returns them ranked, of which the top two are stored.
 
 Two consequences the UI cannot ignore:
 
-**One label per article, not several.** The requirement says "a checkbox
-menu ... and evaluate by ONE checkbox", and that is also the only shape
-this model can learn from. A multi-select would produce training rows
-its objective cannot consume, and a reviewer allowed to tick three boxes
-is being asked a different question from the one being scored.
+**A primary label and an optional secondary — not one, and not ten.**
+
+The original coding form asked for exactly that, and it is the right
+shape: many stories do not sit in one category, and the production model
+was trained on weighted values derived from the primary and secondary
+votes. `article_labels` stores the model's own answer the same way —
+`primary_label` and `alternate_label`, each with a confidence.
+
+Measured in the historical cohorts, a secondary was given on **175 of
+500** rows, so it is a control people use rather than a vestige.
+
+The form also carried a third tier, "Also Present", a checkbox per
+category. It was used on **15 of 500 rows — 3%**. Ten more checkboxes
+for that is cognitive load buying almost nothing, and it should not be
+rebuilt.
 
 **The model reads title + body, truncated at 512 BERT tokens** — roughly
 350–400 words. `ArticleClassificationService._prepare_text` joins the
@@ -287,9 +297,30 @@ Not shown, deliberately:
 
 ### Rejecting
 
-A reviewer who cannot classify a row says why, from a fixed list:
-paywall stub, not an article, garbage text, opinion, obituary, other
-error.
+A reviewer who cannot classify a row says why, from a fixed list. The
+list should start from what coders actually reached for. In the
+historical cohorts the rejections were folded into the primary dropdown,
+which is why "primary category" contains things that are not categories,
+and they ran:
+
+| reason | of 500 |
+| --- | ---: |
+| NOT LOCAL | 24 |
+| TECHNICAL ERROR | 19 |
+| NO APPROPRIATE CATEGORY | 9 |
+| TOO SHORT | 6 |
+| NONE PRESENT | 4 |
+| **unusable** | **62 (12.4%)** |
+
+**"Not local" was the most-used reason and is missing from the proposed
+list** (paywall stub, not an article, garbage text, opinion, obituary,
+other error). It belongs there. So, arguably, does "no appropriate
+category", which is a statement about the scheme rather than the
+article and is worth counting separately from a technical failure.
+
+Separating these from the category dropdown, as the requirement does, is
+the better design: a rejection is not a label and storing it as one is
+what made the historical primary column unusable without filtering.
 
 These are not CIN labels and must not be stored as if they were. A
 rejection says the row should not be in the training set at all, and
@@ -437,6 +468,94 @@ cannot finish as assigned:
 
 That last one needs throughput history, so it is worth recording
 `completed_at` from the start even though nothing reads it yet.
+
+## 7d. What the historical cohorts already tell us
+
+Five files exist — Groups A to E, 2,246 dispositions over 1,000 distinct
+articles. The design was **two coders per article** (A∩C = 250, A∩D =
+250, A∩B = 0), with Group E a third coder brought in where the two did
+not agree.
+
+**E covers 246 of the 1,000 — a 24.6% disagreement rate.** That is a
+direct prediction of how much third-coder work the new queue will need,
+and it was measured rather than guessed.
+
+### Reliability, measured
+
+| measure | value |
+| --- | ---: |
+| exact primary match | 64.6% |
+| Cohen's kappa (nominal, primary only) | 0.583 |
+| either label set overlaps at all | 78.6% |
+| mean Jaccard of the label sets | 0.605 |
+
+**The metric matters more than usual here.** Judged on exact primary
+match, kappa is 0.583 — below 0.667, the conventional floor. Judged as
+label *sets*, which is what the model is trained on, agreement is 78.6%.
+The first number understates coders who were asked to record that a
+story spans two categories and did so.
+
+Whatever is reported later should be the set-based measure, named, for
+the same reason: a bare "0.58 agreement" would condemn a coding protocol
+for doing what it was designed to do.
+
+### One category is broken, and it is not a metric artifact
+
+Agreement when a category appears anywhere in either coder's set:
+
+| category | in set |
+| --- | ---: |
+| Sports | 93.9% |
+| Emergencies and Public Safety | 70.1% |
+| Health | 53.5% |
+| Political life | 47.4% |
+| Education | 44.6% |
+| Environment and Planning | 41.2% |
+| Economic Development | 34.3% |
+| Civic Life | 33.8% |
+| Transportation Systems | 33.6% |
+| **Civic information** | **14.4%** |
+
+When one coder uses **Civic information**, the other does not use it at
+all — not as primary, not as secondary — in 85% of cases. Under the
+generous set reading. It is in four of the eight commonest confusions:
+
+| confusion | count |
+| --- | ---: |
+| Emergencies and Public Safety ↔ Environment and Planning | 41 |
+| Civic information ↔ Emergencies and Public Safety | 36 |
+| Civic Life ↔ Civic information | 23 |
+| Civic information ↔ Economic Development | 22 |
+
+That is a definitional failure, not a training one, and no volume of
+coding fixes it. A model cannot learn a distinction its labellers do not
+share, so 90,000 dispositions collected against this scheme would buy
+the same confusion at scale.
+
+Group C is also the weaker partner in both its pairings (55.0% with A,
+62.3% with B, against A–D's 73.0%), which is the per-coder signal the
+admin dashboard is for — and an argument for measuring it from the first
+cohort rather than the tenth.
+
+### So the order of work changes
+
+**Before the 30,000, spend twenty hours instead of three thousand.**
+
+1. Revise the guidance for the confusable pairs — a bright line between
+   Civic Life and Civic information, or a merge; and a rule for whether
+   a flood is Emergencies or Environment.
+2. Draw a small cohort, 200–300 articles, and code it under the revised
+   guidance.
+3. Re-measure. If set agreement moves and Civic information comes up off
+   the floor, scale. If it does not, the scheme needs more than guidance
+   and that is worth knowing before the programme is staffed.
+
+The historical cohorts also cannot be reused as an evaluation set: their
+article ids are SHA-256 hashes from a pre-crawler system, and **zero of
+the 500 in Group A match our corpus on id or on URL**. The publishers
+are the same, the articles are not. They remain usable as training data,
+because the headline and body are in the files, but nothing in them can
+score the current model.
 
 ## 7c. The size of the thing
 
