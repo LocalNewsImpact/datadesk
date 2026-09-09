@@ -47,6 +47,9 @@ from django.db.models import Q
 
 from review import kernel
 
+#: What the pipeline treats as "this is an article we keep".
+KEPT_STATUSES = frozenset({"extracted", "article"})
+
 #: Keys, so a template and a view cannot drift on a spelling.
 DOUBTFUL = "doubtful"
 OVERRULED = "overruled"
@@ -77,8 +80,8 @@ STRATA = (
     ),
     (
         OVERRULED,
-        "Overruled",
-        "The model said story; a rule rejected it anyway.",
+        "Model disagrees",
+        "Scores a story now; the pipeline did not keep it then.",
     ),
     (
         SAMPLE,
@@ -164,6 +167,50 @@ def margin_cuts(start, end):
     ]
     cache.set(key, cuts, PERCENTILE_TTL)
     return cuts
+
+
+def model_said(margin):
+    """What the model itself concluded, from the sign of its margin.
+
+    NOT `storysniffer_result`. That is the verdict after `guess()`
+    applies its whitelist and blacklist, so a URL can score +477 --
+    strongly a story -- and still come back False because a rule fired
+    on `/news/archives/`.
+
+    Showing the verdict under a heading that says "what the model said"
+    made every row in the overruled stratum read as the model agreeing
+    with the rejection, which is the opposite of why those rows are
+    there.
+    """
+    if margin is None:
+        return None
+    return "story" if margin > 0 else "not a story"
+
+
+def disagrees_with_outcome(margin, recorded_status):
+    """The model scores this a story now, and the pipeline did not keep it.
+
+    storysniffer **did** gate these URLs at discovery time. What it did
+    not do is record the verdict: every row in `url_verifications` was
+    written by the September backfill, `previous_status` null on all
+    236,160 of them.
+
+    The outcome is the missing record. A URL that was discovered and
+    never carried forward is evidence that storysniffer rejected it
+    then, because rejection is what stopped it. So the comparison here
+    is between that decision and a rescore of the same URL today, and a
+    disagreement means one of three things, all worth a look:
+
+    - the model has changed its mind about this shape of URL, or
+    - the whitelist and blacklist around it have changed, or
+    - it was wrong then, and a story was lost.
+
+    Only the third is an error, and only a person reading the page can
+    tell which it is. That is the stratum.
+    """
+    if margin is None or margin <= 0:
+        return False
+    return recorded_status not in KEPT_STATUSES
 
 
 def percentile(margin, cuts):
@@ -304,18 +351,29 @@ NOT_A_STORY = "not_story"
 #: (lnic_contracts.discovery_verdict.status_for). Anything that does not
 #: change the outcome does not belong in a list somebody has to read.
 #:
-#: `wire` is absent for a different reason: it is settled by evidence in
-#: the body -- a byline, a canonical pointing elsewhere -- which a
-#: reviewer judging a bare URL has not seen, and the crawler refuses a
-#: verdict over it. Offering it would promise something that does not
-#: happen.
+#: `wire` and `column` are here because both are filtered downstream --
+#: a wire story is excluded from the corpus, a column is handled as
+#: `not_article` by the extraction queue's own vocabulary. A reviewer
+#: naming one is recording something the pipeline acts on.
+#:
+#: Neither overrides the pipeline's own finding. `status_for` maps only
+#: the three statuses no enrichment stage selects; wire in particular is
+#: settled by evidence in the body, which a reviewer judging a bare URL
+#: has not seen, and extraction refuses a verdict over it. Offering the
+#: label records what the person saw without promising it decides.
 STORY_KINDS = (
     {"value": "obituary", "label": "Obituary"},
     {"value": "opinion", "label": "Opinion"},
     {"value": "weather", "label": "Weather"},
+    {"value": "column", "label": "Column"},
+    {"value": "wire", "label": "Wire"},
 )
 
 #: What it is instead, asked after "Not a story".
+#:
+#: `Obituary Front` was here and is gone: an obituary front IS a section
+#: front, and two names for one thing split the count that a fix would be
+#: built from.
 #:
 #: `Section Front` and `Tag or author page` are kept apart from a story
 #: deliberately: extraction has produced article rows for /profile/ pages
@@ -332,7 +390,6 @@ NOT_STORY_KINDS = (
     {"value": "video", "label": "Video"},
     {"value": "photo_gallery", "label": "Photo gallery"},
     {"value": "event", "label": "Event listing"},
-    {"value": "obituary_index", "label": "Obituary Front"},
     {"value": "account", "label": "Subscribe or account page"},
     {"value": "homepage", "label": "Homepage"},
     {"value": "e_edition", "label": "E-edition"},

@@ -86,28 +86,45 @@
             <span class="val">{{ row.new_status|default:"—" }}</span>
           </td>
           <td data-label="What the model said">
-            {% if row.storysniffer_result %}
-            <span class="val yes">story</span>
-            {% else %}
-            <span class="val no">not a story</span>
-            {% endif %}
             {% comment %}
-            The margin's percentile among the URLs this classifier scored
-            in the same window. The margin itself is a log-odds score
-            running to six figures and tells a reader nothing;
-            `predict_proba` is not the alternative because it saturates,
-            scoring 97.5% of URLs at exactly 0 or 1.
+            The model's own conclusion, from the sign of its score — not
+            `storysniffer_result`, which is the verdict AFTER guess()
+            applies its whitelist and blacklist. A URL can score +477,
+            strongly a story, and still come back False because a rule
+            fired on /news/archives/.
 
-            A percentile and not a probability. Nothing here is
-            calibrated, so "87% likely a story" would be the more
-            comfortable lie. The raw margin stays in the tooltip.
+            Showing the verdict here made every row in the overruled
+            stratum read as the model agreeing with the rejection, which
+            is the opposite of why those rows are in it.
             {% endcomment %}
-            {% if row.percentile is not None %}
+            {% if row.model_said == "story" %}
+            <span class="val yes">story</span>
+            {% elif row.model_said %}
+            <span class="val no">not a story</span>
+            {% else %}
+            <span class="val">—</span>
+            {% endif %}
+
+            {% if row.disagrees %}
+            {% comment %}
+            storysniffer did gate this URL at discovery; it did not
+            record the verdict. The outcome is the missing record — a URL
+            discovered and never carried forward was rejected then,
+            because rejection is what stopped it.
+
+            So this is that decision against a rescore of the same URL
+            today. A disagreement means the model changed its mind, or
+            the rules around it did, or a story was lost. Only a person
+            reading the page can say which.
+            {% endcomment %}
+            <span class="rec-sub warn">scores a story now; it was not kept</span>
+            {% endif %}
+
             <span class="rec-sub quiet"
-                  title="log-odds margin {{ row.verification_confidence|floatformat:1 }}">
+                  title="storysniffer rescored this URL in September; the verdict it gave at discovery was never recorded. Positive is a story.">
+              rescored {{ row.verification_confidence|floatformat:0 }},
               {{ row.percentile }}th percentile
             </span>
-            {% endif %}
           </td>
           <td class="option decide" data-label="Is it a story?">
             <input type="hidden" name="stratum-{{ row.candidate_link_id }}" value="{{ stratum }}">

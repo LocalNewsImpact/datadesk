@@ -260,17 +260,19 @@ def test_the_story_list_holds_only_what_changes_the_outcome():
     """
     from lnic_contracts import discovery_verdict
 
-    for choice in discovery.STORY_KINDS:
-        note = discovery_verdict.build(
-            verdict=discovery_verdict.IS_A_STORY, kind=choice["value"]
-        )
-        assert discovery_verdict.status_for(note) == choice["value"], choice
-
     offered = {c["value"] for c in discovery.STORY_KINDS}
+    # `news` is the one that must not be here: offering it as the
+    # shortest way to say "it is a story" is how a sports story gets
+    # labelled news.
     assert "news" not in offered
-    # Wire is settled by evidence in the body, which a reviewer judging a
-    # bare URL has not seen, and the crawler refuses a verdict over it.
-    assert "wire" not in offered
+    # Every other kind offered is one the pipeline filters on. Three
+    # decide a status outright; wire and column are handled downstream
+    # without one, so the rule is "the pipeline acts on it", not "it
+    # sets a status".
+    assert offered == {"obituary", "opinion", "weather", "column", "wire"}
+    for kind in ("obituary", "opinion", "weather"):
+        note = discovery_verdict.build(verdict=discovery_verdict.IS_A_STORY, kind=kind)
+        assert discovery_verdict.status_for(note) == kind
 
 
 def test_it_is_a_story_submits_without_a_category(client, reviewer, crawler_schema):
@@ -569,3 +571,51 @@ def test_the_verdict_does_not_trample_what_the_crawler_wrote(
     assert link.meta["discovered_by"] == "rss"
     assert link.meta["crawl_depth"] == 2
     assert link.meta[discovery_verdict.METADATA_KEY]["kind"] == "obituary"
+
+
+# ------------------------------------- the model, and the rule that beat it
+
+
+def test_the_page_shows_what_the_model_said_not_the_verdict():
+    """`storysniffer_result` is the verdict AFTER guess() applies its
+    whitelist and blacklist. A URL can score +477 -- strongly a story --
+    and still come back False because a rule fired on /news/archives/.
+
+    Showing the verdict under "what the model said" made every row in
+    the overruled stratum read as the model agreeing with the rejection,
+    which is the opposite of why those rows are in it.
+    """
+    assert discovery.model_said(477.9) == "story"
+    assert discovery.model_said(-119.9) == "not a story"
+    assert discovery.model_said(None) is None
+
+
+def test_a_row_says_the_model_disagrees_with_the_outcome():
+    """Not "a rule overruled it".
+
+    storysniffer did gate these URLs at discovery; it did not record the
+    verdict -- every row in url_verifications came from the September
+    backfill, previous_status null on all 236,160. The outcome is the
+    missing record: a URL discovered and never carried forward was
+    rejected then, because rejection is what stopped it.
+
+    So the comparison is that decision against a rescore today, and a
+    disagreement means the model changed its mind, the rules did, or a
+    story was lost. Only the third is an error.
+    """
+    # The row that was reported: scored a story, excluded as not_article.
+    assert discovery.disagrees_with_outcome(477.9, "not_article") is True
+    assert discovery.disagrees_with_outcome(1571.0, "opinion") is True
+    # Scored a story and kept -- no disagreement.
+    assert discovery.disagrees_with_outcome(477.9, "extracted") is False
+    # Scored NOT a story and excluded -- the model agrees.
+    assert discovery.disagrees_with_outcome(-119.9, "not_article") is False
+    assert discovery.disagrees_with_outcome(None, "not_article") is False
+
+
+def test_an_obituary_front_is_a_section_front():
+    """Two names for one thing split the count a fix would be built
+    from."""
+    offered = {c["value"] for c in discovery.NOT_STORY_KINDS}
+    assert "obituary_index" not in offered
+    assert "section_index" in offered
