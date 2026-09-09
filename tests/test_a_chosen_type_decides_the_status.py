@@ -156,6 +156,25 @@ def test_every_offered_type_has_a_status():
         assert offered["value"] in TYPE_BECOMES, f"{offered['value']} does nothing"
 
 
+def test_advertorial_is_offered_and_keeps_its_own_name():
+    """Sponsored copy running as editorial: `Financial Focus(R)` in the
+    Carthage Press, "Make health gains with whole grains" verbatim in
+    four county papers. Both reached the wire queue with no reason
+    recorded anywhere, because nothing any rule reads says so.
+
+    It writes `not_article`, the same as a video or an events calendar,
+    because the pipeline has no advertorial status and inventing one
+    would be wrong. The finding survives on the decision, which is what
+    makes it countable per publisher -- and an advertorial column is a
+    publisher-level fact, not a story-level one.
+    """
+    from review.dispositions import CONTENT_TYPES
+
+    offered = {t["value"]: t["label"] for t in CONTENT_TYPES}
+    assert offered["advertorial"] == "Advertorial"
+    assert TYPE_BECOMES["advertorial"] == "not_article"
+
+
 def test_only_the_stub_is_exported():
     exported = {
         chosen for chosen, status in TYPE_BECOMES.items() if status in EXPORTED_STATUSES
