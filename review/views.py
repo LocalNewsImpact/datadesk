@@ -2033,6 +2033,13 @@ def discovery_queue(request):
     for row in rows:
         row.offered_verbs = queue_def.offered(row)
         row.percentile = discovery.percentile(row.verification_confidence, cuts)
+        # What the model concluded, which is not the verdict: `guess()`
+        # applies a whitelist and a blacklist afterwards, so a URL can
+        # score +477 and still come back False.
+        row.model_said = discovery.model_said(row.verification_confidence)
+        row.disagrees = discovery.disagrees_with_outcome(
+            row.verification_confidence, row.new_status
+        )
 
     page = Paginator(rows, 50).get_page(request.GET.get("page"))
     return render(
