@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}Classification — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide classification">
+  <h1>What is this story about?</h1>
+
+  {% comment %}
+  No filters, and nothing about the pipeline's own opinion: no CIN
+  label, no confidence, no status, no wire flag, no publisher notes. A
+  label produced by somebody who has seen the model's answer cannot be
+  used to score the model, and every extra field is a cue that makes the
+  judgement less independent.
+  {% endcomment %}
+
+  <p class="lede">
+    Read the headline and the story, then say which information need it
+    serves. <a href="#instructions" class="instructions-open">Instructions</a>
+  </p>
+
+  {% if not assignment %}
+  <p class="notice">
+    Nothing assigned to you at the moment. When a new cohort is drawn
+    your queue will fill again.
+  </p>
+  {% else %}
+
+  <p class="quiet progress">
+    {{ remaining }} left in this batch · {{ done }} answered in total
+  </p>
+
+  <article class="story">
+    <h2 class="story-headline">{{ article.title|default:"(no headline)" }}</h2>
+
+    {% comment %}
+    The URL as text, deliberately not a link. A coder who opens the
+    publisher's page is reading the live article — including whatever it
+    has become since capture — and is no longer labelling the row in
+    front of them.
+    {% endcomment %}
+    <p class="story-url" aria-label="Original URL, for reference">
+      {{ article.url }}
+    </p>
+
+    {% comment %}
+    About what the model reads: it sees title + body truncated at 512
+    BERT tokens, roughly 350-400 words. A window much larger than that
+    means some disagreement measures the truncation rather than the
+    model. Scrollable rather than clipped, so nothing is hidden.
+    {% endcomment %}
+    <div class="story-body" tabindex="0" role="region"
+         aria-label="Article text, scrollable">
+      {{ body|linebreaks }}
+      {% if truncated %}
+      <p class="quiet">
+        — first {{ reading_words }} words, which is about what the
+        classifier reads.
+      </p>
+      {% endif %}
+    </div>
+  </article>
+
+  <form method="post" class="classify-form" autocomplete="off">
+    {% csrf_token %}
+    <input type="hidden" name="assignment" value="{{ assignment.pk }}">
+    {% comment %}
+    Seconds the row was open, filled by the script below. The cheapest
+    defence against somebody clicking through, short of seeded check
+    records.
+    {% endcomment %}
+    <input type="hidden" name="opened_at" id="opened-at" value="">
+
+    <div class="classify-fields">
+      <label class="primary">
+        Primary category
+        <select name="primary" id="primary-category">
+          <option value="">choose one…</option>
+          {% for label in labels %}
+          <option value="{{ label }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      {% comment %}
+      Only with significant confidence. Without that instruction the
+      0.5 weight it carries in the training label is noise.
+      {% endcomment %}
+      <label class="secondary">
+        Secondary <span class="quiet">— only if you are confident</span>
+        <select name="secondary">
+          <option value="">none</option>
+          {% for label in labels %}
+          <option value="{{ label }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      {% comment %}
+      Kept apart from the categories. A rejection is not a label, and
+      storing one as a category is what made the historical primary
+      column unusable without filtering.
+      {% endcomment %}
+      <label class="reject">
+        Or say why you cannot categorise it
+        <select name="reject" id="reject-reason">
+          <option value="">—</option>
+          {% for value, label in rejections %}
+          <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <button type="submit" class="primary">Save and next</button>
+  </form>
+
+  <div id="instructions" class="instructions" hidden>
+    <h2>How to categorise a story</h2>
+    <p>
+      Consider what specific understanding or action — on balance — might
+      be undertaken as a result of the content.
+    </p>
+    <p class="quiet">
+      The full definitions are in the codebook. This panel will carry
+      them once the text is settled.
+    </p>
+    <button type="button" class="linklike instructions-close">Close</button>
+  </div>
+
+  <script>
+  // When the row was opened, so the form can record how long it took.
+  (function () {
+    var opened = Date.now();
+    var field = document.getElementById("opened-at");
+    var form = document.querySelector(".classify-form");
+    if (form && field) {
+      form.addEventListener("submit", function () {
+        field.value = Math.round((Date.now() - opened) / 1000);
+      });
+    }
+
+    // A category and a rejection are alternatives, not both. Choosing
+    // one clears the other rather than letting a row arrive saying it is
+    // Sports AND unreadable.
+    var primary = document.getElementById("primary-category");
+    var reject = document.getElementById("reject-reason");
+    if (primary && reject) {
+      primary.addEventListener("change", function () {
+        if (primary.value) reject.value = "";
+      });
+      reject.addEventListener("change", function () {
+        if (reject.value) {
+          primary.value = "";
+          var secondary = document.querySelector("select[name=secondary]");
+          if (secondary) secondary.value = "";
+        }
+      });
+    }
+
+    var panel = document.getElementById("instructions");
+    document.querySelectorAll(".instructions-open").forEach(function (link) {
+      link.addEventListener("click", function (event) {
+        event.preventDefault();
+        if (panel) panel.hidden = false;
+      });
+    });
+    var close = document.querySelector(".instructions-close");
+    if (close && panel) {
+      close.addEventListener("click", function () { panel.hidden = true; });
+    }
+  })();
+  </script>
+
+  {% endif %}
+</section>
+{% endblock %}

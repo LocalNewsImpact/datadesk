@@ -29,6 +29,22 @@ See docs/CLASSIFICATION_REVIEW_QUEUE.md.
 
 from django.conf import settings
 from django.db import models
+from lnic_contracts import cin_labels
+
+#: The ten Critical Information Needs categories, in the order the
+#: codebook introduces them -- which is the order a person reads them in
+#: and the right one for a dropdown.
+#:
+#: From lnic-contracts, not restated. I wrote them out here first and
+#: used a DIFFERENT order from the crawler's without noticing, which is
+#: exactly the drift the contract exists to prevent: the crawler's order
+#: is its model's class ids, so the two are not interchangeable and a
+#: local copy invites treating them as though they were.
+#:
+#: `CODEBOOK_ORDER` is the display order. `LABELS` is the model's, and
+#: nothing here should use it -- a coder reads a list, they do not read
+#: class ids.
+CIN_LABELS = cin_labels.CODEBOOK_ORDER
 
 
 class ClassificationCohort(models.Model):
