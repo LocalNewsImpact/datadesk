@@ -765,13 +765,35 @@ At 30,000 the natural distribution is nearly sufficient on its own:
 | Transportation Systems | 1.9% | 573 |
 
 Every class clears 500, which is the bottom of the useful range for
-fine-tuning. So at scale the draw should move **toward** the natural
-distribution and away from equal strata — a model trained on a flattened
-distribution learns a prior the world does not have — while still
-boosting the rarest one or two classes.
+fine-tuning.
 
-That is a different draw from the first cohort's, and the sampling code
-has to take the shape as a parameter rather than hard-coding either.
+**But the original labelling deliberately oversampled the low-incidence
+categories to add signal, and that was the right call.** It shows in the
+cohorts: Emergencies is 25% of Group A's primaries against 13.9% of the
+corpus, Transportation 4.2% against 1.9%. The thesis then applied
+SMOTE-Tomek on top, taking Education from 39 rows to 100.
+
+So there is no single correct shape, because the draw serves two
+purposes that want opposite things:
+
+- **Training** wants the rare classes over-represented. A classifier
+  given 39 examples of Education learns Education badly, and no
+  reweighting at scoring time fixes what was never in the data.
+- **Evaluation** wants the real distribution, or it cannot say how the
+  model performs on the corpus as it occurs. This is exactly the trap in
+  the thesis's 87.6%: measured on a SMOTE-balanced test set, it
+  describes a distribution that does not exist.
+
+**Both are available from one draw, provided the inclusion probability
+is recorded per stratum** — which section 3 already requires. Oversample
+the rare classes for the training value, record how much each row was
+over-represented, and weight back to corpus rates when reporting
+precision and recall. Without that number the same rows can serve only
+one of the two purposes.
+
+So the sampling code takes the shape as a parameter, and the recorded
+probability is what makes an oversampled draw honest rather than
+misleading.
 
 ### What a large group of coders changes
 
