@@ -163,7 +163,7 @@ def test_calling_it_a_story_returns_the_url_to_the_pipeline(
         reverse("review:discovery"),
         {
             f"d-{link.id}": discovery.IT_IS_A_STORY,
-            f"v-{link.id}": "story",
+            f"v-{link.id}-{discovery.IT_IS_A_STORY}": "news",
             f"stratum-{link.id}": discovery.DOUBTFUL,
             f"probability-{link.id}": "1.0",
         },
@@ -182,7 +182,7 @@ def test_not_a_story_leaves_the_crawler_alone(client, reviewer, crawler_schema):
         reverse("review:discovery"),
         {
             f"d-{link.id}": discovery.NOT_A_STORY,
-            f"v-{link.id}": "section_index",
+            f"v-{link.id}-{discovery.NOT_A_STORY}": "section_index",
             f"stratum-{link.id}": discovery.DOUBTFUL,
             f"probability-{link.id}": "1.0",
         },
@@ -202,7 +202,7 @@ def test_the_label_records_the_stratum_and_the_odds(client, reviewer, crawler_sc
         reverse("review:discovery"),
         {
             f"d-{link.id}": discovery.NOT_A_STORY,
-            f"v-{link.id}": "video",
+            f"v-{link.id}-{discovery.NOT_A_STORY}": "video",
             f"stratum-{link.id}": discovery.OVERRULED,
             f"probability-{link.id}": "0.024",
         },
@@ -223,7 +223,31 @@ def test_the_qualifier_keeps_a_profile_page_apart_from_a_story():
     page" teaches a model that those are stories."""
     values = discovery.what_it_is_labels()
     assert "tag_or_author" in values and "section_index" in values
-    assert values["story"] == "Story"
+
+
+def test_each_verb_asks_its_own_question():
+    """ "What kind of story" and "what is it instead" have no answers in
+    common. One shared list offered `homepage` as a kind of story."""
+    story = {c["value"] for c in discovery.STORY_KINDS}
+    not_story = {c["value"] for c in discovery.NOT_STORY_KINDS}
+    # `other` is the one honest overlap: both questions can be unanswerable.
+    assert story & not_story == {"other"}
+    for wrong in ("homepage", "section_index", "video", "tag_or_author"):
+        assert wrong not in story, f"{wrong} is offered as a kind of story"
+    for wrong in ("news", "opinion", "obituary", "weather"):
+        assert wrong not in not_story, f"{wrong} is offered as a non-story"
+
+
+def test_the_story_kinds_are_the_extraction_queue_s_words():
+    """The same judgement should not grow a second spelling one queue
+    along."""
+    from review.dispositions import CONTENT_TYPES
+
+    known = {c["value"] for c in CONTENT_TYPES}
+    for choice in discovery.STORY_KINDS:
+        if choice["value"] == "other":
+            continue
+        assert choice["value"] in known, choice["value"]
 
 
 def test_every_qualifier_choice_is_a_dict_the_template_can_render():
@@ -231,18 +255,22 @@ def test_every_qualifier_choice_is_a_dict_the_template_can_render():
     Given 2-tuples, Django resolves neither -- attribute, then key, then
     numeric index, and "value" is none of them -- so the list rendered
     with every option blank and the queue could not be answered."""
-    for choice in discovery.WHAT_IT_IS:
+    for choice in discovery.STORY_KINDS + discovery.NOT_STORY_KINDS:
         assert isinstance(choice, dict), choice
         assert choice["value"] and choice["label"]
 
 
-def test_the_page_offers_the_qualifier_options(client, reviewer, crawler_schema):
+def test_the_page_offers_each_verb_its_own_list(client, reviewer, crawler_schema):
     link = _link(crawler_schema, "options")
     _verification(crawler_schema, link, 5.0, True)
     client.force_login(reviewer)
     body = client.get(reverse("review:discovery")).content.decode()
     assert 'value="section_index"' in body, "the dropdown rendered empty"
-    assert "Tag or author page" in body
+    assert 'value="obituary"' in body, "the story list is missing"
+    # One box per verb, each named for the verb it belongs to, so the two
+    # cannot overwrite one another when the row is posted.
+    assert f'name="v-{link.id}-{discovery.IT_IS_A_STORY}"' in body
+    assert f'name="v-{link.id}-{discovery.NOT_A_STORY}"' in body
 
 
 def test_the_page_loads_the_session_script(client, reviewer, crawler_schema):
@@ -282,3 +310,29 @@ def test_the_percentile_places_a_margin_in_the_cohort():
     assert discovery.percentile(10_000.0, cuts) == 100
     assert discovery.percentile(None, cuts) is None
     assert discovery.percentile(5.0, []) is None
+
+
+def test_the_value_posted_is_the_one_belonging_to_the_chosen_verb():
+    """A row carries a box per verb. Reading `v-<id>` alone got whichever
+    the browser happened to send last, which on this queue means the
+    answer to the question the reviewer did not answer."""
+    from review import submit
+
+    posted = submit.posted(
+        {
+            "d-abc": discovery.NOT_A_STORY,
+            f"v-abc-{discovery.IT_IS_A_STORY}": "news",
+            f"v-abc-{discovery.NOT_A_STORY}": "homepage",
+        }
+    )
+    assert posted["abc"] == (discovery.NOT_A_STORY, "homepage")
+
+
+def test_a_queue_posting_the_bare_name_still_works():
+    """Every other queue posts `v-<id>`, and this must not break them."""
+    from review import submit
+
+    assert submit.posted({"d-abc": "reject", "v-abc": "opinion"})["abc"] == (
+        "reject",
+        "opinion",
+    )

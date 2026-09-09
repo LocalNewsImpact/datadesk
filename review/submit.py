@@ -40,7 +40,17 @@ def posted(post) -> dict[str, tuple[str, str]]:
         # typed value where the verb takes one, and the queue's qualifier
         # otherwise -- what the thing actually is, said alongside the verb
         # rather than instead of it.
-        out[subject_id] = (verb, post.get(f"{VALUE_PREFIX}{subject_id}", "").strip())
+        #
+        # Per verb first. A row whose verbs take *different* vocabularies
+        # posts one box each, and reading `v-<id>` alone got whichever
+        # the browser sent last: the discovery queue asks "what kind of
+        # story" after `story` and "what is it instead" after `not_story`,
+        # and those lists have nothing in common. The bare name is still
+        # honoured, because every other queue posts it.
+        value = post.get(f"{VALUE_PREFIX}{subject_id}-{verb}")
+        if value is None:
+            value = post.get(f"{VALUE_PREFIX}{subject_id}", "")
+        out[subject_id] = (verb, value.strip())
     return out
 
 

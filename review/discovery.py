@@ -90,9 +90,11 @@ STRATUM_LABELS = {key: label for key, label, _ in STRATA}
 
 
 def what_it_is_labels():
-    """{value: label} for the qualifier, for anything that needs the map
-    rather than the rendered list."""
-    return {choice["value"]: choice["label"] for choice in WHAT_IT_IS}
+    """{value: label} across both lists, for anything that needs the map
+    rather than the rendered options."""
+    return {
+        choice["value"]: choice["label"] for choice in STORY_KINDS + NOT_STORY_KINDS
+    }
 
 
 def predicate(stratum):
@@ -237,16 +239,41 @@ NOT_A_STORY = "not_story"
 #: `choice.label`, and a 2-tuple resolves to neither -- Django tries
 #: attribute, then key, then numeric index, and "value" is none of them.
 #: The list rendered with every option blank.
-WHAT_IT_IS = (
-    {"value": "story", "label": "Story"},
+#:
+#: One list per verb. The two questions have no answers in common, and a
+#: single shared list offered "homepage" as a kind of story.
+
+#: What kind of story, asked after "It is a story". The values are the
+#: extraction queue's own (`dispositions.CONTENT_TYPES`), so the same
+#: judgement reads the same in both queues rather than growing a second
+#: spelling of "obituary".
+STORY_KINDS = (
+    {"value": "news", "label": "News"},
+    {"value": "opinion", "label": "Opinion"},
+    {"value": "obituary", "label": "Obituary"},
+    {"value": "weather", "label": "Weather"},
+    {"value": "column", "label": "Column"},
+    {"value": "wire", "label": "Wire"},
+    {"value": "other", "label": "Other"},
+)
+
+#: What it is instead, asked after "Not a story".
+#:
+#: `section index` and `tag or author page` are kept apart from a story
+#: deliberately: extraction has produced article rows for /profile/ pages
+#: titled with the paper's own name, so "an article row exists" is not a
+#: usable label, and a model trained on the two conflated learns the
+#: wrong boundary.
+NOT_STORY_KINDS = (
     {"value": "section_index", "label": "Section index"},
     {"value": "tag_or_author", "label": "Tag or author page"},
     {"value": "video", "label": "Video"},
-    {"value": "gallery", "label": "Photo gallery"},
+    {"value": "photo_gallery", "label": "Photo gallery"},
     {"value": "event", "label": "Event listing"},
     {"value": "obituary_index", "label": "Obituary listing page"},
     {"value": "account", "label": "Subscribe or account page"},
     {"value": "homepage", "label": "Homepage"},
+    {"value": "e_edition", "label": "E-edition"},
     {"value": "other", "label": "Other"},
 )
 
@@ -335,7 +362,7 @@ DISCOVERY_QUEUE = kernel.register(
                 past="restored",
                 tone="fix",
                 takes_value=True,
-                values=WHAT_IT_IS,
+                values=STORY_KINDS,
             ),
             kernel.Verb(
                 name=NOT_A_STORY,
@@ -344,7 +371,7 @@ DISCOVERY_QUEUE = kernel.register(
                 past="confirmed",
                 tone="reject",
                 takes_value=True,
-                values=WHAT_IT_IS,
+                values=NOT_STORY_KINDS,
             ),
         ),
         apply=apply_discovery,
