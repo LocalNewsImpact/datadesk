@@ -117,7 +117,7 @@ def submit(queue, decisions, subjects, user, *, stage_of=None, claim_of=None):
         # A qualifier nobody answered on a verb that does not need one is
         # not incomplete -- it is a second answer the reviewer chose not
         # to give.
-        if verb.takes_value and not value:
+        if verb.takes_value and verb.value_required and not value:
             incomplete += 1
             continue
 

@@ -82,6 +82,20 @@ class Verb:
     takes_value_for: Callable | None = None
     past: str = ""
     takes_value: bool = False
+    #: Whether the value is required, for a verb that offers one.
+    #:
+    #: `takes_value` used to mean both "offers a list" and "will not
+    #: submit without one", and the discovery queue needs them apart:
+    #: "It is a story" offers obituary/opinion/weather because those
+    #: change what the pipeline does, and must submit without any of them
+    #: for the ordinary story that is none of the three. Requiring a
+    #: choice is how a sports story comes to be labelled `news` -- a
+    #: category invented by the list rather than observed.
+    value_required: bool = True
+    #: What the empty option says. The default reads as an instruction to
+    #: choose; a verb whose value is optional needs it to read as an
+    #: answer.
+    value_blank: str = ""
     values: tuple = ()
     #: Where the list is not fixed at import: the words a value is shown
     #: as can be revised on the schema page, and a verb declared once at
