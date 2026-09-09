@@ -240,9 +240,53 @@ activities and planning". With the action test — volunteer at the
 library versus pick a restaurant — that is a usable distinction:
 **participation versus consumption**.
 
-**Suggested repair**, before any further coding at scale: restate 7 and
-8 around the action test, and assign nonprofits and associations to one
-of them by that test rather than naming them in both. A nonprofit's
-volunteer drive is Civic Information; its fundraising gala is Civic
-Life. Then re-measure agreement on 200–300 articles before committing to
-a larger programme.
+**Civic information is a catch-all, not half of an overlapping pair.**
+Measured over the same 813 comparisons, its disagreements are spread
+across five categories rather than concentrated against Civic Life:
+
+| Civic information disagrees with | share of its disagreements |
+| --- | ---: |
+| Emergencies and Public Safety | 27% |
+| Civic Life | 17% |
+| Economic Development | 17% |
+| Political life | 11% |
+| Transportation Systems | 9% |
+
+It agrees 12% of the time. Civic Life agrees 39%, and a third of *its*
+disagreements are with that one category. So Civic Life is a
+comparatively coherent category being pulled into a diffuse one, and
+not an equal partner in a mutual overlap.
+
+The definition explains the behaviour. "Major civic institutions,
+nonprofit organizations, and associations, including their services,
+accessibility, and opportunities for participation" makes any story
+about an institution eligible — a fire department, a transit agency, a
+business grant programme, a city council are all institutions, so each
+reads as Civic Information to a careful coder.
+
+**Merging the two is not the repair.** Civic Life is 25% of the corpus
+and Civic information 17%; one category covering 42% of local coverage
+answers no question anybody would ask, and Civic Life is the more
+descriptive of what local newsrooms actually publish — events, arts,
+recreation, religious and community life. That is worth keeping
+separable.
+
+**Suggested repair: narrow Civic information to access, not activity.**
+The codebook's own action test does the work — what could a reader *do*:
+
+| story | category |
+| --- | --- |
+| The fire department responds to a fire | Emergencies |
+| How to join the volunteer fire department | Civic Information |
+| The library board votes on opening hours | Political Life |
+| The library's new hours, and how to get a card | Civic Information |
+| A gallery opening this weekend | Civic Life |
+
+Civic Information is about **reaching or joining an institution**; the
+other nine cover what institutions and people **do**. Nonprofits and
+associations are then assigned by that test rather than named in both
+definitions: a volunteer drive is Civic Information, a fundraising gala
+is Civic Life.
+
+Re-measure agreement on 200–300 articles under the revised wording
+before committing to a larger programme.
