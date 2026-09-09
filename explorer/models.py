@@ -173,9 +173,62 @@ class CandidateLink(CrawlerModel):
     #: difference between a site that refuses and a link nobody can
     #: account for.
     error_message = models.TextField(null=True)
+    #: When discovery first saw the URL. The discovery queue's cohort is
+    #: built on this rather than an article's publish date, because a row
+    #: the pipeline rejected before extraction has no article and so no
+    #: publish date to group by.
+    discovered_at = models.DateTimeField(null=True)
+    discovered_by = models.TextField(null=True)
+    meta = DecodedJSONField(null=True)
 
     class Meta(CrawlerModel.Meta):
         db_table = "candidate_links"
+
+
+class UrlVerification(CrawlerModel):
+    """One row per verification decision, written by the crawler.
+
+    The subject of the discovery queue. There is no body here and no
+    byline: a URL, the verdict storysniffer returned, and the margin the
+    model scored it at.
+
+    `verification_confidence` is a **log-odds margin**, not a
+    probability. storysniffer's `predict_proba` saturates -- 97.5% of
+    URLs score exactly 0.0 or 1.0 -- so the margin from
+    `predict_log_proba` is what carries the ordering, and its magnitudes
+    run to thousands. It orders URLs; its scale means nothing.
+
+    The verdict and the margin can disagree, and that disagreement is the
+    queue's main signal: storysniffer applies whitelist and blacklist
+    overrides after the model predicts, so 12,464 of March's 13,764
+    rejections carry a *positive* margin. Those were not the model's call.
+    """
+
+    id = models.TextField(primary_key=True)
+    candidate_link = models.ForeignKey(
+        CandidateLink,
+        models.DO_NOTHING,
+        db_column="candidate_link_id",
+        db_constraint=False,
+        null=True,
+        related_name="verifications",
+    )
+    url = models.TextField()
+    #: The bare boolean storysniffer.guess() returns, overrides applied.
+    storysniffer_result = models.BooleanField(null=True)
+    #: The log-odds margin. See the class docstring before ranking on it.
+    verification_confidence = models.FloatField(null=True)
+    verified_at = models.DateTimeField(null=True)
+    previous_status = models.TextField(null=True)
+    #: The verdict the pipeline recorded, which is what the reviewer is
+    #: being asked to second-guess.
+    new_status = models.TextField(null=True)
+    article_headline = models.TextField(null=True)
+    article_excerpt = models.TextField(null=True)
+    dataset_id = models.TextField(null=True)
+
+    class Meta(CrawlerModel.Meta):
+        db_table = "url_verifications"
 
 
 class Article(CrawlerModel):
