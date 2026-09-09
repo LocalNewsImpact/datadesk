@@ -259,26 +259,26 @@ def test_the_page_loads_the_session_script(client, reviewer, crawler_schema):
     assert 'class="prop"' in body or 'prop"' in body
 
 
-def test_a_margin_is_shown_as_a_rank_not_a_probability(
+def test_a_margin_is_shown_as_a_percentile_not_a_probability(
     client, reviewer, crawler_schema
 ):
     """The margin runs to six figures and means nothing to a reader.
-    Nothing here is calibrated, so the page says where a URL sits among
-    the others rather than printing a probability it cannot support."""
+    Nothing here is calibrated, so the page gives the percentile rather
+    than a probability it cannot support."""
     # Inside the doubtful band, which is the stratum the page opens on.
     link = _link(crawler_schema, "ranked")
     _verification(crawler_schema, link, 5.0, True)
     client.force_login(reviewer)
     body = client.get(reverse("review:discovery")).content.decode()
-    assert "more story-like than" in body
+    assert "percentile" in body
     # The raw score belongs in the tooltip, not the column.
     assert "margin 5.0" not in body.split("title=")[0]
 
 
-def test_the_rank_places_a_margin_in_the_cohort():
+def test_the_percentile_places_a_margin_in_the_cohort():
     cuts = [float(n) for n in range(0, 101)]  # a flat 0..100 cohort
-    assert discovery.likeness(-50.0, cuts) == 0
-    assert discovery.likeness(50.0, cuts) == 50
-    assert discovery.likeness(10_000.0, cuts) == 100
-    assert discovery.likeness(None, cuts) is None
-    assert discovery.likeness(5.0, []) is None
+    assert discovery.percentile(-50.0, cuts) == 0
+    assert discovery.percentile(50.0, cuts) == 50
+    assert discovery.percentile(10_000.0, cuts) == 100
+    assert discovery.percentile(None, cuts) is None
+    assert discovery.percentile(5.0, []) is None

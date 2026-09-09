@@ -114,18 +114,17 @@ def predicate(stratum):
     return Q()
 
 
-#: How many cut points the scale below is kept at. 101 gives a 0-100
-#: reading and is small enough to cache; the alternative was 47,901
-#: floats, which is the same answer at 400 kB.
-LIKENESS_STEPS = 101
+#: One cut per percentile, plus the top. Small enough to cache; the
+#: alternative was 47,901 floats, which is the same answer at 400 kB.
+PERCENTILE_STEPS = 101
 
 #: Six hours. The margins do not change unless the crawler re-verifies,
 #: and a scale that is half a day stale moves a reading by a point.
-LIKENESS_TTL = 60 * 60 * 6
+PERCENTILE_TTL = 60 * 60 * 6
 
 
 def margin_cuts(start, end):
-    """Percentile cut points for the cohort's margins.
+    """The cohort's margins at each percentile.
 
     The margin is a log-odds score running from -210 to 630,787 and it
     means nothing to a reader: it orders URLs and its scale is arbitrary.
@@ -133,9 +132,9 @@ def margin_cuts(start, end):
     97.5% of URLs at exactly 0.0 or 1.0, which is why this queue ranks on
     the margin in the first place.
 
-    What can be said honestly is where a URL sits against the others the
-    same classifier scored. These cuts turn a margin into that, and the
-    page calls it a rank rather than a probability, because it is one.
+    What can be said honestly is which percentile a URL falls in among
+    the others the same classifier scored. These cuts turn a margin into
+    that.
     """
     from explorer.models import UrlVerification
 
@@ -155,20 +154,20 @@ def margin_cuts(start, end):
         return []
     last = len(values) - 1
     cuts = [
-        values[min(last, (len(values) * step) // (LIKENESS_STEPS - 1))]
-        for step in range(LIKENESS_STEPS)
+        values[min(last, (len(values) * step) // (PERCENTILE_STEPS - 1))]
+        for step in range(PERCENTILE_STEPS)
     ]
-    cache.set(key, cuts, LIKENESS_TTL)
+    cache.set(key, cuts, PERCENTILE_TTL)
     return cuts
 
 
-def likeness(margin, cuts):
-    """A margin as its place in the cohort, 0-100, or None.
+def percentile(margin, cuts):
+    """The margin's percentile within the cohort, 0-100, or None.
 
-    Read as "more story-like than this many per cent of the URLs the
-    classifier scored in the same window" -- not as a probability that
-    the URL is a story. Nothing here is calibrated, and saying 87% when
-    the number is a rank would be the more comfortable lie.
+    A percentile, and named one. It is not the probability that the URL
+    is a story: `predict_proba` would be that and it saturates, scoring
+    97.5% of URLs at exactly 0.0 or 1.0. Nothing here is calibrated, so
+    printing "87% likely a story" would be the more comfortable lie.
     """
     if margin is None or not cuts:
         return None

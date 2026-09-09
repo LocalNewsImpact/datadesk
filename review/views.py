@@ -1894,12 +1894,11 @@ def discovery_queue(request):
 
     queue_def = _kernel.get(discovery.DISCOVERY_QUEUE_KEY)
     # The margin is a log-odds score whose scale means nothing to a
-    # reader. This is where the URL sits among the ones the classifier
-    # scored in the same window -- a rank, and the page says so.
+    # reader. Its percentile within the cohort does.
     cuts = discovery.margin_cuts(start, end) if rows else []
     for row in rows:
         row.offered_verbs = queue_def.offered(row)
-        row.likeness = discovery.likeness(row.verification_confidence, cuts)
+        row.percentile = discovery.percentile(row.verification_confidence, cuts)
 
     page = Paginator(rows, 50).get_page(request.GET.get("page"))
     return render(

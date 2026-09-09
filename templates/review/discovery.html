@@ -97,20 +97,20 @@
             <span class="val no">not a story</span>
             {% endif %}
             {% comment %}
-            Where this URL sits among the ones the classifier scored in
-            the same window, 0-100. The underlying number is a log-odds
-            margin running to six figures, which tells a reader nothing;
+            The margin's percentile among the URLs this classifier scored
+            in the same window. The margin itself is a log-odds score
+            running to six figures and tells a reader nothing;
             `predict_proba` is not the alternative because it saturates,
             scoring 97.5% of URLs at exactly 0 or 1.
 
-            Called a rank and not a probability on purpose. Nothing here
-            is calibrated, and printing "87% likely a story" would be the
-            more comfortable lie. The raw margin stays in the tooltip.
+            A percentile and not a probability. Nothing here is
+            calibrated, so "87% likely a story" would be the more
+            comfortable lie. The raw margin stays in the tooltip.
             {% endcomment %}
-            {% if row.likeness is not None %}
+            {% if row.percentile is not None %}
             <span class="rec-sub quiet"
                   title="log-odds margin {{ row.verification_confidence|floatformat:1 }}">
-              more story-like than {{ row.likeness }}% of this month&rsquo;s URLs
+              {{ row.percentile }}th percentile
             </span>
             {% endif %}
           </td>
