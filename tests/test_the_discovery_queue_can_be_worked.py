@@ -12,6 +12,7 @@ probability -- a rate measured over rows that were not equally likely to
 be drawn is not an error rate.
 """
 
+import re
 from datetime import UTC, datetime
 
 import pytest
@@ -22,6 +23,29 @@ from accounts.models import DATADESK, Grant
 from explorer.models import CandidateLink, Dataset, Source, UrlVerification
 from review import discovery
 from review.models import ReviewDecision
+
+
+def _model_cell():
+    """The 'What the model said' cell, comments stripped.
+
+    Read as text: the faults were in what rendered, and a template
+    rendered through the ORM needs a database this test does not want.
+    """
+    import re
+    from pathlib import Path
+
+    html = (
+        Path(__file__).resolve().parents[1] / "templates/review/discovery.html"
+    ).read_text()
+    cell = html[html.index('data-label="What the model said"') :]
+    cell = cell[: cell.index("</td>")]
+    cell = re.sub(r"{% comment %}.*?{% endcomment %}", "", cell, flags=re.S)
+    # Tooltips are opt-in detail, not what the column reads as. Stripped
+    # by attribute rather than by slicing to the first quote: the cell
+    # opens with `data-label="..."`, so slicing found that instead and
+    # every "not shown" assertion passed over the whole cell.
+    return re.sub(r'\stitle="[^"]*"', "", cell)
+
 
 pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
 
@@ -358,9 +382,20 @@ def test_a_margin_is_shown_as_a_percentile_not_a_probability(
     _verification(crawler_schema, link, 5.0, True)
     client.force_login(reviewer)
     body = client.get(reverse("review:discovery")).content.decode()
-    assert "percentile" in body
+    # The page used to print "4th percentile" beside a raw log-odds
+    # score, which is the ranking and the thing ranked with nothing
+    # saying so. The percentile is still what decides the wording -- it
+    # is now read FOR the reader rather than at them.
+    assert "a story" in body
+    # Not a probability, which is the claim nothing here can support.
+    # Read against the visible text: `probability-<stratum>` is a hidden
+    # field carrying the inclusion probability the sampling design needs,
+    # and that is a different thing said to a different audience.
+    visible = re.sub(r"<[^>]+>", " ", body)
+    for cannot_support in ("% likely", "probability", "confidence that"):
+        assert cannot_support not in visible, cannot_support
     # The raw score belongs in the tooltip, not the column.
-    assert "margin 5.0" not in body.split("title=")[0]
+    assert "margin 5.0" not in re.sub(r'\stitle="[^"]*"', "", body)
 
 
 def test_the_percentile_places_a_margin_in_the_cohort():
@@ -619,3 +654,62 @@ def test_an_obituary_front_is_a_section_front():
     offered = {c["value"] for c in discovery.NOT_STORY_KINDS}
     assert "obituary_index" not in offered
     assert "section_index" in offered
+
+
+# ------------------------------------------------ and it reads as English
+
+# The cell printed three fragments that ran together unpunctuated.
+#
+#     What a reviewer actually saw, twice reported:
+#
+#         story scores a story now; it was not kept rescored 21, 3th percentile
+#         story scores a story now; it was not kept rescored 25, 4th percentile
+#
+#     Four faults in one line. The verdict is stated, then restated by a
+#     marker meant to add the *other* half. Nothing separates the parts. The
+#     ordinal suffix is hardcoded `th`, so 1, 2, 3 and 21 all come out
+#     wrong. And the score is log-odds -- a scale that means nothing beside
+#     a percentile printed with no indication of what it ranks.
+#
+#     The column exists so a reviewer can decide whether to open the page.
+#     None of that helped them do it.
+
+
+def test_the_verdict_is_not_said_twice():
+    """The phrase carries the verdict; the marker carries the outcome."""
+    cell = _model_cell()
+    assert "scores a story now" not in cell, cell
+    # What the marker says instead: only the half the phrase omits.
+    assert "the pipeline dropped it anyway" in cell
+
+
+def test_no_hardcoded_ordinal_suffix():
+    """`{{ row.percentile }}th` renders 3 as `3th`."""
+    assert "th percentile" not in _model_cell()
+
+
+def test_the_raw_score_is_not_shown_as_a_bare_number():
+    """`rescored 21` is a log-odds value with no scale attached."""
+    cell = _model_cell()
+    assert "rescored" not in cell, cell
+    assert "verification_confidence" not in cell, cell
+
+
+def test_the_strength_travels_with_the_verdict():
+    """A margin of 21 is above zero and in the third percentile. Both
+    are true, and "story" alone reports only the first."""
+    assert discovery.how_the_model_read_it(21, 3) == "weakly a story"
+    assert discovery.how_the_model_read_it(1571, 92) == "strongly a story"
+    assert discovery.how_the_model_read_it(477, 60) == "a story"
+
+
+def test_a_rejection_is_never_called_weak():
+    """The percentile ranks the margin, so the most confident
+    rejections sit at the BOTTOM of it. Reading strength off the
+    percentile below zero renders them as 'weakly not a story'."""
+    for percentile_rank in (0, 3, 8, 25, 50):
+        assert discovery.how_the_model_read_it(-119, percentile_rank) == "not a story"
+
+
+def test_an_unscored_row_says_nothing():
+    assert discovery.how_the_model_read_it(None, 5) is None

@@ -97,18 +97,17 @@
             stratum read as the model agreeing with the rejection, which
             is the opposite of why those rows are in it.
             {% endcomment %}
-            {% if row.model_said == "story" %}
-            <span class="val yes">story</span>
-            {% elif row.model_said %}
-            <span class="val no">not a story</span>
+            {% if row.reading %}
+            <span class="val {% if row.model_said == 'story' %}yes{% else %}no{% endif %}"
+                  title="storysniffer scored this URL {{ row.verification_confidence|floatformat:0 }} when it was rescored in September. The scale is log-odds and means nothing on its own, which is why the strength here is read off where the score falls among the URLs found in the same month. Above zero is a story.">{{ row.reading }}</span>
             {% else %}
-            <span class="val">—</span>
+            <span class="val">&mdash;</span>
             {% endif %}
 
             {% if row.disagrees %}
             {% comment %}
             storysniffer did gate this URL at discovery; it did not
-            record the verdict. The outcome is the missing record — a URL
+            record the verdict. The outcome is the missing record -- a URL
             discovered and never carried forward was rejected then,
             because rejection is what stopped it.
 
@@ -116,15 +115,12 @@
             today. A disagreement means the model changed its mind, or
             the rules around it did, or a story was lost. Only a person
             reading the page can say which.
-            {% endcomment %}
-            <span class="rec-sub warn">scores a story now; it was not kept</span>
-            {% endif %}
 
-            <span class="rec-sub quiet"
-                  title="storysniffer rescored this URL in September; the verdict it gave at discovery was never recorded. Positive is a story.">
-              rescored {{ row.verification_confidence|floatformat:0 }},
-              {{ row.percentile }}th percentile
-            </span>
+            The phrase above already says the model reads it as a story,
+            so this says only the other half: what happened to it.
+            {% endcomment %}
+            <span class="rec-sub warn">the pipeline dropped it anyway</span>
+            {% endif %}
           </td>
           <td class="option decide" data-label="Is it a story?">
             <input type="hidden" name="stratum-{{ row.candidate_link_id }}" value="{{ stratum }}">

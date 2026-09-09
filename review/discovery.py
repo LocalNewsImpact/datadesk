@@ -169,6 +169,41 @@ def margin_cuts(start, end):
     return cuts
 
 
+def how_the_model_read_it(margin, percentile_rank):
+    """One phrase for what the model concluded and how firmly.
+
+    The column printed the verdict, then a marker repeating it, then a
+    score and an ordinal, with no separation:
+
+        story scores a story now; it was not kept rescored 21, 3th percentile
+
+    Three faults at once -- the verdict said twice, no punctuation
+    between the parts, and "3th" from a hardcoded suffix. The reading was
+    also misleading: a score of 21 sits in the third percentile of this
+    month's URLs, so calling it "a story" flat overstates a margin that
+    is barely above zero.
+
+    So the strength travels with the verdict rather than as a separate
+    number a reader has to rank for themselves.
+    """
+    if margin is None:
+        return None
+    if margin <= 0:
+        # No qualifier below zero. The percentile ranks the margin, so a
+        # firmly negative score is a LOW percentile -- reading the
+        # strength off it would render the most confident rejections as
+        # "weakly not a story". Negatives are also a thin tail: almost
+        # every margin in the corpus is positive.
+        return "not a story"
+    if percentile_rank is None:
+        return "a story"
+    if percentile_rank <= 25:
+        return "weakly a story"
+    if percentile_rank >= 75:
+        return "strongly a story"
+    return "a story"
+
+
 def model_said(margin):
     """What the model itself concluded, from the sign of its margin.
 
