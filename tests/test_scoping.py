@@ -200,10 +200,25 @@ def test_the_ladder_says_what_each_rung_adds():
     assert ROLE_ADDS[ADMIN] == frozenset()
 
 
-def test_every_role_is_on_the_ladder():
-    """A role added to one and not the other is a role with no
-    privileges, or privileges nobody can be given."""
-    from accounts.privileges import ROLE_ADDS, ROLE_CHOICES, ROLE_PRIVILEGES, ROLES
+def test_every_role_has_privileges_and_can_be_granted():
+    """A role added to one table and not the other is a role with no
+    privileges, or privileges nobody can be given.
 
-    assert set(ROLES) == set(ROLE_ADDS) == set(ROLE_PRIVILEGES)
-    assert [value for value, _label in ROLE_CHOICES] == list(ROLES)
+    Asked of `ALL_ROLES` rather than `ROLES`, because `classifier` is
+    deliberately not a rung -- see accounts/privileges.py. Written
+    against the ladder alone, this check would have stopped covering the
+    one role most in need of it.
+    """
+    from accounts.privileges import ALL_ROLES, ROLE_CHOICES, ROLE_PRIVILEGES
+
+    assert set(ALL_ROLES) == set(ROLE_PRIVILEGES)
+    assert {value for value, _label in ROLE_CHOICES} == set(ALL_ROLES)
+
+
+def test_the_ladder_is_exactly_the_rungs():
+    """`ROLE_ADDS` describes the ladder, so it covers the rungs and
+    nothing beside them."""
+    from accounts.privileges import CLASSIFIER, ROLE_ADDS, ROLES
+
+    assert set(ROLES) == set(ROLE_ADDS)
+    assert CLASSIFIER not in ROLE_ADDS
