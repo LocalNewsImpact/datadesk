@@ -23,7 +23,7 @@ have to know which console a tool happens to live in.
 """
 
 from accounts.access import has_privilege_anywhere, is_application_admin
-from accounts.privileges import CREATE, READ, WRITE
+from accounts.privileges import CLASSIFY, CREATE, READ, WRITE
 
 # What a group requires, as a privilege rather than a role name. Roles are
 # per dataset now, and one person holds several -- so "is this an editor"
@@ -33,6 +33,15 @@ from accounts.privileges import CREATE, READ, WRITE
 # look at. The actions inside it carry their own guards.
 ANY = READ
 EDITOR = WRITE
+
+#: A section a classifier reaches. This IS the "flag a queue as
+#: classification task support" the plan asks for: a section requiring
+#: `classify` is one, and one requiring `write` is not.
+#:
+#: Expressed as the privilege rather than a second field on the queue,
+#: because the two would have to be kept in step and this cannot drift
+#: from what the access check actually asks.
+CLASSIFIER = CLASSIFY
 
 # Not a privilege. User administration and the audit log are not per
 # dataset, so this asks for an application-wide admin grant instead.

@@ -227,8 +227,57 @@ A classifier does not fit that ladder as it stands. It must be able to
 write its own classifications and must **not** be able to correct
 records, which is what `write` means one rung up.
 
-**Proposed:** a `CLASSIFY` privilege and a `classifier` rung between
-viewer and designer:
+**Built:** a `CLASSIFY` privilege, and `classifier` as a role
+**outside** the ladder holding `classify` and nothing else — not even
+`read`.
+
+It cannot be a rung, and the reason is the requirement. A rung carries
+everything beneath it, so a classifier placed on the ladder would either
+
+- hold `read` over the whole corpus, and a coder who can read the corpus
+  can choose what to label — a sample somebody chose is not a sample; or
+- hand `classify` to every viewer and designer above it, and then there
+  is no saying who is doing the classification.
+
+Controlling both — which people classify, and which records they are
+given — is the point, and neither survives inheritance.
+
+On the ladder, `classify` is granted at **editor**, who runs the
+programme: draws cohorts, reads agreement, decides what is settled. A
+reviewer corrects records and does not label them; that is a different
+job and a different person.
+
+    viewer      read
+    designer    read, design
+    reviewer    read, design, write
+    editor      read, design, write, create, classify
+    admin       the same, unscoped
+
+    classifier  classify            (beside the ladder, not on it)
+
+### A cohort is a scope
+
+A classifier is not granted a dataset. They are granted a **cohort** — a
+provisioned set of article ids — and the existing `Grant` model already
+expresses that: `scope` is a slug, and `Grant(user, DATADESK,
+scope="cohort-3", role="classifier")` says what is meant.
+
+`scopes_for(user, CLASSIFY)` then returns the cohorts that person works,
+with no new plumbing.
+
+Cohort membership is **permanent**: an article drawn into cohort 3 stays
+in cohort 3, so a rate computed over it does not move when a later
+cohort is drawn.
+
+**And a cohort does not leak into any other surface.** Cohorts are
+Datadesk objects with slugs of their own; they are not rows in the
+crawler's `datasets` table, so `datasets_for()` — which filters
+`Dataset.objects` by scope slug — cannot return one. A cohort is an
+overlay on the corpus, not a move: the articles in it still belong to
+Mizzou or VT for every other purpose, and appear there normally.
+
+The original proposal follows, kept because the reasoning against it is
+the reason the built shape is what it is:
 
     viewer      reads and exports
     classifier  ...and classifies what it reads

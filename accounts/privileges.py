@@ -42,8 +42,15 @@ READ = "read"
 WRITE = "write"
 CREATE = "create"
 DESIGN = "design"
+#: Saying what an article is about, in the classification queue.
+#:
+#: Separate from `write` because the two are different trusts. `write`
+#: corrects the records -- a byline, a headline, a status -- and a
+#: classifier does not do that. It reads a story and records a judgement
+#: about it, into a table of its own, and can do nothing else.
+CLASSIFY = "classify"
 
-PRIVILEGES = (READ, WRITE, CREATE, DESIGN)
+PRIVILEGES = (READ, WRITE, CREATE, DESIGN, CLASSIFY)
 
 # --- roles ------------------------------------------------------------------
 
@@ -59,12 +66,28 @@ ADMIN = "admin"
 #: comment beside it.
 ROLES = (VIEWER, DESIGNER, REVIEWER, EDITOR, ADMIN)
 
+#: Not a rung. `classifier` is a role of its own, deliberately outside
+#: the ladder, and the ladder is why it has to be.
+#:
+#: A rung carries everything beneath it, so a classifier placed anywhere
+#: on it would either hold `read` over the whole corpus -- and the point
+#: of the classification queue is that a coder sees the records they
+#: were assigned and no others -- or hand `classify` to every viewer and
+#: designer above it, and then there is no saying who is doing the
+#: classification.
+#:
+#: Controlling both is the requirement: which people classify, and which
+#: records they are given. Neither survives inheritance.
+CLASSIFIER = "classifier"
+
 ROLE_CHOICES = [
     (VIEWER, "Viewer — reads and exports"),
     (DESIGNER, "Designer — and authors visuals"),
     (REVIEWER, "Reviewer — and corrects the data that is there"),
     (EDITOR, "Editor — and brings new data in"),
     (ADMIN, "Admin — everything, every scope, plus user admin"),
+    # Last, and apart: not a step on the ladder above it.
+    (CLASSIFIER, "Classifier — labels assigned stories, and nothing else"),
 ]
 
 #: What each role adds to the one below it.
@@ -87,13 +110,20 @@ ROLE_CHOICES = [
 #:   editor     ...and brings new records in
 #:   admin      ...and is not limited to one dataset
 #:
+#: `classifier` is not on this ladder. See CLASSIFIER above.
+#:
 #: Admin adds no privilege. What makes it admin is the absence of a
 #: scope, which the Grant model enforces rather than this table.
 ROLE_ADDS = {
     VIEWER: frozenset({READ}),
     DESIGNER: frozenset({DESIGN}),
     REVIEWER: frozenset({WRITE}),
-    EDITOR: frozenset({CREATE}),
+    # Two, not one. An editor runs the classification programme -- draws
+    # the cohorts, reads the agreement, decides what is settled -- so
+    # `classify` arrives here rather than lower down. A reviewer
+    # corrects records and does not label them; that is a different job
+    # and a different person.
+    EDITOR: frozenset({CREATE, CLASSIFY}),
     ADMIN: frozenset(),
 }
 
@@ -111,6 +141,20 @@ def _accumulate():
 #: Reading the WRITE column down this table is reading who the review
 #: queue is for.
 ROLE_PRIVILEGES = _accumulate()
+
+#: `classify` and nothing else. Not `read`: a classifier who can read the
+#: corpus can choose what to label, and a sample somebody chose is not a
+#: sample. The queue serves them their assignments; that is the whole of
+#: their access.
+ROLE_PRIVILEGES[CLASSIFIER] = frozenset({CLASSIFY})
+
+#: Every role the console grants: the ladder, plus the ones beside it.
+#:
+#: `ROLES` is the ladder and is what the superset property is about.
+#: This is what "is this a real role" should be asked against -- a check
+#: written against `ROLES` alone would quietly stop covering anything
+#: that is deliberately not a rung.
+ALL_ROLES = (*ROLES, CLASSIFIER)
 
 #: Bringing new data in — an import, or starting a dataset. Both are
 #: `create`: neither corrects a record that exists, both add records that
