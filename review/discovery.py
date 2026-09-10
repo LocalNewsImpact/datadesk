@@ -433,6 +433,10 @@ NOT_STORY_KINDS = (
     {"value": "not_found", "label": "404 or dead link"},
     {"value": "feed", "label": "Feed (RSS, Atom or JSON)"},
     {"value": "section_index", "label": "Section Front"},
+    # A briefs roundup is many short items on one page, so there is no
+    # single story to extract -- the same shape as a section front rather
+    # than a story that happens to be short.
+    {"value": "news_briefs", "label": "News briefs"},
     {"value": "tag_or_author", "label": "Tag or author page"},
     {"value": "search", "label": "Search results"},
     {"value": "video", "label": "Video"},
@@ -503,14 +507,33 @@ def apply_discovery(verification, verb, value, user):
             kind=value or "",
             decided_by=getattr(user, "username", "") or "",
         )
+        # `discovered` puts it back in the fetch queue, which is what
+        # "it is a story" means -- except for a kind the pipeline should
+        # never fetch at all. A reviewer who reads a URL and says "wire"
+        # has already reached the conclusion a fetch, an extraction and a
+        # wire check would reach; the kind used to be recorded here and
+        # then ignored, so all three happened anyway.
+        #
+        # The mapping is the contract's, not this function's
+        # (`link_status_for`): the same decision is read by the crawler,
+        # and a copy here is a copy that can disagree.
+        status = discovery_verdict.link_status_for(meta[discovery_verdict.METADATA_KEY])
         audited_update(
             user,
             [link],
-            {"status": discovery_verdict.RESTORED_STATUS, "meta": meta},
-            action="discovery:restore",
-            reason="Reviewer says this URL is a story",
+            {"status": status, "meta": meta},
+            action=(
+                "discovery:restore"
+                if status == discovery_verdict.RESTORED_STATUS
+                else "discovery:withhold"
+            ),
+            reason=(
+                "Reviewer says this URL is a story"
+                if status == discovery_verdict.RESTORED_STATUS
+                else f"Reviewer says this URL is {value}; not fetched"
+            ),
         )
-        after = discovery_verdict.RESTORED_STATUS
+        after = status
 
     return {
         "label": (verification.url or "")[:300],
