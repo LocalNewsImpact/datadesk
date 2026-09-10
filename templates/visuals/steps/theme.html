@@ -66,6 +66,30 @@
       <input type="checkbox" name="opt-{{ o.id }}" value="1" {% if o.on %}checked{% endif %}>
       {{ o.label }}
     </label>
+    {% elif o.kind == "checks" %}
+    {% comment %}
+    Chosen from what the chart draws, not typed. Typed, it is a spelling
+    test: "St. Louis" against "St Louis" highlights nothing and says so
+    nowhere. Falls back to a text box when the values cannot be read, so
+    the control still exists on a visual whose data has not loaded.
+    {% endcomment %}
+    <fieldset class="values">
+      <legend>{{ o.label }}</legend>
+      {% if o.values %}
+      <div class="values-list">
+        {% for v in o.values %}
+        <label class="row">
+          <input type="checkbox" name="opt-{{ o.id }}" value="{{ v.value }}"
+                 {% if v.on %}checked{% endif %}>
+          <span class="label">{{ v.label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      {% else %}
+      <input type="text" name="opt-{{ o.id }}" value="{{ o.value }}"
+             placeholder="Comma-separated">
+      {% endif %}
+    </fieldset>
     {% elif o.kind == "choice" %}
     <label class="stacked">{{ o.label }}
       <select name="opt-{{ o.id }}">
