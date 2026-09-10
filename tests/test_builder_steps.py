@@ -1911,6 +1911,15 @@ FIELDS_FOR = {
         "role-series": "publisher",
     },
     "choropleth": {"role-geo_join": "geo_county", "role-geo_value": "articles"},
+    # The corpus has two geographies on one row: where the newsroom IS
+    # (publisher_county) and where the story is ABOUT (geo_county). So a
+    # flow map is buildable from the corpus after all -- which newsrooms
+    # cover which counties -- and it is walked like any other kind.
+    "flowmap": {
+        "role-from": "publisher_county",
+        "role-to": "geo_county",
+        "role-value": "articles",
+    },
     # A point map wants a latitude and a longitude. The corpus offers no
     # such variable -- the only numbers it has are counts -- so what
     # fills those slots here is what the fields step actually offers,

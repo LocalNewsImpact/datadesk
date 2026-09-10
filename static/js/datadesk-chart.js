@@ -318,6 +318,8 @@
     if (kind === "chord") return renderChord(el, config, rows, t, width);
     if (kind === "sankey") return renderSankey(el, config, rows, t, width);
     if (kind === "arc") return renderArc(el, config, rows, t, width);
+    if (kind === "flowmap")
+      return renderFlowMap(el, config, rows, opts, t, width);
 
     const x = config.x, y = config.y, series = config.series;
     if (!x || !y) { el.textContent = "Pick the x and y columns."; return; }
@@ -1060,7 +1062,7 @@
   }
 
   // Shared: fold a from/to edge list to at most eight named groups.
-  function edgeGroups(rows, from, to, fixed) {
+  function edgeGroups(rows, from, to, fixed, pin) {
     const order = [];
     for (const r of rows) {
       for (const v of [r[from], r[to]]) {
@@ -1088,9 +1090,17 @@
       };
     }
     if (order.length <= 8) return { names: order, fold: (v) => v };
-    const keep = new Set(order.slice(0, 8));
+    // The subject is kept whatever its position. Folding is by order of
+    // APPEARANCE, which is arbitrary relative to what a chart is about: a
+    // study of three counties lost one of them to "Other" because its
+    // largest flow happened to sort ninth.
+    const pinned = (pin || []).filter((n) => order.includes(n));
+    const rest = order.filter((n) => !pinned.includes(n));
+    const room = Math.max(0, 8 - pinned.length);
+    const kept = [...pinned, ...rest.slice(0, room)];
+    const keep = new Set(kept);
     return {
-      names: [...order.slice(0, 8), "Other"],
+      names: [...kept, "Other"],
       fold: (v) => (keep.has(v) ? v : "Other"),
     };
   }
@@ -1459,6 +1469,95 @@
     return { nodes, links, lefts, sides };
   }
 
+
+  // A flow map: counties drawn, and an arc between the two each row
+  // names.
+  //
+  // A chord shows that a system exists; only a map shows WHERE. The
+  // finding these were built for is that Audrain commutes toward
+  // Columbia and Osage toward Jefferson City -- two hubs, forty miles
+  // apart -- which a ring of ribbons cannot express because it has no
+  // geography in it.
+  //
+  // Rows carry the county each end IS (`from_geo`, `to_geo`) as well as
+  // what it is called. Names alone cannot land an arc on a shape: eight
+  // states have a Boone County.
+  function renderFlowMap(el, config, rows, opts, t, width) {
+    const from = config.from, to = config.to, value = config.value;
+    const fromGeo = config.from_geo || "from_fips";
+    const toGeo = config.to_geo || "to_fips";
+    if (!from || !to || !value) {
+      el.textContent = "Pick the from, to, and value columns."; return;
+    }
+    rows = coerce(rows.slice(), value).filter(
+      (r) => r[fromGeo] && r[toGeo] && +r[value] > 0);
+    if (!rows.length) {
+      el.textContent = "No flows with a county at both ends."; return;
+    }
+
+    const ids = [];
+    for (const r of rows) ids.push(String(r[fromGeo]), String(r[toGeo]));
+    boundaries(opts.geoBase, "counties", ids, opts.geoUrls).then((features) => {
+      const wanted = new Set(ids.map(String));
+      const shown = features.filter((f) => wanted.has(String(f.id)));
+      if (!shown.length) {
+        el.textContent = "None of those counties are in the basemap."; return;
+      }
+      const height = Math.round(width * 0.62);
+      const projection = d3.geoAlbersUsa().fitSize(
+        [width, height], { type: "FeatureCollection", features: shown });
+      const path = d3.geoPath(projection);
+      // Centroid of the SHAPE, not of the bounding box: a river county
+      // is a long thin crescent and its box centre can sit outside it.
+      const at = new Map(shown.map((f) => [String(f.id), path.centroid(f)]));
+
+      const svg = d3.create("svg")
+        .attr("width", width).attr("height", height)
+        .attr("viewBox", [0, 0, width, height])
+        .attr("style",
+          'max-width:100%;height:auto;display:block;font-family:system-ui,' +
+          '-apple-system,"Segoe UI",sans-serif;font-size:12px');
+
+      svg.append("g").selectAll("path").data(shown).join("path")
+        .attr("d", path)
+        // `missing` is the theme's unshaded land: this map carries no
+        // value per county, only the arcs between them, so the counties
+        // are the ground rather than the data.
+        .attr("fill", t.missing)
+        .attr("stroke", t.boundary).attr("stroke-width", 0.6);
+
+      // Square root, because the eye reads a ribbon by its area and the
+      // range here is three orders of magnitude -- 5,581 against 12.
+      const w = d3.scaleSqrt()
+        .domain([0, d3.max(rows, (r) => +r[value]) || 1])
+        .range([0, Math.max(10, width / 60)]);
+
+      const drawn = rows.filter((r) => at.has(String(r[fromGeo])) && at.has(String(r[toGeo])));
+      const arcs = svg.append("g").attr("fill", "none")
+        .selectAll("path").data(drawn).join("path")
+        .attr("d", (r) => {
+          const a = at.get(String(r[fromGeo])), b = at.get(String(r[toGeo]));
+          // Bowed, and always to the same side of the line, so A->B and
+          // B->A are two arcs rather than one drawn twice. Commuting is
+          // asymmetric -- 5,581 one way against 1,108 the other -- and a
+          // single line would hide half the finding.
+          const dx = b[0] - a[0], dy = b[1] - a[1];
+          const r2 = Math.hypot(dx, dy) * 1.6;
+          return `M${a[0]},${a[1]}A${r2},${r2} 0 0,1 ${b[0]},${b[1]}`;
+        })
+        .attr("stroke", (r, i) => t.series[i % t.series.length])
+        .attr("stroke-width", (r) => w(+r[value]))
+        .attr("stroke-opacity", 0.55)
+        .attr("stroke-linecap", "round");
+
+      el.replaceChildren(svg.node());
+      const tip = tooltip(el);
+      interactive(arcs, tip, (r) =>
+        `${r[from]} \u2192 ${r[to]}: ` +
+        `${(+r[value]).toLocaleString()} workers`);
+    });
+  }
+
   function renderChord(el, config, rows, t, width) {
     const d3 = global.d3;
     const { from, to, value } = config;
@@ -1470,7 +1569,12 @@
     // a CIN need the same colour in this chart as in every other, which is
     // the whole reason the option exists -- and the chord ignored it.
     const fixed = taxonomy(config.taxonomy, t);
-    const { names, fold } = edgeGroups(rows, from, to, fixed && fixed.order);
+    // What the chart is ABOUT, if the author said. Kept out of "Other"
+    // and drawn in the accent hues, with everything else muted, so the
+    // subject reads at a glance instead of being one of nine colours.
+    const pin = String(config.highlight || "").split(",")
+      .map((n) => n.trim()).filter(Boolean);
+    const { names, fold } = edgeGroups(rows, from, to, fixed && fixed.order, pin);
     const colors = fixed
       ? names.map((n, i) => {
           const at = fixed.order.indexOf(n);
@@ -1479,6 +1583,14 @@
           return at >= 0 ? fixed.colors[at] : slotColors(names, t)[i];
         })
       : slotColors(names, t);
+    // Muted for everything that is not the subject. Not grey-on-grey:
+    // the partners still need telling apart from each other, so they keep
+    // their own hues at half strength and the subject keeps full.
+    const highlighted = new Set(pin);
+    const ink = pin.length
+      ? names.map((n, i) =>
+          highlighted.has(n) ? t.series[i % t.series.length] : t.missing)
+      : colors;
     const index = new Map(names.map((n, i) => [n, i]));
     const matrix = names.map(() => names.map(() => 0));
     for (const r of rows) {
@@ -1497,7 +1609,7 @@
     const group = svg.append("g").selectAll("g").data(chords.groups).join("g");
     const groupArcs = group.append("path")
       .attr("d", d3.arc().innerRadius(R).outerRadius(R + 12))
-      .attr("fill", (d) => colors[d.index]);
+      .attr("fill", (d) => ink[d.index]);
     // Labels ride along the arc, not out from it. Set radially they read
     // as spokes at every angle but the horizontal, which is what "at 90
     // degrees to the circle" looks like -- the eye has to travel around
@@ -1574,7 +1686,15 @@
 
     const ribbons = svg.append("g").selectAll("path").data(chords).join("path")
       .attr("d", d3.ribbon().radius(R - 2))
-      .attr("fill", (d) => colors[d.source.index])
+      // A ribbon takes the subject's colour from whichever end is the
+      // subject, so a flow INTO Boone reads as Boone's as much as one
+      // out of it. Coloured by source alone, half of the subject's own
+      // traffic rendered in a partner's hue.
+      .attr("fill", (d) =>
+        pin.length && highlighted.has(names[d.target.index])
+        && !highlighted.has(names[d.source.index])
+          ? ink[d.target.index]
+          : ink[d.source.index])
       .attr("fill-opacity", 0.7)
       .attr("stroke", t.surface).attr("stroke-width", 0.5);
 

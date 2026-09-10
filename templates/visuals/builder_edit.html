@@ -116,6 +116,19 @@
           <label>From <select name="from" data-columns></select></label>
           <label>To <select name="to" data-columns></select></label>
           <label>Value <select name="value" data-columns data-optional></select></label>
+          {% comment %}
+          A flow map draws arcs between shapes, so it needs the county
+          each end IS, not only what it is called: eight states have a
+          Boone County. Optional, because every other flow chart works
+          from the names alone.
+          {% endcomment %}
+          <label>From county (FIPS)
+            <select name="from_geo" data-columns data-optional></select></label>
+          <label>To county (FIPS)
+            <select name="to_geo" data-columns data-optional></select></label>
+          <label>About
+            <input type="text" name="highlight"
+                   placeholder="Audrain, Boone, Osage"></label>
         </fieldset>
 
         <fieldset data-kinds="choropleth points storymap">

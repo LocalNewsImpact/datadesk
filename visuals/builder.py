@@ -21,6 +21,7 @@ CHART_KINDS = (
     "choropleth",
     "points",
     "storymap",
+    "flowmap",
 )
 
 _STRING_KEYS = (
@@ -35,6 +36,17 @@ _STRING_KEYS = (
     "from",
     "to",
     "value",
+    # A flow map needs the county each end IS, not only what it is
+    # called: two counties share a name in eight states, and an arc has
+    # to land on a shape.
+    "from_geo",
+    "to_geo",
+    # The entities the chart is ABOUT, comma-separated. A chord folds
+    # everything past the eighth group into "Other", by order of
+    # appearance -- which is arbitrary relative to the author's subject.
+    # A study of Audrain, Boone and Osage lost Audrain to "Other" because
+    # its largest flow sorted ninth.
+    "highlight",
     "label",
     "sort",
     "stack",
@@ -184,6 +196,9 @@ CHART_LIBS = {
     "scatter": ("d3", "plot"),
     "choropleth": ("d3", "plot", "topojson"),
     "points": ("d3", "plot", "topojson"),
+    # Counties from topojson and its own arcs and arrowheads in d3. Plot
+    # draws none of it, so a flow map does not pay for Plot.
+    "flowmap": ("d3", "topojson"),
 }
 
 #: Every library, for a kind this table does not know about. In load
