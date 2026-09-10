@@ -1886,7 +1886,7 @@ def test_the_flow_map_highlights_by_subject_not_by_row():
     # Not by position in the file.
     assert "t.series[i % t.series.length]" not in body
     # Either end.
-    assert "hueOf(r[fromGeo]) || hueOf(r[toGeo])" in body
+    assert "hueOf(r.lo)" in body and "hueOf(r.hi)" in body
     # Context stays visible rather than being dropped: these counties sit
     # inside a system and that is the finding.
     assert "raise()" in body
@@ -1928,3 +1928,74 @@ def test_the_flow_map_shouts_loudest_between_two_subjects():
     body = js.split("function renderFlowMap(")[1].split("\n  function ")[0]
     assert "if (a && b) return 0.95" in body
     assert body.count("raise()") == 2, "subject-pair arcs are not raised last"
+
+
+def test_a_pair_is_one_arc_carrying_both_directions():
+    """Commuting is reciprocal -- 110 of 137 flows here are half of a
+    pair -- so a curve per direction laid two near-identical arcs over
+    each other and doubled the ink for no added information.
+
+    One arc per pair: its width is the total, and the colour changes
+    along it where the split falls. An even exchange changes colour
+    halfway; a one-way flow barely changes at all. The asymmetry becomes
+    a position instead of a comparison between overlapping curves.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static/js/datadesk-chart.js").read_text()
+    body = js.split("function renderFlowMap(")[1].split("\n  function ")[0]
+    assert "const pairs = new Map()" in body
+    # The split drives the stop, so the position is the number.
+    assert "r.out / r.total" in body
+    # Hard stops: a blend reads as a third colour in the middle.
+    assert body.count('.attr("offset", cut)') == 2
+    # And the tooltip has to name both, since one arc now answers two
+    # questions.
+    assert "r.out.toLocaleString()" in body and "r.back.toLocaleString()" in body
+
+
+def test_the_subject_is_ticked_not_typed():
+    """Typed, it was a spelling test: "St. Louis" against "St Louis"
+    highlights nothing and reports nothing."""
+    from visuals.types import BY_ID
+
+    for kind in ("chord", "flowmap"):
+        option = next(o for o in BY_ID[kind].options if o.id == "highlight")
+        assert option.kind == "checks", kind
+
+
+def test_the_places_offered_come_from_the_visuals_own_rows():
+    """Offering a county the chart does not draw invites a highlight that
+    highlights nothing."""
+    from visuals.panels import flow_places
+
+    class _Snap:
+        data = [
+            {"from": "Boone", "to": "Cole"},
+            {"from": "Cole", "to": "Boone"},
+            {"from": "Osage", "to": "Cole"},
+        ]
+
+    class _Snaps:
+        def order_by(self, *_):
+            return self
+
+        def first(self):
+            return _Snap()
+
+    class _Visual:
+        config = {"kind": "flowmap", "from": "from", "to": "to"}
+        snapshots = _Snaps()
+
+    assert flow_places(_Visual()) == ["Boone", "Cole", "Osage"]
+
+
+def test_no_columns_chosen_offers_no_places():
+    """Rather than guessing which columns hold places."""
+    from visuals.panels import flow_places
+
+    class _Visual:
+        config = {"kind": "flowmap"}
+
+    assert flow_places(_Visual()) == []

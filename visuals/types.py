@@ -174,8 +174,11 @@ _AXIS_LABELS = (
 #: while everything else mutes.
 _HIGHLIGHT = Option(
     "highlight",
-    "Counties or categories this chart is about (comma-separated)",
-    "text",
+    "Which of these is this chart about?",
+    # Ticked from the values the chart draws. Typed, it was a spelling
+    # test nobody could pass reliably -- "St. Louis" against "St Louis"
+    # highlights nothing and reports nothing.
+    "checks",
 )
 
 #: Where to frame a map that is not a choropleth. The `newsrooms` step

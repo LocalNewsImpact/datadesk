@@ -1585,11 +1585,62 @@
         .domain([0, d3.max(rows, (r) => +r[value]) || 1])
         .range([0, Math.max(10, width / 60)]);
 
-      const drawn = rows.filter((r) => at.has(String(r[fromGeo])) && at.has(String(r[toGeo])));
+      // One arc per PAIR, not per direction. Commuting is reciprocal --
+      // 110 of 137 flows here are half of a pair -- so drawing each
+      // direction separately doubled the ink and laid two near-identical
+      // curves over each other.
+      //
+      // The arc carries both: its width is the traffic in total, and the
+      // colour changes along it at the point where the split falls. An
+      // even exchange changes colour halfway; a one-way flow barely
+      // changes at all. Asymmetry becomes a position rather than a
+      // comparison between two overlapping curves.
+      const pairs = new Map();
+      for (const r of rows) {
+        const a = String(r[fromGeo]), b = String(r[toGeo]);
+        if (!at.has(a) || !at.has(b)) continue;
+        const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+        const [lo, hi] = key.split("|");
+        const seen = pairs.get(key) || {
+          lo, hi, out: 0, back: 0,
+          loName: nameOf.get(lo), hiName: nameOf.get(hi),
+        };
+        if (a === lo) seen.out += +r[value] || 0;
+        else seen.back += +r[value] || 0;
+        pairs.set(key, seen);
+      }
+      const gradId = "dd-flow-" + Math.abs(hashOf(String(shown.length)));
+      const drawn = [...pairs.values()].map((p) => ({
+        ...p, total: p.out + p.back,
+        [fromGeo]: p.lo, [toGeo]: p.hi,
+        [from]: p.loName, [to]: p.hiName,
+        [value]: p.out + p.back,
+      }));
+      // A gradient per pair where BOTH ends are subjects, running along
+      // the arc so the colour changes where the split falls.
+      const defs = svg.append("defs");
+      drawn.forEach((r, i) => {
+        const a = hueOf(r.lo), b = hueOf(r.hi);
+        if (!a || !b) return;
+        const p1 = at.get(r.lo), p2 = at.get(r.hi);
+        const cut = r.total ? r.out / r.total : 0.5;
+        const g = defs.append("linearGradient")
+          .attr("id", `${gradId}-${i}`)
+          .attr("gradientUnits", "userSpaceOnUse")
+          .attr("x1", p1[0]).attr("y1", p1[1])
+          .attr("x2", p2[0]).attr("y2", p2[1]);
+        // Hard stops rather than a blend: a soft fade reads as a third
+        // colour in the middle, and the position IS the number.
+        g.append("stop").attr("offset", 0).attr("stop-color", a);
+        g.append("stop").attr("offset", cut).attr("stop-color", a);
+        g.append("stop").attr("offset", cut).attr("stop-color", b);
+        g.append("stop").attr("offset", 1).attr("stop-color", b);
+      });
+
       const arcs = svg.append("g").attr("fill", "none")
         .selectAll("path").data(drawn).join("path")
         .attr("d", (r) => {
-          const a = at.get(String(r[fromGeo])), b = at.get(String(r[toGeo]));
+          const a = at.get(r.lo), b = at.get(r.hi);
           // Bowed, and always to the same side of the line, so A->B and
           // B->A are two arcs rather than one drawn twice. Commuting is
           // asymmetric -- 5,581 one way against 1,108 the other -- and a
@@ -1601,9 +1652,14 @@
         // An arc belongs to whichever end is the subject, so a flow INTO
         // Audrain is Audrain's as much as one out of it -- which is the
         // whole question being asked of a commuting map.
-        .attr("stroke", (r) => {
+        .attr("stroke", (r, i) => {
+          const a = hueOf(r.lo), b = hueOf(r.hi);
           if (!pin.size) return t.series[0];
-          return hueOf(r[fromGeo]) || hueOf(r[toGeo]) || t.muted;
+          // Neither end is the subject: one quiet colour, no gradient to
+          // read, because there is no direction question being asked.
+          if (!a && !b) return t.muted;
+          if (a && b) return `url(#${gradId}-${i})`;
+          return a || b;
         })
         .attr("stroke-width", (r) => w(+r[value]))
         // Everything else stays visible and quiet: the surrounding system
@@ -1617,7 +1673,7 @@
         // rest is the context that makes both readable.
         .attr("stroke-opacity", (r) => {
           if (!pin.size) return 0.55;
-          const a = isSubject(r[fromGeo]), b = isSubject(r[toGeo]);
+          const a = isSubject(r.lo), b = isSubject(r.hi);
           if (a && b) return 0.95;
           return a || b ? 0.5 : 0.1;
         })
@@ -1625,16 +1681,16 @@
 
       // Drawn last so a thin subject arc is not buried under the
       // context it is being compared against.
-      arcs.filter((r) => pin.size && (isSubject(r[fromGeo]) || isSubject(r[toGeo])))
-        .raise();
-      arcs.filter((r) => pin.size && isSubject(r[fromGeo]) && isSubject(r[toGeo]))
-        .raise();
+      arcs.filter((r) => pin.size && (isSubject(r.lo) || isSubject(r.hi))).raise();
+      arcs.filter((r) => pin.size && isSubject(r.lo) && isSubject(r.hi)).raise();
 
       el.replaceChildren(svg.node());
       const tip = tooltip(el);
+      // Both directions, because the arc now carries both and a reader
+      // hovering it is asking which way the traffic runs.
       interactive(arcs, tip, (r) =>
-        `${r[from]} \u2192 ${r[to]}: ` +
-        `${(+r[value]).toLocaleString()} workers`);
+        `${r.loName} \u2192 ${r.hiName}: ${r.out.toLocaleString()}` +
+        `<br>${r.hiName} \u2192 ${r.loName}: ${r.back.toLocaleString()}`);
     });
   }
 

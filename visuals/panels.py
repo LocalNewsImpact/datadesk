@@ -89,6 +89,44 @@ def type_panel(visual, post=None):
 # --- step 2: the colours -----------------------------------------------------
 
 
+def _chosen(config, key):
+    """The values already ticked, from the stored comma-separated string."""
+    return {v.strip() for v in str(config.get(key) or "").split(",") if v.strip()}
+
+
+def flow_places(visual):
+    """Every place named at either end of a flow, once, sorted.
+
+    What a chord or a flow map is ABOUT is chosen from the things it
+    draws, not typed. Typed, it is a spelling test: "St. Louis" against
+    "St Louis" silently highlights nothing, and the author is left
+    looking at a map that ignored them.
+
+    Read from the visual's own rows -- the uploaded snapshot for inline
+    data, which is where a commuting file lives. Failures are swallowed:
+    a picker that cannot be filled should fall back to a text box, not
+    take the step down.
+    """
+    config = visual.config or {}
+    a, b = config.get("from"), config.get("to")
+    if not a or not b:
+        return []
+    try:
+        snapshot = visual.snapshots.order_by("-version").first()
+        rows = (snapshot.data or []) if snapshot else []
+    except Exception:
+        return []
+    seen = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key in (a, b):
+            value = str(row.get(key) or "").strip()
+            if value:
+                seen.add(value)
+    return sorted(seen)
+
+
 def _chart_options(visual):
     """The options this chart offers, given the roles filled so far."""
     from visuals.types import options_for
@@ -136,6 +174,11 @@ def theme_panel(visual, post=None):
             if option.kind == "toggle":
                 # Absent means off, which is what an unticked box sends.
                 config[option.id] = bool(posted)
+            elif option.kind == "checks":
+                # Stored as the comma-separated string the renderers
+                # already read, so the picker is a UI change and not a
+                # config migration.
+                config[option.id] = ", ".join(post.getlist(f"opt-{option.id}"))
             elif option.kind == "choice":
                 allowed = {value for value, _ in option.values}
                 config[option.id] = posted if posted in allowed else ""
@@ -196,10 +239,19 @@ def theme_panel(visual, post=None):
                 "note": o.note,
                 "value": config.get(o.id, ""),
                 "on": bool(config.get(o.id, True if o.id == "stacked" else "")),
-                "values": [
-                    {"value": v, "label": lab, "on": config.get(o.id, "") == v}
-                    for v, lab in o.values
-                ],
+                "values": (
+                    # A "checks" option is chosen from the data rather
+                    # than declared, so its values come from the rows.
+                    [
+                        {"value": v, "label": v, "on": v in _chosen(config, o.id)}
+                        for v in flow_places(visual)
+                    ]
+                    if o.kind == "checks"
+                    else [
+                        {"value": v, "label": lab, "on": config.get(o.id, "") == v}
+                        for v, lab in o.values
+                    ]
+                ),
             }
             for o in _chart_options(visual)
         ],
