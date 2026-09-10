@@ -2034,23 +2034,20 @@ def discovery_queue(request):
     for row in rows:
         row.offered_verbs = queue_def.offered(row)
         row.percentile = discovery.percentile(row.verification_confidence, cuts)
-        # What the model concluded, which is not the verdict: `guess()`
-        # applies a whitelist and a blacklist afterwards, so a URL can
-        # score +477 and still come back False.
-        row.model_said = discovery.model_said(row.verification_confidence)
-        # One plain phrase, because the cell used to print the verdict,
-        # then a marker repeating it, then a raw score and an ordinal:
-        #
-        #     story scores a story now; it was not kept rescored 25, 4th percentile
-        #
-        # No reviewer can act on that. The score is log-odds, whose scale
-        # means nothing without the cohort, and the percentile it needed
-        # to be read against was sitting right next to it unexplained.
-        # Both now travel inside the phrase, or in the tooltip.
-        row.reading = discovery.how_the_model_read_it(
-            row.verification_confidence, row.percentile
+        # Two columns, two different questions, and they used to answer
+        # each other's. "What the pipeline said" printed a raw status
+        # while "What the model said" printed "the pipeline dropped it
+        # anyway" -- so a wire row read `wire` in one cell and "dropped"
+        # in the next, which are opposite claims about the same event.
+        row.model_verdict, row.model_confidence = discovery.how_the_model_read_it(
+            row.verification_confidence
         )
-        row.disagrees = discovery.disagrees_with_outcome(
+        (
+            row.pipeline_kind,
+            row.pipeline_said,
+            row.pipeline_note,
+        ) = discovery.what_the_pipeline_did(row.new_status)
+        row.disagrees = discovery.model_and_pipeline_disagree(
             row.verification_confidence, row.new_status
         )
 
