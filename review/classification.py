@@ -580,7 +580,7 @@ def coder_report():
     """
     from django.contrib.auth import get_user_model
 
-    from accounts.models import DATADESK, Grant
+    from accounts.models import DATADESK, Grant, Invitation
 
     counts, outstanding = {}, {}
     for user_id in ClassificationDecision.objects.values_list(
@@ -646,6 +646,13 @@ def coder_report():
         # Offered in the picker. Superusers included: somebody has to be
         # able to work a cohort on a fresh install.
         "candidates": get_user_model().objects.order_by("username"),
+        # Invited and not yet signed in. Without this they are invisible:
+        # no user row exists, so they appear in no list, and an admin
+        # who invited somebody last week has no way to see that they
+        # have not turned up.
+        "pending": Invitation.objects.filter(
+            app=DATADESK, role=CLASSIFIER, accepted_at__isnull=True
+        ).order_by("email"),
     }
 
 
@@ -870,3 +877,50 @@ def assign_cohort(cohort):
     with transaction.atomic():
         ClassificationAssignment.objects.bulk_create(made, batch_size=500)
     return len(made)
+
+
+def invite_coder(email, cohort, *, invited_by=None):
+    """Admit somebody to one cohort as a classifier, before they exist.
+
+    The flow without this was backwards: a coder had to be invited to a
+    dataset as a viewer, sign in so a user row existed, and only then be
+    given a cohort -- three steps to grant one role, two of which handed
+    them access nobody wanted them to have.
+
+    `Invitation` already carries a role and a scope, and the adapter makes
+    exactly that grant on first sign-in. Nothing exposed it for cohorts,
+    and `accounts.views.invite` refuses an address inside an allowed
+    domain outright -- correctly, for admission, since the domain already
+    admits them, but that also blocks pre-assigning a role to somebody who
+    has never signed in. Admission and role are different questions.
+
+    Returns (kind, obj) where kind is "granted" when the user already
+    exists and the grant was made now, or "invited" when the row waits for
+    a first sign-in.
+    """
+    from django.contrib.auth import get_user_model
+
+    from accounts.models import DATADESK, Invitation
+
+    email = (email or "").strip().lower()
+    if "@" not in email:
+        raise ValueError("that is not an address")
+
+    user = get_user_model().objects.filter(email__iexact=email).first()
+    if user is not None:
+        return "granted", grant_cohort(user, cohort)
+
+    # One invitation per address, so a second cohort for the same person
+    # updates the row rather than failing on the unique constraint. The
+    # grant it makes is one cohort; the rest are granted after they sign
+    # in, which is when a user exists to grant them to.
+    invitation, created = Invitation.objects.update_or_create(
+        email=email,
+        defaults={
+            "app": DATADESK,
+            "role": CLASSIFIER,
+            "scope": cohort.slug,
+            "invited_by": invited_by,
+        },
+    )
+    return "invited", invitation

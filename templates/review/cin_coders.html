@@ -108,6 +108,22 @@
             {% if not row.granted %}<span class="quiet">nobody yet</span>{% endif %}
           </td>
           <td>
+            {% comment %}
+            By address, not only from the list of people who already
+            exist. Requiring a coder to be invited as a viewer, sign in,
+            and only then be given a cohort was three steps to grant one
+            role, two of which handed them access nobody wanted them to
+            have.
+            {% endcomment %}
+            <form method="post" class="inline-form tight">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="invite">
+              <input type="hidden" name="cohort" value="{{ row.cohort.slug }}">
+              <label class="visually-hidden" for="email-{{ row.cohort.number }}">Email</label>
+              <input type="email" id="email-{{ row.cohort.number }}" name="email"
+                     placeholder="name@example.edu">
+              <button type="submit">Invite</button>
+            </form>
             <form method="post" class="inline-form tight">
               {% csrf_token %}
               <input type="hidden" name="action" value="grant">
@@ -140,6 +156,34 @@
   </div>
   {% else %}
   <p class="notice">No cohort has been drawn. Classifiers have nothing to work.</p>
+  {% endif %}
+
+  {% if pending %}
+  <h2>Invited, not yet signed in</h2>
+  <p class="quiet">
+    The grant is made when they first sign in. Until then no user record
+    exists, so they appear in no other list here.
+  </p>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Address</th>
+          <th scope="col">Cohort</th>
+          <th scope="col">Invited</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for invitation in pending %}
+        <tr>
+          <th scope="row">{{ invitation.email }}</th>
+          <td>{{ invitation.scope }}</td>
+          <td class="quiet">{{ invitation.invited_at|date:"j M Y" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% endif %}
 
   <h2>Who has done what</h2>

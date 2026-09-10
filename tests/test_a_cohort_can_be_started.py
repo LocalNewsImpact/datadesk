@@ -362,3 +362,125 @@ def test_the_report_shows_how_far_short_of_target_a_cohort_is(crawler_schema):
     assert row["assignments"] == row["needed"]
     assert row["short"] == 0
     assert row["done"] == 0
+
+
+# ------------------------------------------------ inviting straight in
+
+
+def test_a_coder_is_invited_onto_a_cohort_not_to_a_dataset(crawler_schema):
+    """The flow was backwards: invited as a viewer, sign in so a user
+    row exists, then given a cohort. Three steps to grant one role, two
+    of which handed them access nobody wanted them to have."""
+    from accounts.models import Invitation
+    from review.classification import invite_coder
+
+    cohort = ClassificationCohort.objects.create(number=1, slug="cohort-1")
+    kind, invitation = invite_coder("newcoder@example.org", cohort)
+    assert kind == "invited"
+    assert invitation.role == CLASSIFIER
+    assert invitation.scope == "cohort-1"
+    assert Invitation.objects.count() == 1
+
+
+def test_an_in_domain_address_can_be_invited_too(crawler_schema):
+    """`accounts.views.invite` refuses these, correctly, for admission --
+    the domain already admits them. But admission and role are different
+    questions, and refusing both blocks pre-assigning a cohort to
+    somebody who has not signed in yet, which is the whole complaint."""
+    from accounts.models import Invitation
+    from review.classification import invite_coder
+
+    cohort = ClassificationCohort.objects.create(number=1, slug="cohort-1")
+    kind, _ = invite_coder("staffer@missouri.edu", cohort)
+    assert kind == "invited"
+    assert Invitation.objects.get().scope == "cohort-1"
+
+
+def test_an_existing_user_is_granted_immediately(crawler_schema):
+    """No point waiting for a sign-in that already happened."""
+    from accounts.models import Invitation
+    from review.classification import invite_coder
+
+    cohort = ClassificationCohort.objects.create(number=1, slug="cohort-1")
+    user = User.objects.create_user("known", password="x", email="known@example.org")
+    kind, _ = invite_coder("KNOWN@example.org", cohort)
+    assert kind == "granted"
+    assert coders_for(cohort) == [user]
+    assert not Invitation.objects.exists()
+
+
+def test_inviting_the_same_address_twice_updates_the_row(crawler_schema):
+    """`Invitation.email` is unique, so a second cohort for the same
+    person must not fail on the constraint."""
+    from accounts.models import Invitation
+    from review.classification import invite_coder
+
+    first = ClassificationCohort.objects.create(number=1, slug="cohort-1")
+    second = ClassificationCohort.objects.create(number=2, slug="cohort-2")
+    invite_coder("coder@example.org", first)
+    invite_coder("coder@example.org", second)
+    assert Invitation.objects.count() == 1
+    assert Invitation.objects.get().scope == "cohort-2"
+
+
+def test_the_invitation_grants_only_the_cohort_on_first_sign_in(crawler_schema):
+    """A classifier holds `classify` on one cohort and nothing else. An
+    invitation that also made them a viewer would reintroduce exactly the
+    access this removes."""
+    from review.classification import invite_coder
+
+    cohort = ClassificationCohort.objects.create(number=1, slug="cohort-1")
+    invite_coder("arriving@example.org", cohort)
+    user = User.objects.create_user(
+        "arriving", password="x", email="arriving@example.org"
+    )
+    # What the adapter does on first sign-in, without a Google round trip.
+    from accounts.models import Invitation
+
+    invitation = Invitation.for_email(user.email)
+    Grant.objects.get_or_create(
+        user=user,
+        app=DATADESK,
+        scope=invitation.scope,
+        defaults={"role": invitation.role},
+    )
+    grants = list(Grant.objects.filter(user=user).values_list("role", "scope"))
+    assert grants == [(CLASSIFIER, "cohort-1")]
+
+
+def test_a_bad_address_is_refused(crawler_schema):
+    from review.classification import invite_coder
+
+    cohort = ClassificationCohort.objects.create(number=1, slug="cohort-1")
+    with pytest.raises(ValueError):
+        invite_coder("not-an-address", cohort)
+
+
+def test_an_admin_invites_from_the_page(client, crawler_schema):
+    from accounts.models import Invitation
+
+    _article(crawler_schema, 1, confidence=0.95)
+    cohort, _ = draw_cohort(4)
+    admin = _user("boss", role=ADMIN, scope="")
+    client.force_login(admin)
+    body = client.post(
+        reverse("review:cin_coders"),
+        {"action": "invite", "cohort": cohort.slug, "email": "fresh@example.org"},
+    ).content.decode()
+    assert "first sign in" in body
+    assert Invitation.objects.filter(email="fresh@example.org").exists()
+
+
+def test_the_page_lists_who_has_not_turned_up(client, crawler_schema):
+    """Without this they are invisible: no user row exists, so an admin
+    who invited somebody last week cannot see that they never came."""
+    from review.classification import invite_coder
+
+    _article(crawler_schema, 1, confidence=0.95)
+    cohort, _ = draw_cohort(4)
+    invite_coder("waiting@example.org", cohort)
+    admin = _user("boss", role=ADMIN, scope="")
+    client.force_login(admin)
+    body = client.get(reverse("review:cin_coders")).content.decode()
+    assert "waiting@example.org" in body
+    assert "not yet signed in" in body
