@@ -1889,7 +1889,7 @@ def test_the_flow_map_highlights_by_subject_not_by_row():
     # The two colours are the two DIRECTIONS, on every arc that runs both
     # ways. Coloured by county, most arcs had no contrast at all, because
     # most pairs have only one county under study.
-    assert "r.out && r.back" in body
+    assert "twoWay(r)" in body
     # Context stays visible rather than being dropped: these counties sit
     # inside a system and that is the finding.
     assert "raise()" in body
@@ -2012,7 +2012,7 @@ def test_a_one_way_flow_gets_no_gradient():
     root = Path(__file__).resolve().parents[1]
     js = (root / "static/js/datadesk-chart.js").read_text()
     body = js.split("function renderFlowMap(")[1].split("\n  function ")[0]
-    assert "if (!r.out || !r.back) return;" in body
+    assert "if (!r.out || !r.back) return false;" in body
 
 
 def test_framing_is_chosen_from_the_states_in_the_data():
@@ -2055,3 +2055,42 @@ def test_choosing_fit_the_data_clears_a_previous_framing():
     block = src.split('if config.get("frame_on"):')[1].split('config["credit"]')[0]
     assert 'config.pop("focus", None)' in block
     assert block.count('config.pop("frame", None)') >= 2
+
+
+def test_nothing_on_the_flow_map_is_drawn_too_small_to_see():
+    """Measured on the published map: the thinnest arcs came out at
+    0.18px and the subject counties were tinted at 0.18 opacity among
+    115 grey ones. Both were technically correct and neither was
+    visible, which is the same as not being drawn.
+
+    Framing on a state made the county problem worse rather than better
+    -- the wider the frame, the harder the subject is to pick out, and
+    framing wide is the point of the control.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static/js/datadesk-chart.js").read_text()
+    body = js.split("function renderFlowMap(")[1].split("\n  function ")[0]
+    # A floor on the width, not a range starting at zero.
+    assert ".range([1.2," in body
+    assert ".range([0," not in body
+    # The subject is found by fill AND edge.
+    assert "0.55 : 1" in body
+    assert "1.6 : 0.6" in body
+
+
+def test_a_lopsided_pair_is_drawn_as_one_way():
+    """The splits ran to 0.08 on the published map -- 92% one colour and
+    a sliver at the tip, which reads as an artefact rather than a number.
+    A flow that is 8% of its pair is one-way in every sense a reader
+    cares about."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static/js/datadesk-chart.js").read_text()
+    body = js.split("function renderFlowMap(")[1].split("\n  function ")[0]
+    assert "const MINORITY = 0.1" in body
+    # One rule, used by both the gradient and the stroke, so a stroke can
+    # never reference a gradient that was skipped.
+    assert body.count("twoWay(r)") >= 2

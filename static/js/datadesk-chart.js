@@ -1576,14 +1576,27 @@
         // tinted its own hue so the shape and its arcs read as one thing.
         .attr("fill", (f) => (pin.size && isSubject(f.id)
           ? hueOf(f.id) : t.missing))
-        .attr("fill-opacity", (f) => (pin.size && isSubject(f.id) ? 0.18 : 1))
-        .attr("stroke", t.boundary).attr("stroke-width", 0.6);
+        // 0.18 was invisible: three tinted counties among 115 grey ones,
+        // at a fifth strength, cannot be found. Framing on a state made
+        // this worse, not better -- the wider the frame, the harder the
+        // subject is to pick out, and framing wide is the point.
+        .attr("fill-opacity", (f) => (pin.size && isSubject(f.id) ? 0.55 : 1))
+        // And an outline, because on a map an edge finds a shape faster
+        // than a fill does.
+        .attr("stroke", (f) => (pin.size && isSubject(f.id)
+          ? hueOf(f.id) : t.boundary))
+        .attr("stroke-width", (f) => (pin.size && isSubject(f.id) ? 1.6 : 0.6));
 
       // Square root, because the eye reads a ribbon by its area and the
       // range here is three orders of magnitude -- 5,581 against 12.
+      // The floor is the point: measured on the published map the
+      // thinnest arcs came out at 0.18px, which no screen draws. A flow
+      // too small to see is a flow the reader is told nothing about,
+      // and the range here is three orders of magnitude so the small
+      // end is most of them.
       const w = d3.scaleSqrt()
         .domain([0, d3.max(rows, (r) => +r[value]) || 1])
-        .range([0, Math.max(10, width / 60)]);
+        .range([1.2, Math.max(10, width / 60)]);
 
       // One arc per PAIR, not per direction. Commuting is reciprocal --
       // 110 of 137 flows here are half of a pair -- so drawing each
@@ -1618,11 +1631,21 @@
       }));
       // A gradient per pair where BOTH ends are subjects, running along
       // the arc so the colour changes where the split falls.
+      // A pair is two-way when BOTH directions are big enough to draw.
+      // Measured on the published map, the splits ran to 0.08 -- 92% one
+      // colour and a sliver at the tip that reads as an artefact rather
+      // than as a number. A flow that is 8% of its pair is one-way in
+      // every sense a reader cares about, and saying so is more honest
+      // than a mark too small to see. The tooltip still gives both.
+      const MINORITY = 0.1;
+      const twoWay = (r) => {
+        if (!r.out || !r.back) return false;
+        return Math.min(r.out, r.back) / r.total >= MINORITY;
+      };
+
       const defs = svg.append("defs");
       drawn.forEach((r, i) => {
-        // Only where it runs both ways. A one-way flow is one colour and
-        // a gradient across it would invent a reverse that is not there.
-        if (!r.out || !r.back) return;
+        if (!twoWay(r)) return;
         const a = t.series[0], b = t.series[1];
         const p1 = at.get(r.lo), p2 = at.get(r.hi);
         const cut = r.total ? r.out / r.total : 0.5;
@@ -1660,9 +1683,12 @@
         // on every arc, and the county is already given by where the arc
         // lands. Colouring by county instead meant most arcs had no
         // contrast at all, because most pairs have only one subject.
-        .attr("stroke", (r, i) => (r.out && r.back
+        // The same rule the gradients were built from, so a stroke can
+        // never point at a gradient that was skipped. A lopsided pair
+        // takes the colour of whichever way most of it runs.
+        .attr("stroke", (r, i) => (twoWay(r)
           ? `url(#${gradId}-${i})`
-          : (r.out ? t.series[0] : t.series[1])))
+          : (r.out >= r.back ? t.series[0] : t.series[1])))
         .attr("stroke-width", (r) => w(+r[value]))
         // Everything else stays visible and quiet: the surrounding system
         // is context, and dropping it would hide that these counties sit
