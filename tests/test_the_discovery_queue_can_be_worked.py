@@ -869,13 +869,10 @@ def test_a_wire_row_is_not_reported_as_dropped():
     said `wire` and the next said "dropped", which are opposite claims
     about the same event.
     """
-    kind, phrase, note = discovery.what_the_pipeline_did("wire")
+    kind, sentence = discovery.what_the_pipeline_did("wire")
     assert kind == "filtered_out"
-    assert "dropped" not in phrase
-    assert phrase == "identified it as wire"
-    assert note == "a story, but filtered out"
-    # And it does not read as a disagreement: the model said story, and
-    # so did the pipeline.
+    assert "dropped" not in sentence
+    assert sentence == "A story but Wire, filtered out"
     assert not discovery.model_and_pipeline_disagree(5.0, "wire")
 
 
@@ -929,9 +926,9 @@ def test_confidence_uses_the_band_the_queue_already_draws_on():
 def test_an_unknown_status_shows_itself_rather_than_being_guessed():
     """Forcing an unrecognised status into one of the four is exactly how
     `wire` came to mean "dropped"."""
-    kind, phrase, _ = discovery.what_the_pipeline_did("something_new")
+    kind, sentence = discovery.what_the_pipeline_did("something_new")
     assert kind == "other"
-    assert phrase == "something_new"
+    assert sentence == "something_new"
     assert not discovery.model_and_pipeline_disagree(500.0, "something_new")
 
 
@@ -941,33 +938,41 @@ def test_the_page_never_says_dropped_on_a_wire_row(client, reviewer, crawler_sch
     client.force_login(reviewer)
     body = client.get(reverse("review:discovery")).content.decode()
     assert "dropped it anyway" not in body
-    assert "identified it as wire" in body
-    assert "a story, but filtered out" in body
+    assert "A story but Wire, filtered out" in body
     assert "weakly" not in body
     # The corpus vocabulary, not ours: the analysis keeps local news and
     # filters out everything else. "filtered from analysis" described the
     # plumbing and told a reviewer nothing about the story.
     assert "filtered from analysis" not in body
+    assert "identified it as" not in body
 
 
-def test_the_two_outcomes_use_the_corpus_vocabulary():
-    """The analysis keeps local news and filters out everything else, so
-    that is what the two outcomes are called. A reviewer should not have
-    to know what "filtered from analysis" refers to."""
-    assert discovery.what_the_pipeline_did("extracted")[1] == "kept it as local news"
-    assert discovery.what_the_pipeline_did("wire")[2] == "a story, but filtered out"
-    for status in ("wire", "obituary", "opinion", "weather"):
-        assert "filtered out" in discovery.what_the_pipeline_did(status)[2], status
+def test_every_outcome_is_one_sentence_in_the_same_shape():
+    """It used to be two pieces -- "identified it as opinion" and,
+    beneath it, "a story, but filtered out" -- leaving the reader to join
+    them into what was actually meant. One sentence says it, and every
+    outcome follows the same shape so a reader learns it once."""
+    said = {
+        status: discovery.what_the_pipeline_did(status)[1]
+        for status in ("extracted", "wire", "not_article", "discovered")
+    }
+    assert said["extracted"] == "A story, kept as local news"
+    assert said["wire"] == "A story but Wire, filtered out"
+    assert said["not_article"] == "Not a story"
+    assert said["discovered"] == "Not processed"
+    for status, sentence in said.items():
+        assert sentence[0].isupper(), status
 
 
 def test_filtered_out_covers_more_than_wire():
-    """The bucket is every story the analysis filters out for not being
-    local news, not a wire special case. It was called `filed`, which
-    named nothing -- a reader could not tell what it held or why."""
+    """The bucket is every story the analysis filters out, not a wire
+    special case. It was called `filed`, which named nothing. Named for
+    what the analysis did with the row rather than a property of it: an
+    obituary IS local, it is simply not kept."""
     for status in ("wire", "obituary", "opinion", "weather"):
-        kind, _, note = discovery.what_the_pipeline_did(status)
+        kind, sentence = discovery.what_the_pipeline_did(status)
         assert kind == "filtered_out", status
-        assert note == "a story, but filtered out", status
+        assert sentence == f"A story but {status.title()}, filtered out", status
     assert discovery.what_the_pipeline_did("extracted")[0] == "kept"
 
 
@@ -986,6 +991,49 @@ def test_an_obituary_is_not_called_not_local():
     is that the analysis does not keep it, which is why the bucket is
     named for that and not for a property of the row."""
     for status in ("wire", "obituary", "opinion", "weather"):
-        note = discovery.what_the_pipeline_did(status)[2]
-        assert "not local" not in note, status
-        assert note == "a story, but filtered out", status
+        assert "not local" not in discovery.what_the_pipeline_did(status)[1], status
+
+
+def test_the_count_falls_as_rows_are_answered(client, reviewer, crawler_schema):
+    """ "Showing 50 of 746" set a page length against the whole band --
+    two true numbers about different things, and the 746 did not move
+    however many rows were answered. The line read as no progress at all.
+
+    What a reviewer works down is the drawn sample, so that is what the
+    count reports.
+    """
+    links = []
+    for i in range(4):
+        link = _link(crawler_schema, f"c{i}")
+        _verification(crawler_schema, link, 5.0, True)
+        links.append(link)
+    client.force_login(reviewer)
+
+    body = client.get(reverse("review:discovery")).content.decode()
+    where = body.find("Showing")
+    assert "4</strong> left" in body, body[where : where + 200]
+
+    # Answer one.
+    client.post(
+        reverse("review:discovery"),
+        {
+            f"d-{links[0].id}": discovery.NOT_A_STORY,
+            f"v-{links[0].id}-{discovery.NOT_A_STORY}": "homepage",
+            f"stratum-{links[0].id}": "doubtful",
+            f"probability-{links[0].id}": "1.0",
+        },
+    )
+    body = client.get(reverse("review:discovery")).content.decode()
+    assert "3</strong> left" in body, "the count did not move"
+    assert "1 answered of 4 drawn" in body
+
+
+def test_the_band_total_is_still_reported(client, reviewer, crawler_schema):
+    """The population is what the inclusion probability is computed
+    against, so it stays visible -- just not as the thing a reviewer is
+    working down."""
+    link = _link(crawler_schema, "c0")
+    _verification(crawler_schema, link, 5.0, True)
+    client.force_login(reviewer)
+    body = client.get(reverse("review:discovery")).content.decode()
+    assert "in the band" in body
