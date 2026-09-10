@@ -290,3 +290,116 @@ is Civic Life.
 
 Re-measure agreement on 200–300 articles under the revised wording
 before committing to a larger programme.
+
+---
+
+## Annotations, second pass
+
+Written while planning a targeted re-labelling of Civic Life. The
+findings above stand; these add to them.
+
+### Two agreement numbers that do not conflict
+
+The 12% above is **pairwise agreement** — how often a second coder used
+the same category, over 813 comparable pairs from cohorts A–D. A
+separate figure, **mean coder confidence** in the aggregated set, puts
+Civic information and Civic Life together at 0.84, which is mid-pack:
+
+| label | mean confidence | n |
+| --- | ---: | ---: |
+| Economic Development | 0.80 | 69 |
+| Political life | 0.81 | 59 |
+| Education | 0.82 | 31 |
+| Civic information | 0.84 | 72 |
+| Civic Life | 0.84 | 101 |
+| Sports | 0.87 | 139 |
+
+These measure different things and both are true. Confidence is the
+aggregation's own certainty about a resolved label; pairwise agreement
+is whether two people reached the same one. A category can be resolved
+confidently *after* the fact and still be the one coders diverge on.
+Quote the pairwise number when the question is whether the definition
+works, and the confidence number when the question is how much to trust
+a particular row.
+
+### The bigger leak is not the boundary
+
+The ten least-confident articles in each category are mostly not
+Civic/Civic confusions. They are material that should have been
+rejected:
+
+**Civic Life** — three obituaries, three non-local (imprisoned Eritrean
+Christians, the 22nd anniversary of 9/11, Catholics with disabilities),
+one advertorial ("Everything You Must Know Before Buying a Used Jeep").
+
+**Civic information** — an obituary, a recipe ("the perfect summer
+spaghetti from pantry staples"), Microsoft laying off 10,000, "tips for
+parents whose kids struggle to make friends".
+
+A coder with no fitting option reaches for the broadest-sounding
+category, and Civic Life is it. That is a larger source of noise in
+these two labels than the overlap between them, and it is invisible to
+any repair aimed at the boundary.
+
+Three gaps in the tag list explain it. There is no tag for an
+**obituary**, none for **lifestyle or service copy** — recipes, listicles,
+consumer advice — and none for **advertorial**. `NO APPROPRIATE
+CATEGORY` covers all three in principle and is reached for by nobody,
+because a story about a church supper plainly *has* an appropriate
+category and the coder is not being asked whether it is news.
+
+`NOT LOCAL` also needs to say that a national story carrying a local
+byline or dateline is not local. Three of Civic Life's ten weakest are
+that shape.
+
+### On renaming Civic Life to Community Life
+
+Worth doing, and the argument is in the codebook's own introduction:
+
+> We are proposing to adapt and extend CIN to include **Community
+> Information Needs**, to allow inclusion of content less identified with
+> accountability journalism, but still aligned with the day-to-day
+> experiences and interests of residents.
+
+That sentence is the Civic Life definition. The category is already the
+*community* half of the framework, and naming it so states what the
+project decided rather than changing it.
+
+It also removes a shared prefix that carries no information. A coder
+scanning a menu reads "Civic…" twice and cannot tell the two apart until
+the second word, which is exactly the moment the definitions stop
+helping. `Community Life` against `Civic Information` separates on the
+first word.
+
+**Rename the display, not the class.** The label string is the model's
+class name: `cin_labels.LABELS` is the order `label2id` is built from in
+the shipped checkpoint, and `docs/CIN_MODEL_BASELINE.md` records what
+happens when that order is taken from anything else. A rename that
+reaches the stored value silently misaligns every existing label and the
+model trained on them. Map `Civic Life` to a display name; leave the
+vocabulary alone until a retrain deliberately changes it.
+
+### What a targeted pass should draw
+
+Not a random sample. The two categories are 101 and 72 of the 950
+labelled articles — 11% and 8% — so a random draw spends four fifths of
+the effort on articles nobody is unsure about.
+
+(The first annotation puts them at 25% and 17%. That is a different
+denominator — a share of the corpus rather than of this labelled set —
+and the two are not interchangeable. Neither has been reconciled against
+the other; use the one whose base is stated.)
+
+Draw instead:
+
+1. Articles either coder put in **Civic information or Civic Life**,
+   primary or secondary, where the two disagreed. That is the boundary
+   itself.
+2. Articles labelled either category with **confidence below 0.8** —
+   50 of the 173 across the two, verified against the aggregated set,
+   and where the rejects are hiding.
+3. A **random slice of the rest**, kept small, as the only unbiased
+   estimate of whether the revision helped rather than moved the problem.
+
+Re-measure pairwise agreement, not confidence: the question is whether
+the revised definitions let two people reach the same answer.
