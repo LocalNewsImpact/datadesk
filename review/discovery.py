@@ -48,7 +48,24 @@ from django.db.models import Q
 from review import kernel
 
 #: What the pipeline treats as "this is an article we keep".
-KEPT_STATUSES = frozenset({"extracted", "article"})
+#: What the pipeline concluded, grouped by what it MEANT rather than by
+#: the string it wrote. Three different outcomes were reading as one:
+#: `wire` sat in the same bucket as `not_article`, so a URL the pipeline
+#: accepted as a story, fetched, extracted and then filed as wire was
+#: reported as one it "dropped". The row said `wire` in one column and
+#: "the pipeline dropped it anyway" in the next.
+#:
+#: agreed    it is local news, which is what the analysis keeps.
+#: filed     it IS a story, and it is not local news, which is what the
+#:           analysis filters out. Not a rejection: it was fetched and
+#:           extracted, and that is how the pipeline found out.
+#: rejected  it is not a story. The only real disagreement with a model
+#:           that says it is.
+#: unresolved  nothing has decided yet.
+AGREED_STATUSES = frozenset({"article", "extracted", "cleaned", "local"})
+FILED_STATUSES = frozenset({"wire", "obituary", "opinion", "weather"})
+REJECTED_STATUSES = frozenset({"not_article", "404", "skipped"})
+UNRESOLVED_STATUSES = frozenset({"discovered", "sampled_out"})
 
 #: Keys, so a template and a view cannot drift on a spelling.
 DOUBTFUL = "doubtful"
@@ -169,83 +186,69 @@ def margin_cuts(start, end):
     return cuts
 
 
-def how_the_model_read_it(margin, percentile_rank):
-    """One phrase for what the model concluded and how firmly.
+def how_the_model_read_it(margin):
+    """What storysniffer said, and how sure it was.
 
-    The column printed the verdict, then a marker repeating it, then a
-    score and an ordinal, with no separation:
+    Two facts and no more: the verdict, from the sign, and the
+    confidence, from the distance from zero. `DOUBTFUL_MARGIN` is the
+    band the model could not call, and is already the cut this queue
+    draws its doubtful stratum on.
 
-        story scores a story now; it was not kept rescored 21, 3th percentile
-
-    Three faults at once -- the verdict said twice, no punctuation
-    between the parts, and "3th" from a hardcoded suffix. The reading was
-    also misleading: a score of 21 sits in the third percentile of this
-    month's URLs, so calling it "a story" flat overstates a margin that
-    is barely above zero.
-
-    So the strength travels with the verdict rather than as a separate
-    number a reader has to rank for themselves.
+    The column used to say "weakly a story", which reads as a claim about
+    the story rather than about the model's certainty -- and the reader
+    then has to work out that "weakly" means "low confidence". Say the
+    thing.
     """
     if margin is None:
-        return None
-    if margin <= 0:
-        # No qualifier below zero. The percentile ranks the margin, so a
-        # firmly negative score is a LOW percentile -- reading the
-        # strength off it would render the most confident rejections as
-        # "weakly not a story". Negatives are also a thin tail: almost
-        # every margin in the corpus is positive.
-        return "not a story"
-    if percentile_rank is None:
-        return "a story"
-    if percentile_rank <= 25:
-        return "weakly a story"
-    if percentile_rank >= 75:
-        return "strongly a story"
-    return "a story"
+        return None, None
+    verdict = "a story" if margin > 0 else "not a story"
+    confidence = "low" if abs(margin) <= DOUBTFUL_MARGIN else "high"
+    return verdict, f"{confidence} confidence"
 
 
-def model_said(margin):
-    """What the model itself concluded, from the sign of its margin.
+def what_the_pipeline_did(status):
+    """One phrase for the outcome, and which of the four it was.
 
-    NOT `storysniffer_result`. That is the verdict after `guess()`
-    applies its whitelist and blacklist, so a URL can score +477 --
-    strongly a story -- and still come back False because a rule fired
-    on `/news/archives/`.
+    Returns (kind, phrase, note). `kind` is what a caller compares on;
+    the phrase is what a reader sees; the note qualifies a filed status,
+    because "identified it as wire" without "a story, filtered from
+    analysis" invites the same misreading this replaces.
+    """
+    value = (status or "").strip().lower()
+    if not value:
+        return "unresolved", "nothing recorded", ""
+    if value in AGREED_STATUSES:
+        return "agreed", "kept it as local news", ""
+    if value in FILED_STATUSES:
+        # Fetched and extracted to find this out, which is the opposite of
+        # dropping it. The note says what the category MEANS for the
+        # corpus -- "filtered from analysis" described our plumbing and
+        # told a reviewer nothing about the story.
+        return "filed", f"identified it as {value}", "a story, but not local news"
+    if value in REJECTED_STATUSES:
+        return "rejected", "ruled it not a story", ""
+    if value in UNRESOLVED_STATUSES:
+        return "unresolved", "not processed", ""
+    # An unknown status shows itself rather than being forced into one of
+    # the four. Guessing here is how `wire` came to mean "dropped".
+    return "other", value, ""
 
-    Showing the verdict under a heading that says "what the model said"
-    made every row in the overruled stratum read as the model agreeing
-    with the rejection, which is the opposite of why those rows are
-    there.
+
+def model_and_pipeline_disagree(margin, status):
+    """Do the two actually contradict each other?
+
+    Only two shapes count. The model says story and the pipeline ruled it
+    not one; or the model says not a story and the pipeline kept it as
+    one. A story filed as wire, an obituary or an opinion agrees with a
+    model that called it a story -- the pipeline said so too, and then
+    said what kind.
     """
     if margin is None:
-        return None
-    return "story" if margin > 0 else "not a story"
-
-
-def disagrees_with_outcome(margin, recorded_status):
-    """The model scores this a story now, and the pipeline did not keep it.
-
-    storysniffer **did** gate these URLs at discovery time. What it did
-    not do is record the verdict: every row in `url_verifications` was
-    written by the September backfill, `previous_status` null on all
-    236,160 of them.
-
-    The outcome is the missing record. A URL that was discovered and
-    never carried forward is evidence that storysniffer rejected it
-    then, because rejection is what stopped it. So the comparison here
-    is between that decision and a rescore of the same URL today, and a
-    disagreement means one of three things, all worth a look:
-
-    - the model has changed its mind about this shape of URL, or
-    - the whitelist and blacklist around it have changed, or
-    - it was wrong then, and a story was lost.
-
-    Only the third is an error, and only a person reading the page can
-    tell which it is. That is the stratum.
-    """
-    if margin is None or margin <= 0:
         return False
-    return recorded_status not in KEPT_STATUSES
+    kind = what_the_pipeline_did(status)[0]
+    if margin > 0:
+        return kind == "rejected"
+    return kind in {"agreed", "filed"}
 
 
 def percentile(margin, cuts):

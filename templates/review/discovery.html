@@ -83,7 +83,18 @@
             {{ row.candidate_link.source.canonical_name|default:row.candidate_link.source_name_raw|default:"—" }}
           </td>
           <td data-label="What the pipeline said">
-            <span class="val">{{ row.new_status|default:"—" }}</span>
+            {% comment %}
+            The status said what it wrote, not what it meant, and `wire`
+            beside "the pipeline dropped it anyway" in the next column was
+            two opposite claims about one event. A wire row was fetched
+            and extracted -- that is how the pipeline found out it was
+            wire -- so it agreed with the model and then said what kind.
+            {% endcomment %}
+            <span class="val {% if row.pipeline_kind == 'rejected' %}no{% elif row.pipeline_kind == 'agreed' %}yes{% endif %}"
+                  title="Recorded status: {{ row.new_status|default:"none" }}">{{ row.pipeline_said }}</span>
+            {% if row.pipeline_note %}
+            <span class="rec-sub quiet">{{ row.pipeline_note }}</span>
+            {% endif %}
           </td>
           <td data-label="What the model said">
             {% comment %}
@@ -97,29 +108,24 @@
             stratum read as the model agreeing with the rejection, which
             is the opposite of why those rows are in it.
             {% endcomment %}
-            {% if row.reading %}
-            <span class="val {% if row.model_said == 'story' %}yes{% else %}no{% endif %}"
-                  title="storysniffer scored this URL {{ row.verification_confidence|floatformat:0 }} when it was rescored in September. The scale is log-odds and means nothing on its own, which is why the strength here is read off where the score falls among the URLs found in the same month. Above zero is a story.">{{ row.reading }}</span>
+            {% if row.model_verdict %}
+            <span class="val {% if row.model_verdict == 'a story' %}yes{% else %}no{% endif %}"
+                  title="storysniffer scored this URL {{ row.verification_confidence|floatformat:0 }} when it was rescored in September. The scale is log-odds: the sign is the verdict, and the distance from zero is the confidence.">{{ row.model_verdict }}</span>
+            <span class="rec-sub quiet">{{ row.model_confidence }}</span>
             {% else %}
             <span class="val">&mdash;</span>
             {% endif %}
 
             {% if row.disagrees %}
             {% comment %}
-            storysniffer did gate this URL at discovery; it did not
-            record the verdict. The outcome is the missing record -- a URL
-            discovered and never carried forward was rejected then,
-            because rejection is what stopped it.
-
-            So this is that decision against a rescore of the same URL
-            today. A disagreement means the model changed its mind, or
-            the rules around it did, or a story was lost. Only a person
-            reading the page can say which.
-
-            The phrase above already says the model reads it as a story,
-            so this says only the other half: what happened to it.
+            A real contradiction, and only that: the model says story and
+            the pipeline ruled it not one, or the model says not a story
+            and the pipeline kept it. A story filed as wire, an obituary
+            or an opinion AGREES with a model that called it a story --
+            the pipeline said so too, and then said what kind. Flagging
+            those was the bug.
             {% endcomment %}
-            <span class="rec-sub warn">the pipeline dropped it anyway</span>
+            <span class="rec-sub warn">they disagree</span>
             {% endif %}
           </td>
           <td class="option decide" data-label="Is it a story?">

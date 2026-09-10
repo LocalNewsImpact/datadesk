@@ -613,39 +613,34 @@ def test_the_verdict_does_not_trample_what_the_crawler_wrote(
 
 def test_the_page_shows_what_the_model_said_not_the_verdict():
     """`storysniffer_result` is the verdict AFTER guess() applies its
-    whitelist and blacklist. A URL can score +477 -- strongly a story --
-    and still come back False because a rule fired on /news/archives/.
+    whitelist and blacklist. A URL can score +477 and still come back
+    False because a rule fired on /news/archives/.
 
-    Showing the verdict under "what the model said" made every row in
+    Showing that verdict under "what the model said" made every row in
     the overruled stratum read as the model agreeing with the rejection,
-    which is the opposite of why those rows are in it.
+    which is the opposite of why those rows are in it. The sign of the
+    margin is the model's own answer.
     """
-    assert discovery.model_said(477.9) == "story"
-    assert discovery.model_said(-119.9) == "not a story"
-    assert discovery.model_said(None) is None
+    assert discovery.how_the_model_read_it(477.9)[0] == "a story"
+    assert discovery.how_the_model_read_it(-119.9)[0] == "not a story"
+    assert discovery.how_the_model_read_it(None) == (None, None)
 
 
 def test_a_row_says_the_model_disagrees_with_the_outcome():
-    """Not "a rule overruled it".
+    """Only a real contradiction counts.
 
-    storysniffer did gate these URLs at discovery; it did not record the
-    verdict -- every row in url_verifications came from the September
-    backfill, previous_status null on all 236,160. The outcome is the
-    missing record: a URL discovered and never carried forward was
-    rejected then, because rejection is what stopped it.
-
-    So the comparison is that decision against a rescore today, and a
-    disagreement means the model changed its mind, the rules did, or a
-    story was lost. Only the third is an error.
+    This test used to assert that a margin of 1571 against a status of
+    `opinion` was a disagreement. It is not: an opinion piece IS a story,
+    the pipeline said so, and then said what kind. Asserting otherwise is
+    what put "the pipeline dropped it anyway" beside a status of `wire`.
     """
-    # The row that was reported: scored a story, excluded as not_article.
-    assert discovery.disagrees_with_outcome(477.9, "not_article") is True
-    assert discovery.disagrees_with_outcome(1571.0, "opinion") is True
-    # Scored a story and kept -- no disagreement.
-    assert discovery.disagrees_with_outcome(477.9, "extracted") is False
-    # Scored NOT a story and excluded -- the model agrees.
-    assert discovery.disagrees_with_outcome(-119.9, "not_article") is False
-    assert discovery.disagrees_with_outcome(None, "not_article") is False
+    # Scored a story, ruled not a story. The real thing.
+    assert discovery.model_and_pipeline_disagree(477.9, "not_article") is True
+    # Scored a story, kept as one, or kept and categorised. Neither is a
+    # disagreement.
+    assert discovery.model_and_pipeline_disagree(477.9, "extracted") is False
+    assert discovery.model_and_pipeline_disagree(1571.0, "opinion") is False
+    assert discovery.model_and_pipeline_disagree(1571.0, "wire") is False
 
 
 def test_an_obituary_front_is_a_section_front():
@@ -676,11 +671,14 @@ def test_an_obituary_front_is_a_section_front():
 
 
 def test_the_verdict_is_not_said_twice():
-    """The phrase carries the verdict; the marker carries the outcome."""
+    """One column says what the model concluded, the other what the
+    pipeline did. Neither restates the other, and neither contradicts
+    it."""
     cell = _model_cell()
     assert "scores a story now" not in cell, cell
-    # What the marker says instead: only the half the phrase omits.
-    assert "the pipeline dropped it anyway" in cell
+    assert "dropped it anyway" not in cell, cell
+    # What the marker says instead, and only on a real contradiction.
+    assert "they disagree" in cell
 
 
 def test_no_hardcoded_ordinal_suffix():
@@ -695,24 +693,28 @@ def test_the_raw_score_is_not_shown_as_a_bare_number():
     assert "verification_confidence" not in cell, cell
 
 
-def test_the_strength_travels_with_the_verdict():
-    """A margin of 21 is above zero and in the third percentile. Both
-    are true, and "story" alone reports only the first."""
-    assert discovery.how_the_model_read_it(21, 3) == "weakly a story"
-    assert discovery.how_the_model_read_it(1571, 92) == "strongly a story"
-    assert discovery.how_the_model_read_it(477, 60) == "a story"
+def test_the_verdict_and_the_confidence_are_separate_facts():
+    """The sign is the verdict; the distance from zero is the
+    confidence. "weakly a story" fused them into a claim about the story,
+    which is not what the number says."""
+    assert discovery.how_the_model_read_it(5.0) == ("a story", "low confidence")
+    assert discovery.how_the_model_read_it(1571.0) == ("a story", "high confidence")
 
 
-def test_a_rejection_is_never_called_weak():
-    """The percentile ranks the margin, so the most confident
-    rejections sit at the BOTTOM of it. Reading strength off the
-    percentile below zero renders them as 'weakly not a story'."""
-    for percentile_rank in (0, 3, 8, 25, 50):
-        assert discovery.how_the_model_read_it(-119, percentile_rank) == "not a story"
+def test_a_confident_rejection_is_called_confident():
+    """A firmly negative margin is a firm answer. The previous wording
+    read strength off the percentile, where the most confident
+    rejections sit at the BOTTOM -- so they rendered as "weakly not a
+    story", the opposite of the truth."""
+    assert discovery.how_the_model_read_it(-119.0) == (
+        "not a story",
+        "high confidence",
+    )
+    assert discovery.how_the_model_read_it(-5.0) == ("not a story", "low confidence")
 
 
 def test_an_unscored_row_says_nothing():
-    assert discovery.how_the_model_read_it(None, 5) is None
+    assert discovery.how_the_model_read_it(None) == (None, None)
 
 
 def test_the_not_a_story_list_covers_what_a_crawler_produces():
@@ -851,3 +853,107 @@ def test_the_verdict_is_recorded_either_way(client, reviewer, crawler_schema):
     assert note is not None
     assert note["kind"] == "wire"
     assert note["verdict"] == discovery_verdict.IS_A_STORY
+
+
+# ------------------------------------- the two columns must not contradict
+
+
+def test_a_wire_row_is_not_reported_as_dropped():
+    """The row that showed the fault, verbatim:
+
+        kansascity.com/... | The Kansas City Star | wire |
+        weakly a story  the pipeline dropped it anyway
+
+    The pipeline accepted it as a story, fetched it, extracted it, and
+    THEN identified it as wire -- that is how it found out. One column
+    said `wire` and the next said "dropped", which are opposite claims
+    about the same event.
+    """
+    kind, phrase, note = discovery.what_the_pipeline_did("wire")
+    assert kind == "filed"
+    assert "dropped" not in phrase
+    assert phrase == "identified it as wire"
+    assert note == "a story, but not local news"
+    # And it does not read as a disagreement: the model said story, and
+    # so did the pipeline.
+    assert not discovery.model_and_pipeline_disagree(5.0, "wire")
+
+
+def test_every_filed_kind_agrees_with_a_story_verdict():
+    """Wire, obituary, opinion and weather are all stories the analysis
+    filters out. None of them contradicts a model that said story."""
+    for status in ("wire", "obituary", "opinion", "weather"):
+        assert discovery.what_the_pipeline_did(status)[0] == "filed", status
+        assert not discovery.model_and_pipeline_disagree(500.0, status), status
+
+
+def test_a_rejection_is_the_only_disagreement_with_a_story_verdict():
+    for status in ("not_article", "404", "skipped"):
+        assert discovery.what_the_pipeline_did(status)[0] == "rejected", status
+        assert discovery.model_and_pipeline_disagree(500.0, status), status
+
+
+def test_the_model_saying_not_a_story_disagrees_when_the_pipeline_kept_it():
+    """The other direction, which is the overruled stratum."""
+    assert discovery.model_and_pipeline_disagree(-500.0, "extracted")
+    assert discovery.model_and_pipeline_disagree(-500.0, "wire")
+    assert not discovery.model_and_pipeline_disagree(-500.0, "not_article")
+
+
+def test_confidence_is_called_confidence():
+    """ "weakly a story" reads as a claim about the story. It is a claim
+    about the model's certainty, and the reader should not have to
+    translate."""
+    verdict, confidence = discovery.how_the_model_read_it(5.0)
+    assert verdict == "a story"
+    assert confidence == "low confidence"
+    assert "weak" not in confidence
+
+
+def test_confidence_uses_the_band_the_queue_already_draws_on():
+    """DOUBTFUL_MARGIN is the band the model could not call, and is the
+    cut the doubtful stratum is already selected on. Inventing a second
+    threshold for the wording would let the two disagree."""
+    assert discovery.how_the_model_read_it(discovery.DOUBTFUL_MARGIN)[1] == (
+        "low confidence"
+    )
+    assert discovery.how_the_model_read_it(discovery.DOUBTFUL_MARGIN + 1)[1] == (
+        "high confidence"
+    )
+    # Sign is the verdict, distance is the confidence -- both directions.
+    assert discovery.how_the_model_read_it(-5.0) == ("not a story", "low confidence")
+    assert discovery.how_the_model_read_it(-500.0) == ("not a story", "high confidence")
+
+
+def test_an_unknown_status_shows_itself_rather_than_being_guessed():
+    """Forcing an unrecognised status into one of the four is exactly how
+    `wire` came to mean "dropped"."""
+    kind, phrase, _ = discovery.what_the_pipeline_did("something_new")
+    assert kind == "other"
+    assert phrase == "something_new"
+    assert not discovery.model_and_pipeline_disagree(500.0, "something_new")
+
+
+def test_the_page_never_says_dropped_on_a_wire_row(client, reviewer, crawler_schema):
+    link = _link(crawler_schema, "ranked")
+    _verification(crawler_schema, link, 5.0, True, status="wire")
+    client.force_login(reviewer)
+    body = client.get(reverse("review:discovery")).content.decode()
+    assert "dropped it anyway" not in body
+    assert "identified it as wire" in body
+    assert "a story, but not local news" in body
+    assert "weakly" not in body
+    # The corpus vocabulary, not ours: the analysis keeps local news and
+    # filters out everything else. "filtered from analysis" described the
+    # plumbing and told a reviewer nothing about the story.
+    assert "filtered from analysis" not in body
+
+
+def test_the_two_outcomes_use_the_corpus_vocabulary():
+    """The analysis keeps local news and filters out everything else, so
+    that is what the two outcomes are called. A reviewer should not have
+    to know what "filtered from analysis" refers to."""
+    assert discovery.what_the_pipeline_did("extracted")[1] == "kept it as local news"
+    assert discovery.what_the_pipeline_did("wire")[2] == "a story, but not local news"
+    for status in ("wire", "obituary", "opinion", "weather"):
+        assert "not local news" in discovery.what_the_pipeline_did(status)[2], status
