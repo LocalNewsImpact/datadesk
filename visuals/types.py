@@ -190,8 +190,11 @@ _HIGHLIGHT = Option(
 #: controls writing one key means the second clears the first.
 _FOCUS = Option(
     "frame_on",
-    "Frame on (a county, a state, or blank to fit the data)",
-    "text",
+    "Frame the map on",
+    # Chosen from the states the rows are actually in. Typed, it accepted
+    # anything and reported nothing when it matched nothing.
+    "choice",
+    values=(("", "Fit the counties in the data"),),
 )
 
 _SORT = Option(

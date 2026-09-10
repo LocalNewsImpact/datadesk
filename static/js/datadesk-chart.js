@@ -1620,8 +1620,10 @@
       // the arc so the colour changes where the split falls.
       const defs = svg.append("defs");
       drawn.forEach((r, i) => {
-        const a = hueOf(r.lo), b = hueOf(r.hi);
-        if (!a || !b) return;
+        // Only where it runs both ways. A one-way flow is one colour and
+        // a gradient across it would invent a reverse that is not there.
+        if (!r.out || !r.back) return;
+        const a = t.series[0], b = t.series[1];
         const p1 = at.get(r.lo), p2 = at.get(r.hi);
         const cut = r.total ? r.out / r.total : 0.5;
         const g = defs.append("linearGradient")
@@ -1652,15 +1654,15 @@
         // An arc belongs to whichever end is the subject, so a flow INTO
         // Audrain is Audrain's as much as one out of it -- which is the
         // whole question being asked of a commuting map.
-        .attr("stroke", (r, i) => {
-          const a = hueOf(r.lo), b = hueOf(r.hi);
-          if (!pin.size) return t.series[0];
-          // Neither end is the subject: one quiet colour, no gradient to
-          // read, because there is no direction question being asked.
-          if (!a && !b) return t.muted;
-          if (a && b) return `url(#${gradId}-${i})`;
-          return a || b;
-        })
+        // Every arc with traffic both ways gets the gradient, not only
+        // the ones between two subjects. The colour is the DIRECTION --
+        // one hue out, another back -- so the split reads the same way
+        // on every arc, and the county is already given by where the arc
+        // lands. Colouring by county instead meant most arcs had no
+        // contrast at all, because most pairs have only one subject.
+        .attr("stroke", (r, i) => (r.out && r.back
+          ? `url(#${gradId}-${i})`
+          : (r.out ? t.series[0] : t.series[1])))
         .attr("stroke-width", (r) => w(+r[value]))
         // Everything else stays visible and quiet: the surrounding system
         // is context, and dropping it would hide that these counties sit
