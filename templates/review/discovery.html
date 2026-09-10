@@ -90,7 +90,7 @@
             and extracted -- that is how the pipeline found out it was
             wire -- so it agreed with the model and then said what kind.
             {% endcomment %}
-            <span class="val {% if row.pipeline_kind == 'rejected' %}no{% elif row.pipeline_kind == 'agreed' %}yes{% endif %}"
+            <span class="val {% if row.pipeline_kind == 'rejected' %}no{% elif row.pipeline_kind == 'kept' %}yes{% endif %}"
                   title="Recorded status: {{ row.new_status|default:"none" }}">{{ row.pipeline_said }}</span>
             {% if row.pipeline_note %}
             <span class="rec-sub quiet">{{ row.pipeline_note }}</span>
