@@ -611,3 +611,53 @@ def test_the_queues_vocabulary_matches_production():
     assert q.SCOPE_SKIP_REASONS == ("scope_recorded_not_excluded",)
     assert q.SCOPE_SKIP_REASON_PREFIX == "scope_excluded_"
     assert q.HUMAN_REMOVAL_SKIP_REASON == "removed_in_march_review"
+
+
+# ------------------------------------------- one pass where they coincide
+
+
+def test_the_combined_facets_match_the_separate_ones(client, viewer, flagged):
+    """The whole point is that it is the same answer more cheaply. If the
+    numbers can differ, the optimisation is a bug that shows wrong counts
+    on the commonest view of the page."""
+    from review.queue import band_facets, case_facets, facets
+
+    bands, cases = facets({}, viewer)
+    assert bands == band_facets({}, viewer)
+    assert cases == case_facets({}, viewer)
+
+
+def test_a_selected_facet_falls_back_to_the_separate_queries(client, viewer, flagged):
+    """`band_facets` drops `band` and keeps the rest; `case_facets` drops
+    `case` and applies `band`. With either chosen the two populations
+    genuinely differ, and one shared count would silently be the wrong
+    population for one of them."""
+    from review.queue import band_facets, case_facets, facets
+
+    for params in ({"band": "long"}, {"case": "minimal_capture"}):
+        bands, cases = facets(params, viewer)
+        assert bands == band_facets(params, viewer), params
+        assert cases == case_facets(params, viewer), params
+
+
+def test_the_unfiltered_page_runs_one_population_query(
+    client, viewer, flagged, django_assert_num_queries
+):
+    """Two aggregates over a 60,042-row population, for identical
+    numbers, is what a reviewer waited through after pressing Submit.
+
+    Counted rather than asserted from reading: the query count is the
+    thing that changed, and a refactor that reintroduced the second pass
+    would still return the right numbers.
+    """
+    from django.db import connections
+
+    from review.queue import facets
+
+    # The CRAWLER connection is the expensive one: that aggregate reads
+    # about 280MB against production. The decisions read that accompanies
+    # it is a small table in the application database, so counting both
+    # together would hide which number moved.
+    crawler = connections["crawler"]
+    with django_assert_num_queries(1, connection=crawler):
+        facets({}, viewer)

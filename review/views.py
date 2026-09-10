@@ -669,8 +669,11 @@ def queue(request):
         context["publishers"] = _by_publisher(page)
         context["exported_statuses"] = dispositions.EXPORTED_STATUSES
         with review_queue.hash_joins_for_the_queue():
-            context["bands"] = review_queue.band_facets(request.GET, request.user)
-            context["cases"] = review_queue.case_facets(request.GET, request.user)
+            # One pass where the two populations coincide, which is the
+            # unfiltered queue. See review_queue.facets.
+            context["bands"], context["cases"] = review_queue.facets(
+                request.GET, request.user
+            )
 
     # The shared header's shapes. `cases` keeps its own name because the
     # results partial reads it; this is the same list under the name the

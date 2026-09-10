@@ -1422,6 +1422,64 @@ def _without_answered(qs):
     return qs.exclude(answered)
 
 
+def facets(params, user):
+    """Both facet groups, sharing one pass over the population where they
+    can.
+
+    `band_facets` and `case_facets` each run an aggregate over a
+    population of 60,042 rows -- a third of the corpus -- and on an
+    unfiltered queue those two populations are IDENTICAL. Measured
+    against production, one such aggregate reads about 280MB and takes
+    0.9-1.7s, so the queue was spending a second of that twice for the
+    same numbers, and a third time for the list. That is what a reviewer
+    felt after pressing Submit: the redirect rebuilds this page.
+
+    They are only identical when neither facet is selected. `band_facets`
+    drops `band` and keeps everything else; `case_facets` drops `case`
+    and applies `band`. With neither chosen there is nothing to drop, so
+    one query answers both. With either chosen the populations genuinely
+    differ and the two run separately, as before -- a shared count would
+    silently be the wrong population.
+    """
+    if params.get("band") or params.get("case"):
+        return band_facets(params, user), case_facets(params, user)
+
+    qs = _population(
+        _apply_common(base_queryset(user), params), params, landing_narrowing=False
+    )
+    counts = qs.aggregate(
+        **{
+            f"band_{key}": Count(
+                SQLCase(
+                    When(_band_when(low, high), then=1), output_field=IntegerField()
+                )
+            )
+            for key, _label, low, high in BANDS
+        },
+        **{
+            f"case_{case}": Count(
+                SQLCase(When(_case_q(case), then=1), output_field=IntegerField())
+            )
+            for case in CASE_STATUS
+        },
+    )
+    bands = [
+        {"key": key, "label": label, "count": counts[f"band_{key}"], "selected": False}
+        for key, label, _low, _high in BANDS
+    ]
+    cases = [
+        {
+            "key": case,
+            "label": CASE_LABELS[case],
+            "note": CASE_NOTES[case],
+            "count": counts[f"case_{case}"],
+            "selected": False,
+        }
+        for case in CASE_STATUS
+    ]
+    return bands, cases
+
+
 def band_facets(params, user):
     """Counts per length band, ignoring any band already selected.
 
