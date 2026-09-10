@@ -212,38 +212,37 @@ def how_the_model_read_it(margin):
 
 
 def what_the_pipeline_did(status):
-    """One phrase for the outcome, and which of the four it was.
+    """One sentence for the outcome, and which of the five it was.
 
-    Returns (kind, phrase, note). `kind` is what a caller compares on;
-    the phrase is what a reader sees; the note qualifies a filed status,
-    because "identified it as wire" without "a story, filtered from
-    analysis" invites the same misreading this replaces.
+    Returns (kind, sentence). `kind` is what a caller compares on; the
+    sentence is the whole message.
+
+    It used to be two pieces -- "identified it as opinion" and, beneath
+    it, "a story, but filtered out" -- which left the reader to join them
+    into the thing that was actually meant. One sentence says it:
+
+        A story but Opinion, filtered out.
+
+    Every outcome follows the same shape, so a reader learns it once and
+    the four read as answers to one question rather than four notes in
+    four registers.
     """
     value = (status or "").strip().lower()
     if not value:
-        return "unresolved", "nothing recorded", ""
+        return "unresolved", "Not processed"
     if value in KEPT_STATUSES:
-        return "kept", "kept it as local news", ""
+        return "kept", "A story, kept as local news"
     if value in FILTERED_OUT_STATUSES:
         # Fetched and extracted to find this out, which is the opposite of
-        # dropping it. The note says what the category MEANS for the
-        # corpus -- "filtered from analysis" described our plumbing and
-        # told a reviewer nothing about the story.
-        return (
-            "filtered_out",
-            f"identified it as {value}",
-            # "not local news" was wrong for half the set: an obituary
-            # IS local. What is true of all four is that the analysis
-            # does not keep them.
-            "a story, but filtered out",
-        )
+        # dropping it -- so the sentence leads with "A story".
+        return "filtered_out", f"A story but {value.title()}, filtered out"
     if value in REJECTED_STATUSES:
-        return "rejected", "ruled it not a story", ""
+        return "rejected", "Not a story"
     if value in UNRESOLVED_STATUSES:
-        return "unresolved", "not processed", ""
+        return "unresolved", "Not processed"
     # An unknown status shows itself rather than being forced into one of
-    # the four. Guessing here is how `wire` came to mean "dropped".
-    return "other", value, ""
+    # the others. Guessing here is how `wire` came to mean "dropped".
+    return "other", value
 
 
 def model_and_pipeline_disagree(margin, status):

@@ -39,8 +39,15 @@
   </form>
 
   <p class="stratum-note">
+    {% comment %}
+    Against what is LEFT, not against the band. "Showing 50 of 746" put a
+    page length beside the whole stratum -- two true numbers about
+    different things, and the 746 did not move however many rows were
+    answered, so the line read as no progress at all.
+    {% endcomment %}
     Showing <strong>{{ rows|length }}</strong> of
-    <strong>{{ population }}</strong> in “{{ stratum_label }}”.
+    <strong>{{ remaining }}</strong> left in “{{ stratum_label }}”.
+    <span class="quiet">{{ decided_here }} answered of {{ drawn_count }} drawn, from {{ population }} in the band.</span>
     {% if probability < 1 %}
     Each row had a {{ probability|floatformat:3 }} chance of being drawn,
     recorded with the decision so the labels can be weighted.
@@ -92,9 +99,7 @@
             {% endcomment %}
             <span class="val {% if row.pipeline_kind == 'rejected' %}no{% elif row.pipeline_kind == 'kept' %}yes{% endif %}"
                   title="Recorded status: {{ row.new_status|default:"none" }}">{{ row.pipeline_said }}</span>
-            {% if row.pipeline_note %}
-            <span class="rec-sub quiet">{{ row.pipeline_note }}</span>
-            {% endif %}
+
           </td>
           <td data-label="What the model said">
             {% comment %}

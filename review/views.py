@@ -1982,6 +1982,10 @@ def discovery_queue(request):
     dataset = request.GET.get("dataset", "")
 
     strata, rows, population, probability = [], [], 0, 1.0
+    # The chosen stratum's own progress. "Showing 50 of 746" set a
+    # page length against the whole band: both true, unrelated, and
+    # the 746 never moved however many rows were answered.
+    chosen_drawn = chosen_decided = 0
     connected = True
     try:
         drawn = {}
@@ -2024,6 +2028,8 @@ def discovery_queue(request):
             )
             if key == chosen:
                 rows, population, probability = remaining, size, _p
+                chosen_drawn = len(drawn_rows)
+                chosen_decided = len(drawn_rows) - len(remaining)
     except DatabaseError:
         connected = False
         answered = {}
@@ -2042,15 +2048,16 @@ def discovery_queue(request):
         row.model_verdict, row.model_confidence = discovery.how_the_model_read_it(
             row.verification_confidence
         )
-        (
-            row.pipeline_kind,
-            row.pipeline_said,
-            row.pipeline_note,
-        ) = discovery.what_the_pipeline_did(row.new_status)
+        row.pipeline_kind, row.pipeline_said = discovery.what_the_pipeline_did(
+            row.new_status
+        )
         row.disagrees = discovery.model_and_pipeline_disagree(
             row.verification_confidence, row.new_status
         )
 
+    # Before pagination: what is left to answer in this stratum, which is
+    # the number that moves as a reviewer works.
+    remaining_here = len(rows)
     page = Paginator(rows, 50).get_page(request.GET.get("page"))
     return render(
         request,
@@ -2078,6 +2085,9 @@ def discovery_queue(request):
             "stratum": chosen,
             "stratum_label": discovery.STRATUM_LABELS.get(chosen, ""),
             "population": population,
+            "remaining": remaining_here,
+            "drawn_count": chosen_drawn,
+            "decided_here": chosen_decided,
             "probability": probability,
             "params": params,
             "stratum_params": stratum_params,
