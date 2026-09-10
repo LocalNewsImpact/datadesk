@@ -166,6 +166,18 @@ _AXIS_LABELS = (
     Option("xlabel", "Label the horizontal axis", "text"),
     Option("ylabel", "Label the vertical axis", "text"),
 )
+#: The entities a chart is ABOUT, comma-separated. A chord folds
+#: everything past the eighth group into "Other" by order of APPEARANCE,
+#: which is arbitrary relative to the author's subject: a study of
+#: Audrain, Boone and Osage lost Audrain because its largest flow sorted
+#: ninth. Named here, the subject is kept and drawn in the accent hues
+#: while everything else mutes.
+_HIGHLIGHT = Option(
+    "highlight",
+    "Counties or categories this chart is about (comma-separated)",
+    "text",
+)
+
 _SORT = Option(
     "sort",
     "Order by",
@@ -283,10 +295,37 @@ CHART_TYPES = (
             Role("to", "To", accepts=(TEXT,)),
             Role("value", "Amount", accepts=(NUMBER,)),
         ),
+        options=(_HIGHLIGHT,),
         pairs=("from", "to"),
         also=("network", "relationship"),
         encoding=LENGTH,
         functions=("Relationships", "Movement or flow"),
+        rows_to=400,
+    ),
+    ChartType(
+        "flowmap",
+        "Flow map",
+        FLOW,
+        "How much moves between places, drawn where the places are.",
+        roles=(
+            Role("from", "From", accepts=(TEXT,)),
+            Role("to", "To", accepts=(TEXT,)),
+            Role("value", "Amount", accepts=(NUMBER,)),
+            # Names cannot land an arc on a shape: eight states have a
+            # Boone County, and a flow map has to know which one.
+            #
+            # `needs=False` because the columns can be named `from_fips`
+            # and `to_fips` and be found without being pointed at -- which
+            # is what the commuting export writes. A required role the
+            # form marks optional is a walk nobody can complete.
+            Role("from_geo", "From county (FIPS)", accepts=(TEXT,), needs=False),
+            Role("to_geo", "To county (FIPS)", accepts=(TEXT,), needs=False),
+        ),
+        options=(_HIGHLIGHT,),
+        pairs=("from", "to"),
+        also=("commuting", "migration", "trade"),
+        encoding=LENGTH,
+        functions=("Movement or flow", "Geography"),
         rows_to=400,
     ),
     ChartType(

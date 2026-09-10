@@ -476,7 +476,23 @@ MAX_RAW_GROUPS = 50_000
 
 
 def measure_label_for(key):
-    return MEASURES[key]["label"]
+    """What to call the measure, whoever chose it.
+
+    MEASURES is the CORPUS vocabulary -- articles, publishers, cost. A
+    visual built on uploaded data has no corpus measure: its measure is a
+    column in the author's own file, and the right label for that is the
+    column name they gave it.
+
+    This raised KeyError on anything else, so building a chord from an
+    uploaded CSV whose value column was called `value` 500ed on the
+    fields step -- the author was shown a stack trace for naming their
+    own column.
+
+    Returning the key is not a guess. For a corpus visual the key is
+    always in the table, and for any other the key IS the label.
+    """
+    known = MEASURES.get(key)
+    return known["label"] if known else str(key)
 
 
 #: The columns a geo dimension brings with it, named as the pivot names

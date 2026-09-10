@@ -1745,3 +1745,124 @@ def test_a_shut_folder_is_still_somewhere_to_drop(client, designer):
     # reload puts it away again and hides what was just filed.
     assert 'body.classList.remove("shut")' in template
     assert "remember(open)" in template
+
+
+# ------------------------------- a measure the corpus vocabulary does not know
+
+
+def test_an_uploaded_columns_name_is_its_own_label():
+    """MEASURES is the CORPUS vocabulary -- articles, publishers, cost. A
+    visual built on uploaded data has no corpus measure: its measure is a
+    column in the author's own file.
+
+    This raised KeyError on anything else, so building a chord from an
+    uploaded CSV whose value column was called `value` 500ed on the
+    fields step. The author was shown a stack trace for naming their own
+    column.
+    """
+    from visuals.corpus import measure_label_for
+
+    assert measure_label_for("value") == "value"
+    assert measure_label_for("workers") == "workers"
+
+
+def test_a_corpus_measure_still_gets_its_written_label():
+    """The fallback must not swallow the vocabulary it exists beside."""
+    from visuals.corpus import MEASURES, measure_label_for
+
+    for key, spec in MEASURES.items():
+        assert measure_label_for(key) == spec["label"], key
+
+
+def test_the_fields_step_survives_an_uploaded_measure(client):
+    """The panel calls it unconditionally, which is how a lookup meant for
+    six corpus measures ended up deciding whether a page rendered."""
+    from visuals.corpus import measure_label_for
+
+    # The exact value from the production traceback.
+    assert measure_label_for("value") is not None
+
+
+# --------------------------------------------------- the flow map
+
+
+def test_a_flow_map_is_a_chart_kind():
+    from visuals.builder import CHART_KINDS
+
+    assert "flowmap" in CHART_KINDS
+
+
+def test_a_flow_map_does_not_pay_for_plot():
+    """It draws its own arcs in d3 and takes counties from topojson.
+    Plot draws none of it, and an embed downloads what it draws with."""
+    from visuals.builder import libs_for
+
+    assert libs_for("flowmap") == ("d3", "topojson")
+
+
+def test_a_flow_map_keeps_the_county_each_end_is():
+    """Names cannot land an arc on a shape: eight states have a Boone
+    County. The geo columns are whitelisted config, not guessed."""
+    from visuals.builder import _STRING_KEYS
+
+    assert "from_geo" in _STRING_KEYS
+    assert "to_geo" in _STRING_KEYS
+
+
+def test_the_runtime_can_draw_a_flow_map():
+    """The kind is dispatched and the renderer exists. A kind registered
+    server-side with nothing to draw it renders an empty box and reports
+    no error."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static/js/datadesk-chart.js").read_text()
+    assert 'kind === "flowmap"' in js
+    assert "function renderFlowMap(" in js
+    # The helpers it leans on, which must exist rather than be assumed:
+    # the first version called `fmt()` and read `t.surface2`, and neither
+    # is a thing this file has.
+    body = js.split("function renderFlowMap(")[1]
+    body = body.split("function renderChord")[0]
+    assert "fmt(" not in body
+    assert "t.surface2" not in js
+
+
+# ----------------------------- the subject of a chart is not folded away
+
+
+def test_the_subject_survives_the_eight_group_fold():
+    """A chord folds everything past the eighth group into "Other", by
+    order of APPEARANCE -- which is arbitrary relative to what the chart
+    is about.
+
+    A study of Audrain, Boone and Osage lost Audrain: the file was sorted
+    by size, its largest flow sorted ninth, and it was swept into "Other"
+    beside fifty counties nobody was studying.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static/js/datadesk-chart.js").read_text()
+    groups = js.split("function edgeGroups(")[1].split("\n  function ")[0]
+    assert "pin" in groups, "nothing can be pinned out of the fold"
+    # Pinned first, then whatever room is left.
+    assert "8 - pinned.length" in groups
+
+
+def test_highlight_is_offered_where_folding_happens():
+    """Declared on the kinds that fold, so an author can name the subject
+    rather than reordering their file until it survives."""
+    from visuals.types import BY_ID
+
+    for kind in ("chord", "flowmap"):
+        assert "highlight" in {o.id for o in BY_ID[kind].options}, kind
+
+
+def test_the_builder_offers_a_control_for_it():
+    """An option no control posts is an option nobody can set."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    form = (root / "templates/visuals/builder_edit.html").read_text()
+    assert 'name="highlight"' in form
