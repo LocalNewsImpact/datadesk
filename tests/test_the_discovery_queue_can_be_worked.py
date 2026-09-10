@@ -713,3 +713,48 @@ def test_a_rejection_is_never_called_weak():
 
 def test_an_unscored_row_says_nothing():
     assert discovery.how_the_model_read_it(None, 5) is None
+
+
+def test_the_not_a_story_list_covers_what_a_crawler_produces():
+    """The list started at the shapes a news site publishes and left out
+    the ones a crawler produces. A dead link, a feed URL, a search result
+    and a PDF are a large share of what reaches this queue, and all four
+    were going in as "Other" -- a count of which says nothing a fix can
+    be built from, which is the reason the list exists at all."""
+    values = {choice["value"] for choice in discovery.NOT_STORY_KINDS}
+    for expected in ("not_found", "feed", "search", "file"):
+        assert expected in values, expected
+
+
+def test_the_dead_link_and_feed_options_come_first():
+    """Ordered by what a reviewer meets most, not alphabetically: a list
+    whose commonest answers are ninth is a list people scroll past."""
+    values = [choice["value"] for choice in discovery.NOT_STORY_KINDS]
+    assert values[0] == "not_found"
+    assert values[1] == "feed"
+    assert values[-1] == "other", "Other belongs last, as the fallback"
+
+
+def test_every_not_a_story_kind_is_a_distinct_value():
+    """Two names for one thing split the count a fix would be built
+    from -- the reason Obituary Front was removed."""
+    values = [choice["value"] for choice in discovery.NOT_STORY_KINDS]
+    assert len(values) == len(set(values))
+    labels = [choice["label"] for choice in discovery.NOT_STORY_KINDS]
+    assert len(labels) == len(set(labels))
+
+
+def test_a_new_kind_needs_no_contract_change():
+    """ "Not a story" leaves the crawler status alone -- it already
+    excludes the row -- so the value is recorded on the ReviewDecision
+    and nothing in lnic_contracts has to learn it. The story side is
+    different: `status_for` only overrides for UNENRICHED_TYPES."""
+    from lnic_contracts import discovery_verdict
+
+    for choice in discovery.NOT_STORY_KINDS:
+        note = {
+            "verdict": "not_a_story",
+            "kind": choice["value"],
+            "decided_at": "2026-09-09T00:00:00Z",
+        }
+        assert discovery_verdict.status_for(note) is None
