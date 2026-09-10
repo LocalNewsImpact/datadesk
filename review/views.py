@@ -2338,6 +2338,7 @@ def cin_coders(request):
         coder_report,
         draw_cohort,
         grant_cohort,
+        invite_coder,
         revoke_cohort,
     )
 
@@ -2369,6 +2370,29 @@ def cin_coders(request):
                         + ("." if total == size else " — a stratum ran short."),
                     )
                 )
+        elif action == "invite":
+            cohort = ClassificationCohort.objects.filter(
+                slug=request.POST.get("cohort")
+            ).first()
+            if cohort is None:
+                notices.append(("bad", "No such cohort."))
+            else:
+                try:
+                    kind, _ = invite_coder(
+                        request.POST.get("email"), cohort, invited_by=request.user
+                    )
+                except ValueError as problem:
+                    notices.append(("bad", str(problem).capitalize() + "."))
+                else:
+                    notices.append(
+                        ("good", f"Added to cohort {cohort.number}.")
+                        if kind == "granted"
+                        else (
+                            "good",
+                            f"Invited to cohort {cohort.number}. The grant is "
+                            "made when they first sign in.",
+                        )
+                    )
         elif action in {"grant", "revoke", "assign"}:
             cohort = ClassificationCohort.objects.filter(
                 slug=request.POST.get("cohort")
