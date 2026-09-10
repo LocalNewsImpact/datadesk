@@ -63,8 +63,8 @@
         <tr>
           <th scope="col">The URL</th>
           <th scope="col">Publisher</th>
-          <th scope="col">What the pipeline said</th>
-          <th scope="col">What the model said</th>
+          <th scope="col">storysniffer</th>
+          <th scope="col">What happened next</th>
           <th scope="col" class="decide">Is it a story?</th>
         </tr>
       </thead>
@@ -81,27 +81,18 @@
             <a class="rec-read discovery-url" href="{{ row.url }}"
                target="_blank" rel="noopener noreferrer"
                title="{{ row.url }}">{{ row.url }}</a>
-            {% if row.article_headline %}
-            <span class="rec-sub">{{ row.article_headline }}</span>
-            {% endif %}
+            {% comment %}
+            `article_headline` is NULL on every url_verifications row in
+            production -- 0 of 236,160, checked across every status. The
+            backfill never populated it, so this rendered nothing and
+            promised a headline the queue does not have.
+            {% endcomment %}
             <span class="rec-sub quiet">found {{ row.candidate_link.discovered_at|date:"j M Y" }}</span>
           </th>
           <td data-label="Publisher">
             {{ row.candidate_link.source.canonical_name|default:row.candidate_link.source_name_raw|default:"—" }}
           </td>
-          <td data-label="What the pipeline said">
-            {% comment %}
-            The status said what it wrote, not what it meant, and `wire`
-            beside "the pipeline dropped it anyway" in the next column was
-            two opposite claims about one event. A wire row was fetched
-            and extracted -- that is how the pipeline found out it was
-            wire -- so it agreed with the model and then said what kind.
-            {% endcomment %}
-            <span class="val {% if row.pipeline_kind == 'rejected' %}no{% elif row.pipeline_kind == 'kept' %}yes{% endif %}"
-                  title="Recorded status: {{ row.new_status|default:"none" }}">{{ row.pipeline_said }}</span>
-
-          </td>
-          <td data-label="What the model said">
+          <td data-label="storysniffer">
             {% comment %}
             The model's own conclusion, from the sign of its score — not
             `storysniffer_result`, which is the verdict AFTER guess()
@@ -113,10 +104,12 @@
             stratum read as the model agreeing with the rejection, which
             is the opposite of why those rows are in it.
             {% endcomment %}
-            {% if row.model_verdict %}
-            <span class="val {% if row.model_verdict == 'a story' %}yes{% else %}no{% endif %}"
-                  title="storysniffer scored this URL {{ row.verification_confidence|floatformat:0 }} when it was rescored in September. The scale is log-odds: the sign is the verdict, and the distance from zero is the confidence.">{{ row.model_verdict }}</span>
-            <span class="rec-sub quiet">{{ row.model_confidence }}</span>
+            {% if row.sniffer_verdict %}
+            <span class="val {% if row.sniffer_verdict == 'Accepted' %}yes{% else %}no{% endif %}"
+                  title="The verdict storysniffer.guess() returned, with its whitelist and blacklist applied -- what actually decided whether this URL went any further. The score was {{ row.verification_confidence|floatformat:0 }}; its distance from zero is the confidence.">{{ row.sniffer_verdict }}</span>
+            {% if row.sniffer_confidence %}
+            <span class="rec-sub quiet">{{ row.sniffer_confidence }}</span>
+            {% endif %}
             {% else %}
             <span class="val">&mdash;</span>
             {% endif %}
@@ -132,6 +125,23 @@
             {% endcomment %}
             <span class="rec-sub warn">they disagree</span>
             {% endif %}
+          </td>
+          <td data-label="What happened next">
+            {% comment %}
+            The status said what it wrote, not what it meant, and `wire`
+            beside "the pipeline dropped it anyway" in the next column was
+            two opposite claims about one event. A wire row was fetched
+            and extracted -- that is how the pipeline found out it was
+            wire -- so it agreed with the model and then said what kind.
+            {% endcomment %}
+            {% comment %}
+            Blank where storysniffer rejected the URL: nothing happened to
+            it, so there is no outcome. Printing the rejection again here
+            is what made a row say "not a story" twice and read as a
+            pipeline verdict on something never processed.
+            {% endcomment %}
+            <span class="val {% if row.outcome_kind == 'rejected' %}no{% elif row.outcome_kind == 'kept' %}yes{% endif %}"
+                  title="Recorded status: {{ row.new_status|default:"none" }}">{{ row.outcome }}</span>
           </td>
           <td class="option decide" data-label="Is it a story?">
             <input type="hidden" name="stratum-{{ row.candidate_link_id }}" value="{{ stratum }}">

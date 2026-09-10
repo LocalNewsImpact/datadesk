@@ -191,42 +191,43 @@ def margin_cuts(start, end):
     return cuts
 
 
-def how_the_model_read_it(margin):
-    """What storysniffer said, and how sure it was.
+def what_storysniffer_said(accepted, margin):
+    """Accepted or rejected, and how sure it was.
 
-    Two facts and no more: the verdict, from the sign, and the
-    confidence, from the distance from zero. `DOUBTFUL_MARGIN` is the
-    band the model could not call, and is already the cut this queue
-    draws its doubtful stratum on.
+    `storysniffer_result` is the gate's actual answer -- the boolean
+    `guess()` returns with its whitelist and blacklist applied -- which is
+    what decided whether the URL went any further. The margin supplies the
+    confidence only: its sign can disagree with the verdict, because a URL
+    can score strongly and still be refused by a rule firing on the path.
 
-    The column used to say "weakly a story", which reads as a claim about
-    the story rather than about the model's certainty -- and the reader
-    then has to work out that "weakly" means "low confidence". Say the
-    thing.
+    `DOUBTFUL_MARGIN` is the cut, already the band this queue draws its
+    doubtful stratum on, so the wording and the sampling cannot drift.
     """
-    if margin is None:
+    if accepted is None:
         return None, None
-    verdict = "a story" if margin > 0 else "not a story"
+    verdict = "Accepted" if accepted else "Rejected"
+    if margin is None:
+        return verdict, ""
     confidence = "low" if abs(margin) <= DOUBTFUL_MARGIN else "high"
     return verdict, f"{confidence} confidence"
 
 
-def what_the_pipeline_did(status):
-    """One sentence for the outcome, and which of the five it was.
+def what_happened_after(accepted, status, fetched=None):
+    """What became of a URL storysniffer accepted, and which outcome.
 
-    Returns (kind, sentence). `kind` is what a caller compares on; the
-    sentence is the whole message.
+    Nothing happened to a URL it rejected -- rejection is what stopped it
+    -- so there is no outcome to report and this says so rather than
+    dressing the rejection up as a second verdict. That double reporting
+    is what made the queue unreadable: a row whose model column said
+    "not a story" also carried a pipeline column saying "Not a story",
+    which invited the fair question of how a rejected URL had a pipeline
+    result at all. It did not. It had its rejection, printed twice.
 
-    It used to be two pieces -- "identified it as opinion" and, beneath
-    it, "a story, but filtered out" -- which left the reader to join them
-    into the thing that was actually meant. One sentence says it:
-
-        A story but Opinion, filtered out.
-
-    Every outcome follows the same shape, so a reader learns it once and
-    the four read as answers to one question rather than four notes in
-    four registers.
+    Where it was accepted, this is the eventual result after extraction
+    and any human review.
     """
+    if accepted is False:
+        return "not_processed", "\u2014"
     value = (status or "").strip().lower()
     if not value:
         return "unresolved", "Not processed"
@@ -237,7 +238,12 @@ def what_the_pipeline_did(status):
         # dropping it -- so the sentence leads with "A story".
         return "filtered_out", f"A story but {value.title()}, filtered out"
     if value in REJECTED_STATUSES:
-        return "rejected", "Not a story"
+        # Accepted by the gate and then found not to be an article. The
+        # wording says when, because that is the difference between a URL
+        # rule and a read of the body.
+        if fetched is False:
+            return "rejected", "Not an article, never fetched"
+        return "rejected", "Not an article, after extraction"
     if value in UNRESOLVED_STATUSES:
         return "unresolved", "Not processed"
     # An unknown status shows itself rather than being forced into one of
@@ -245,21 +251,22 @@ def what_the_pipeline_did(status):
     return "other", value
 
 
-def model_and_pipeline_disagree(margin, status):
-    """Do the two actually contradict each other?
+def storysniffer_was_wrong(accepted, status, fetched=None):
+    """Did what happened next contradict the gate?
 
-    Only two shapes count. The model says story and the pipeline ruled it
-    not one; or the model says not a story and the pipeline kept it as
-    one. A story filed as wire, an obituary or an opinion agrees with a
-    model that called it a story -- the pipeline said so too, and then
-    said what kind.
+    Only one shape counts now. storysniffer accepted the URL and the
+    pipeline then found it was not an article -- the gate let through
+    something it should not have.
+
+    The other direction is not observable here: a URL storysniffer
+    rejected was never processed, so there is no outcome to contradict
+    it. That is exactly why the second column is blank for those rows,
+    and a reviewer reading one is being asked to judge the gate on the
+    URL alone.
     """
-    if margin is None:
+    if not accepted:
         return False
-    kind = what_the_pipeline_did(status)[0]
-    if margin > 0:
-        return kind == "rejected"
-    return kind in {"kept", "filtered_out"}
+    return what_happened_after(accepted, status, fetched)[0] == "rejected"
 
 
 def percentile(margin, cuts):
