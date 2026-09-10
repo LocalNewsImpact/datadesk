@@ -1886,7 +1886,10 @@ def test_the_flow_map_highlights_by_subject_not_by_row():
     # Not by position in the file.
     assert "t.series[i % t.series.length]" not in body
     # Either end.
-    assert "hueOf(r.lo)" in body and "hueOf(r.hi)" in body
+    # The two colours are the two DIRECTIONS, on every arc that runs both
+    # ways. Coloured by county, most arcs had no contrast at all, because
+    # most pairs have only one county under study.
+    assert "r.out && r.back" in body
     # Context stays visible rather than being dropped: these counties sit
     # inside a system and that is the finding.
     assert "raise()" in body
@@ -1999,3 +2002,56 @@ def test_no_columns_chosen_offers_no_places():
         config = {"kind": "flowmap"}
 
     assert flow_places(_Visual()) == []
+
+
+def test_a_one_way_flow_gets_no_gradient():
+    """A gradient across it would invent a return journey that is not in
+    the data."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static/js/datadesk-chart.js").read_text()
+    body = js.split("function renderFlowMap(")[1].split("\n  function ")[0]
+    assert "if (!r.out || !r.back) return;" in body
+
+
+def test_framing_is_chosen_from_the_states_in_the_data():
+    """Typed, it accepted anything and reported nothing when it matched
+    nothing."""
+    from visuals.panels import flow_frames
+
+    class _Snap:
+        data = [
+            {"from_fips": "29019", "to_fips": "29051"},
+            {"from_fips": "29007", "to_fips": "17031"},
+        ]
+
+    class _Snaps:
+        def order_by(self, *_):
+            return self
+
+        def first(self):
+            return _Snap()
+
+    class _Visual:
+        config = {"kind": "flowmap"}
+        snapshots = _Snaps()
+
+    offered = flow_frames(_Visual())
+    assert offered[0] == ("", "Fit the counties in the data")
+    codes = {code for code, _ in offered}
+    assert codes == {"", "29", "17"}
+    named = dict(offered)
+    assert named["29"] == "Missouri"
+
+
+def test_choosing_fit_the_data_clears_a_previous_framing():
+    """Without this the old framing survived a reader choosing to fit the
+    data, and the control appeared to do nothing."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    src = (root / "visuals/panels.py").read_text()
+    block = src.split('if config.get("frame_on"):')[1].split('config["credit"]')[0]
+    assert 'config.pop("focus", None)' in block
+    assert block.count('config.pop("frame", None)') >= 2

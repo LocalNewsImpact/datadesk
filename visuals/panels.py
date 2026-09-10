@@ -127,6 +127,47 @@ def flow_places(visual):
     return sorted(seen)
 
 
+def flow_frames(visual):
+    """Where this map can be framed, from the states its own rows touch.
+
+    Typed, this was a free-text box that accepted anything and reported
+    nothing when it matched nothing -- and the states a map can usefully
+    frame on are exactly the ones its data is in, which the rows already
+    say.
+    """
+    # FIPS -> name, which neither module holds directly: the gazetteer
+    # keys counties by FIPS and carries the USPS code, and the name table
+    # is keyed by USPS. Joined here rather than adding a third table that
+    # can disagree with the two that exist.
+    from datasets.geo import _STATE_NAME_BY_CODE
+    from visuals.geofocus import _counties
+
+    usps_of = {fips[:2]: usps for fips, usps in _counties()}
+
+    config = visual.config or {}
+    a = config.get("from_geo") or "from_fips"
+    b = config.get("to_geo") or "to_fips"
+    try:
+        snapshot = visual.snapshots.order_by("-version").first()
+        rows = (snapshot.data or []) if snapshot else []
+    except Exception:
+        return []
+    states = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key in (a, b):
+            code = str(row.get(key) or "").strip()[:2]
+            if len(code) == 2 and code.isdigit():
+                states.add(code)
+    # Blank first: fitting the counties in the data is what the map did
+    # before this control existed, and it stays the default.
+    return [("", "Fit the counties in the data")] + [
+        (code, _STATE_NAME_BY_CODE.get(usps_of.get(code, ""), code))
+        for code in sorted(states)
+    ]
+
+
 def _chart_options(visual):
     """The options this chart offers, given the roles filled so far."""
     from visuals.types import options_for
@@ -178,9 +219,26 @@ def theme_panel(visual, post=None):
                 # Stored as the comma-separated string the renderers
                 # already read, so the picker is a UI change and not a
                 # config migration.
-                config[option.id] = ", ".join(post.getlist(f"opt-{option.id}"))
+                # `getlist` on a QueryDict, a plain value from a dict:
+                # panels are called with both, and a checkbox list that
+                # only works through a real request is a control that
+                # breaks the moment anything else drives it.
+                getlist = getattr(post, "getlist", None)
+                ticked = (
+                    getlist(f"opt-{option.id}")
+                    if getlist
+                    else [v for v in str(posted or "").split(",") if v.strip()]
+                )
+                config[option.id] = ", ".join(v.strip() for v in ticked if v.strip())
             elif option.kind == "choice":
-                allowed = {value for value, _ in option.values}
+                # The offered values, which for a framing choice are the
+                # states the rows are in rather than anything declared.
+                # Validating against the static tuple alone rejected
+                # every state the picker had just shown.
+                offered = (
+                    flow_frames(visual) if option.id == "frame_on" else option.values
+                )
+                allowed = {value for value, _ in offered}
                 config[option.id] = posted if posted in allowed else ""
             else:
                 config[option.id] = posted.strip()
@@ -193,14 +251,22 @@ def theme_panel(visual, post=None):
             from visuals.geofocus import AUTO, FocusError, frame, resolve
 
             try:
+                # Already a code where the picker supplied it; still
+                # resolved, so a config written by hand or carried over
+                # from the text box keeps working.
                 geoid, level = resolve(config["frame_on"])
                 config["focus"] = geoid
                 config["frame"] = frame(geoid, level, AUTO, "", "")
             except FocusError:
-                # Left as typed rather than dropped: the author sees what
-                # they wrote and the map falls back to fitting the data,
-                # which is what it did before this control existed.
+                # The map falls back to fitting the data, which is what it
+                # did before this control existed.
                 config.pop("frame", None)
+                config.pop("focus", None)
+        else:
+            # Cleared. Without this the previous framing survived a
+            # reader choosing "fit the counties in the data".
+            config.pop("frame", None)
+            config.pop("focus", None)
         # Whose name sits on the chart. The consortium publishes what is
         # built here, so that is the default; a chart built on somebody
         # else's data credits them instead, because crediting ourselves
@@ -247,10 +313,23 @@ def theme_panel(visual, post=None):
                         for v in flow_places(visual)
                     ]
                     if o.kind == "checks"
-                    else [
-                        {"value": v, "label": lab, "on": config.get(o.id, "") == v}
-                        for v, lab in o.values
-                    ]
+                    # A framing choice is the states the rows are in,
+                    # which only the data knows.
+                    else (
+                        [
+                            {
+                                "value": code,
+                                "label": name,
+                                "on": config.get(o.id, "") == code,
+                            }
+                            for code, name in flow_frames(visual)
+                        ]
+                        if o.id == "frame_on"
+                        else [
+                            {"value": v, "label": lab, "on": config.get(o.id, "") == v}
+                            for v, lab in o.values
+                        ]
+                    )
                 ),
             }
             for o in _chart_options(visual)
