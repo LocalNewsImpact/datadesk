@@ -141,6 +141,23 @@ def theme_panel(visual, post=None):
                 config[option.id] = posted if posted in allowed else ""
             else:
                 config[option.id] = posted.strip()
+        # A framing option is typed as a place and read as a code. The
+        # renderer frames on FIPS because that is what the boundary file
+        # is keyed by, and nobody knows Missouri is 29 -- the same
+        # resolution `builder.build_config` does for the older form,
+        # which an uploaded-data visual never passes through.
+        if config.get("frame_on"):
+            from visuals.geofocus import AUTO, FocusError, frame, resolve
+
+            try:
+                geoid, level = resolve(config["frame_on"])
+                config["focus"] = geoid
+                config["frame"] = frame(geoid, level, AUTO, "", "")
+            except FocusError:
+                # Left as typed rather than dropped: the author sees what
+                # they wrote and the map falls back to fitting the data,
+                # which is what it did before this control existed.
+                config.pop("frame", None)
         # Whose name sits on the chart. The consortium publishes what is
         # built here, so that is the default; a chart built on somebody
         # else's data credits them instead, because crediting ourselves

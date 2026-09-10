@@ -761,3 +761,22 @@ def test_a_group_keeps_one_order_and_room_for_its_names():
     # each facet separately; neither belongs on a group.
     assert "delete enc.order;" in JS
     assert "delete enc.sort;" in JS
+
+
+def test_every_kind_the_old_editor_offers_fields_for_is_named_in_them():
+    """`builder_edit.html` gates its controls with `data-kinds`, and a
+    kind missing from that list gets a form with nothing in it.
+
+    The existing check only asserts a control EXISTS by name, which a
+    hidden one satisfies: the flow map's From, To and Value passed while
+    being invisible for a flow map, because the fieldset holding them
+    said `chord arc`.
+    """
+    form = (ROOT / "templates/visuals/builder_edit.html").read_text()
+    gated = set()
+    for group in re.findall(r'data-kinds="([^"]+)"', form):
+        gated.update(group.split())
+    # Kinds the old editor draws fields for at all. A kind it does not
+    # know is a separate question from one it knows and hides.
+    for kind in ("chord", "arc", "flowmap"):
+        assert kind in gated, f"{kind} has no fieldset in the old editor"

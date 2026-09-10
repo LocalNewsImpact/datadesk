@@ -47,6 +47,8 @@ _STRING_KEYS = (
     # A study of Audrain, Boone and Osage lost Audrain to "Other" because
     # its largest flow sorted ninth.
     "highlight",
+    # Where a flow map frames. See visuals.types._FOCUS.
+    "frame_on",
     "label",
     "sort",
     "stack",

@@ -111,7 +111,7 @@
           </label>
         </fieldset>
 
-        <fieldset data-kinds="chord arc">
+        <fieldset data-kinds="chord arc flowmap">
           <legend>Flows</legend>
           <label>From <select name="from" data-columns></select></label>
           <label>To <select name="to" data-columns></select></label>
@@ -122,13 +122,16 @@
           Boone County. Optional, because every other flow chart works
           from the names alone.
           {% endcomment %}
-          <label>From county (FIPS)
+          <label data-kinds="flowmap">From county (FIPS)
             <select name="from_geo" data-columns data-optional></select></label>
-          <label>To county (FIPS)
+          <label data-kinds="flowmap">To county (FIPS)
             <select name="to_geo" data-columns data-optional></select></label>
           <label>About
             <input type="text" name="highlight"
                    placeholder="Audrain, Boone, Osage"></label>
+          <label data-kinds="flowmap">Frame on
+            <input type="text" name="frame_on"
+                   placeholder="Missouri — or Boone, MO, or blank"></label>
         </fieldset>
 
         <fieldset data-kinds="choropleth points storymap">

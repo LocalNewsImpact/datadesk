@@ -1866,3 +1866,65 @@ def test_the_builder_offers_a_control_for_it():
     root = Path(__file__).resolve().parents[1]
     form = (root / "templates/visuals/builder_edit.html").read_text()
     assert 'name="highlight"' in form
+
+
+def test_the_flow_map_highlights_by_subject_not_by_row():
+    """Coloured by row index, every flow was a different colour and the
+    map read as spaghetti -- and the three counties under study looked
+    like the fourteen that were context.
+
+    An arc belongs to whichever END is the subject, because a flow INTO
+    Audrain is Audrain's as much as one out of it, which is the whole
+    question a commuting map asks.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static/js/datadesk-chart.js").read_text()
+    body = js.split("function renderFlowMap(")[1].split("\n  function ")[0]
+    assert "config.highlight" in body, "the flow map ignores the subject"
+    # Not by position in the file.
+    assert "t.series[i % t.series.length]" not in body
+    # Either end.
+    assert "hueOf(r[fromGeo]) || hueOf(r[toGeo])" in body
+    # Context stays visible rather than being dropped: these counties sit
+    # inside a system and that is the finding.
+    assert "raise()" in body
+    # Context stays drawn, faintly. Three tiers now, so the exact value
+    # is asserted by the tier test rather than here.
+    assert "0.1" in body
+
+
+def test_a_flow_map_can_be_framed_on_a_whole_state():
+    """A map fitted to the counties in the file is a blob with no state
+    around it. The focus control lives on the `newsrooms` step, which is
+    corpus-only, so an uploaded-data flow map could never reach it."""
+    from visuals.types import options_for
+
+    offered = {o.id for o in options_for("flowmap", ["from", "to", "value"])}
+    assert "frame_on" in offered
+
+
+def test_the_framing_option_does_not_collide_with_the_corpus_one():
+    """`focus` is in UNDRAWN because the corpus path owns that control.
+    Two controls writing one key means the second clears the first."""
+    from visuals.types import UNDRAWN, options_for
+
+    assert "focus" in UNDRAWN
+    offered = {o.id for o in options_for("flowmap", ["from", "to", "value"])}
+    assert "focus" not in offered
+
+
+def test_the_flow_map_shouts_loudest_between_two_subjects():
+    """Three tiers, because the question has three answers: between two
+    counties under study, between one and the wider system, and the
+    context that makes both readable. Here the first is small -- 2,213
+    against 45,422 -- so it has to be drawn last and loudest or it
+    disappears under what it is being compared with."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static/js/datadesk-chart.js").read_text()
+    body = js.split("function renderFlowMap(")[1].split("\n  function ")[0]
+    assert "if (a && b) return 0.95" in body
+    assert body.count("raise()") == 2, "subject-pair arcs are not raised last"

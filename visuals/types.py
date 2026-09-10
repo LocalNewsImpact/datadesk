@@ -178,6 +178,19 @@ _HIGHLIGHT = Option(
     "text",
 )
 
+#: Where to frame a map that is not a choropleth. The `newsrooms` step
+#: carries this control for corpus visuals and is corpus-only, so an
+#: uploaded-data flow map had no way to reach it: the map fitted itself
+#: to the counties in the file, which is a blob with no state around it.
+#: Named `frame_on` rather than `focus`: `focus` is in UNDRAWN, because
+#: the corpus path owns that control on the newsrooms step, and two
+#: controls writing one key means the second clears the first.
+_FOCUS = Option(
+    "frame_on",
+    "Frame on (a county, a state, or blank to fit the data)",
+    "text",
+)
+
 _SORT = Option(
     "sort",
     "Order by",
@@ -321,7 +334,7 @@ CHART_TYPES = (
             Role("from_geo", "From county (FIPS)", accepts=(TEXT,), needs=False),
             Role("to_geo", "To county (FIPS)", accepts=(TEXT,), needs=False),
         ),
-        options=(_HIGHLIGHT,),
+        options=(_HIGHLIGHT, _FOCUS),
         pairs=("from", "to"),
         also=("commuting", "migration", "trade"),
         encoding=LENGTH,

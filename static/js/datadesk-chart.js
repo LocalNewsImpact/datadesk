@@ -1498,10 +1498,41 @@
     const ids = [];
     for (const r of rows) ids.push(String(r[fromGeo]), String(r[toGeo]));
     boundaries(opts.geoBase, "counties", ids, opts.geoUrls).then((features) => {
+      // What to PAINT, which is not the same as what the data touches. A
+      // set of counties fitted to itself is a blob with no country
+      // around it; the same arcs inside their state say where this is.
+      // `focus` and `frame` are the choropleth's own controls, resolved
+      // by the builder from "Boone, MO" and an extent.
       const wanted = new Set(ids.map(String));
-      const shown = features.filter((f) => wanted.has(String(f.id)));
+      const focus = String(config.focus || "").trim();
+      const chosen = Array.isArray(config.frame) ? config.frame.map(String) : [];
+      let shown;
+      if (chosen.length) {
+        const keep = new Set(chosen);
+        shown = features.filter((f) => keep.has(String(f.id)));
+      } else if (/^\d{5}$/.test(focus)) {
+        shown = features.filter(
+          (f) => String(f.id).slice(0, 2) === focus.slice(0, 2));
+      } else if (/^\d{2}$/.test(focus)) {
+        shown = features.filter((f) => String(f.id).slice(0, 2) === focus);
+      } else {
+        // Unset: the counties the flows touch, as before.
+        shown = features.filter((f) => wanted.has(String(f.id)));
+      }
+      if (!shown.length) shown = features.filter((f) => wanted.has(String(f.id)));
       if (!shown.length) {
-        el.textContent = "None of those counties are in the basemap."; return;
+        // Say WHICH thing is wrong. "Not in the basemap" is true of a
+        // county code that is merely absent and of a column that was
+        // never county codes at all, and those need opposite fixes. A
+        // corpus field like Publisher county holds a NAME -- "Boone" --
+        // and only `geo_county` carries a geoid.
+        const sample = String(rows[0][fromGeo] || "");
+        el.textContent = /^\d{5}$/.test(sample)
+          ? "Those county codes are not in the basemap."
+          : `The county columns hold "${sample}", which is a name rather `
+            + "than a five-digit county code. Point From county and To "
+            + "county at columns of FIPS codes.";
+        return;
       }
       const height = Math.round(width * 0.62);
       const projection = d3.geoAlbersUsa().fitSize(
@@ -1518,12 +1549,34 @@
           'max-width:100%;height:auto;display:block;font-family:system-ui,' +
           '-apple-system,"Segoe UI",sans-serif;font-size:12px');
 
+      // What the map is ABOUT, by county name. Named rather than
+      // inferred from the data: every county in a commuting file is in
+      // the data, and only the author knows which three are the study.
+      const pin = new Set(String(config.highlight || "").split(",")
+        .map((n) => n.trim()).filter(Boolean));
+      const nameOf = new Map();
+      for (const r of rows) {
+        nameOf.set(String(r[fromGeo]), String(r[from]));
+        nameOf.set(String(r[toGeo]), String(r[to]));
+      }
+      const isSubject = (geoid) => pin.has(nameOf.get(String(geoid)));
+
+      // One hue per subject county, so its arcs are its own wherever they
+      // land. Coloured by row index, every flow was a different colour
+      // and the map read as spaghetti.
+      const subjects = [...pin];
+      const hueOf = (geoid) => {
+        const at = subjects.indexOf(nameOf.get(String(geoid)));
+        return at >= 0 ? t.series[at % t.series.length] : null;
+      };
+
       svg.append("g").selectAll("path").data(shown).join("path")
         .attr("d", path)
-        // `missing` is the theme's unshaded land: this map carries no
-        // value per county, only the arcs between them, so the counties
-        // are the ground rather than the data.
-        .attr("fill", t.missing)
+        // `missing` is the theme's unshaded land. A subject county is
+        // tinted its own hue so the shape and its arcs read as one thing.
+        .attr("fill", (f) => (pin.size && isSubject(f.id)
+          ? hueOf(f.id) : t.missing))
+        .attr("fill-opacity", (f) => (pin.size && isSubject(f.id) ? 0.18 : 1))
         .attr("stroke", t.boundary).attr("stroke-width", 0.6);
 
       // Square root, because the eye reads a ribbon by its area and the
@@ -1545,10 +1598,37 @@
           const r2 = Math.hypot(dx, dy) * 1.6;
           return `M${a[0]},${a[1]}A${r2},${r2} 0 0,1 ${b[0]},${b[1]}`;
         })
-        .attr("stroke", (r, i) => t.series[i % t.series.length])
+        // An arc belongs to whichever end is the subject, so a flow INTO
+        // Audrain is Audrain's as much as one out of it -- which is the
+        // whole question being asked of a commuting map.
+        .attr("stroke", (r) => {
+          if (!pin.size) return t.series[0];
+          return hueOf(r[fromGeo]) || hueOf(r[toGeo]) || t.muted;
+        })
         .attr("stroke-width", (r) => w(+r[value]))
-        .attr("stroke-opacity", 0.55)
+        // Everything else stays visible and quiet: the surrounding system
+        // is context, and dropping it would hide that these counties sit
+        // inside one.
+        // Three tiers, because the question has three answers. A flow
+        // BETWEEN two of the counties under study is the thing being
+        // asked about; one from a subject to the wider system is the
+        // answer when the first is small -- which here it is, 2,213
+        // between the three against 45,422 with everyone else -- and the
+        // rest is the context that makes both readable.
+        .attr("stroke-opacity", (r) => {
+          if (!pin.size) return 0.55;
+          const a = isSubject(r[fromGeo]), b = isSubject(r[toGeo]);
+          if (a && b) return 0.95;
+          return a || b ? 0.5 : 0.1;
+        })
         .attr("stroke-linecap", "round");
+
+      // Drawn last so a thin subject arc is not buried under the
+      // context it is being compared against.
+      arcs.filter((r) => pin.size && (isSubject(r[fromGeo]) || isSubject(r[toGeo])))
+        .raise();
+      arcs.filter((r) => pin.size && isSubject(r[fromGeo]) && isSubject(r[toGeo]))
+        .raise();
 
       el.replaceChildren(svg.node());
       const tip = tooltip(el);
