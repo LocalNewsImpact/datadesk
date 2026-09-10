@@ -419,13 +419,30 @@ STORY_KINDS = (
 #: "Front" rather than "index": a section front and an obituary front are
 #: what a newsroom calls them, and the stored values are unchanged so no
 #: decision already recorded is affected.
+#: What a discovery reviewer actually meets that is not a story. The list
+#: started at the shapes a news site publishes and left out the ones a
+#: CRAWLER produces -- a dead link, a feed URL, a search result, a PDF --
+#: which are a large share of what reaches this queue and were all having
+#: to go in as "Other". A count of "Other" says nothing a fix can be
+#: built from, which is the whole reason the list exists.
+#:
+#: These write nothing on the crawler. "Not a story" leaves the status
+#: alone -- it already excludes the row -- so the value is recorded on the
+#: `ReviewDecision` for analysis and needs no contract change to add to.
 NOT_STORY_KINDS = (
+    {"value": "not_found", "label": "404 or dead link"},
+    {"value": "feed", "label": "Feed (RSS, Atom or JSON)"},
     {"value": "section_index", "label": "Section Front"},
     {"value": "tag_or_author", "label": "Tag or author page"},
+    {"value": "search", "label": "Search results"},
     {"value": "video", "label": "Video"},
     {"value": "photo_gallery", "label": "Photo gallery"},
     {"value": "event", "label": "Event listing"},
+    {"value": "notices", "label": "Classifieds or legal notices"},
+    {"value": "file", "label": "PDF or other file"},
     {"value": "account", "label": "Subscribe or account page"},
+    {"value": "newsletter", "label": "Newsletter signup"},
+    {"value": "static_page", "label": "Contact, about or staff page"},
     {"value": "homepage", "label": "Homepage"},
     {"value": "e_edition", "label": "E-edition"},
     {"value": "other", "label": "Other"},
