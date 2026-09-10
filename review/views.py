@@ -1935,12 +1935,25 @@ def _decided_candidate_links(rows):
 
 def _discovery_rows(stratum, start, end, dataset=""):
     """One stratum's rows, drawn and annotated with how they were drawn."""
-    from explorer.models import UrlVerification
+    from django.db.models import Exists, OuterRef
+
+    from explorer.models import Article, UrlVerification
     from review import discovery
 
-    base = UrlVerification.objects.select_related(
-        "candidate_link", "candidate_link__source"
-    ).filter(discovery.predicate(stratum))
+    base = (
+        UrlVerification.objects.select_related(
+            "candidate_link", "candidate_link__source"
+        )
+        # Whether the pipeline ever fetched it, which is what tells a
+        # rejection by the URL rule apart from one made after reading the
+        # body. Both live in the crawler database, so this is a plain
+        # subquery rather than a cross-database round trip.
+        .annotate(
+            was_fetched=Exists(
+                Article.objects.filter(candidate_link_id=OuterRef("candidate_link_id"))
+            )
+        ).filter(discovery.predicate(stratum))
+    )
     base = discovery.in_cohort(base, start, end)
     if dataset:
         base = base.filter(candidate_link__dataset_id=dataset)
@@ -2048,14 +2061,21 @@ def discovery_queue(request):
         # while "What the model said" printed "the pipeline dropped it
         # anyway" -- so a wire row read `wire` in one cell and "dropped"
         # in the next, which are opposite claims about the same event.
-        row.model_verdict, row.model_confidence = discovery.how_the_model_read_it(
-            row.verification_confidence
+        # Two questions, in the order they happened. storysniffer decided
+        # whether the URL went any further; what happened next is only
+        # meaningful where it said yes.
+        row.sniffer_verdict, row.sniffer_confidence = discovery.what_storysniffer_said(
+            row.storysniffer_result, row.verification_confidence
         )
-        row.pipeline_kind, row.pipeline_said = discovery.what_the_pipeline_did(
-            row.new_status
+        row.outcome_kind, row.outcome = discovery.what_happened_after(
+            row.storysniffer_result,
+            row.new_status,
+            getattr(row, "was_fetched", None),
         )
-        row.disagrees = discovery.model_and_pipeline_disagree(
-            row.verification_confidence, row.new_status
+        row.disagrees = discovery.storysniffer_was_wrong(
+            row.storysniffer_result,
+            row.new_status,
+            getattr(row, "was_fetched", None),
         )
 
     # Before pagination: what is left to answer in this stratum, which is
