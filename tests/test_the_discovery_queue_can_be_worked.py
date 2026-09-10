@@ -758,3 +758,96 @@ def test_a_new_kind_needs_no_contract_change():
             "decided_at": "2026-09-09T00:00:00Z",
         }
         assert discovery_verdict.status_for(note) is None
+
+
+def test_a_briefs_roundup_is_not_a_story():
+    """Many short items on one page, so there is no single story to
+    extract -- the same shape as a section front rather than a story that
+    happens to be short."""
+    values = {choice["value"] for choice in discovery.NOT_STORY_KINDS}
+    assert "news_briefs" in values
+
+
+def test_wire_is_withheld_from_the_fetch_queue(client, reviewer, crawler_schema):
+    """A reviewer who reads a URL and says "wire" has already reached the
+    conclusion a fetch, an extraction and a wire check would reach. The
+    kind was recorded and then ignored, so all three happened anyway."""
+    link = _link(crawler_schema, "ranked")
+    _verification(crawler_schema, link, 5.0, True)
+    client.force_login(reviewer)
+    client.post(
+        reverse("review:discovery"),
+        {
+            f"d-{link.id}": discovery.IT_IS_A_STORY,
+            f"v-{link.id}-{discovery.IT_IS_A_STORY}": "wire",
+            f"stratum-{link.id}": "ranked",
+            f"probability-{link.id}": "1.0",
+        },
+    )
+    link.refresh_from_db()
+    assert link.status == "wire"
+    assert link.status != "discovered", "wire went back into the fetch queue"
+
+
+def test_an_ordinary_story_still_goes_back_to_the_fetch_queue(
+    client, reviewer, crawler_schema
+):
+    """The commonest answer must keep working: withholding wire must not
+    withhold everything."""
+    link = _link(crawler_schema, "ranked")
+    _verification(crawler_schema, link, 5.0, True)
+    client.force_login(reviewer)
+    client.post(
+        reverse("review:discovery"),
+        {
+            f"d-{link.id}": discovery.IT_IS_A_STORY,
+            f"v-{link.id}-{discovery.IT_IS_A_STORY}": "",
+            f"stratum-{link.id}": "ranked",
+            f"probability-{link.id}": "1.0",
+        },
+    )
+    link.refresh_from_db()
+    assert link.status == "discovered"
+
+
+def test_an_obituary_is_still_fetched(client, reviewer, crawler_schema):
+    """Unenriched is not unfetched. An obituary is extracted and kept and
+    merely not enriched, so it must still reach the fetch queue."""
+    link = _link(crawler_schema, "ranked")
+    _verification(crawler_schema, link, 5.0, True)
+    client.force_login(reviewer)
+    client.post(
+        reverse("review:discovery"),
+        {
+            f"d-{link.id}": discovery.IT_IS_A_STORY,
+            f"v-{link.id}-{discovery.IT_IS_A_STORY}": "obituary",
+            f"stratum-{link.id}": "ranked",
+            f"probability-{link.id}": "1.0",
+        },
+    )
+    link.refresh_from_db()
+    assert link.status == "discovered"
+
+
+def test_the_verdict_is_recorded_either_way(client, reviewer, crawler_schema):
+    """Withholding the link must not lose what the reviewer said: the
+    verdict in meta is what stops the pipeline re-deciding it."""
+    from lnic_contracts import discovery_verdict
+
+    link = _link(crawler_schema, "ranked")
+    _verification(crawler_schema, link, 5.0, True)
+    client.force_login(reviewer)
+    client.post(
+        reverse("review:discovery"),
+        {
+            f"d-{link.id}": discovery.IT_IS_A_STORY,
+            f"v-{link.id}-{discovery.IT_IS_A_STORY}": "wire",
+            f"stratum-{link.id}": "ranked",
+            f"probability-{link.id}": "1.0",
+        },
+    )
+    link.refresh_from_db()
+    note = (link.meta or {}).get(discovery_verdict.METADATA_KEY)
+    assert note is not None
+    assert note["kind"] == "wire"
+    assert note["verdict"] == discovery_verdict.IS_A_STORY
