@@ -870,20 +870,21 @@ def test_a_wire_row_is_not_reported_as_dropped():
     about the same event.
     """
     kind, phrase, note = discovery.what_the_pipeline_did("wire")
-    assert kind == "filed"
+    assert kind == "filtered_out"
     assert "dropped" not in phrase
     assert phrase == "identified it as wire"
-    assert note == "a story, but not local news"
+    assert note == "a story, but filtered out"
     # And it does not read as a disagreement: the model said story, and
     # so did the pipeline.
     assert not discovery.model_and_pipeline_disagree(5.0, "wire")
 
 
-def test_every_filed_kind_agrees_with_a_story_verdict():
+def test_every_filtered_out_kind_agrees_with_a_story_verdict():
     """Wire, obituary, opinion and weather are all stories the analysis
-    filters out. None of them contradicts a model that said story."""
+    filters out for not being local news -- this is not a wire-only
+    case. None of them contradicts a model that said story."""
     for status in ("wire", "obituary", "opinion", "weather"):
-        assert discovery.what_the_pipeline_did(status)[0] == "filed", status
+        assert discovery.what_the_pipeline_did(status)[0] == "filtered_out", status
         assert not discovery.model_and_pipeline_disagree(500.0, status), status
 
 
@@ -941,7 +942,7 @@ def test_the_page_never_says_dropped_on_a_wire_row(client, reviewer, crawler_sch
     body = client.get(reverse("review:discovery")).content.decode()
     assert "dropped it anyway" not in body
     assert "identified it as wire" in body
-    assert "a story, but not local news" in body
+    assert "a story, but filtered out" in body
     assert "weakly" not in body
     # The corpus vocabulary, not ours: the analysis keeps local news and
     # filters out everything else. "filtered from analysis" described the
@@ -954,6 +955,37 @@ def test_the_two_outcomes_use_the_corpus_vocabulary():
     that is what the two outcomes are called. A reviewer should not have
     to know what "filtered from analysis" refers to."""
     assert discovery.what_the_pipeline_did("extracted")[1] == "kept it as local news"
-    assert discovery.what_the_pipeline_did("wire")[2] == "a story, but not local news"
+    assert discovery.what_the_pipeline_did("wire")[2] == "a story, but filtered out"
     for status in ("wire", "obituary", "opinion", "weather"):
-        assert "not local news" in discovery.what_the_pipeline_did(status)[2], status
+        assert "filtered out" in discovery.what_the_pipeline_did(status)[2], status
+
+
+def test_filtered_out_covers_more_than_wire():
+    """The bucket is every story the analysis filters out for not being
+    local news, not a wire special case. It was called `filed`, which
+    named nothing -- a reader could not tell what it held or why."""
+    for status in ("wire", "obituary", "opinion", "weather"):
+        kind, _, note = discovery.what_the_pipeline_did(status)
+        assert kind == "filtered_out", status
+        assert note == "a story, but filtered out", status
+    assert discovery.what_the_pipeline_did("extracted")[0] == "kept"
+
+
+def test_the_kinds_are_named_after_what_they_mean():
+    """`filed` and `agreed` described what the pipeline DID to the row.
+    What a reviewer needs is what the row IS."""
+    kinds = {
+        discovery.what_the_pipeline_did(status)[0]
+        for status in ("extracted", "wire", "not_article", "discovered", "odd")
+    }
+    assert kinds == {"kept", "filtered_out", "rejected", "unresolved", "other"}
+
+
+def test_an_obituary_is_not_called_not_local():
+    """An obituary IS local. What is true of every status in this bucket
+    is that the analysis does not keep it, which is why the bucket is
+    named for that and not for a property of the row."""
+    for status in ("wire", "obituary", "opinion", "weather"):
+        note = discovery.what_the_pipeline_did(status)[2]
+        assert "not local" not in note, status
+        assert note == "a story, but filtered out", status

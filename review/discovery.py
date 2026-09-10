@@ -51,19 +51,24 @@ from review import kernel
 #: What the pipeline concluded, grouped by what it MEANT rather than by
 #: the string it wrote. Three different outcomes were reading as one:
 #: `wire` sat in the same bucket as `not_article`, so a URL the pipeline
-#: accepted as a story, fetched, extracted and then filed as wire was
+#: accepted as a story, fetched, extracted and then recorded as wire was
 #: reported as one it "dropped". The row said `wire` in one column and
 #: "the pipeline dropped it anyway" in the next.
 #:
-#: agreed    it is local news, which is what the analysis keeps.
-#: filed     it IS a story, and it is not local news, which is what the
-#:           analysis filters out. Not a rejection: it was fetched and
-#:           extracted, and that is how the pipeline found out.
+#: kept          local news, which is what the analysis keeps.
+#: filtered_out  it IS a story, and the analysis does not keep it. Not a
+#:               rejection: it was fetched and extracted, and that is how
+#:               the pipeline found out. Wire, obituaries, opinion and
+#:               weather are all in here -- this is not a wire-only case.
+#:
+#: Named for what the analysis did with the row, not for a property of
+#: the row: an obituary IS local, it is simply not kept. An earlier name
+#: for this was `filed`, which meant nothing to anybody.
 #: rejected  it is not a story. The only real disagreement with a model
 #:           that says it is.
 #: unresolved  nothing has decided yet.
-AGREED_STATUSES = frozenset({"article", "extracted", "cleaned", "local"})
-FILED_STATUSES = frozenset({"wire", "obituary", "opinion", "weather"})
+KEPT_STATUSES = frozenset({"article", "extracted", "cleaned", "local"})
+FILTERED_OUT_STATUSES = frozenset({"wire", "obituary", "opinion", "weather"})
 REJECTED_STATUSES = frozenset({"not_article", "404", "skipped"})
 UNRESOLVED_STATUSES = frozenset({"discovered", "sampled_out"})
 
@@ -217,14 +222,21 @@ def what_the_pipeline_did(status):
     value = (status or "").strip().lower()
     if not value:
         return "unresolved", "nothing recorded", ""
-    if value in AGREED_STATUSES:
-        return "agreed", "kept it as local news", ""
-    if value in FILED_STATUSES:
+    if value in KEPT_STATUSES:
+        return "kept", "kept it as local news", ""
+    if value in FILTERED_OUT_STATUSES:
         # Fetched and extracted to find this out, which is the opposite of
         # dropping it. The note says what the category MEANS for the
         # corpus -- "filtered from analysis" described our plumbing and
         # told a reviewer nothing about the story.
-        return "filed", f"identified it as {value}", "a story, but not local news"
+        return (
+            "filtered_out",
+            f"identified it as {value}",
+            # "not local news" was wrong for half the set: an obituary
+            # IS local. What is true of all four is that the analysis
+            # does not keep them.
+            "a story, but filtered out",
+        )
     if value in REJECTED_STATUSES:
         return "rejected", "ruled it not a story", ""
     if value in UNRESOLVED_STATUSES:
@@ -248,7 +260,7 @@ def model_and_pipeline_disagree(margin, status):
     kind = what_the_pipeline_did(status)[0]
     if margin > 0:
         return kind == "rejected"
-    return kind in {"agreed", "filed"}
+    return kind in {"kept", "filtered_out"}
 
 
 def percentile(margin, cuts):
