@@ -565,3 +565,35 @@ def test_a_snapshot_with_rows_still_publishes(admin):
     publish(visual, admin)
     visual.refresh_from_db()
     assert visual.status == Visual.PUBLISHED
+
+
+def test_both_publish_buttons_capture_before_pinning():
+    """There are two Publish controls and they did different things.
+
+    The Publish STEP captures then pins. The advanced settings page's
+    form called `publish` alone, so it pinned whatever snapshot happened
+    to exist while the preview above it ran live.
+
+    Seen on 2026-09-11: a story map whose preview drew 23 counties stayed
+    published at 9 -- a snapshot taken that morning, before the articles
+    were re-enriched and by code since replaced. Pressing publish again
+    changed nothing, because the thing it pinned had not moved, and the
+    CSV export carried the stale numbers with it: a published visual's
+    downloads come from its snapshot.
+
+    Asserted as a pair, because the failure was that they disagreed.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    panel = (root / "visuals/panels.py").read_text()
+    view = (root / "visuals/views.py").read_text()
+
+    step = panel.split('wanted == "publish"')[1].split("elif wanted ==")[0]
+    form = view.split('form == "publish"')[1].split("elif form ==")[0]
+
+    for name, block in (("the publish step", step), ("the settings form", form)):
+        assert "refresh_snapshot(visual" in block, f"{name} does not capture"
+        assert (
+            "source_kind != INLINE" in block
+        ), f"{name} would try to re-run an upload, which has no source"

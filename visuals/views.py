@@ -1050,6 +1050,23 @@ def builder_edit(request, slug):
                     visual, request.user, rows, note=f"uploaded {upload.name}"
                 )
             elif form == "publish":
+                # Capture, then pin -- the same two steps the Publish
+                # STEP does (panels.py). They differed, and publishing
+                # from this page pinned whatever snapshot happened to
+                # exist while the preview above it ran live.
+                #
+                # Seen on 2026-09-11: a story map whose preview drew 23
+                # counties stayed published at 9, taken that morning
+                # before the articles were re-enriched and by code since
+                # replaced. Pressing publish again changed nothing,
+                # because the thing it pinned had not moved -- and the
+                # CSV export carried the stale numbers with it, since a
+                # published visual's downloads come from its snapshot.
+                #
+                # Not for an upload, where the rows are the snapshot and
+                # there is no source to run.
+                if visual.source_kind != INLINE:
+                    refresh_snapshot(visual, request.user)
                 publish(visual, request.user)
             elif form == "unpublish":
                 unpublish(visual, request.user)
