@@ -84,6 +84,7 @@ def submit(queue, decisions, subjects, user, *, stage_of=None, claim_of=None):
     refused = 0
     incomplete = 0
     unreachable = 0
+    rejected = []
     written = []
     # What the session did, per row, for the audit entry below.
     session = []
@@ -123,7 +124,23 @@ def submit(queue, decisions, subjects, user, *, stage_of=None, claim_of=None):
 
         stage = stage_of(subject) if stage_of else ""
         claim = claim_of(subject) if claim_of else queue.key
-        outcome = queue.apply(subject, verb, value, user) or {}
+        # A VALUE THE QUEUE CANNOT CARRY OUT IS NOT A 500.
+        #
+        # `apply` validates what a reviewer typed and raises when it does
+        # not resolve -- which is correct, and which crashed the whole
+        # submission. A reviewer who entered "Fatima, MO" (a real
+        # community in Osage County and in no gazetteer, being
+        # unincorporated) got an error page, and every OTHER decision on
+        # that page was lost with it.
+        #
+        # Refused per row, with the reason kept: the rest of the session
+        # applies, the row stays in the queue, and the reviewer is told
+        # what to do about the one that did not.
+        try:
+            outcome = queue.apply(subject, verb, value, user) or {}
+        except ValueError as refusal:
+            rejected.append({"id": str(subject_id), "why": str(refusal)})
+            continue
 
         ReviewDecision.objects.update_or_create(
             subject_type=queue.subject_type,
@@ -196,6 +213,10 @@ def submit(queue, decisions, subjects, user, *, stage_of=None, claim_of=None):
             "incomplete": incomplete,
             "refused": refused,
             "unreachable": unreachable,
+            # What the queue would not carry out, and why. The reason is
+            # the reviewer's to act on -- it names the value that did not
+            # resolve -- so it travels rather than being counted.
+            "rejected": rejected,
             "nothing": not decisions,
         }
     )
