@@ -260,13 +260,25 @@ def theme_panel(visual, post=None):
             except FocusError:
                 # The map falls back to fitting the data, which is what it
                 # did before this control existed.
-                config.pop("frame", None)
-                config.pop("focus", None)
+                config["focus"] = ""
+                config["frame"] = []
         else:
-            # Cleared. Without this the previous framing survived a
-            # reader choosing "fit the counties in the data".
-            config.pop("frame", None)
-            config.pop("focus", None)
+            # CLEARED, by writing the blank rather than removing the key.
+            #
+            # This dict is a step's own, built fresh on every save, and
+            # the caller merges it into the visual's config with
+            # `update`. `update` can add a key or overwrite one; it
+            # cannot take one away. So popping here removed a key that
+            # was never in this dict and left the stored one untouched:
+            # once `focus` was set, no later save could unset it, and
+            # choosing "fit the counties in the data" cleared `frame_on`
+            # while the map went on framing on the state.
+            #
+            # Seen on commuting-map-flow, whose stored config read
+            # `frame_on: ""` beside `focus: "29"` and drew all 115
+            # counties in Missouri around three under study.
+            config["focus"] = ""
+            config["frame"] = []
         # Whose name sits on the chart. The consortium publishes what is
         # built here, so that is the default; a chart built on somebody
         # else's data credits them instead, because crediting ourselves

@@ -2053,15 +2053,32 @@ def test_framing_is_chosen_from_the_states_in_the_data():
 
 
 def test_choosing_fit_the_data_clears_a_previous_framing():
-    """Without this the old framing survived a reader choosing to fit the
-    data, and the control appeared to do nothing."""
-    from pathlib import Path
+    """A step returns its OWN config and the caller merges it with
+    `update`. `update` can add a key or overwrite one; it cannot take one
+    away. Popping therefore removed a key that was never in the step's
+    dict and left the stored one untouched -- so once `focus` was set no
+    later save could unset it, and choosing "fit the counties in the
+    data" cleared `frame_on` while the map went on framing on the state.
 
-    root = Path(__file__).resolve().parents[1]
-    src = (root / "visuals/panels.py").read_text()
-    block = src.split('if config.get("frame_on"):')[1].split('config["credit"]')[0]
-    assert 'config.pop("focus", None)' in block
-    assert block.count('config.pop("frame", None)') >= 2
+    Seen on commuting-map-flow, whose stored config read `frame_on: ""`
+    beside `focus: "29"` and drew all 115 counties in Missouri around the
+    three under study. The blank has to be written, not the key removed.
+    """
+    from visuals.panels import theme_panel
+
+    class _Visual:
+        config = {"kind": "flowmap", "focus": "29", "frame": ["29019"]}
+        spec = {"roles": {"from": "from", "to": "to", "value": "value"}}
+        snapshots = None
+
+    written = theme_panel(
+        _Visual(),
+        {"theme": "datadesk", "opt-frame_on": ""},
+    )["config"]
+    # Present and blank, which is what survives a merge.
+    assert "focus" in written, "a popped key cannot clear a merged config"
+    assert written["focus"] == ""
+    assert written["frame"] == []
 
 
 def test_nothing_on_the_flow_map_is_drawn_too_small_to_see():
@@ -2080,8 +2097,18 @@ def test_nothing_on_the_flow_map_is_drawn_too_small_to_see():
     js = (root / "static/js/datadesk-chart.js").read_text()
     body = js.split("function renderFlowMap(")[1].split("\n  function ")[0]
     # A floor on the width, not a range starting at zero.
-    assert ".range([2.5," in body
+    assert ".range([Math.max(1.2, fat / 8), fat])" in body
     assert ".range([0," not in body
+    # And a cap that moves with the page AND with the counties.
+    # `max(20, width / 36)` floored the widest line at 20px however
+    # small the map, so a 375px phone drew the same weight as a 720px
+    # page: measured there, the biggest arc was 36% of a typical
+    # county's width against 16% on the desktop it was tuned on.
+    # Canvas width alone is not enough either -- framing on a whole
+    # state puts 115 counties in the box, and a line sized for
+    # seventeen buries them.
+    assert "Math.max(20, width / 36)" not in body
+    assert "Math.min(width / 36, typical * 0.4)" in body
     # The subject reads LIGHTER than the land around it: a darker patch
     # reads as a hole, and a pale ground is what the lines show against.
     assert "d3.interpolateLab(t.missing, t.surface)(0.55)" in body
