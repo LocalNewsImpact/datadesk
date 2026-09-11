@@ -132,6 +132,22 @@
           <label data-kinds="flowmap">Frame on
             <input type="text" name="frame_on"
                    placeholder="Missouri — or Boone, MO, or blank"></label>
+          {% comment %}
+          Crowding, not the size of the smallest flow, is what makes a
+          flow map unreadable: past a certain count the arcs have nowhere
+          left to go. A list rather than a box, because the largest are
+          kept and the author is choosing how many, not typing a number.
+          {% endcomment %}
+          <label data-kinds="flowmap">Most flows at any one place
+            <select name="max_arrows">
+              <option value="">Six</option>
+              <option value="3">Three</option>
+              <option value="4">Four</option>
+              <option value="5">Five</option>
+              <option value="8">Eight</option>
+              <option value="10">Ten</option>
+              <option value="99">No limit</option>
+            </select></label>
         </fieldset>
 
         <fieldset data-kinds="choropleth points storymap">

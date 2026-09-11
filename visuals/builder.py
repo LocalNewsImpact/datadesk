@@ -49,6 +49,8 @@ _STRING_KEYS = (
     "highlight",
     # Where a flow map frames. See visuals.types._FOCUS.
     "frame_on",
+    # How many flows one county may carry. See visuals.types._ARROWS.
+    "max_arrows",
     "label",
     "sort",
     "stack",
