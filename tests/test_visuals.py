@@ -2313,22 +2313,32 @@ def test_the_two_layers_do_not_count_the_same_place_twice():
     assert 'F("enrichment__point_geoid")' in body
 
 
-def test_a_shaded_county_carries_its_name():
-    """A row reading `29151` is a row nobody can read.
+def test_a_shaded_county_is_named_not_coded():
+    """A column headed `county` holding `29151` is the complaint, and
+    adding a second column beside it called `name` made the table read as
+    though the county were the code and the name were something else.
 
-    The map has labels to translate a FIPS; the CSV export does not, so a
-    reader who took the areas table had the code and nothing to join it
-    to. The name rides along -- "Osage, MO", with the state, because
-    county names repeat across state lines.
+    The code is `geoid` -- what it is, and what the points layer beside
+    it already calls the same thing. `county name` holds the name. The
+    code stays in the payload because the map matches boundary shapes on
+    it, so dropping it stops the shading working.
     """
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
     src = (root / "visuals/corpus.py").read_text()
     body = src.split("def run_story_map(")[1].split("\ndef ")[0]
-    assert '"name": county_label(county)' in body
+    assert '"geoid": county' in body
+    assert '"county name": county_label(county)' in body
+    # Not the old shape: a `county` key holding a code is what this fixes.
+    assert '"county": county,' not in body
+
+    # And the renderer reads the key that now carries the code, or the
+    # shading silently stops matching any boundary.
+    js = (root / "static/js/datadesk-chart.js").read_text()
+    assert "[String(a.geoid), a.stories]" in js
+    assert "a.county" not in js
 
     from datasets.geo import county_label
 
     assert county_label("29151") == "Osage, MO"
-    assert county_label("29095") == "Jackson, MO"

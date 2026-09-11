@@ -1483,14 +1483,23 @@ def run_story_map(spec, scopes):
                 continue
             # A story touching three places in one county counts once.
             by_county.setdefault(county, set()).add(article_id)
-    # The name as well as the code. A row reading `29151` is a row nobody
-    # can read, and the export is the one place the map's own labels are
-    # not there to translate it -- a reader with the CSV has the FIPS and
-    # nothing to join it to.
+    # A column headed `county` holding `29151` is the thing a reader
+    # complains about, and adding a second column beside it called `name`
+    # made the table read as though the county were the code and the name
+    # were something else.
+    #
+    # So the code is `geoid`, which is what it is and what the points
+    # layer beside it already calls the same thing, and `county name`
+    # holds the name. The code stays in the payload because the map
+    # matches boundary shapes on it -- dropping it stops the shading.
     from datasets.geo import county_label
 
     areas = [
-        {"county": county, "name": county_label(county), "stories": len(ids)}
+        {
+            "geoid": county,
+            "county name": county_label(county),
+            "stories": len(ids),
+        }
         for county, ids in sorted(by_county.items(), key=lambda kv: -len(kv[1]))
     ]
 
