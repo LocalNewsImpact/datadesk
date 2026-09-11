@@ -17,6 +17,7 @@ from datasets.schema import FIELDS as SCHEMA_FIELDS
 from explorer.models import (
     Article,
     ArticleEnrichment,
+    ArticlePlaceManual,
     CandidateLink,
     Dataset,
     DatasetSource,
@@ -102,7 +103,12 @@ WRITABLE = {
 # may be deleted — membership rows, because they are a mapping, not a
 # record. Mirrors the INSERT/DELETE grants in
 # infra/sql/create_crawler_write_role.sql.
-CREATABLE = (Source, Dataset, DatasetSource)
+# `ArticlePlaceManual` is the first row the console creates that is not
+# dataset maintenance. It is narrow on purpose: one table, insert only,
+# and every row carries who added it and when. The crawler rebuilds the
+# geoid set from it rather than the console writing geoids directly --
+# datadesk never writes `article_geoids`, which stays the pipeline's.
+CREATABLE = (Source, Dataset, DatasetSource, ArticlePlaceManual)
 DELETABLE = (DatasetSource,)
 
 # Every model the audited path can touch, for resolving revert targets.

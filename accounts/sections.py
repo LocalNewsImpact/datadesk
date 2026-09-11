@@ -129,6 +129,17 @@ SECTION_GROUPS = (
                 "label": "Extraction",
                 "note": "Articles automated triage could not use, awaiting a decision.",
             },
+            {
+                # Last in the group because it is last in the pipeline:
+                # an article is extracted and enriched before anybody can
+                # tell that the enrichment placed it nowhere.
+                "url": "review:geography",
+                "label": "Geography",
+                "note": (
+                    "Articles enrichment could not place, awaiting a "
+                    "location from a person."
+                ),
+            },
         ),
     },
     {

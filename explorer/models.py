@@ -400,6 +400,48 @@ class ContentTypeDetection(CrawlerModel):
         db_table = "content_type_detection_telemetry"
 
 
+class ArticlePlaceManual(CrawlerModel):
+    """Geography a person put in, for a story the pipeline could not read.
+
+    It lives in its own table rather than in `article_geoids` because the
+    crawler DELETEs and rewrites an article's geoid set on every
+    enrichment run -- a human row kept there is destroyed by the next
+    one, including a run that produced worse geography than the person
+    did. `build_story_geoids` reads this and rebuilds `source = 'human'`
+    rows from it, so the contribution outlasts the runs.
+
+    See MizzouNewsCrawler/docs/MANUAL_GEOGRAPHY.md.
+    """
+
+    id = models.AutoField(primary_key=True)
+    article = models.ForeignKey(
+        Article,
+        models.DO_NOTHING,
+        db_column="article_id",
+        db_constraint=False,
+        related_name="manual_places",
+    )
+    #: What was typed, kept beside the code it resolved to, so a wrong
+    #: resolution can be told from a wrong entry.
+    full_name = models.TextField(null=True)
+    city = models.TextField(null=True)
+    county = models.TextField(null=True)
+    state = models.TextField(null=True)
+    #: Resolved through `lnic_contracts.geography`, never typed. A
+    #: reviewer does not enter a FIPS, and a human entry cannot land on a
+    #: rung the pipeline could not have reached.
+    geoid = models.TextField(null=True)
+    geoid_level = models.TextField(null=True)
+    #: The central location, or one of the places the story names.
+    is_point = models.BooleanField(default=False)
+    added_by = models.TextField()
+    added_at = models.DateTimeField(auto_now_add=True)
+    note = models.TextField(null=True)
+
+    class Meta(CrawlerModel.Meta):
+        db_table = "article_places_manual"
+
+
 class ArticleEnrichment(CrawlerModel):
     # One row per article (the crawler upserts ON CONFLICT (article_id)).
     article = models.OneToOneField(

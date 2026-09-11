@@ -8,7 +8,12 @@ from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.db import DatabaseError, connections
 from django.db.models import Count, F, Q
-from django.http import Http404, HttpResponse, HttpResponseBadRequest
+from django.http import (
+    Http404,
+    HttpResponse,
+    HttpResponseBadRequest,
+    JsonResponse,
+)
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -2496,3 +2501,156 @@ def cin_codebook(request):
             "default": DEFAULT_INSTRUCTIONS,
         },
     )
+
+
+# --------------------------------------------------------------------
+# The geography queue
+# --------------------------------------------------------------------
+
+
+@requires(WRITE)
+def geography_suggest(request):
+    """Place names for what is being typed, the working state first.
+
+    Served from `lnic_contracts.geography` -- the same table the crawler
+    resolves against -- so a name the console offers is a name the write
+    path will accept. A console suggesting from its own copy would let a
+    reviewer pick something that then failed, with nothing to explain
+    why.
+    """
+    from review import geography
+
+    typed = (request.GET.get("q") or "").strip()
+    if len(typed) < 2:
+        return JsonResponse({"results": []})
+    hits = geography.suggest(typed, request.GET.get("state") or None)
+    return JsonResponse({"results": hits[:8]})
+
+
+@requires(WRITE)
+def geography_queue(request):
+    """Articles the pipeline could not place, for a person to place.
+
+    The subject is an article with no geography at all and a reason a
+    person can act on. A paywall stub is the clearest case: only a
+    headline and a subscription prompt were captured, so the link is the
+    only way to read it and the reviewer has to open it.
+    """
+    from explorer.models import Dataset, Source
+    from review import discovery, geography
+    from review import queue as review_queue
+
+    if request.method == "POST":
+        return _submit_geography_decisions(request)
+
+    start, end = discovery.window_for(request.GET)
+    params = request.GET.copy()
+    params.pop("page", None)
+
+    dataset = request.GET.get("dataset", "")
+    county = request.GET.get("county", "")
+    newsroom = request.GET.get("newsroom", "")
+    wanted = request.GET.get("decision", "")
+
+    queue_def = _kernel.get(geography.GEOGRAPHY_QUEUE_KEY)
+    rows, counties, newsrooms, total = [], [], [], 0
+    connected = True
+    try:
+        candidates = geography.needs_geography(
+            dataset=dataset or None,
+            since=start,
+            until=end,
+            county=county or None,
+            newsroom=newsroom or None,
+        ).select_related("candidate_link", "candidate_link__source", "enrichment")
+
+        # The two filters this queue adds, offered from what is actually
+        # in the unfiltered population -- a county with nothing behind it
+        # reads as a queue that lost rows.
+        scope = geography.needs_geography(
+            dataset=dataset or None, since=start, until=end
+        )
+        counties = sorted(
+            c
+            for c in Source.objects.filter(
+                id__in=scope.values("candidate_link__source_id")
+            )
+            .values_list("county", flat=True)
+            .distinct()
+            if c
+        )
+        newsrooms = list(
+            Source.objects.filter(id__in=scope.values("candidate_link__source_id"))
+            .order_by("canonical_name")
+            .values("id", "canonical_name")
+        )
+
+        answered = _decided_articles(candidates)
+        if wanted == "any":
+            rows = list(candidates)
+        elif wanted:
+            rows = [a for a in candidates if answered.get(str(a.id)) == wanted]
+        else:
+            rows = [a for a in candidates if str(a.id) not in answered]
+        total = len(rows)
+    except DatabaseError:
+        connected = False
+
+    for article in rows:
+        article.offered_verbs = queue_def.offered(article)
+        article.why, article.why_detail = geography.why_no_geography(article)
+        article.working_state = geography.publisher_state(article)
+
+    page = Paginator(rows, 25).get_page(request.GET.get("page"))
+    return render(
+        request,
+        "review/geography.html",
+        {
+            "crawler_connected": connected,
+            "rows": page.object_list,
+            "page": page,
+            "params": params,
+            "remaining": total,
+            "counties": counties,
+            "newsrooms": newsrooms,
+            "datasets": Dataset.objects.order_by("label"),
+            "day_windows": review_queue.DAY_WINDOWS,
+            "default_days": "custom",
+            "decisions": [{"name": v.name, "past": v.past} for v in queue_def.verbs],
+            "queue_verbs": queue_def.verbs,
+            "receipt": _receipt_counts(request.session.pop("geography_receipt", None)),
+        },
+    )
+
+
+def _decided_articles(candidates):
+    """What has already been said about these articles."""
+    from review.models import ReviewDecision
+
+    return {
+        row.subject_id: row.verb
+        for row in ReviewDecision.objects.filter(
+            queue="geography",
+            subject_type="article",
+            subject_id__in=[str(a.id) for a in candidates],
+        )
+    }
+
+
+def _submit_geography_decisions(request):
+    """Apply a session of geography decisions."""
+    from explorer.models import Article
+    from review import geography
+    from review import submit as review_submit
+
+    queue_def = _kernel.get(geography.GEOGRAPHY_QUEUE_KEY)
+    decisions = review_submit.posted(request.POST)
+    subjects = {
+        str(a.id): a
+        for a in Article.objects.select_related(
+            "candidate_link", "candidate_link__source"
+        ).filter(id__in=list(decisions))
+    }
+    receipt = review_submit.submit(queue_def, decisions, subjects, request.user)
+    request.session["geography_receipt"] = dict(receipt, queue=queue_def.key)
+    return redirect(f"{reverse('review:geography')}?{urlencode(request.GET)}")

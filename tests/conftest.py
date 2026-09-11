@@ -177,6 +177,12 @@ _CRAWLER_TABLES = {
         "PRECISION, extracted_at TIMESTAMP, text_length INTEGER GENERATED ALWAYS AS "
         "(length(coalesce(content, text, text_excerpt, ''))) STORED)"
     ),
+    "article_places_manual": (
+        "(id SERIAL PRIMARY KEY, article_id TEXT NOT NULL, full_name TEXT, "
+        "city TEXT, county TEXT, state TEXT, geoid TEXT, geoid_level TEXT, "
+        "is_point BOOLEAN NOT NULL DEFAULT FALSE, added_by TEXT NOT NULL, "
+        "added_at TIMESTAMPTZ NOT NULL DEFAULT now(), note TEXT)"
+    ),
     "article_enrichment": (
         "(article_id TEXT PRIMARY KEY, profile_version INTEGER, skip_reason "
         "TEXT, model TEXT, cost_usd NUMERIC(10, 6), enriched_at TIMESTAMPTZ, "

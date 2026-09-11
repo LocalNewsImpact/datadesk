@@ -13,4 +13,6 @@ class ReviewConfig(AppConfig):
         #
         # Imported here so the registry is complete as soon as the app is,
         # which is what a registry has to promise.
+        from review import discovery  # noqa: F401
         from review import dispositions  # noqa: F401
+        from review import geography  # noqa: F401
