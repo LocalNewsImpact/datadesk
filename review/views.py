@@ -2558,6 +2558,50 @@ def geography_queue(request):
     rows, counties, newsrooms, total = [], [], [], 0
     connected = True
     try:
+        # THE TWO FILTERS THIS QUEUE ADDS, CASCADING.
+        #
+        # Each is offered from what the one before it leaves: the
+        # counties are those the chosen DATASET has, and the newsrooms
+        # those the chosen COUNTY has. Offering all of them regardless
+        # means picking Osage and then a newsroom in Boone, which returns
+        # nothing and reads as a queue that lost rows rather than as two
+        # filters that cannot both be true.
+        in_dataset = geography.needs_geography(
+            dataset=dataset or None, since=start, until=end
+        )
+        counties = sorted(
+            c
+            for c in Source.objects.filter(
+                id__in=in_dataset.values("candidate_link__source_id")
+            )
+            .values_list("county", flat=True)
+            .distinct()
+            if c
+        )
+        # A selection the new scope cannot offer is DROPPED, not left to
+        # filter everything away. Switching from Missouri to Vermont with
+        # "Osage" still set would otherwise show an empty queue and a
+        # county that is not in the list.
+        if county and county not in counties:
+            county = ""
+            params.pop("county", None)
+
+        in_county = geography.needs_geography(
+            dataset=dataset or None, since=start, until=end, county=county or None
+        )
+        newsrooms = list(
+            Source.objects.filter(id__in=in_county.values("candidate_link__source_id"))
+            .order_by("canonical_name")
+            .values("id", "canonical_name")
+        )
+        if newsroom and newsroom not in {n["id"] for n in newsrooms}:
+            newsroom = ""
+            params.pop("newsroom", None)
+
+        # Built LAST, from the selections that survived. Building it
+        # first and validating afterwards meant a dropped county still
+        # filtered the rows -- the select said "all" and the queue showed
+        # one county's worth.
         candidates = geography.needs_geography(
             dataset=dataset or None,
             since=start,
@@ -2565,27 +2609,6 @@ def geography_queue(request):
             county=county or None,
             newsroom=newsroom or None,
         ).select_related("candidate_link", "candidate_link__source", "enrichment")
-
-        # The two filters this queue adds, offered from what is actually
-        # in the unfiltered population -- a county with nothing behind it
-        # reads as a queue that lost rows.
-        scope = geography.needs_geography(
-            dataset=dataset or None, since=start, until=end
-        )
-        counties = sorted(
-            c
-            for c in Source.objects.filter(
-                id__in=scope.values("candidate_link__source_id")
-            )
-            .values_list("county", flat=True)
-            .distinct()
-            if c
-        )
-        newsrooms = list(
-            Source.objects.filter(id__in=scope.values("candidate_link__source_id"))
-            .order_by("canonical_name")
-            .values("id", "canonical_name")
-        )
 
         answered = _decided_articles(candidates)
         if wanted == "any":

@@ -31,7 +31,8 @@
   March" is 23 and finishable in a sitting, so the narrowing is the
   feature rather than a convenience.
   {% endcomment %}
-  <form method="get" action="{% url 'review:geography' %}" class="filter-bar">
+  <form method="get" action="{% url 'review:geography' %}" class="filter-bar"
+        data-default-days="{{ default_days|default:'30' }}">
     {% include "review/_queue_filters.html" %}
     <label>County
       <select name="county">
@@ -151,6 +152,7 @@
 
   {% endif %}
 </section>
+<script defer src="{% static 'js/queue-filters.js' %}"></script>
 <script defer src="{% static 'js/review-queue.js' %}"></script>
 <script defer src="{% static 'js/geography-suggest.js' %}"
         data-suggest-url="{% url 'review:geography_suggest' %}"></script>
