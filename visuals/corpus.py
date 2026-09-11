@@ -1483,8 +1483,14 @@ def run_story_map(spec, scopes):
                 continue
             # A story touching three places in one county counts once.
             by_county.setdefault(county, set()).add(article_id)
+    # The name as well as the code. A row reading `29151` is a row nobody
+    # can read, and the export is the one place the map's own labels are
+    # not there to translate it -- a reader with the CSV has the FIPS and
+    # nothing to join it to.
+    from datasets.geo import county_label
+
     areas = [
-        {"county": county, "stories": len(ids)}
+        {"county": county, "name": county_label(county), "stories": len(ids)}
         for county, ids in sorted(by_county.items(), key=lambda kv: -len(kv[1]))
     ]
 
@@ -1584,21 +1590,39 @@ def corpus_version():
     for a recount every few minutes whether or not anything changed, and
     these recounts take tens of seconds.
 
-    Two parts. The newest article covers a sync, and the number of
-    dataset memberships covers a newsroom joining or leaving a dataset,
-    which changes the counts without adding an article.
+    Three parts. The newest article covers a sync; the number of dataset
+    memberships covers a newsroom joining or leaving a dataset, which
+    changes the counts without adding an article; and the newest
+    enrichment covers a story being re-read.
+
+    The third was missing, and "the corpus" is not the articles table.
+    Enrichment is where a story's scope, its CIN label and its geography
+    come from, and a story map draws almost entirely from it. Re-enriching
+    changes every one of those without creating an article or moving a
+    membership -- so the stamp did not move, the keys did not move, and
+    answers computed before the run were served for as long as they were
+    kept.
+
+    Seen on 2026-09-11: 174 articles re-enriched and a map rebuilt to
+    shade 23 counties instead of 9, with the preview still drawing the
+    old numbers. The docstring's promise -- "an entry cannot go stale,
+    because data that has moved lands under a different key" -- was true
+    only for data this stamp could see.
     """
     from django.core.cache import cache
     from django.db.models import Max
 
-    from explorer.models import Article, DatasetSource
+    from explorer.models import Article, ArticleEnrichment, DatasetSource
 
     hit = cache.get("corpus.version")
     if hit is not None:
         return hit
     newest = Article.objects.aggregate(m=Max("created_at"))["m"]
+    enriched = ArticleEnrichment.objects.aggregate(m=Max("enriched_at"))["m"]
     stamp = (
-        f"{newest.isoformat() if newest else 'empty'}:{DatasetSource.objects.count()}"
+        f"{newest.isoformat() if newest else 'empty'}"
+        f":{DatasetSource.objects.count()}"
+        f":{enriched.isoformat() if enriched else 'none'}"
     )
     cache.set("corpus.version", stamp, VERSION_CACHE_SECONDS)
     return stamp

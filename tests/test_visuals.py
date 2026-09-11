@@ -2311,3 +2311,24 @@ def test_the_two_layers_do_not_count_the_same_place_twice():
     body = src.split("def run_story_map(")[1].split("\ndef ")[0]
     assert "enrichment__point_lat__isnull=False" in body, "dots are the centrals"
     assert 'F("enrichment__point_geoid")' in body
+
+
+def test_a_shaded_county_carries_its_name():
+    """A row reading `29151` is a row nobody can read.
+
+    The map has labels to translate a FIPS; the CSV export does not, so a
+    reader who took the areas table had the code and nothing to join it
+    to. The name rides along -- "Osage, MO", with the state, because
+    county names repeat across state lines.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    src = (root / "visuals/corpus.py").read_text()
+    body = src.split("def run_story_map(")[1].split("\ndef ")[0]
+    assert '"name": county_label(county)' in body
+
+    from datasets.geo import county_label
+
+    assert county_label("29151") == "Osage, MO"
+    assert county_label("29095") == "Jackson, MO"
