@@ -1444,16 +1444,25 @@ def run_story_map(spec, scopes):
         row["lat"] = float(row["lat"]) if row["lat"] is not None else None
         row["lon"] = float(row["lon"]) if row["lon"] is not None else None
 
-    # The shaded layer, as the March map defines it: regional stories
-    # only. A regional story has no central point by design (the
-    # pipeline records geo_skip_reason "regional_uses_place_set"), so
-    # its geography is the place set — the counties it names. This is
-    # deliberately not every mention: the dots carry the centrals, the
-    # shading carries the geography the dots do not claim.
-    area_scope = spec.get("area_scope", "regional") or None
+    # The shaded layer is every mention, from every story.
+    #
+    # The two layers already divide cleanly: `point_geoid` is the story's
+    # central location and `enrichment.geoids` carries ONLY the mentions,
+    # never repeating the point. So the dots carry the centrals and the
+    # shading carries the geography the dots do not claim, which is the
+    # split this map is for.
+    #
+    # It used to filter that shading to `scope='regional'` as well, which
+    # is a different and much narrower question. Measured on "Where Osage
+    # County reports": 27 of 82 stories carry mentions and the shading
+    # was drawn from 6. The 21 discarded were stories with a central
+    # point AND mentions -- a piece centred on Linn that also names
+    # Jefferson City and Columbia had all three recorded, drew the dot,
+    # and shaded neither county.
+    #
+    # There was no control for it, so no author could see the map was
+    # answering a narrower question than its title.
     area_qs = base.exclude(enrichment__geoids__isnull=True)
-    if area_scope:
-        area_qs = area_qs.filter(enrichment__scope=area_scope)
     by_county = {}
     considered = 0
     unresolved = set()
@@ -1483,7 +1492,6 @@ def run_story_map(spec, scopes):
         "points": len(points),
         "point_stories": sum(p["stories"] for p in points),
         "areas": len(areas),
-        "area_scope": area_scope,
         "area_stories": considered,
         "unresolved_places": len(unresolved),
     }
