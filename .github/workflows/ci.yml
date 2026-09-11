@@ -44,6 +44,26 @@ jobs:
   checks:
     uses: LocalNewsImpact/lnic-contracts/.github/workflows/python-checks.yml@ci-v1
     with:
+      # The name `settings.py` asks for. The shared workflow's Postgres
+      # service defaults to a database called `test`, and this suite's
+      # test settings name theirs `datadesk`, so the database the
+      # settings point at did not exist on any run.
+      #
+      # The suite never noticed: pytest-django creates `test_datadesk`
+      # itself, and creating a database only needs the `postgres`
+      # maintenance connection. What did notice is
+      # `manage.py makemigrations --check`, which connects to the named
+      # database to read `django_migrations` and verify history. It
+      # failed, warned, and carried on -- so every CI log in this
+      # repository carried
+      #
+      #   RuntimeWarning: Got an error checking a consistent migration
+      #   history ... FATAL: database "datadesk" does not exist
+      #
+      # on a green run. A warning that appears on every build is one
+      # nobody can use, and this one reads exactly like a broken
+      # database connection.
+      postgres-db: datadesk
       # `make .venv` rather than `make setup`: setup also writes .env and
       # runs migrations, which need a database this stage does not have.
       install: make .venv
