@@ -207,3 +207,72 @@ def test_the_queue_is_registered_at_startup():
         "also_mentions",
         "nothing_to_add",
     }
+
+
+# --- the filter bar -----------------------------------------------------------
+
+
+def test_the_dataset_filter_resolves_a_slug_to_the_id_the_column_holds():
+    """`articles.dataset_id` holds the dataset's UUID and the filter bar
+    offers slugs, so `dataset_id=<slug>` matched nothing at all: picking
+    a dataset emptied the queue AND every dropdown built from it, which
+    reads as a dataset with no work in it rather than a filter that
+    cannot match.
+
+    Asserted against the one definition of this question --
+    `review.queue._in_dataset` -- whose own docstring says why it is one:
+    "a dropdown built over a different population than the list offers
+    values that return nothing."
+    """
+    import inspect
+
+    from review import geography
+
+    source = inspect.getsource(geography.needs_geography)
+    assert "_in_dataset" in source
+    assert "dataset_id=dataset" not in source
+
+
+def test_the_filters_cascade(monkeypatch):
+    """Each filter is offered from what the one before it leaves.
+
+    Offering every newsroom regardless means picking Osage and then a
+    newsroom in Boone, which returns nothing and reads as a queue that
+    lost rows rather than as two filters that cannot both be true.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    body = (
+        (root / "review/views.py")
+        .read_text()
+        .split("def geography_queue(")[1]
+        .split("\ndef ")[0]
+    )
+    # Counties come from the dataset's population, newsrooms from the
+    # county's -- two different querysets, not one reused.
+    assert "in_dataset = geography.needs_geography(" in body
+    assert "in_county = geography.needs_geography(" in body
+    assert "county=county or None" in body
+    # And a selection the new scope cannot offer is dropped rather than
+    # left to filter everything away.
+    assert 'params.pop("county", None)' in body
+    assert 'params.pop("newsroom", None)' in body
+
+
+def test_the_rows_are_queried_after_the_selections_are_validated():
+    """Building the queryset first and validating afterwards meant a
+    dropped county still filtered the rows: the select said "all" and the
+    queue showed one county's worth."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    body = (
+        (root / "review/views.py")
+        .read_text()
+        .split("def geography_queue(")[1]
+        .split("\ndef ")[0]
+    )
+    assert body.index('params.pop("newsroom", None)') < body.index(
+        "candidates = geography.needs_geography("
+    )

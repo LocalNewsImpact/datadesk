@@ -32,7 +32,8 @@
   been said. Discovery adds nothing of its own — there is no byline, no
   detection method and no CIN label on a URL nobody has fetched.
   {% endcomment %}
-  <form method="get" action="{% url 'review:discovery' %}" class="filter-bar">
+  <form method="get" action="{% url 'review:discovery' %}" class="filter-bar"
+        data-default-days="{{ default_days|default:'30' }}">
     <input type="hidden" name="stratum" value="{{ stratum }}">
     {% include "review/_queue_filters.html" %}
     <noscript><button type="submit">Filter</button></noscript>
@@ -191,5 +192,6 @@
 
   {% endif %}
 </section>
+<script defer src="{% static 'js/queue-filters.js' %}"></script>
 <script defer src="{% static 'js/review-queue.js' %}"></script>
 {% endblock %}

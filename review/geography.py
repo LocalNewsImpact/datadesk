@@ -87,7 +87,18 @@ def needs_geography(dataset=None, since=None, until=None, county=None, newsroom=
     ).exclude(enrichment__geo_skip_reason=ANSWERED_NOT_MISSING)
 
     if dataset:
-        rows = rows.filter(dataset_id=dataset)
+        # BY SLUG, THROUGH THE DATASET. `articles.dataset_id` holds the
+        # dataset's UUID and the filter bar offers slugs, so
+        # `dataset_id=<slug>` matched nothing: picking a dataset emptied
+        # the queue and every dropdown built from it, which read as a
+        # dataset with no work in it.
+        #
+        # `review.queue._in_dataset` is the one definition of this, and
+        # its docstring says why: "a dropdown built over a different
+        # population than the list offers values that return nothing."
+        from review.queue import _in_dataset
+
+        rows = _in_dataset(rows, dataset)
     if since:
         rows = rows.filter(publish_date__gte=since)
     if until:
