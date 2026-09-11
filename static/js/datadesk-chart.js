@@ -1692,9 +1692,29 @@
         return;
       }
 
+      // Line weight scales with the canvas AND with the counties.
+      //
+      // `max(20, width / 36)` floored the widest line at 20px however
+      // small the map, so a 375px phone drew the same weight as a 720px
+      // page and the biggest arcs swamped the counties they belong to.
+      // Canvas width alone is not enough either: framing on a whole
+      // state puts 115 counties in the same box, and a line sized for
+      // seventeen buries them.
+      //
+      // So the cap is whichever is smaller -- a share of the canvas, or
+      // a share of a typical county drawn on it. The floor stays
+      // absolute, because below about a pixel a line is not drawn so
+      // much as implied. Arrowheads are measured in stroke widths, so
+      // they follow without a rule of their own.
+      const spans = shown.map((f) => {
+        const box = path.bounds(f);
+        return Math.min(box[1][0] - box[0][0], box[1][1] - box[0][1]);
+      });
+      const typical = d3.median(spans) || width / 10;
+      const fat = Math.max(3, Math.min(width / 36, typical * 0.4));
       const w = d3.scaleLinear()
         .domain([0, d3.max(shownArcs, (r) => r.share) || 1])
-        .range([2.5, Math.max(20, width / 36)]);
+        .range([Math.max(1.2, fat / 8), fat]);
 
       // Where INSIDE the destination each leg aims. Five flows into
       // Boone all aimed at its centroid is the Boone collision: five
