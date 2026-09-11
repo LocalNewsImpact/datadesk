@@ -2344,7 +2344,7 @@
     }
 
     const ids = [
-      ...areas.map((a) => String(a.county || "")),
+      ...areas.map((a) => String(a.geoid || "")),
       ...points.map((p) => String(p.geoid || "")),
     ].filter(Boolean);
 
@@ -2373,7 +2373,7 @@
         // whole country.
         const weight = new Map();
         for (const a of areas) {
-          const st = String(a.county).slice(0, 2);
+          const st = String(a.geoid).slice(0, 2);
           weight.set(st, (weight.get(st) || 0) + a.stories);
         }
         for (const p of points) {
@@ -2392,7 +2392,7 @@
       const focused = /^\d{2,5}$/.test(focus);
       const shown = focused ? framed : features;
       const inFrame = new Set(shown.map((f) => String(f.id).slice(0, 2)));
-      const byCounty = new Map(areas.map((a) => [String(a.county), a.stories]));
+      const byCounty = new Map(areas.map((a) => [String(a.geoid), a.stories]));
       const max = d3.max(areas, (a) => a.stories) || 0;
       const ramp = quantizeRamp(t.seqLow, t.seqHigh, 5);
       // Bands are quartiles of the counties that actually have stories,
