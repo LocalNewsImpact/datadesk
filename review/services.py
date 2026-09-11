@@ -304,10 +304,33 @@ def audited_update_rows(actor, model, rows, action, reason="", reverts=None):
 
 
 def _row_values(obj):
-    """Every concrete field, JSON-safe, for creation/deletion audit records."""
+    """Every concrete field, JSON-safe, for creation/deletion audit records.
+
+    The docstring said JSON-safe and the code returned the raw attribute,
+    which is the same thing right up until a creatable model has a
+    datetime on it. `ArticlePlaceManual.added_at` is `auto_now_add`, so
+    the value exists only AFTER the insert -- the row was written, the
+    audit entry then raised `TypeError: Object of type datetime is not
+    JSON serializable`, and the transaction took the row back out. A
+    reviewer saw a 500 and no decision recorded.
+
+    Coerced here rather than at the one call site, because the promise is
+    made here and every future creatable model inherits it.
+    """
+    import datetime as _dt
+    import decimal
+    import uuid
+
     values = {}
     for field in type(obj)._meta.concrete_fields:
         value = getattr(obj, field.attname)
+        if isinstance(value, (_dt.datetime, _dt.date, _dt.time)):
+            value = value.isoformat()
+        elif isinstance(value, decimal.Decimal):
+            # str, not float: a float loses cents on a subscription cost.
+            value = str(value)
+        elif isinstance(value, uuid.UUID):
+            value = str(value)
         values[field.attname] = value
     return values
 

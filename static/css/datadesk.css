@@ -1749,7 +1749,7 @@ table.rec-table tbody th { white-space: nowrap; color: var(--text-2); }
 .blocked h3 { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em;
   color: var(--text-2); margin: 0 0 .3rem; }
 .blocked ul { margin: 0; padding-left: 1.1rem; font-size: .82rem; color: var(--text-2); }
-.queue-dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+.queue-dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
   display: flex; align-items: center; gap: 1rem; padding: .7rem 1.25rem;
   background: var(--surface); border-top: 1px solid var(--border); }
 .queue-dock .tally { font-size: .85rem; color: var(--text-2); }
@@ -2694,6 +2694,11 @@ table.rec-table.queue-rows tbody th .rec-read { overflow-wrap: anywhere; }
   top: calc(100% + 2px);
   right: 0;
   left: auto;
+  /* BELOW THE DOCK (z-index 20 -> raised to 40 for exactly this).
+     The dock is fixed to the bottom of the viewport, so a list opened on
+     one of the last rows covers Submit -- and a reviewer who has just
+     made a decision presses a button that silently is not there. The
+     dock is chrome: it outranks anything the table opens. */
   z-index: 30;
   margin: 0;
   padding: var(--s-1);

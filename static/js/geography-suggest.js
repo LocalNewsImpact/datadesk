@@ -58,6 +58,15 @@
     var list = box(input);
     var timer = null;
     var active = -1;
+    /* Set while `choose` writes the picked name back.
+     *
+     * The dock counts a row as answered from the input event, so choosing
+     * has to fire one -- and that event is indistinguishable from typing,
+     * so it re-ran the lookup and REOPENED the list on the name just
+     * chosen. The list then sat over the dock and swallowed the click on
+     * Submit: the decision was made, the button was enabled, and pressing
+     * it did nothing. */
+    var picking = false;
 
     function close() {
       list.hidden = true;
@@ -78,7 +87,9 @@
       close();
       /* The dock counts a row as answered from its input event; setting
        * `value` in script does not fire one. */
+      picking = true;
       input.dispatchEvent(new Event("input", { bubbles: true }));
+      picking = false;
       input.focus();
     }
 
@@ -127,6 +138,11 @@
     input.addEventListener("input", function () {
       var tail = typing(input.value).tail;
       window.clearTimeout(timer);
+      if (picking) {
+        // A name just chosen is an answer, not a query.
+        close();
+        return;
+      }
       if (tail.length < 2) {
         close();
         return;
