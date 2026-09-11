@@ -1483,6 +1483,7 @@
   // what it is called. Names alone cannot land an arc on a shape: eight
   // states have a Boone County.
   function renderFlowMap(el, config, rows, opts, t, width) {
+    const d3 = global.d3;
     const from = config.from, to = config.to, value = config.value;
     const fromGeo = config.from_geo || "from_fips";
     const toGeo = config.to_geo || "to_fips";
@@ -1497,12 +1498,8 @@
 
     const ids = [];
     for (const r of rows) ids.push(String(r[fromGeo]), String(r[toGeo]));
+
     boundaries(opts.geoBase, "counties", ids, opts.geoUrls).then((features) => {
-      // What to PAINT, which is not the same as what the data touches. A
-      // set of counties fitted to itself is a blob with no country
-      // around it; the same arcs inside their state say where this is.
-      // `focus` and `frame` are the choropleth's own controls, resolved
-      // by the builder from "Boone, MO" and an extent.
       const wanted = new Set(ids.map(String));
       const focus = String(config.focus || "").trim();
       const chosen = Array.isArray(config.frame) ? config.frame.map(String) : [];
@@ -1511,21 +1508,14 @@
         const keep = new Set(chosen);
         shown = features.filter((f) => keep.has(String(f.id)));
       } else if (/^\d{5}$/.test(focus)) {
-        shown = features.filter(
-          (f) => String(f.id).slice(0, 2) === focus.slice(0, 2));
+        shown = features.filter((f) => String(f.id).slice(0, 2) === focus.slice(0, 2));
       } else if (/^\d{2}$/.test(focus)) {
         shown = features.filter((f) => String(f.id).slice(0, 2) === focus);
       } else {
-        // Unset: the counties the flows touch, as before.
         shown = features.filter((f) => wanted.has(String(f.id)));
       }
       if (!shown.length) shown = features.filter((f) => wanted.has(String(f.id)));
       if (!shown.length) {
-        // Say WHICH thing is wrong. "Not in the basemap" is true of a
-        // county code that is merely absent and of a column that was
-        // never county codes at all, and those need opposite fixes. A
-        // corpus field like Publisher county holds a NAME -- "Boone" --
-        // and only `geo_county` carries a geoid.
         const sample = String(rows[0][fromGeo] || "");
         el.textContent = /^\d{5}$/.test(sample)
           ? "Those county codes are not in the basemap."
@@ -1534,24 +1524,35 @@
             + "county at columns of FIPS codes.";
         return;
       }
-      const height = Math.round(width * 0.62);
-      const projection = d3.geoAlbersUsa().fitSize(
-        [width, height], { type: "FeatureCollection", features: shown });
+
+      // Height from the SHAPE. Counties in one corner of a state are
+      // tall and narrow, and a fixed ratio left half the canvas empty
+      // while squeezing the part with the data in it.
+      const fitted = d3.geoAlbersUsa().fitWidth(
+        width, { type: "FeatureCollection", features: shown });
+      const bounds = d3.geoPath(fitted).bounds(
+        { type: "FeatureCollection", features: shown });
+      const height = Math.round(Math.min(
+        Math.max(bounds[1][1] - bounds[0][1], width * 0.45), width * 1.4));
+      // Inset: arcs bow outside the counties they join, and a projection
+      // fitted to the counties alone clips them.
+      const pad = Math.round(Math.min(width, height) * 0.09);
+      const projection = d3.geoAlbersUsa().fitExtent(
+        [[pad, pad], [width - pad, height - pad]],
+        { type: "FeatureCollection", features: shown });
       const path = d3.geoPath(projection);
-      // Centroid of the SHAPE, not of the bounding box: a river county
-      // is a long thin crescent and its box centre can sit outside it.
+      // Centroid of the SHAPE, not the bounding box: a river county is a
+      // crescent and its box centre can sit outside it.
       const at = new Map(shown.map((f) => [String(f.id), path.centroid(f)]));
+      const shapeOf = new Map(shown.map((f) => [String(f.id), f]));
 
       const svg = d3.create("svg")
         .attr("width", width).attr("height", height)
         .attr("viewBox", [0, 0, width, height])
         .attr("style",
-          'max-width:100%;height:auto;display:block;font-family:system-ui,' +
-          '-apple-system,"Segoe UI",sans-serif;font-size:12px');
+          'max-width:100%;height:auto;display:block;font-family:system-ui,'
+          + '-apple-system,"Segoe UI",sans-serif;font-size:12px');
 
-      // What the map is ABOUT, by county name. Named rather than
-      // inferred from the data: every county in a commuting file is in
-      // the data, and only the author knows which three are the study.
       const pin = new Set(String(config.highlight || "").split(",")
         .map((n) => n.trim()).filter(Boolean));
       const nameOf = new Map();
@@ -1561,164 +1562,520 @@
       }
       const isSubject = (geoid) => pin.has(nameOf.get(String(geoid)));
 
-      // One hue per subject county, so its arcs are its own wherever they
-      // land. Coloured by row index, every flow was a different colour
-      // and the map read as spaghetti.
-      const subjects = [...pin];
-      const hueOf = (geoid) => {
-        const at = subjects.indexOf(nameOf.get(String(geoid)));
-        return at >= 0 ? t.series[at % t.series.length] : null;
-      };
-
+      // Subject counties read LIGHTER than the land around them. A
+      // darker patch reads as a hole, and a pale ground is what the
+      // lines need to show against. Borders stay one weight: a heavier
+      // edge on three of seventeen counties reads as a property of those
+      // borders rather than of the counties.
       svg.append("g").selectAll("path").data(shown).join("path")
         .attr("d", path)
-        // `missing` is the theme's unshaded land. A subject county is
-        // tinted its own hue so the shape and its arcs read as one thing.
         .attr("fill", (f) => (pin.size && isSubject(f.id)
-          ? hueOf(f.id) : t.missing))
-        // 0.18 was invisible: three tinted counties among 115 grey ones,
-        // at a fifth strength, cannot be found. Framing on a state made
-        // this worse, not better -- the wider the frame, the harder the
-        // subject is to pick out, and framing wide is the point.
-        .attr("fill-opacity", (f) => (pin.size && isSubject(f.id) ? 0.55 : 1))
-        // And an outline, because on a map an edge finds a shape faster
-        // than a fill does.
-        .attr("stroke", (f) => (pin.size && isSubject(f.id)
-          ? hueOf(f.id) : t.boundary))
-        .attr("stroke-width", (f) => (pin.size && isSubject(f.id) ? 1.6 : 0.6));
+          ? d3.interpolateLab(t.missing, t.surface)(0.55) : t.missing))
+        .attr("stroke", t.boundary)
+        .attr("stroke-width", 0.6);
 
-      // Square root, because the eye reads a ribbon by its area and the
-      // range here is three orders of magnitude -- 5,581 against 12.
-      // The floor is the point: measured on the published map the
-      // thinnest arcs came out at 0.18px, which no screen draws. A flow
-      // too small to see is a flow the reader is told nothing about,
-      // and the range here is three orders of magnitude so the small
-      // end is most of them.
-      const w = d3.scaleSqrt()
-        .domain([0, d3.max(rows, (r) => +r[value]) || 1])
-        .range([1.2, Math.max(10, width / 60)]);
+      // Where a line crosses into a county, by bisection on "is this
+      // point inside it" in geographic space. The border is a polygon
+      // with hundreds of vertices and intersecting it directly buys
+      // nothing here. Null when the target is not inside the county at
+      // all -- a river county is a crescent and its centroid can fall
+      // outside it.
+      const crossInto = (fromPt, toPt, geoid) => {
+        const shape = shapeOf.get(geoid);
+        if (!shape || !projection.invert) return null;
+        const at01 = (u) => [
+          fromPt[0] + (toPt[0] - fromPt[0]) * u,
+          fromPt[1] + (toPt[1] - fromPt[1]) * u,
+        ];
+        const inside = (u) => {
+          const ll = projection.invert(at01(u));
+          return !!ll && d3.geoContains(shape, ll);
+        };
+        if (!inside(1)) return null;
+        let out = 0, inn = 1;
+        for (let i = 0; i < 18; i += 1) {
+          const mid = (out + inn) / 2;
+          if (inside(mid)) inn = mid; else out = mid;
+        }
+        return at01(inn);
+      };
+      const along = (a, b, u) => [
+        a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u];
 
-      // One arc per PAIR, not per direction. Commuting is reciprocal --
-      // 110 of 137 flows here are half of a pair -- so drawing each
-      // direction separately doubled the ink and laid two near-identical
-      // curves over each other.
-      //
-      // The arc carries both: its width is the traffic in total, and the
-      // colour changes along it at the point where the split falls. An
-      // even exchange changes colour halfway; a one-way flow barely
-      // changes at all. Asymmetry becomes a position rather than a
-      // comparison between two overlapping curves.
-      const pairs = new Map();
+      const DEEP = 0.68, SHALLOW = 0.3;
+
+      // Share, not raw workers. Boone sends 3,458 to Cole and Osage
+      // 2,548 -- similar lines -- but that is 4% of Boone's
+      // out-commuters against 44% of Osage's. The denominator is the
+      // county's OWN traffic in that direction, taken at whichever end
+      // is the subject.
+      const outOf = new Map(), intoOf = new Map();
+      for (const r of rows) {
+        const a = String(r[fromGeo]), b = String(r[toGeo]);
+        const n = +r[value] || 0;
+        outOf.set(a, (outOf.get(a) || 0) + n);
+        intoOf.set(b, (intoOf.get(b) || 0) + n);
+      }
+
+      const legs = [];
       for (const r of rows) {
         const a = String(r[fromGeo]), b = String(r[toGeo]);
         if (!at.has(a) || !at.has(b)) continue;
-        const key = a < b ? `${a}|${b}` : `${b}|${a}`;
-        const [lo, hi] = key.split("|");
-        const seen = pairs.get(key) || {
-          lo, hi, out: 0, back: 0,
-          loName: nameOf.get(lo), hiName: nameOf.get(hi),
-        };
-        if (a === lo) seen.out += +r[value] || 0;
-        else seen.back += +r[value] || 0;
+        const n = +r[value] || 0;
+        const base = isSubject(a) ? outOf.get(a) : intoOf.get(b);
+        legs.push({
+          a, b, n,
+          aName: String(r[from]), bName: String(r[to]),
+          share: base ? n / base : 0,
+        });
+      }
+
+      const pairs = new Map();
+      for (const leg of legs) {
+        const key = leg.a < leg.b ? `${leg.a}|${leg.b}` : `${leg.b}|${leg.a}`;
+        const seen = pairs.get(key) || { legs: [] };
+        seen.legs.push(leg);
         pairs.set(key, seen);
       }
-      const gradId = "dd-flow-" + Math.abs(hashOf(String(shown.length)));
-      const drawn = [...pairs.values()].map((p) => ({
-        ...p, total: p.out + p.back,
-        [fromGeo]: p.lo, [toGeo]: p.hi,
-        [from]: p.loName, [to]: p.hiName,
-        [value]: p.out + p.back,
-      }));
-      // A gradient per pair where BOTH ends are subjects, running along
-      // the arc so the colour changes where the split falls.
-      // A pair is two-way when BOTH directions are big enough to draw.
-      // Measured on the published map, the splits ran to 0.08 -- 92% one
-      // colour and a sliver at the tip that reads as an artefact rather
-      // than as a number. A flow that is 8% of its pair is one-way in
-      // every sense a reader cares about, and saying so is more honest
-      // than a mark too small to see. The tooltip still gives both.
-      const MINORITY = 0.1;
-      const twoWay = (r) => {
-        if (!r.out || !r.back) return false;
-        return Math.min(r.out, r.back) / r.total >= MINORITY;
-      };
 
-      const defs = svg.append("defs");
-      drawn.forEach((r, i) => {
-        if (!twoWay(r)) return;
-        const a = t.series[0], b = t.series[1];
-        const p1 = at.get(r.lo), p2 = at.get(r.hi);
-        const cut = r.total ? r.out / r.total : 0.5;
-        const g = defs.append("linearGradient")
-          .attr("id", `${gradId}-${i}`)
-          .attr("gradientUnits", "userSpaceOnUse")
-          .attr("x1", p1[0]).attr("y1", p1[1])
-          .attr("x2", p2[0]).attr("y2", p2[1]);
-        // Hard stops rather than a blend: a soft fade reads as a third
-        // colour in the middle, and the position IS the number.
-        g.append("stop").attr("offset", 0).attr("stop-color", a);
-        g.append("stop").attr("offset", cut).attr("stop-color", a);
-        g.append("stop").attr("offset", cut).attr("stop-color", b);
-        g.append("stop").attr("offset", 1).attr("stop-color", b);
+      const drawn = [];
+      [...pairs.entries()].forEach(([key, pair]) => {
+        pair.legs.sort((x, y) => y.n - x.n);
+        const lead = pair.legs[0];
+        pair.legs.forEach((leg, rank) => {
+          drawn.push(Object.assign({}, leg, {
+            rank, pairShare: lead.share, key,
+          }));
+        });
       });
 
-      const arcs = svg.append("g").attr("fill", "none")
-        .selectAll("path").data(drawn).join("path")
-        .attr("d", (r) => {
-          const a = at.get(r.lo), b = at.get(r.hi);
-          // Bowed, and always to the same side of the line, so A->B and
-          // B->A are two arcs rather than one drawn twice. Commuting is
-          // asymmetric -- 5,581 one way against 1,108 the other -- and a
-          // single line would hide half the finding.
-          const dx = b[0] - a[0], dy = b[1] - a[1];
-          const r2 = Math.hypot(dx, dy) * 1.6;
-          return `M${a[0]},${a[1]}A${r2},${r2} 0 0,1 ${b[0]},${b[1]}`;
-        })
-        // An arc belongs to whichever end is the subject, so a flow INTO
-        // Audrain is Audrain's as much as one out of it -- which is the
-        // whole question being asked of a commuting map.
-        // Every arc with traffic both ways gets the gradient, not only
-        // the ones between two subjects. The colour is the DIRECTION --
-        // one hue out, another back -- so the split reads the same way
-        // on every arc, and the county is already given by where the arc
-        // lands. Colouring by county instead meant most arcs had no
-        // contrast at all, because most pairs have only one subject.
-        // The same rule the gradients were built from, so a stroke can
-        // never point at a gradient that was skipped. A lopsided pair
-        // takes the colour of whichever way most of it runs.
-        .attr("stroke", (r, i) => (twoWay(r)
-          ? `url(#${gradId}-${i})`
-          : (r.out >= r.back ? t.series[0] : t.series[1])))
-        .attr("stroke-width", (r) => w(+r[value]))
-        // Everything else stays visible and quiet: the surrounding system
-        // is context, and dropping it would hide that these counties sit
-        // inside one.
-        // Three tiers, because the question has three answers. A flow
-        // BETWEEN two of the counties under study is the thing being
-        // asked about; one from a subject to the wider system is the
-        // answer when the first is small -- which here it is, 2,213
-        // between the three against 45,422 with everyone else -- and the
-        // rest is the context that makes both readable.
-        .attr("stroke-opacity", (r) => {
-          if (!pin.size) return 0.55;
-          const a = isSubject(r.lo), b = isSubject(r.hi);
-          if (a && b) return 0.95;
-          return a || b ? 0.5 : 0.1;
-        })
-        .attr("stroke-linecap", "round");
+      // Only what touches the subject, and only what is a real part of
+      // its traffic: 3% of a county's commuters. It is a share, so it
+      // means the same for Boone and for Osage.
+      const FLOOR = 0.03;
+      const kept = (pin.size
+        ? drawn.filter((r) => isSubject(r.a) || isSubject(r.b))
+        : drawn).filter((r) => r.share >= FLOOR);
 
-      // Drawn last so a thin subject arc is not buried under the
-      // context it is being compared against.
-      arcs.filter((r) => pin.size && (isSubject(r.lo) || isSubject(r.hi))).raise();
-      arcs.filter((r) => pin.size && isSubject(r.lo) && isSubject(r.hi)).raise();
+      // A CEILING ON ARROWS PER COUNTY.
+      //
+      // The floor is a share, so it means the same thing for a small
+      // county as a large one -- but it says nothing about how many
+      // arrows end up in one place. A hub county can clear it twenty
+      // times over, and past a certain count no amount of routing saves
+      // the picture: the arcs have nowhere left to go, the search runs
+      // out of legal arrangements and falls back, and bases start
+      // landing in counties the flow has nothing to do with.
+      //
+      // So each county admits a fixed number of pairs, largest first. A
+      // pair is taken only if BOTH its counties still have room, which
+      // bounds the arrows at every county on the map and not just at
+      // the highlighted ones. A hub then spends its own budget on its
+      // largest flows and the rest are left out, which is the trade the
+      // cap exists to make.
+      const CAP = +config.max_arrows > 0 ? +config.max_arrows : 6;
+      const room = new Map();
+      const taken = new Set();
+      const ranked = [...new Set(kept.map((r) => r.key))]
+        .map((key) => kept.find((r) => r.key === key))
+        .sort((m, n) => n.pairShare - m.pairShare);
+      for (const pair of ranked) {
+        const left = room.get(pair.a) || 0, right = room.get(pair.b) || 0;
+        if (left >= CAP || right >= CAP) continue;
+        taken.add(pair.key);
+        room.set(pair.a, left + 1);
+        room.set(pair.b, right + 1);
+      }
+      const shownArcs = kept.filter((r) => taken.has(r.key));
+      if (!shownArcs.length) {
+        el.replaceChildren(svg.node());
+        return;
+      }
+
+      const w = d3.scaleLinear()
+        .domain([0, d3.max(shownArcs, (r) => r.share) || 1])
+        .range([2.5, Math.max(20, width / 36)]);
+
+      // Where INSIDE the destination each leg aims. Five flows into
+      // Boone all aimed at its centroid is the Boone collision: five
+      // heads on one point. They fan across the county instead, spread
+      // at right angles to the way each one arrives, so each has its
+      // own place to land.
+      const slots = new Map();
+      for (const r of shownArcs.slice().sort((x, y) => y.share - x.share)) {
+        const seen = slots.get(r.b) || [];
+        seen.push(r);
+        slots.set(r.b, seen);
+      }
+      const spread = new Map();
+      for (const [geoid, group] of slots) {
+        const box = path.bounds(shapeOf.get(geoid));
+        const reach = Math.min(box[1][0] - box[0][0], box[1][1] - box[0][1]);
+        group.forEach((r, i) => {
+          spread.set(r, {
+            step: (i - (group.length - 1) / 2) * reach * 0.3,
+            crowd: group.length,
+          });
+        });
+      }
+
+      // One hue for the whole map. Three put three meanings on colour at
+      // once, and which county an arc belongs to is already given by
+      // where it starts. Colour is left to carry the pair: the larger
+      // leg darker, its partner lighter.
+      const HUE = t.series[2 % t.series.length];
+      const shadeBig = d3.interpolateLab(HUE, t.ink)(0.2);
+      const shadeSmall = d3.interpolateLab(HUE, t.surface)(0.42);
+      const colourOf = (r) => (r.rank === 0 ? shadeBig : shadeSmall);
+      const INK = 0.95, INK_SMALL = 1;
+      const inkFor = (r) => (r.rank === 0 ? INK : INK_SMALL);
+
+      // BOTH legs of a pair lie on ONE circle.
+      //
+      // Each leg used to take its radius from its own half of the route,
+      // so the two halves met at the border with a kink in them. The
+      // radius comes from the whole span now and both legs share it, so
+      // a pair reads as a single smooth arc that happens to change
+      // colour and thickness where the counties meet.
+      // Arrowhead size, in stroke widths: a head is always in
+      // proportion to its own line. The geometry needs this before it
+      // can leave room for it.
+      const HEAD = 2.4, HEAD_W = 3.4;
+
+      // A point inside `geoid` offset sideways from its centre, or the
+      // centre when that lands outside the county -- a crescent county
+      // can be stepped straight out of.
+      const aimAt = (fromPt, geoid, step) => {
+        const centre = at.get(geoid);
+        if (!step || !projection.invert) return centre;
+        const dx = centre[0] - fromPt[0], dy = centre[1] - fromPt[1];
+        const len = Math.hypot(dx, dy) || 1;
+        const tryAt = [centre[0] - (dy / len) * step,
+          centre[1] + (dx / len) * step];
+        const ll = projection.invert(tryAt);
+        return (ll && d3.geoContains(shapeOf.get(geoid), ll)) ? tryAt : centre;
+      };
+
+      // How deep into its destination a leg reaches.
+      //
+      // `refX` 0 seats the arrowhead's BASE at the line's end, so the
+      // head reaches HEAD stroke-widths further -- 48px on the widest
+      // line here, enough to carry a point over the county's far border.
+      // The line stops a head short of where the flow lands, so the
+      // depth has to open far enough that what is left is a readable
+      // line and not head alone.
+      const landingOf = (r) => {
+        const cA = at.get(r.a), cB = at.get(r.b);
+        const lay = spread.get(r) || { step: 0, crowd: 1 };
+        const aim = aimAt(cA, r.b, lay.step);
+        const enter = crossInto(cA, aim, r.b) || cB;
+        const reach = Math.hypot(aim[0] - enter[0], aim[1] - enter[1]) || 1;
+        // Each later arrival into the same county stops shorter than the
+        // one before, so flows end at their own depths rather than
+        // piling five heads onto one centroid.
+        const back = 1 - Math.min(lay.crowd - 1, 4) * 0.06;
+        const wide = w(r.share);
+        const want = HEAD * wide + wide * 2.5;
+        const depth = Math.min(0.95, Math.max(
+          (r.rank === 0 ? DEEP : SHALLOW) * back, want / reach));
+        return along(enter, aim, depth);
+      };
+
+      // ONE CIRCLE PER PAIR.
+      //
+      // Equal radii are not the same arc: two arcs of the same radius
+      // leaving one point in different directions have different
+      // centres, and the pair kinks where they meet. So the pair is one
+      // circle, built THROUGH the base and tangent to the line between
+      // the two counties, and the legs are the two halves of it -- same
+      // centre, same radius, read as one arc that changes colour and
+      // thickness at the county line.
+      //
+      // WHAT IS PINNED AND WHAT IS FREE. The base is pinned: it sits on
+      // the border of the county the pair is about, and both legs leave
+      // from it. Free are which way the arc bows and how hard, where
+      // along that border the base sits, and how far each leg runs.
+      // Pairs are placed heaviest first and each takes the least bent,
+      // least shifted, least shortened arrangement that clears what is
+      // already down -- so the big flows keep the straight routes and
+      // the small ones go around them.
+      const SLIDE = [0, -0.4, 0.4, -0.8, 0.8];
+      // Radius as a multiple of the distance between the two counties,
+      // flattest first. The tight end is what lets a pair whose
+      // counties do not touch bend around a third county instead of
+      // going through it -- at 2.8 the arc only leaves the straight
+      // line by about a twenty-second of its length, nowhere near
+      // enough to route Audrain's line to Cole through Callaway.
+      const CURVE = [9, 6, 4, 2.8, 2, 1.4, 1];
+      const SIDE = [1, -1];
+      const RUN = [1, 0.82, 0.66];
+      const STEPS = 14;
+
+      // The base, and the direction the pair runs, for a given shift
+      // along the border. Shifting both centroids the same way sideways
+      // slides the crossing along the border without turning the pair.
+      const baseFor = (x, y, slide) => {
+        const cX = at.get(x), cY = at.get(y);
+        const span = Math.hypot(cY[0] - cX[0], cY[1] - cX[1]) || 1;
+        const ux = (cY[0] - cX[0]) / span, uy = (cY[1] - cX[1]) / span;
+        const off = slide * span * 0.16;
+        const shift = (c) => [c[0] - uy * off, c[1] + ux * off];
+        const aX = shift(cX), aY = shift(cY);
+        const faceX = crossInto(aY, aX, x) || crossInto(cY, cX, x) || cX;
+        const faceY = crossInto(aX, aY, y) || crossInto(cX, cY, y) || cY;
+        const both = isSubject(x) && isSubject(y);
+        const own = !both && isSubject(y) ? y : x;
+        const meet = (both || !isSubject(own))
+          ? [(faceX[0] + faceY[0]) / 2, (faceX[1] + faceY[1]) / 2]
+          : (own === x ? faceX : faceY);
+        return { meet, ux, uy, span };
+      };
+
+      const circleFor = (key, legs, slide, curve, side, run) => {
+        const [x, y] = key.split("|");
+        const { meet, ux, uy, span } = baseFor(x, y, slide);
+        const rad = span * curve;
+        // Centre one radius off the base, square to the way the pair
+        // runs, so the circle passes through the base and leaves it
+        // headed at the other county. `side` picks which way it bows.
+        const cx = meet[0] + uy * rad * side;
+        const cy = meet[1] - ux * rad * side;
+        const reach = new Map();
+        for (const leg of legs) {
+          const land = landingOf(leg);
+          reach.set(leg.b, run
+            * Math.hypot(land[0] - meet[0], land[1] - meet[1]));
+        }
+        return {
+          cx, cy, rad, y, reach, side,
+          base: Math.atan2(meet[1] - cy, meet[0] - cx),
+        };
+      };
+
+      // Points down the middle of every leg, arrowheads included, at the
+      // width they are drawn -- enough to tell whether two pairs are on
+      // top of one another.
+      const traceOf = (c, legs) => {
+        const out = [];
+        const runs = [];
+        for (const leg of legs) {
+          const line = [];
+          out.line = line;
+          runs.push(line);
+          const wide = w(leg.share);
+          const turn = (leg.b === c.y ? -1 : 1) * c.side;
+          const far = Math.max((c.reach.get(leg.b) || 0) - HEAD * wide,
+            wide * 2.5) + HEAD * wide;
+          for (let i = 0; i <= STEPS; i += 1) {
+            const angle = c.base + turn * ((far * (i / STEPS)) / c.rad);
+            const at01 = {
+              x: c.cx + c.rad * Math.cos(angle),
+              y: c.cy + c.rad * Math.sin(angle),
+              // The head is wider than its line, so it needs more room.
+              wide: i > STEPS - 3 ? wide * HEAD_W : wide,
+            };
+            out.push(at01);
+            runs[runs.length - 1].push(at01);
+          }
+        }
+        return { points: out, runs };
+      };
+
+      // Proximity alone misses a crossing: on a long leg the samples sit
+      // 25px apart and one line can pass clean between two of another's
+      // points, which is how Audrain's line to Cole came to run straight
+      // through the middle of Boone's. Segments are tested for a real
+      // intersection as well, so a crossing is caught however coarsely
+      // the two lines happen to be sampled.
+      const turns = (a, b, c0) => Math.sign(
+        (b.x - a.x) * (c0.y - a.y) - (b.y - a.y) * (c0.x - a.x));
+      const crosses = (a, b, c0, d) => (
+        turns(a, b, c0) !== turns(a, b, d)
+        && turns(c0, d, a) !== turns(c0, d, b));
+
+      // Two things the search may never trade away for a clear route:
+      // the base stays on a border of one of the pair's own counties,
+      // and every arrowhead's point lands inside the county the flow is
+      // going to. A candidate that breaks either is not a candidate.
+      const inside = (pt, geoid) => {
+        if (!projection.invert) return true;
+        const ll = projection.invert(pt);
+        return !!ll && d3.geoContains(shapeOf.get(geoid), ll);
+      };
+      const legal = (c, legs, x, y) => {
+        const seat = [c.cx + c.rad * Math.cos(c.base),
+          c.cy + c.rad * Math.sin(c.base)];
+        if (!inside(seat, x) && !inside(seat, y)) return false;
+        for (const leg of legs) {
+          const wide = w(leg.share);
+          const turn = (leg.b === c.y ? -1 : 1) * c.side;
+          const far = Math.max((c.reach.get(leg.b) || 0) - HEAD * wide,
+            wide * 2.5) + HEAD * wide;
+          const angle = c.base + turn * (far / c.rad);
+          if (!inside([c.cx + c.rad * Math.cos(angle),
+            c.cy + c.rad * Math.sin(angle)], leg.b)) return false;
+        }
+        return true;
+      };
+
+      // A pair whose counties do not touch has to cross something on
+      // the way. It should cross the quiet ground, not one of the
+      // highlighted counties, which are where every other arrow is:
+      // Audrain's line to Cole has Callaway and Boone to choose from
+      // and belongs in Callaway.
+      const trespass = (trace, x, y) => {
+        if (!pin.size || !projection.invert) return 0;
+        let cost = 0;
+        for (const geoid of shapeOf.keys()) {
+          if (geoid === x || geoid === y || !isSubject(geoid)) continue;
+          const shape = shapeOf.get(geoid);
+          for (const p of trace.points) {
+            const ll = projection.invert([p.x, p.y]);
+            if (ll && d3.geoContains(shape, ll)) cost += 60;
+          }
+        }
+        return cost;
+      };
+
+      const clash = (trace, placed, laid) => {
+        let cost = 0;
+        for (const p of trace.points) {
+          for (const q of placed) {
+            const need = (p.wide + q.wide) / 2 + 3;
+            const gap = Math.hypot(p.x - q.x, p.y - q.y);
+            if (gap < need) cost += (need - gap) ** 2;
+          }
+        }
+        for (const mine of trace.runs) {
+          for (const theirs of laid) {
+            for (let i = 1; i < mine.length; i += 1) {
+              for (let j = 1; j < theirs.length; j += 1) {
+                if (crosses(mine[i - 1], mine[i], theirs[j - 1], theirs[j])) {
+                  cost += 400;
+                }
+              }
+            }
+          }
+        }
+        return cost;
+      };
+
+      const circles = new Map();
+      const byPair = new Map();
+      for (const r of shownArcs) {
+        byPair.set(r.key, (byPair.get(r.key) || []).concat([r]));
+      }
+      const placed = [], laid = [];
+      const heaviest = [...byPair.entries()].sort(
+        (m, n) => n[1][0].share - m[1][0].share);
+      for (const [key, legs] of heaviest) {
+        const [x, y] = key.split("|");
+        let best = null;
+        SLIDE.forEach((slide, si) => {
+          CURVE.forEach((curve, ci) => {
+            for (const side of SIDE) {
+              RUN.forEach((run, ri) => {
+                const c = circleFor(key, legs, slide, curve, side, run);
+                if (!legal(c, legs, x, y)) return;
+                const trace = traceOf(c, legs);
+                // Collisions dominate; the rest are tie-breakers that
+                // keep the straightest, longest, unshifted arrangement
+                // when nothing is in the way.
+                const cost = clash(trace, placed, laid)
+                  + trespass(trace, x, y)
+                  + si * 14 + ci * 9 + ri * 22 + (side < 0 ? 6 : 0);
+                if (!best || cost < best.cost) best = { c, trace, cost };
+              });
+            }
+          });
+        });
+        if (!best) {
+          const c = circleFor(key, legs, 0, CURVE[1], 1, 1);
+          best = { c, trace: traceOf(c, legs) };
+        }
+        circles.set(key, best.c);
+        for (const p of best.trace.points) placed.push(p);
+        for (const line of best.trace.runs) laid.push(line);
+      }
+
+      const routeOf = (r, wide) => {
+        const c = circles.get(r.key);
+        if (!c) return "M0,0";
+        // Going toward Y runs one way round the circle; the other leg
+        // is the same circle travelled the other way.
+        const turn = (r.b === c.y ? -1 : 1) * c.side;
+        const head = HEAD * wide;
+        const run = Math.max((c.reach.get(r.b) || 0) - head, wide * 2.5);
+        const stop = c.base + turn * (run / c.rad);
+        const from = [c.cx + c.rad * Math.cos(c.base),
+          c.cy + c.rad * Math.sin(c.base)];
+        const till = [c.cx + c.rad * Math.cos(stop),
+          c.cy + c.rad * Math.sin(stop)];
+        return `M${from[0]},${from[1]}A${c.rad},${c.rad} 0 0,`
+          + `${turn > 0 ? 1 : 0} ${till[0]},${till[1]}`;
+      };
+
+      // One arrow per colour, scaled by the line it caps: `markerUnits`
+      // defaults to stroke widths, so a head is always in proportion to
+      // its own line. `overflow` visible because a marker clips to its
+      // viewBox and the tip sits on the edge -- without it every point
+      // comes out flattened.
+      const defs = svg.append("defs");
+      const arrowIds = new Map();
+      const arrowFor = (colour) => {
+        if (!arrowIds.has(colour)) {
+          const id = `dd-ar-${arrowIds.size}-${Math.abs(hashOf(String(width)))}`;
+          arrowIds.set(colour, id);
+          defs.append("marker")
+            .attr("id", id).attr("viewBox", "0 0 10 10")
+            .attr("refX", 0).attr("refY", 5)
+            .attr("markerWidth", HEAD).attr("markerHeight", HEAD_W)
+            .attr("overflow", "visible").attr("orient", "auto")
+            .append("path").attr("d", "M0,2 L10,5 L0,8 Z")
+            .attr("fill", colour);
+        }
+        return arrowIds.get(colour);
+      };
+      const haloArrow = arrowFor(t.boundary);
+
+      // WITHIN a pair the smaller leg draws last, so it sits on its
+      // partner. ACROSS pairs the larger wins, so a small flow crossing
+      // a big one passes underneath. Sorting by the pair's weight first
+      // and by rank second satisfies both.
+      const ordered = shownArcs.slice().sort(
+        (x, y) => (x.pairShare - y.pairShare) || (x.rank - y.rank));
+      // The lighter leg gets a hairline behind it -- a slightly wider
+      // line and a slightly larger arrowhead in the boundary colour.
+      // SVG cannot outline a stroke, and a stroked arrowhead draws its
+      // edge inside the fill as well as outside, which read as a diamond
+      // sitting in the middle of the head.
+      const layers = [];
+      for (const r of ordered) {
+        if (r.rank > 0) layers.push({ r, halo: true });
+        layers.push({ r, halo: false });
+      }
+
+      const all = svg.append("g").attr("fill", "none")
+        .selectAll("path").data(layers).join("path")
+        .attr("d", (d) => routeOf(d.r, w(d.r.share) + (d.halo ? 1.2 : 0)))
+        // Butt, not round: a round cap pokes out from under the head.
+        .attr("stroke-linecap", "butt")
+        .attr("stroke-width", (d) => w(d.r.share) + (d.halo ? 1.2 : 0))
+        .attr("stroke", (d) => (d.halo ? t.boundary : colourOf(d.r)))
+        .attr("stroke-opacity", (d) => (d.halo ? 1 : inkFor(d.r)))
+        .attr("marker-end", (d) => `url(#${d.halo
+          ? haloArrow : arrowFor(colourOf(d.r))})`);
 
       el.replaceChildren(svg.node());
       const tip = tooltip(el);
-      // Both directions, because the arc now carries both and a reader
-      // hovering it is asking which way the traffic runs.
-      interactive(arcs, tip, (r) =>
-        `${r.loName} \u2192 ${r.hiName}: ${r.out.toLocaleString()}` +
-        `<br>${r.hiName} \u2192 ${r.loName}: ${r.back.toLocaleString()}`);
+      interactive(all.filter((d) => !d.halo), tip, (d) => {
+        const r = d.r;
+        return `${r.aName} → ${r.bName}<br>`
+          + `${(r.share * 100).toFixed(1)}% of `
+          + `${isSubject(r.a) ? r.aName + "'s out-commuters"
+            : r.bName + "'s in-commuters"}`
+          + `<br>${r.n.toLocaleString()} workers`;
+      });
     });
   }
 

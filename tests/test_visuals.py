@@ -1875,7 +1875,8 @@ def test_the_flow_map_highlights_by_subject_not_by_row():
 
     An arc belongs to whichever END is the subject, because a flow INTO
     Audrain is Audrain's as much as one out of it, which is the whole
-    question a commuting map asks.
+    question a commuting map asks. Only arcs that touch a subject are
+    drawn at all.
     """
     from pathlib import Path
 
@@ -1885,17 +1886,12 @@ def test_the_flow_map_highlights_by_subject_not_by_row():
     assert "config.highlight" in body, "the flow map ignores the subject"
     # Not by position in the file.
     assert "t.series[i % t.series.length]" not in body
-    # Either end.
-    # The two colours are the two DIRECTIONS, on every arc that runs both
-    # ways. Coloured by county, most arcs had no contrast at all, because
-    # most pairs have only one county under study.
-    assert "twoWay(r)" in body
-    # Context stays visible rather than being dropped: these counties sit
-    # inside a system and that is the finding.
-    assert "raise()" in body
-    # Context stays drawn, faintly. Three tiers now, so the exact value
-    # is asserted by the tier test rather than here.
-    assert "0.1" in body
+    # Either end qualifies, and nothing else is drawn.
+    assert "isSubject(r.a) || isSubject(r.b)" in body
+    # One hue for the whole map: three would put three meanings on
+    # colour at once, and which county an arc belongs to is already
+    # given by where it starts.
+    assert "const HUE = t.series[" in body
 
 
 def test_a_flow_map_can_be_framed_on_a_whole_state():
@@ -1918,30 +1914,36 @@ def test_the_framing_option_does_not_collide_with_the_corpus_one():
     assert "focus" not in offered
 
 
-def test_the_flow_map_shouts_loudest_between_two_subjects():
-    """Three tiers, because the question has three answers: between two
-    counties under study, between one and the wider system, and the
-    context that makes both readable. Here the first is small -- 2,213
-    against 45,422 -- so it has to be drawn last and loudest or it
-    disappears under what it is being compared with."""
+def test_the_larger_half_of_a_pair_is_drawn_darker_and_underneath():
+    """Colour is left to carry the pair, since the hue is fixed and the
+    starting county already says whose flow it is. The larger leg is
+    darker, wider and underneath; its partner is lighter and on top, so
+    both stay readable where they overlap.
+
+    Across pairs the order reverses: a small flow crossing a big one
+    passes UNDER it, or the map reads as though the small flow were the
+    important one. Sorting by the pair's weight and then by rank inside
+    the pair satisfies both at once.
+    """
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
     js = (root / "static/js/datadesk-chart.js").read_text()
     body = js.split("function renderFlowMap(")[1].split("\n  function ")[0]
-    assert "if (a && b) return 0.95" in body
-    assert body.count("raise()") == 2, "subject-pair arcs are not raised last"
+    assert "r.rank === 0 ? shadeBig : shadeSmall" in body
+    assert "(x.pairShare - y.pairShare) || (x.rank - y.rank)" in body
 
 
 def test_a_pair_is_one_arc_carrying_both_directions():
     """Commuting is reciprocal -- 110 of 137 flows here are half of a
-    pair -- so a curve per direction laid two near-identical arcs over
-    each other and doubled the ink for no added information.
+    pair -- and the two legs were drawn as separate arcs that met at the
+    border with a kink in them.
 
-    One arc per pair: its width is the total, and the colour changes
-    along it where the split falls. An even exchange changes colour
-    halfway; a one-way flow barely changes at all. The asymmetry becomes
-    a position instead of a comparison between overlapping curves.
+    Equal radii are not the same arc: two arcs of the same radius
+    leaving one point in different directions have different centres. A
+    pair is therefore ONE circle, built through the base and tangent to
+    the line between the counties, with the legs as its two halves --
+    same centre, same radius, travelled opposite ways.
     """
     from pathlib import Path
 
@@ -1949,13 +1951,14 @@ def test_a_pair_is_one_arc_carrying_both_directions():
     js = (root / "static/js/datadesk-chart.js").read_text()
     body = js.split("function renderFlowMap(")[1].split("\n  function ")[0]
     assert "const pairs = new Map()" in body
-    # The split drives the stop, so the position is the number.
-    assert "r.out / r.total" in body
-    # Hard stops: a blend reads as a third colour in the middle.
-    assert body.count('.attr("offset", cut)') == 2
-    # And the tooltip has to name both, since one arc now answers two
-    # questions.
-    assert "r.out.toLocaleString()" in body and "r.back.toLocaleString()" in body
+    # One circle, looked up per pair, so the two legs cannot disagree.
+    assert "const circles = new Map()" in body
+    assert "circles.get(r.key)" in body
+    # Travelled opposite ways round it.
+    assert "r.b === c.y ? -1 : 1" in body
+    # No gradient: a colour shift along one line was read as half the
+    # arc belonging to each direction, which is not what it meant.
+    assert '.attr("offset"' not in body
 
 
 def test_the_subject_is_ticked_not_typed():
@@ -2004,15 +2007,19 @@ def test_no_columns_chosen_offers_no_places():
     assert flow_places(_Visual()) == []
 
 
-def test_a_one_way_flow_gets_no_gradient():
-    """A gradient across it would invent a return journey that is not in
-    the data."""
+def test_a_one_way_flow_is_drawn_as_one_leg():
+    """A second leg would invent a return journey that is not in the
+    data. The legs of a pair come from the rows themselves, so a flow
+    with no return simply has one."""
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
     js = (root / "static/js/datadesk-chart.js").read_text()
     body = js.split("function renderFlowMap(")[1].split("\n  function ")[0]
-    assert "if (!r.out || !r.back) return false;" in body
+    assert "seen.legs.push(leg)" in body
+    assert "pair.legs.forEach((leg, rank)" in body
+    # Nothing is drawn that was not in a row.
+    assert "pair.legs.push" not in body
 
 
 def test_framing_is_chosen_from_the_states_in_the_data():
@@ -2073,24 +2080,60 @@ def test_nothing_on_the_flow_map_is_drawn_too_small_to_see():
     js = (root / "static/js/datadesk-chart.js").read_text()
     body = js.split("function renderFlowMap(")[1].split("\n  function ")[0]
     # A floor on the width, not a range starting at zero.
-    assert ".range([1.2," in body
+    assert ".range([2.5," in body
     assert ".range([0," not in body
-    # The subject is found by fill AND edge.
-    assert "0.55 : 1" in body
-    assert "1.6 : 0.6" in body
+    # The subject reads LIGHTER than the land around it: a darker patch
+    # reads as a hole, and a pale ground is what the lines show against.
+    assert "d3.interpolateLab(t.missing, t.surface)(0.55)" in body
+    # One border weight. A heavier edge on three of seventeen counties
+    # reads as a property of those borders, not of those counties.
+    assert '.attr("stroke-width", 0.6)' in body
 
 
-def test_a_lopsided_pair_is_drawn_as_one_way():
-    """The splits ran to 0.08 on the published map -- 92% one colour and
-    a sliver at the tip, which reads as an artefact rather than a number.
-    A flow that is 8% of its pair is one-way in every sense a reader
-    cares about."""
+def test_a_county_admits_only_so_many_arrows():
+    """The floor is a share, so it says nothing about how many arrows
+    end up in one place. A hub county can clear it twenty times over,
+    and past a certain count no amount of routing saves the picture:
+    the arcs have nowhere left to go, the placement search runs out of
+    legal arrangements and falls back, and bases start landing in
+    counties the flow has nothing to do with.
+
+    Measured across the highlight sets on the mid-Missouri table, with
+    no ceiling: 29 legs give 2 stray bases, 48 give 7, 81 give 16. At
+    six pairs a county the three-subject map loses one pair and all 15
+    of its overlapping points.
+
+    Both ends are billed, so the bound holds at every county on the map
+    and not only at the highlighted ones.
+    """
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
     js = (root / "static/js/datadesk-chart.js").read_text()
     body = js.split("function renderFlowMap(")[1].split("\n  function ")[0]
-    assert "const MINORITY = 0.1" in body
-    # One rule, used by both the gradient and the stroke, so a stroke can
-    # never reference a gradient that was skipped.
-    assert body.count("twoWay(r)") >= 2
+    assert "const CAP = +config.max_arrows > 0 ? +config.max_arrows : 6" in body
+    # Largest first, so what a county keeps is its biggest exchanges.
+    assert "n.pairShare - m.pairShare" in body
+    # Both ends, or a hub spends every other county's budget.
+    assert "if (left >= CAP || right >= CAP) continue;" in body
+
+
+def test_a_lopsided_pair_is_drawn_as_one_way():
+    """The return leg of a lopsided pair can be a few dozen commuters --
+    a sliver at the tip of its partner, which reads as an artefact
+    rather than a number. The floor is a share of the county's own
+    traffic, so it means the same thing for Boone and for Osage, and a
+    leg below it is not drawn. The pair then appears one-way, which is
+    what it is in every sense a reader cares about."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static/js/datadesk-chart.js").read_text()
+    body = js.split("function renderFlowMap(")[1].split("\n  function ")[0]
+    assert "const FLOOR = 0.03" in body
+    assert "r.share >= FLOOR" in body
+    # A share of the subject's own traffic in that direction, not of the
+    # whole table: Boone sends 3,458 to Cole and Osage 2,548 -- similar
+    # lines -- but that is 4% of Boone's out-commuters against 44% of
+    # Osage's.
+    assert "isSubject(a) ? outOf.get(a) : intoOf.get(b)" in body
