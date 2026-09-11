@@ -28,7 +28,7 @@ from datasets.publishers import (  # noqa: F401  (re-exported)
     fold_value,
     group_of,
 )
-from explorer.models import Article, DatasetSource
+from explorer.models import Article, ArticlePlaceManual, DatasetSource
 
 # --- dimensions -------------------------------------------------------------
 #
@@ -1425,6 +1425,22 @@ def run_story_map(spec, scopes):
 
     base = _base_queryset(spec, scopes)
 
+    # WHAT A PERSON PUT IN, ON BOTH LAYERS.
+    #
+    # The requirement is that a human contribution is used in the app in
+    # exactly the same way as the pipeline's own, and this is where that
+    # is either true or it is not. `article_places_manual` is read here
+    # because THIS is what a story map reads: `enrichment.point_*` for
+    # the dots and `enrichment.geoids` for the shading. Writing the
+    # contribution to `article_geoids` and stopping -- which is what the
+    # first cut did -- put it in a table this function never opens, so a
+    # reviewer's work changed nothing on screen and nothing said why.
+    manual = list(
+        ArticlePlaceManual.objects.filter(article_id__in=base.values("id")).values_list(
+            "article_id", "geoid", "geoid_level", "is_point", "city", "county"
+        )
+    )
+
     points = list(
         base.filter(enrichment__point_lat__isnull=False)
         .values(
@@ -1443,6 +1459,79 @@ def run_story_map(spec, scopes):
     for row in points:
         row["lat"] = float(row["lat"]) if row["lat"] is not None else None
         row["lon"] = float(row["lon"]) if row["lon"] is not None else None
+
+    # A HUMAN CENTRE IS A DOT WHERE THE PIPELINE FOUND NONE.
+    #
+    # The same rule the crawler's own merge uses (`is_point and geoid is
+    # None`): where both exist both are RECORDED, because neither is
+    # evidence the other is wrong, but only one can be the dot for one
+    # story or the map double-counts it.
+    #
+    # Coordinates come from the Census internal point for the geoid --
+    # the reviewer typed a name, never a position, and INTPTLAT is a
+    # point guaranteed to lie inside the shape.
+    already_placed = set(
+        base.filter(enrichment__point_lat__isnull=False).values_list("id", flat=True)
+    )
+    source_of = dict(base.values_list("id", "candidate_link__source_id"))
+    by_geoid = {}
+    for article_id, geoid, level, is_point, city, county in manual:
+        if not is_point or not geoid or article_id in already_placed:
+            continue
+        lat, lon = centroid(geoid)
+        if lat is None:
+            # No internal point means nothing to draw. The row still
+            # shades its county below -- a contribution is not lost for
+            # want of a coordinate.
+            continue
+        entry = by_geoid.setdefault(
+            geoid,
+            {
+                "geoid": geoid,
+                "level": level,
+                "place": city or county or county_label(geoid),
+                "lat": lat,
+                "lon": lon,
+                "_articles": set(),
+                "_publishers": set(),
+            },
+        )
+        entry["_articles"].add(article_id)
+        if source_of.get(article_id):
+            entry["_publishers"].add(source_of[article_id])
+
+    # MERGED INTO THE DOT ALREADY THERE, not appended beside it.
+    #
+    # Appending gave Linn two dots at the same coordinates -- one of 21
+    # stories and one of 1 -- stacked so the second was invisible and the
+    # tooltip showed whichever drew last. Two dots for one place is not a
+    # second place.
+    existing = {row["geoid"]: row for row in points}
+    if by_geoid:
+        # The publishers behind the dots this collides with, so the
+        # merged count is a union and not a sum: one newsroom with both
+        # a pipeline-placed and a hand-placed story is one publisher.
+        for geoid, source_id in base.filter(
+            enrichment__point_geoid__in=list(by_geoid)
+        ).values_list("enrichment__point_geoid", "candidate_link__source_id"):
+            if geoid in by_geoid and source_id:
+                by_geoid[geoid]["_publishers"].add(source_id)
+
+    for geoid, entry in by_geoid.items():
+        stories = len(entry.pop("_articles"))
+        publishers = len(entry.pop("_publishers"))
+        hit = existing.get(geoid)
+        if hit is not None:
+            # Story counts add: a human centre is only recorded where the
+            # pipeline placed nothing, so the two sets cannot overlap.
+            hit["stories"] += stories
+            hit["publishers"] = max(hit["publishers"], publishers)
+            continue
+        entry["stories"] = stories
+        entry["publishers"] = publishers
+        points.append(entry)
+    points.sort(key=lambda r: -r["stories"])
+    del points[MAX_GROUPS:]
 
     # The shaded layer is every mention, from every story.
     #
@@ -1492,7 +1581,19 @@ def run_story_map(spec, scopes):
     # layer beside it already calls the same thing, and `county name`
     # holds the name. The code stays in the payload because the map
     # matches boundary shapes on it -- dropping it stops the shading.
-    from datasets.geo import county_label
+    # EVERY manual row shades, point or mention -- the same as the
+    # pipeline, whose point rolls up to its county too. `to_county`
+    # takes the rung: a county geoid is already the answer, a place
+    # geoid has to be looked up, and passing "place" for a county code
+    # returns nothing at all.
+    for article_id, geoid, level, _is_point, _city, _county in manual:
+        if not geoid:
+            continue
+        county = to_county(str(geoid), level or "place")
+        if county is None:
+            unresolved.add(str(geoid))
+            continue
+        by_county.setdefault(county, set()).add(article_id)
 
     areas = [
         {
@@ -1621,17 +1722,32 @@ def corpus_version():
     from django.core.cache import cache
     from django.db.models import Max
 
-    from explorer.models import Article, ArticleEnrichment, DatasetSource
+    from explorer.models import (
+        Article,
+        ArticleEnrichment,
+        ArticlePlaceManual,
+        DatasetSource,
+    )
 
     hit = cache.get("corpus.version")
     if hit is not None:
         return hit
     newest = Article.objects.aggregate(m=Max("created_at"))["m"]
     enriched = ArticleEnrichment.objects.aggregate(m=Max("enriched_at"))["m"]
+    # A FOURTH PART: geography a person put in.
+    #
+    # It moves none of the other three. A reviewer placing a story
+    # creates no article, moves no membership and does not re-enrich
+    # anything, so without this the stamp does not change, the keys do
+    # not move, and the map goes on drawing the numbers it had before
+    # the queue was worked -- which is the same failure the third part
+    # was added for, one source later.
+    placed = ArticlePlaceManual.objects.aggregate(m=Max("added_at"))["m"]
     stamp = (
         f"{newest.isoformat() if newest else 'empty'}"
         f":{DatasetSource.objects.count()}"
         f":{enriched.isoformat() if enriched else 'none'}"
+        f":{placed.isoformat() if placed else 'none'}"
     )
     cache.set("corpus.version", stamp, VERSION_CACHE_SECONDS)
     return stamp

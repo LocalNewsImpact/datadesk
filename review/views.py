@@ -2160,7 +2160,9 @@ def _submit_discovery_decisions(request):
 
     receipt = review_submit.submit(queue_def, decisions, subjects, request.user)
     request.session["discovery_receipt"] = dict(receipt, queue=queue_def.key)
-    return redirect(f"{reverse('review:discovery')}?{urlencode(request.GET)}")
+    # The same fault as the geography queue's: `urlencode(QueryDict)`
+    # writes list reprs and resets every filter on submit.
+    return redirect(f"{reverse('review:discovery')}?{request.GET.urlencode()}")
 
 
 # --------------------------------------------------------------------
@@ -2653,4 +2655,11 @@ def _submit_geography_decisions(request):
     }
     receipt = review_submit.submit(queue_def, decisions, subjects, request.user)
     request.session["geography_receipt"] = dict(receipt, queue=queue_def.key)
-    return redirect(f"{reverse('review:geography')}?{urlencode(request.GET)}")
+    # `QueryDict.urlencode()`, not `django.utils.http.urlencode(qd)`.
+    #
+    # The latter treats a QueryDict as a plain mapping and writes each
+    # value's LIST repr: a reviewer who submitted came back to
+    # `?days=%5B%27custom%27%5D&county=%5B%27Osage%27%5D` -- "['custom']",
+    # "['Osage']" -- which parse as nothing, so every filter reset and
+    # they lost their place in the queue on each submit.
+    return redirect(f"{reverse('review:geography')}?{request.GET.urlencode()}")
