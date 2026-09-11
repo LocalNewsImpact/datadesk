@@ -995,8 +995,6 @@ def builder_edit(request, slug):
                     "news_only": bool(request.POST.get("news_only")),
                     "labeled_only": bool(request.POST.get("labeled_only")),
                 }
-                if request.POST.get("area_scope"):
-                    spec["area_scope"] = request.POST["area_scope"]
                 visual.spec = {k: v for k, v in spec.items() if v not in ("", [], None)}
                 visual.source_kind = CORPUS
                 # Freeze what this visual is wired to, now, from what its

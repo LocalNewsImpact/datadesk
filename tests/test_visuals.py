@@ -2268,3 +2268,46 @@ def test_a_lopsided_pair_is_drawn_as_one_way():
     # lines -- but that is 4% of Boone's out-commuters against 44% of
     # Osage's.
     assert "isSubject(a) ? outOf.get(a) : intoOf.get(b)" in body
+
+
+def test_every_mention_shades_its_county():
+    """The required behaviour: a central focus gets a point, and every
+    mention of another location shades the county it is in.
+
+    The shading used to be filtered to `scope='regional'` as well, which
+    is a much narrower question and had no control -- nothing on any page
+    posted `area_scope`, so no author could see the map was answering
+    something other than its title.
+
+    Measured on "Where Osage County reports": 27 of 82 stories carry
+    mentions, and the shading was drawn from 6. The 21 discarded had a
+    central point AND mentions -- a story centred on Linn that also names
+    Jefferson City and Columbia drew its dot and shaded neither county.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    src = (root / "visuals/corpus.py").read_text()
+    body = src.split("def run_story_map(")[1].split("\ndef ")[0]
+    assert "enrichment__scope" not in body, "the shading is filtered by scope again"
+    assert "enrichment__geoids__isnull=True" in body, "mentions are the shading"
+
+    # And nothing accepts a setting for it, because there is nothing to set.
+    views = (root / "visuals/views.py").read_text()
+    assert "area_scope" not in views
+    form = (root / "templates/visuals/builder_edit.html").read_text()
+    assert "area_scope" not in form
+
+
+def test_the_two_layers_do_not_count_the_same_place_twice():
+    """`point_geoid` is the central location and `enrichment.geoids`
+    carries only the mentions, never repeating it. That split is what
+    makes "a point for the focus, shading for everywhere else" true
+    rather than a convention the renderer has to maintain."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    src = (root / "visuals/corpus.py").read_text()
+    body = src.split("def run_story_map(")[1].split("\ndef ")[0]
+    assert "enrichment__point_lat__isnull=False" in body, "dots are the centrals"
+    assert 'F("enrichment__point_geoid")' in body

@@ -2461,8 +2461,10 @@
         const n = byCounty.get(String(f.id));
         return `<strong>${f.properties.name || f.id}</strong>` +
           tipRow("county FIPS", f.id) +
-          tipRow(`${payload.meta && payload.meta.area_scope || "place-set"}` +
-            " stories", n || 0);
+          // Every story that mentions a place in this county. The label
+          // used to name the scope the shading was filtered to; there is
+          // no filter now, so it says what it counts.
+          tipRow("stories mentioning it", n || 0);
       }, { group: counties, related: (target, other) => target === other });
       interactive(dots, tip, (p) =>
         `<strong>${p.place || p.geoid}</strong>` +
@@ -2489,8 +2491,7 @@
         const scale = document.createElement("span");
         scale.className = "dd-ramp";
         scale.append(document.createTextNode(
-          ((payload.meta && payload.meta.area_scope) || "place-set") +
-          " stories touching each county:"));
+          "stories mentioning each county:"));
         bandLabels.map((label, i) => [label, i ? ramp[i] : t.missing])
           .forEach(([label, color]) => {
           const chip = document.createElement("span");
