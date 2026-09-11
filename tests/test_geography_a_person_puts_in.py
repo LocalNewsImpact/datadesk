@@ -276,3 +276,209 @@ def test_the_rows_are_queried_after_the_selections_are_validated():
     assert body.index('params.pop("newsroom", None)') < body.index(
         "candidates = geography.needs_geography("
     )
+
+
+# --- what a reviewer is told before they open the link ------------------------
+
+
+class _Enrichment:
+    def __init__(self, skip_reason="", geo_skip_reason=""):
+        self.skip_reason = skip_reason
+        self.geo_skip_reason = geo_skip_reason
+
+
+class _Placed:
+    def __init__(self, enrichment=None, **kw):
+        if enrichment is not None:
+            self.enrichment = enrichment
+        for key, value in kw.items():
+            setattr(self, key, value)
+
+
+def test_a_paywall_stub_reads_differently_from_a_story_nobody_scoped():
+    """A reviewer has to know whether to open the link. A paywall stub
+    has only a headline; a story nobody scoped may have the place in the
+    text already."""
+    from review.geography import why_no_geography
+
+    label, detail = why_no_geography(_Placed(_Enrichment(skip_reason="paywall_stub")))
+    assert label == "behind a paywall"
+    assert "only way to read it" in detail
+
+    label, detail = why_no_geography(_Placed(_Enrichment(geo_skip_reason="not_scoped")))
+    assert label == "never scoped"
+    assert detail
+
+
+def test_a_regional_story_with_an_empty_place_set_says_so():
+    """Its geography IS the places it names, so naming none is the whole
+    explanation."""
+    from review.geography import why_no_geography
+
+    label, detail = why_no_geography(
+        _Placed(_Enrichment(geo_skip_reason="regional_uses_place_set"))
+    )
+    assert "regional" in label
+    assert "named none" in detail
+
+
+def test_a_gazetteer_miss_explains_that_nothing_could_be_placed_relative_to_it():
+    from review.geography import why_no_geography
+
+    label, detail = why_no_geography(
+        _Placed(_Enrichment(geo_skip_reason="publication_city_not_in_census_gazetteer"))
+    )
+    assert "gazetteer does not have" in label
+    assert "publication" in detail.lower()
+
+
+def test_an_article_nothing_ran_on_is_named_as_such():
+    """Distinct from every other reason: there is no enrichment row at
+    all, so there is no skip reason to report."""
+    from review.geography import why_no_geography
+
+    assert why_no_geography(_Placed())[0] == "never enriched"
+
+
+def test_a_reason_nobody_wrote_a_sentence_for_is_still_shown():
+    """An unrecognised reason is passed through rather than swallowed --
+    a blank cell would read as a row with nothing wrong with it."""
+    from review.geography import why_no_geography
+
+    assert why_no_geography(_Placed(_Enrichment(geo_skip_reason="odd")))[0] == "odd"
+    assert why_no_geography(_Placed(_Enrichment()))[0] == "no reason recorded"
+
+
+# --- which state the suggestions rank by --------------------------------------
+
+
+def test_the_publishers_own_state_wins_over_the_datasets_default():
+    """`sources.metadata` first, exactly as enrichment resolves it. A
+    Missouri dataset carrying a Kansas outlet must rank Kansas for that
+    outlet's stories."""
+    from review.geography import publisher_state
+
+    article = _Placed(
+        candidate_link=_Placed(source=_Placed(meta={"state": "KS"})),
+        dataset_id="d1",
+    )
+    assert publisher_state(article) == "KS"
+
+
+def test_an_article_with_no_dataset_asks_the_database_nothing():
+    """This is called once per row. An unguarded lookup here is a round
+    trip per article to read a value a page of 25 shares -- and an
+    article with no dataset asked for `id=None`, a query for nothing."""
+    from review.geography import publisher_state
+
+    article = _Placed(candidate_link=None, dataset_id=None)
+    assert publisher_state(article) is None
+
+
+def test_a_source_without_metadata_falls_through_rather_than_raising():
+    from review.geography import publisher_state
+
+    article = _Placed(
+        candidate_link=_Placed(source=_Placed(meta=None)), dataset_id=None
+    )
+    assert publisher_state(article) is None
+
+
+# --- the write ----------------------------------------------------------------
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_decision_writes_the_rows_and_an_audit_entry(crawler_schema):
+    """The write path end to end: what a reviewer picked becomes rows,
+    resolved by the contract rather than by anything they typed, and the
+    creation is audited."""
+    from django.contrib.auth.models import User
+
+    from explorer.models import Article, ArticlePlaceManual
+    from review.geography import ALSO_MENTIONS, apply_geography
+
+    user = User.objects.create_user("r", email="r@example.org")
+    article = Article.objects.create(id="w1", status="enrichment_skipped", title="A")
+
+    out = apply_geography(article, ALSO_MENTIONS, "Linn, MO; Westphalia, MO", user)
+
+    rows = ArticlePlaceManual.objects.filter(article_id="w1").order_by("geoid")
+    assert [(r.geoid, r.city, r.is_point, r.added_by) for r in rows] == [
+        ("2943238", "Linn", False, "r@example.org"),
+        ("2978910", "Westphalia", False, "r@example.org"),
+    ]
+    # The name as typed is kept beside the code it resolved to, so a
+    # wrong resolution can be told from a wrong entry.
+    assert {r.full_name for r in rows} == {"Linn", "Westphalia"}
+    assert out["after"] == "Linn, Westphalia"
+    assert out["wrote"]["audit"]
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_the_county_rung_is_written_as_a_county(crawler_schema):
+    """ "Osage" and "Osage County" are different codes. Resolving the
+    suffixed name as a place would fail -- no gazetteer has a place
+    called "Osage County"."""
+    from django.contrib.auth.models import User
+
+    from explorer.models import Article, ArticlePlaceManual
+    from review.geography import ALSO_MENTIONS, apply_geography
+
+    user = User.objects.create_user("r2", email="r2@example.org")
+    article = Article.objects.create(id="w2", status="enrichment_skipped", title="B")
+
+    apply_geography(article, ALSO_MENTIONS, "Osage County, MO", user)
+
+    row = ArticlePlaceManual.objects.get(article_id="w2")
+    assert (row.geoid, row.geoid_level) == ("29151", "county")
+    # The county name lands in `county`, not `city`.
+    assert (row.county, row.city) == ("Osage", None)
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_centre_is_written_as_the_point(crawler_schema):
+    from django.contrib.auth.models import User
+
+    from explorer.models import Article, ArticlePlaceManual
+    from review.geography import SET_THE_PLACE, apply_geography
+
+    user = User.objects.create_user("r3", email="r3@example.org")
+    article = Article.objects.create(id="w3", status="enrichment_skipped", title="C")
+
+    apply_geography(article, SET_THE_PLACE, "Linn, MO", user)
+    assert ArticlePlaceManual.objects.get(article_id="w3").is_point is True
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_saying_there_is_no_place_writes_nothing(crawler_schema):
+    """The article has no geography and a person has confirmed none can
+    be given, which is what stops the queue asking again."""
+    from django.contrib.auth.models import User
+
+    from explorer.models import Article, ArticlePlaceManual
+    from review.geography import NOTHING_TO_ADD, apply_geography
+
+    user = User.objects.create_user("r4", email="r4@example.org")
+    article = Article.objects.create(id="w4", status="enrichment_skipped", title="D")
+
+    out = apply_geography(article, NOTHING_TO_ADD, "", user)
+    assert out["wrote"] == "nothing"
+    assert not ArticlePlaceManual.objects.filter(article_id="w4").exists()
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_refusal_writes_no_part_of_the_answer(crawler_schema):
+    """A partial write records some of what a reviewer said and silently
+    drops the rest, and they have no way to tell which."""
+    from django.contrib.auth.models import User
+
+    from explorer.models import Article, ArticlePlaceManual
+    from review.geography import ALSO_MENTIONS, apply_geography
+
+    user = User.objects.create_user("r5", email="r5@example.org")
+    article = Article.objects.create(id="w5", status="enrichment_skipped", title="E")
+
+    with pytest.raises(ValueError, match="Fatima"):
+        apply_geography(article, ALSO_MENTIONS, "Linn, MO; Fatima, MO", user)
+
+    assert not ArticlePlaceManual.objects.filter(article_id="w5").exists()

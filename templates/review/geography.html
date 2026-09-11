@@ -23,6 +23,18 @@
   <p class="receipt">
     {% for line in receipt.counts %}<span>{{ line.n }} {{ line.past }}</span>{% endfor %}
   </p>
+  {% comment %}
+  What the queue would not carry out, and why. A name that does not
+  resolve used to raise, which returned an error page and lost every
+  other decision on it; the reason is the reviewer's to act on, so it is
+  shown rather than counted.
+  {% endcomment %}
+  {% if receipt.rejected %}
+  <p class="notice">
+    {{ receipt.rejected|length }} not recorded — still in the queue:
+    {% for row in receipt.rejected %}<span class="quiet">{{ row.why }}</span>{% endfor %}
+  </p>
+  {% endif %}
   {% endif %}
 
   {% comment %}

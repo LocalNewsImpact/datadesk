@@ -173,6 +173,44 @@ def test_a_decision_is_recorded_against_its_subject(reviewer):
 
 
 @pytest.mark.django_db
+def test_a_value_the_queue_refuses_does_not_lose_the_rest_of_the_page(reviewer):
+    """`apply` validates what a reviewer typed and raises when it does
+    not resolve. That raise reached the view and returned a 500: a
+    reviewer who entered "Fatima, MO" -- a real community in Osage County
+    and in no gazetteer, being unincorporated -- got an error page, and
+    EVERY other decision on that page was lost with it.
+
+    Refused per row now, with the reason kept, so the rest of the session
+    applies and the reviewer is told what to do about the one that did
+    not.
+    """
+
+    def apply(subject, verb, value, user):
+        if value == "nowhere":
+            raise ValueError("nowhere did not resolve to a place.")
+        return {"label": subject.pk, "before": "was", "after": verb.name}
+
+    queue, _ = _queue(apply=apply, key="test-refusal")
+    receipt = _submit(
+        queue,
+        {"s1": ("fix", "nowhere"), "s2": ("fix", "somewhere")},
+        {"s1": _Subject("s1"), "s2": _Subject("s2")},
+        reviewer,
+    )
+
+    # The good one landed.
+    assert receipt["fixed"] == 1
+    assert receipt["decided"] == 1
+    assert ReviewDecision.objects.filter(subject_id="s2").exists()
+
+    # The refused one did not, and says why.
+    assert not ReviewDecision.objects.filter(subject_id="s1").exists()
+    assert len(receipt["rejected"]) == 1
+    assert receipt["rejected"][0]["id"] == "s1"
+    assert "did not resolve" in receipt["rejected"][0]["why"]
+
+
+@pytest.mark.django_db
 def test_a_verb_the_row_cannot_carry_out_writes_nothing(reviewer):
     """Not an error: a page loaded before somebody else acted offers verbs
     that are no longer available. Counted, because a submission that lands

@@ -1,4 +1,4 @@
-/* Place suggestions for the geography queue.
+/* Place entry for the geography queue: suggestions, and chips.
  *
  * A typed place name is worth nothing until it resolves, and a name that
  * resolves to the WRONG place is worse than one that does not resolve at
@@ -15,9 +15,17 @@
  * Missouri-only list makes real coverage unenterable -- which is how a
  * queue teaches people to work around it.
  *
- * The names come from the endpoint that reads `lnic_contracts.geography`,
- * the same table the write path resolves against, so what is offered is
- * what will resolve.
+ * WHY CHIPS. Several mentions used to be one text box and a ";" the
+ * reviewer typed themselves. Two things went wrong with that and both
+ * were reported: the lookup on the second name behaved differently from
+ * the first because it depended on splitting a string the reviewer was
+ * still editing, and a name that never resolved could be submitted --
+ * "Fatima, MO", a real community in Osage County and in no gazetteer,
+ * being unincorporated -- which the server then refused.
+ *
+ * A place becomes a chip only when it has resolved. The box clears after
+ * each one, so every entry is the first entry; nothing unresolved can be
+ * submitted, because only chips are written to the field that submits.
  */
 (function () {
   "use strict";
@@ -26,47 +34,37 @@
     (document.currentScript && document.currentScript.dataset.suggestUrl) ||
     "/review/geography/suggest/";
 
-  /* Several places, separated by ";" -- a story mentions several and the
-   * pipeline records several, so only the LAST fragment is being typed. */
-  function typing(value) {
-    var parts = value.split(";");
-    return { head: parts.slice(0, -1), tail: parts[parts.length - 1].trim() };
-  }
-
-  /* The list needs the INPUT as its positioning context, not the cell.
-   * `.geo-prop` is a flex container, so an absolutely-positioned child
-   * with no offsets takes its static position at the container's content
-   * box -- the top -- and the list rendered over the box being typed
-   * into. Wrapping the input gives `top: 100%` something to mean.
-   *
-   * The wrapper also carries the pressed-verb reveal, so it has to sit
-   * exactly where the input was: immediately after its own button. */
-  function box(input) {
+  function attach(store, state) {
+    /* `store` is the input `_verbs.html` rendered: it carries the name
+     * the submit path reads. It becomes hidden and holds the chips'
+     * canonical text; the reviewer types into a new box beside it. */
     var field = document.createElement("span");
     field.className = "geo-field";
-    input.insertAdjacentElement("beforebegin", field);
-    field.appendChild(input);
+    store.insertAdjacentElement("beforebegin", field);
+
+    var chips = document.createElement("span");
+    chips.className = "geo-chips";
+    field.appendChild(chips);
+
+    var entry = document.createElement("input");
+    entry.type = "text";
+    entry.className = "geo-entry";
+    entry.autocomplete = "off";
+    entry.setAttribute("aria-label", "A place this story names");
+    entry.placeholder = "type a place…";
+    field.appendChild(entry);
 
     var list = document.createElement("ul");
     list.className = "geo-suggest";
     list.hidden = true;
     field.appendChild(list);
-    return list;
-  }
 
-  function attach(input, state) {
-    var list = box(input);
+    field.appendChild(store);
+    store.type = "hidden";
+
+    var picked = [];
     var timer = null;
     var active = -1;
-    /* Set while `choose` writes the picked name back.
-     *
-     * The dock counts a row as answered from the input event, so choosing
-     * has to fire one -- and that event is indistinguishable from typing,
-     * so it re-ran the lookup and REOPENED the list on the name just
-     * chosen. The list then sat over the dock and swallowed the click on
-     * Submit: the decision was made, the button was enabled, and pressing
-     * it did nothing. */
-    var picking = false;
 
     function close() {
       list.hidden = true;
@@ -74,23 +72,51 @@
       active = -1;
     }
 
-    function choose(item) {
-      var split = typing(input.value);
-      var picked =
+    function sync() {
+      store.value = picked.join("; ");
+      /* The dock counts a row as answered from the store's input event,
+       * and setting `value` in script does not fire one. Removing the
+       * last chip fires it too, with an empty value, which is what
+       * withdraws the decision rather than leaving one with nothing to
+       * write. */
+      store.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
+    function draw() {
+      chips.innerHTML = "";
+      picked.forEach(function (name, i) {
+        var chip = document.createElement("span");
+        chip.className = "geo-chip";
+        chip.textContent = name;
+        var drop = document.createElement("button");
+        drop.type = "button";
+        drop.className = "geo-chip-x";
+        drop.setAttribute("aria-label", "Remove " + name);
+        drop.textContent = "×";
+        drop.addEventListener("click", function () {
+          picked.splice(i, 1);
+          draw();
+          sync();
+          entry.focus();
+        });
+        chip.appendChild(drop);
+        chips.appendChild(chip);
+      });
+    }
+
+    function add(item) {
+      var name =
         item.name + (item.kind === "county" ? " County" : "") + ", " + item.state;
-      input.value = split.head
-        .concat(picked)
-        .map(function (s) {
-          return s.trim();
-        })
-        .join("; ");
+      if (picked.indexOf(name) === -1) picked.push(name);
+      /* One centre per article -- the table's partial unique index says
+       * so, and two chips would be refused by the server after the fact
+       * rather than prevented here. */
+      if (store.dataset.verb === "set_place") picked = [name];
+      entry.value = "";
       close();
-      /* The dock counts a row as answered from its input event; setting
-       * `value` in script does not fire one. */
-      picking = true;
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      picking = false;
-      input.focus();
+      draw();
+      sync();
+      entry.focus();
     }
 
     function render(results) {
@@ -103,13 +129,10 @@
         var li = document.createElement("li");
         li.tabIndex = -1;
         li.dataset.i = i;
-        /* An exact match and a correction are different answers and the
-         * reviewer has to be able to tell: "Westphalya" offering
-         * "Westphalia" is a fix, not a confirmation. */
-        /* The county rung is written back with its suffix, which is what
-         * the write path reads to know which rung it is -- "Osage" and
-         * "Osage County" are different codes and a reviewer picking one
-         * must not get the other. */
+        /* The county rung carries its suffix, which is what the write
+         * path reads to know which rung it is -- "Osage" and "Osage
+         * County" are different codes and a reviewer picking one must
+         * not get the other. */
         var county = item.kind === "county";
         li.innerHTML =
           "<b>" + item.name + (county ? " County" : "") + "</b> <span>" +
@@ -119,7 +142,7 @@
           (state && item.state === state ? ' <i class="geo-home">this state</i>' : "");
         li.addEventListener("mousedown", function (e) {
           e.preventDefault();
-          choose(results[i]);
+          add(results[i]);
         });
         list.appendChild(li);
       });
@@ -135,20 +158,15 @@
       items[active].classList.add("on");
     }
 
-    input.addEventListener("input", function () {
-      var tail = typing(input.value).tail;
+    entry.addEventListener("input", function () {
+      var typed = entry.value.trim();
       window.clearTimeout(timer);
-      if (picking) {
-        // A name just chosen is an answer, not a query.
-        close();
-        return;
-      }
-      if (tail.length < 2) {
+      if (typed.length < 2) {
         close();
         return;
       }
       timer = window.setTimeout(function () {
-        var q = url + "?q=" + encodeURIComponent(tail);
+        var q = url + "?q=" + encodeURIComponent(typed);
         if (state) q += "&state=" + encodeURIComponent(state);
         fetch(q, { credentials: "same-origin" })
           .then(function (r) {
@@ -161,33 +179,44 @@
       }, 160);
     });
 
-    input.addEventListener("keydown", function (e) {
-      if (list.hidden) return;
+    entry.addEventListener("keydown", function (e) {
+      if (e.key === "Backspace" && !entry.value && picked.length) {
+        /* The ordinary behaviour of a chip field, and the only way back
+         * from a mistake without reaching for the mouse. */
+        picked.pop();
+        draw();
+        sync();
+        return;
+      }
+      if (list.hidden) {
+        /* Enter in a queue form submits it. Inside a place box that is
+         * never what was meant. */
+        if (e.key === "Enter") e.preventDefault();
+        return;
+      }
       if (e.key === "ArrowDown") {
         e.preventDefault();
         highlight(1);
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         highlight(-1);
-      } else if (e.key === "Enter" && active >= 0) {
-        /* Enter inside a queue form submits it. A reviewer picking a
-         * suggestion means to pick the suggestion. */
+      } else if (e.key === "Enter") {
         e.preventDefault();
-        choose(list._results[active]);
+        add(list._results[active >= 0 ? active : 0]);
       } else if (e.key === "Escape") {
         close();
       }
     });
 
-    input.addEventListener("blur", function () {
+    entry.addEventListener("blur", function () {
       window.setTimeout(close, 120);
     });
   }
 
   document.querySelectorAll(".geo-prop").forEach(function (prop) {
     var state = prop.dataset.state || "";
-    prop.querySelectorAll('input.fixval[type="text"]').forEach(function (input) {
-      attach(input, state);
+    prop.querySelectorAll('input.fixval[type="text"]').forEach(function (store) {
+      attach(store, state);
     });
   });
 })();

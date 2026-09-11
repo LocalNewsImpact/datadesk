@@ -2666,11 +2666,51 @@ table.rec-table.queue-rows tbody th .rec-read { overflow-wrap: anywhere; }
   flex: 1 0 100%;
 }
 
-.rec-table td.option .geo-prop .geo-field .fixval {
+/* The store is hidden; the reviewer types into `.geo-entry`. */
+.rec-table td.option .geo-prop .geo-field .geo-entry {
   display: block;
   width: 100%;
   margin: 0;
+  padding: 0.25rem 0.4rem;
+  font: inherit;
+  font-size: var(--fs-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
 }
+
+/* A PLACE THAT HAS RESOLVED, AND CAN NO LONGER BE MISTYPED.
+   Only chips are written to the field that submits, so a name the
+   gazetteer does not have cannot be sent -- which is what used to
+   return a 500 after the fact. */
+.geo-chips { display: flex; flex-wrap: wrap; gap: 0.2rem; }
+.geo-chips:not(:empty) { margin-bottom: 0.25rem; }
+
+.geo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.08rem 0.2rem 0.08rem 0.4rem;
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: var(--fs-2xs);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.geo-chip-x {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  padding: 0 0.15rem;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1;
+}
+
+.geo-chip-x:hover { color: var(--tone-bad); }
 
 /* THE CAPTURED TEXT OF A PAYWALL STUB IS THE COOKIE NOTICE.
    That is what was fetched and the reviewer should see it -- a story
