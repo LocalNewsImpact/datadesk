@@ -1389,17 +1389,28 @@ def publish_panel(visual, post=None, actor=None):
         # offered to write the version into the snippet.
         "pinned_version": pinned_version,
         "snippets": {
-            # "auto" means follow the reader, so it is the one variant
-            # that has to override the visual's own setting rather than
-            # inherit it.
+            # "match" carries no theme and lets the snippet inherit what
+            # the visual was built as. It was missing, so all three
+            # choices here OVERRODE the chart -- "auto" included, which
+            # passes an empty theme to force following the reader. There
+            # was no way to paste a snippet that simply obeyed the
+            # setting on the Look step, and since that step's setting did
+            # not reach the public page either, the chart's own answer
+            # was unreachable from both directions.
+            "match|latest": snippet(visual),
             "auto|latest": snippet(visual, theme=""),
             "light|latest": snippet(visual, theme="light"),
             "dark|latest": snippet(visual, theme="dark"),
+            "match|pinned": snippet(visual, version=pinned_version),
             "auto|pinned": snippet(visual, theme="", version=pinned_version),
             "light|pinned": snippet(visual, theme="light", version=pinned_version),
             "dark|pinned": snippet(visual, theme="dark", version=pinned_version),
         },
-        "theme_mode": (visual.config or {}).get("theme_mode", "") or "auto",
+        # What this SNIPPET does, which starts at inheriting. Not the
+        # visual's own setting: that one belongs to the Look step, and
+        # showing it here as though this control set it is what made two
+        # controls read as one.
+        "theme_mode": "match",
         "pinned": visual.pinned_snapshot,
         "latest": snapshot,
         # The two settings that decide whether a reader sees current

@@ -120,6 +120,69 @@ def test_published_embed_and_feed_are_public(client, visual, author):
 
 
 @pytest.mark.urls("datadesk.urls_data")
+def test_the_readers_page_holds_the_colours_the_chart_was_built_in(
+    client, visual, author
+):
+    """A visual built light was drawn dark for every reader whose laptop
+    was dark.
+
+    `_theme_for` had the rule right -- the URL wins, then the visual's own
+    setting, then the reader's device -- and it was wired into the embed
+    view and not into the page the embed's own link points at. So the
+    setting worked inside somebody else's article and not on our own
+    host, which is the one place a reader is most likely to land.
+    """
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+
+    visual.config = {**(visual.config or {}), "theme_mode": "light"}
+    visual.save(update_fields=["config"])
+    page = client.get(f"/visuals/{visual.uuid}/")
+    assert page.status_code == 200
+    assert b'data-theme="light"' in page.content
+
+    # No opinion means no stamp, and the tokens follow the device.
+    visual.config = {**(visual.config or {}), "theme_mode": ""}
+    visual.save(update_fields=["config"])
+    assert b"data-theme=" not in client.get(f"/visuals/{visual.uuid}/").content
+
+    # And whoever pasted the embed still outranks the chart, because they
+    # know what their page looks like.
+    visual.config = {**(visual.config or {}), "theme_mode": "light"}
+    visual.save(update_fields=["config"])
+    asked = client.get(f"/visuals/{visual.uuid}/?theme=dark")
+    assert b'data-theme="dark"' in asked.content
+
+
+def test_a_snippet_can_simply_obey_the_chart(visual):
+    """The publish step offered three colour choices and all three
+    OVERRODE the visual -- "auto" included, which passes an empty theme
+    to force following the reader. There was no way to paste a snippet
+    that just obeyed the setting on the Look step, so the chart's own
+    answer was unreachable from the embed as well as from the page.
+
+    `snippet` already supported it: no theme argument means inherit.
+    Nothing offered it.
+    """
+    from visuals.embed import snippet
+    from visuals.panels import publish_panel
+
+    visual.config = {**(visual.config or {}), "theme_mode": "light"}
+    visual.save(update_fields=["config"])
+
+    # Inheriting is not the same as overriding to light: it carries the
+    # visual's answer, whatever that later becomes.
+    assert 'data-theme="light"' in snippet(visual)
+    assert "data-theme" not in snippet(visual, theme="")
+
+    panel = publish_panel(visual)
+    assert "match|latest" in panel["snippets"], "no snippet inherits the chart"
+    assert "match|pinned" in panel["snippets"]
+    # And inheriting is where the control starts.
+    assert panel["theme_mode"] == "match"
+
+
+@pytest.mark.urls("datadesk.urls_data")
 def test_the_data_host_serves_the_page_the_snippet_links_to(client, visual, author):
     """A reader whose browser never ran the embed script follows the link
     in the placeholder. It points at /visuals/<slug>/ on the data host,

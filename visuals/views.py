@@ -644,6 +644,14 @@ def public_page(request, slug=None, uuid=None):
         {
             "visual": visual,
             "renderer": f"visuals/renderers/{visual.template}.html",
+            # Which colours this page holds still at. The same rule the
+            # embed applies, because it is the same question: a visual
+            # built light was drawn dark here for every reader whose
+            # laptop was dark, and the setting that says otherwise was
+            # read in one view and not the other. Somebody who chose
+            # light in the builder chose it for the page a reader lands
+            # on, not only for the copy pasted into an article.
+            "theme_stamp": _theme_for(request, visual),
             "feed": _feed_url(
                 visual, by_uuid=uuid is not None, version=asked, live=live
             ),

@@ -4,7 +4,12 @@ The reader's page on data.localnewsimpact.org. Standalone rather than an
 extension of base.html: the console's base carries a nav and a sign-in,
 and neither of those exists on this host.
 {% endcomment %}
-<html lang="en">
+{% comment %}
+The stamp is what holds the page at one theme. Absent, the tokens follow
+`prefers-color-scheme` and the reader's device decides -- which is right
+when the visual has no opinion and wrong when it has one.
+{% endcomment %}
+<html lang="en"{% if theme_stamp %} data-theme="{{ theme_stamp }}"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
