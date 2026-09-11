@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Geography review queue — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>Geography review queue</h1>
+  <p class="lede">
+    Articles the pipeline could not place, for a person to place. A story
+    behind a paywall arrives as a headline and a subscription prompt, and
+    no amount of re-running the model reads what was never fetched — so
+    the link is the evidence and it opens in its own tab.
+  </p>
+
+  {% if not crawler_connected %}
+  <p class="notice">
+    Crawler database not connected. Set CRAWLER_DB_USER (and run the Cloud
+    SQL Auth Proxy locally) to work the queue.
+  </p>
+  {% else %}
+
+  {% if receipt %}
+  <p class="receipt">
+    {% for line in receipt.counts %}<span>{{ line.n }} {{ line.past }}</span>{% endfor %}
+  </p>
+  {% endif %}
+
+  {% comment %}
+  The shared filter bar, then the two this queue adds. 343 articles for
+  March across three counties is not a queue anybody works; "Osage,
+  March" is 23 and finishable in a sitting, so the narrowing is the
+  feature rather than a convenience.
+  {% endcomment %}
+  <form method="get" action="{% url 'review:geography' %}" class="filter-bar">
+    {% include "review/_queue_filters.html" %}
+    <label>County
+      <select name="county">
+        <option value="">all</option>
+        {% for c in counties %}
+        <option value="{{ c }}" {% if params.county == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Newsroom
+      <select name="newsroom">
+        <option value="">all</option>
+        {% for n in newsrooms %}
+        <option value="{{ n.id }}" {% if params.newsroom == n.id %}selected{% endif %}>{{ n.canonical_name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <noscript><button type="submit">Filter</button></noscript>
+  </form>
+
+  <p class="stratum-note">
+    Showing <strong>{{ rows|length }}</strong> of
+    <strong>{{ remaining }}</strong> left to place.
+    <span class="quiet">
+      {% comment %}
+      A story need not have a centre. A game between two towns is two
+      mentions and no central location, and a reviewer who thinks one is
+      compulsory will invent one -- so the page says plainly that
+      mentions alone is a complete answer.
+      {% endcomment %}
+      Mentions alone are a complete answer: a story with no single centre —
+      a game between two towns — has none to give. Several at once,
+      separated by <code>;</code>. Contributions are marked
+      <code>human</code> and used exactly as the pipeline’s own.
+    </span>
+  </p>
+
+  <form method="post" id="queue-form" class="queue-form" autocomplete="off">
+    {% csrf_token %}
+    <table class="rec-table queue-rows">
+      <thead>
+        <tr>
+          <th scope="col">The story</th>
+          <th scope="col">Publisher</th>
+          <th scope="col">Why it has none</th>
+          <th scope="col" class="decide">Where is it?</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <th scope="row">
+            {% comment %}
+            A paywall stub has a headline and nothing else, so the link is
+            the only way to answer the question. rel="noopener" because
+            target="_blank" otherwise hands the opened page a handle on
+            this one.
+            {% endcomment %}
+            <a class="rec-read" href="{{ row.url }}" target="_blank"
+               rel="noopener noreferrer" title="{{ row.url }}">{{ row.title|default:row.url }}</a>
+            <span class="rec-sub quiet">{{ row.publish_date|date:"j M Y"|default:"undated" }}</span>
+            {% if row.text_excerpt %}
+            <span class="rec-sub quiet geo-excerpt">{{ row.text_excerpt|truncatewords:24 }}</span>
+            {% endif %}
+          </th>
+          <td data-label="Publisher">
+            {{ row.candidate_link.source.canonical_name|default:row.candidate_link.source_name_raw|default:"—" }}
+            {% if row.candidate_link.source.county %}
+            <span class="rec-sub quiet">{{ row.candidate_link.source.county }} County</span>
+            {% endif %}
+          </td>
+          <td data-label="Why it has none">
+            <span class="val" title="{{ row.why_detail }}">{{ row.why }}</span>
+          </td>
+          <td class="option decide" data-label="Where is it?">
+            {% comment %}
+            `data-state` is the publisher's own state, read where
+            enrichment reads it. The suggestion list RANKS it first and
+            still offers everywhere else: a Missouri outlet covering
+            Nashville or Seattle is real coverage, and a same-state-only
+            list would make it unenterable.
+            {% endcomment %}
+            <div class="prop geo-prop" data-id="{{ row.id }}" data-state="{{ row.working_state|default:'' }}">
+              {% include "review/_verbs.html" with subject_id=row.id verbs=row.offered_verbs %}
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4">Nothing left to place in this selection.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if rows %}
+    <div class="queue-dock">
+      {% for verb in queue_verbs %}
+      <span class="tally"><b id="t-{{ verb.name }}" data-tally="{{ verb.name }}">0</b> {{ verb.label|lower }}</span>
+      {% endfor %}
+      <span class="tally warn" id="q-incomplete"></span>
+      <button type="button" class="linklike" id="q-clear">Clear</button>
+      <button type="submit" form="queue-form" class="q-submit" id="q-submit" disabled>Submit</button>
+    </div>
+    {% endif %}
+  </form>
+
+  {% if page.has_other_pages %}
+  <nav class="pager">
+    {% if page.has_previous %}
+    <a href="?{{ params.urlencode }}&amp;page={{ page.previous_page_number }}">← previous</a>
+    {% endif %}
+    <span>page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}
+    <a href="?{{ params.urlencode }}&amp;page={{ page.next_page_number }}">next →</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+
+  {% endif %}
+</section>
+<script defer src="{% static 'js/review-queue.js' %}"></script>
+<script defer src="{% static 'js/geography-suggest.js' %}"
+        data-suggest-url="{% url 'review:geography_suggest' %}"></script>
+{% endblock %}

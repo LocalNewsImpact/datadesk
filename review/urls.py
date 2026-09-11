@@ -10,6 +10,9 @@ urlpatterns = [
     path("queue/", views.queue, name="queue"),
     path("discovery/", views.discovery_queue, name="discovery"),
     path("classification/", views.classification_queue, name="classification"),
+    # Geography a person puts in, for articles the pipeline could not place.
+    path("geography/", views.geography_queue, name="geography"),
+    path("geography/suggest/", views.geography_suggest, name="geography_suggest"),
     # The CIN admin: the work about the queue, not the queue.
     path("cin/", views.cin_reporting, name="cin_reporting"),
     path("cin/coders/", views.cin_coders, name="cin_coders"),
