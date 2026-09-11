@@ -46,6 +46,15 @@
       {% if theme_mode == "light" %}checked{% endif %}> Light</label>
     <label><input type="radio" name="theme_mode" value="dark"
       {% if theme_mode == "dark" %}checked{% endif %}> Dark</label>
+    {% comment %}
+    This is the chart's own answer and it travels with the chart: the
+    page a reader lands on, the console preview, and every embed that
+    does not deliberately override it. The Publish step can override it
+    for one pasted snippet, which is a question about somebody else's
+    page rather than about this chart.
+    {% endcomment %}
+    <p class="hint">Applies wherever this chart is shown. A snippet can
+      override it for one embed.</p>
   </fieldset>
 
   {% comment %}

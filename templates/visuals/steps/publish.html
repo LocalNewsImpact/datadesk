@@ -44,14 +44,26 @@ does not exist.</p>
   that reader's laptop is set to dark -- which is what happens today. The
   person pasting it knows what their page looks like.
   {% endcomment %}
+  {% comment %}
+  Named for what it does to THIS SNIPPET, not for a colour. Labelled
+  "Colour / Follow the reader / Always light / Always dark", it read as
+  the same control as the one on the Look step and people set it
+  expecting the chart to change. It does not: it writes `?theme=` into
+  the code below, and nothing else.
+  {% endcomment %}
   <fieldset class="theme-pick">
-    <legend>Colour</legend>
-    <label><input type="radio" name="embed-theme" value="auto"
-      {% if theme_mode == "auto" %}checked{% endif %}> Follow the reader</label>
+    <legend>Colour in this snippet</legend>
+    <label><input type="radio" name="embed-theme" value="match"
+      {% if theme_mode == "match" %}checked{% endif %}> Match the chart</label>
     <label><input type="radio" name="embed-theme" value="light"
-      {% if theme_mode == "light" %}checked{% endif %}> Always light</label>
+      {% if theme_mode == "light" %}checked{% endif %}> Override: always light</label>
     <label><input type="radio" name="embed-theme" value="dark"
-      {% if theme_mode == "dark" %}checked{% endif %}> Always dark</label>
+      {% if theme_mode == "dark" %}checked{% endif %}> Override: always dark</label>
+    <label><input type="radio" name="embed-theme" value="auto"
+      {% if theme_mode == "auto" %}checked{% endif %}> Override: follow the reader</label>
+    <p class="hint">The chart's own light or dark is set on the Look step.
+      These override it for this copy of the embed only, for a page whose
+      colours you already know.</p>
   </fieldset>
 
   {% comment %}
@@ -89,7 +101,7 @@ does not exist.</p>
       return on ? on.value : fallback;
     }
     function show() {
-      var key = chosen("embed-theme", "auto") + "|" + chosen("embed-version", "latest");
+      var key = chosen("embed-theme", "match") + "|" + chosen("embed-version", "latest");
       if (all[key]) out.textContent = all[key];
     }
     document.querySelectorAll('input[name="embed-theme"], input[name="embed-version"]')
