@@ -197,6 +197,40 @@ _FOCUS = Option(
     values=(("", "Fit the counties in the data"),),
 )
 
+#: How many flows one county may carry.
+#:
+#: The floor on an arc is a share of a county's own traffic, so it means
+#: the same thing for a small county as a large one -- but it says
+#: nothing about how many arcs end up in one place. A hub county can
+#: clear it twenty times over, and past a certain count no amount of
+#: routing saves the picture: the arcs have nowhere left to go, the
+#: placement search runs out of legal arrangements and falls back, and
+#: bases start landing in counties the flow has nothing to do with.
+#: Measured on the mid-Missouri commuting table with no ceiling, 29 arcs
+#: give 2 of those, 48 give 7 and 81 give 16.
+#:
+#: Six is the default because it costs almost nothing there: the
+#: three-county map loses one pair and every one of its fifteen
+#: overlapping points, for 0.2% of the commuters shown. A denser map
+#: wants fewer. No limit stays on the list rather than being refused --
+#: a map with room for everything should be allowed to show everything,
+#: and being told the trade-off is not the same as being stopped.
+_ARROWS = Option(
+    "max_arrows",
+    "Most flows at any one place",
+    "choice",
+    values=(
+        ("", "Six"),
+        ("3", "Three"),
+        ("4", "Four"),
+        ("5", "Five"),
+        ("8", "Eight"),
+        ("10", "Ten"),
+        ("99", "No limit"),
+    ),
+    note="The largest are kept. Crowding is what makes a flow map unreadable.",
+)
+
 _SORT = Option(
     "sort",
     "Order by",
@@ -340,7 +374,7 @@ CHART_TYPES = (
             Role("from_geo", "From county (FIPS)", accepts=(TEXT,), needs=False),
             Role("to_geo", "To county (FIPS)", accepts=(TEXT,), needs=False),
         ),
-        options=(_HIGHLIGHT, _FOCUS),
+        options=(_HIGHLIGHT, _FOCUS, _ARROWS),
         pairs=("from", "to"),
         also=("commuting", "migration", "trade"),
         encoding=LENGTH,

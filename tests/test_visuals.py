@@ -2118,6 +2118,47 @@ def test_a_county_admits_only_so_many_arrows():
     assert "if (left >= CAP || right >= CAP) continue;" in body
 
 
+def test_the_ceiling_is_a_control_and_not_only_a_constant():
+    """A number an author cannot reach is a number chosen for them. Six
+    suits the three-county map and a denser one wants fewer, so the
+    ceiling is offered on the panel -- as a list, because the framing
+    control was typed once and accepted anything, reporting nothing when
+    it matched nothing.
+
+    Both sides are asserted: the control exists, the renderer reads the
+    key it writes, and the blank default means what the renderer does
+    with no setting at all.
+    """
+    from pathlib import Path
+
+    from visuals.types import options_for
+
+    offered = {o.id: o for o in options_for("flowmap", ["from", "to", "value"])}
+    assert "max_arrows" in offered, "the ceiling cannot be reached from the panel"
+    control = offered["max_arrows"]
+    assert control.kind == "choice", "typed, it accepts anything"
+    # Blank first, so the default is what the renderer already does.
+    assert control.values[0][0] == ""
+    assert {v for v, _ in control.values} >= {"", "3", "99"}
+
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static/js/datadesk-chart.js").read_text()
+    body = js.split("function renderFlowMap(")[1].split("\n  function ")[0]
+    assert "config.max_arrows" in body, "the control writes a key nothing reads"
+    # The blank default and the declared default are the same number.
+    assert "+config.max_arrows > 0 ? +config.max_arrows : 6" in body
+
+
+def test_the_ceiling_survives_the_older_upload_form():
+    """`build_config` is the path an uploaded-data visual takes, and a key
+    missing from it is a control that works in one half of the builder
+    and silently does nothing in the other -- which is how the framing
+    box behaved before it was a list."""
+    from visuals.builder import _STRING_KEYS
+
+    assert "max_arrows" in _STRING_KEYS
+
+
 def test_a_lopsided_pair_is_drawn_as_one_way():
     """The return leg of a lopsided pair can be a few dozen commuters --
     a sliver at the tip of its partner, which reads as an artefact
