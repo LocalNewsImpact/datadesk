@@ -21,6 +21,7 @@ from explorer.models import (
     CandidateLink,
     Dataset,
     DatasetSource,
+    PipelineRework,
     Source,
 )
 from review import audit_shapes
@@ -108,7 +109,7 @@ WRITABLE = {
 # and every row carries who added it and when. The crawler rebuilds the
 # geoid set from it rather than the console writing geoids directly --
 # datadesk never writes `article_geoids`, which stays the pipeline's.
-CREATABLE = (Source, Dataset, DatasetSource, ArticlePlaceManual)
+CREATABLE = (Source, Dataset, DatasetSource, ArticlePlaceManual, PipelineRework)
 DELETABLE = (DatasetSource,)
 
 # Every model the audited path can touch, for resolving revert targets.

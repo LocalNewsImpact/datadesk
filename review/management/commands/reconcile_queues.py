@@ -62,6 +62,19 @@ class Command(BaseCommand):
                 )
             )
 
+        if plan.rework:
+            # What housekeeping will pick up tonight. Said here because
+            # the number is the answer to "did the run schedule
+            # anything": a change with no rework row moves a status that
+            # no stage is coming for.
+            self.stdout.write("")
+            by_stage = {}
+            for row in plan.rework:
+                by_stage[row.stage] = by_stage.get(row.stage, 0) + 1
+            self.stdout.write(f"{len(plan.rework)} records owe a crawler stage:")
+            for stage, count in sorted(by_stage.items()):
+                self.stdout.write(f"  {count:5d}  {stage}")
+
         if plan.skipped:
             self.stdout.write("")
             self.stdout.write(f"{len(plan.skipped)} skipped:")

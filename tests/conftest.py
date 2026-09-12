@@ -183,6 +183,12 @@ _CRAWLER_TABLES = {
         "is_point BOOLEAN NOT NULL DEFAULT FALSE, added_by TEXT NOT NULL, "
         "added_at TIMESTAMPTZ NOT NULL DEFAULT now(), note TEXT)"
     ),
+    "pipeline_rework": (
+        "(id SERIAL PRIMARY KEY, record_type TEXT NOT NULL, record_id TEXT NOT NULL, "
+        "stage TEXT NOT NULL, reason TEXT, requested_by TEXT NOT NULL, "
+        "requested_at TIMESTAMPTZ NOT NULL DEFAULT now(), done_at TIMESTAMPTZ, "
+        "outcome TEXT)"
+    ),
     "article_enrichment": (
         "(article_id TEXT PRIMARY KEY, profile_version INTEGER, skip_reason "
         "TEXT, model TEXT, cost_usd NUMERIC(10, 6), enriched_at TIMESTAMPTZ, "
@@ -236,6 +242,12 @@ _CRAWLER_TABLES = {
 # the same row production would, and the queue's dataset filter -- one
 # indexed column on articles, no join -- sees it.
 _CRAWLER_RULES = (
+    # The crawler's own index (alembic x9y0z1a2b3c4): one outstanding
+    # request per record per stage. Tested against, so it is here.
+    """
+    CREATE UNIQUE INDEX uq_pipeline_rework_outstanding
+    ON pipeline_rework (record_type, record_id, stage) WHERE done_at IS NULL
+    """,
     """
     CREATE FUNCTION an_article_takes_its_links_dataset() RETURNS trigger AS $$
     BEGIN
