@@ -545,12 +545,12 @@ def apply_discovery(verification, verb, value, user):
             {"status": status, "meta": meta},
             action=(
                 "discovery:restore"
-                if status == discovery_verdict.RESTORED_STATUS
+                if status == discovery_verdict.VERIFIED_STATUS
                 else "discovery:withhold"
             ),
             reason=(
                 "Reviewer says this URL is a story"
-                if status == discovery_verdict.RESTORED_STATUS
+                if status == discovery_verdict.VERIFIED_STATUS
                 else f"Reviewer says this URL is {value}; not fetched"
             ),
         )
