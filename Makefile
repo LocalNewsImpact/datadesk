@@ -69,6 +69,14 @@ fmt: $(VENV) ## Apply formatting and safe fixes
 	$(VENV)/bin/black .
 	$(VENV)/bin/isort .
 
+# The crawler calls this `format`, and make answers an unknown target
+# with "No rule to make target" only when nothing matches -- so the
+# wrong name was a no-op that exited 0. Suppress its output and it reads
+# as success, and the unformatted commit is found four minutes later by
+# the pre-push hook. Both names work in both repositories now.
+.PHONY: format
+format: fmt
+
 # Postgres for the test suite.
 #
 # Locally: docker-compose.test.yml on 5435 -- the crawler has 5432 and
