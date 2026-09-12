@@ -30,6 +30,15 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # BEFORE the plan, not after. A run with nothing to do used to
+        # return early and never reach this check, so a schedule whose
+        # actor was wrong looked healthy on every quiet night and failed
+        # only once there was work -- which is the night you would rather
+        # it did not.
+        actor = None
+        if options["apply"]:
+            actor = self._actor(options.get("actor"))
+
         plan = reconcile.build_plan()
 
         if not plan.changes and not plan.skipped:
@@ -66,15 +75,6 @@ class Command(BaseCommand):
             self.stdout.write("Nothing written. Pass --apply to carry this out.")
             return
 
-        if not options["actor"]:
-            raise CommandError("--apply needs --actor: an audited write needs a writer")
-
-        from django.contrib.auth.models import User
-
-        actor = User.objects.filter(email=options["actor"]).first()
-        if actor is None:
-            raise CommandError(f"no user with email {options['actor']}")
-
         written = reconcile.apply_plan(plan, actor)
         self.stdout.write("")
         for rule, model, after, count, entry in written:
@@ -84,3 +84,23 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(f"{sum(w[3] for w in written)} rows reconciled")
         )
+
+    def _actor(self, email):
+        """The user every change is recorded against.
+
+        An audited write with no writer records a change nobody made. On
+        a schedule there is no person, so the job names its own service
+        account and `review/migrations/0020` creates that account --
+        inactive, so it is a name in an audit trail rather than a login.
+        """
+        from django.contrib.auth.models import User
+
+        if not email:
+            raise CommandError("--apply needs --actor: an audited write needs a writer")
+        actor = User.objects.filter(email=email).first()
+        if actor is None:
+            raise CommandError(
+                f"no user with email {email}. A scheduled run names its "
+                "service account, which review/migrations/0020 creates."
+            )
+        return actor

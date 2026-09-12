@@ -94,6 +94,13 @@ def _people(active=None):
     """
     User = get_user_model()
     accounts = User.objects.prefetch_related("grants")
+    # NOT THE MACHINES. A scheduled job that writes through the audited
+    # path needs a `User` to be recorded against -- the nightly
+    # reconciliation runs as its own service account -- but that is a name
+    # in an audit trail, not a person who can get in. It arrives disabled,
+    # so it would otherwise sit in the disabled list looking like somebody
+    # whose access was revoked.
+    accounts = accounts.exclude(email__endswith=".iam.gserviceaccount.com")
     if active is not None:
         accounts = accounts.filter(is_active=active)
     return [
