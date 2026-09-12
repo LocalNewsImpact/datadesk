@@ -90,7 +90,12 @@ def unplaced(crawler_schema):
 def _props(client):
     """Every decision row on the rendered page, as the browser sees it."""
     page = client.get(QUEUE + "?days=all")
-    soup = BeautifulSoup(page.content.decode(), "lxml")
+    # `html.parser`, the standard library's. `lxml` is not in
+    # requirements-dev and so is not in CI: the first run of this file
+    # passed locally, where it happened to be installed, and failed there
+    # with FeatureNotFound. A test that needs a parser the build does not
+    # have is a test the build cannot run.
+    soup = BeautifulSoup(page.content.decode(), "html.parser")
     props = soup.select(".prop[data-id]")
     assert props, "the page rendered no decision rows to test"
     return props
