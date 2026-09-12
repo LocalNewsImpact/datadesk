@@ -59,10 +59,11 @@ CONFIG="$($DESCRIBE --format=json)"
 
 # Passed through the environment rather than on stdin, so the script
 # below can be quoted and read as Python instead of as shell.
-read -r ENV_FLAG SECRET_FLAG <<VARS
+read -r DELIM ENV_FLAG SECRET_FLAG <<VARS
 $(CONFIG="$CONFIG" python3 - <<'READ_ENV'
 import json
 import os
+import sys
 
 # Plain values and secret references are two different gcloud flags, and
 # a secret read as a plain value would put the literal "projects/..."
@@ -77,12 +78,27 @@ for entry in container.get("env", []):
         ref = entry["valueFrom"]["secretKeyRef"]
         secret.append(f"{name}={ref['name']}:{ref['key']}")
 
-# Joined with "@", which is the delimiter the flag below declares. A
-# comma-joined list under a "^@^" delimiter is one variable whose value
-# is every other variable -- which is what happened: fifteen of them
-# ended up inside CLOUD_SQL_CONNECTION_NAME. The delimiter exists
-# because these values contain commas of their own.
-print("@".join(plain), "@".join(secret))
+# THE DELIMITER IS CHOSEN, NOT ASSUMED.
+#
+# gcloud needs one because these values contain commas of their own, and
+# a comma-joined list read as comma-separated becomes one variable whose
+# value is every other variable -- fifteen of them once ended up inside
+# CLOUD_SQL_CONNECTION_NAME.
+#
+# "@" was the answer to that and lasted until a variable held an email:
+# GMAIL_DELEGATED_USER=chair@localnewsimpact.org split into two entries
+# and gcloud rejected "localnewsimpact.org" as a malformed dict. Any
+# fixed character is a bet on what nobody will ever put in a variable,
+# so this picks one that is absent from the values it is about to join
+# and says so when there is none.
+joined = "".join(plain) + "".join(secret)
+for candidate in "|~#%^!+":
+    if candidate not in joined:
+        break
+else:
+    sys.exit("no usable delimiter: every candidate appears in a value")
+
+print(candidate, candidate.join(plain), candidate.join(secret))
 READ_ENV
 )
 VARS
@@ -97,8 +113,8 @@ gcloud run jobs deploy "$JOB" \
   --image="$IMAGE" \
   --service-account="$RUNTIME_SA" \
   --set-cloudsql-instances="$SQL_INSTANCE" \
-  --set-env-vars="^@^SERVICE_ROLE=datadesk@${ENV_FLAG}" \
-  --set-secrets="^@^$SECRET_FLAG" \
+  --set-env-vars="^${DELIM}^SERVICE_ROLE=datadesk${DELIM}${ENV_FLAG}" \
+  --set-secrets="^${DELIM}^$SECRET_FLAG" \
   --task-timeout=30m \
   --max-retries=1 \
   --command="python" \
