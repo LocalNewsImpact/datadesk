@@ -24,15 +24,45 @@
     {% for line in receipt.counts %}<span>{{ line.n }} {{ line.past }}</span>{% endfor %}
   </p>
   {% comment %}
-  What the queue would not carry out, and why. A name that does not
-  resolve used to raise, which returned an error page and lost every
-  other decision on it; the reason is the reviewer's to act on, so it is
-  shown rather than counted.
+  EVERY OUTCOME, NOT ONLY THE ONES THAT LANDED.
+
+  A submission that applied nothing rendered exactly like one that
+  worked: the counts were all zero, the rows were still there, and there
+  was nothing on the page to say why. Reported from production -- "it
+  leaves decided records still in the queue with no indication of a
+  decision" -- on a POST that returned 302 and wrote neither a
+  ReviewDecision nor a row.
+
+  Each of these is a different thing to be told, which is why `submit`
+  counts them separately rather than lumping them as "not saved".
   {% endcomment %}
   {% if receipt.rejected %}
   <p class="notice">
     {{ receipt.rejected|length }} not recorded — still in the queue:
     {% for row in receipt.rejected %}<span class="quiet">{{ row.why }}</span>{% endfor %}
+  </p>
+  {% endif %}
+  {% if receipt.incomplete %}
+  <p class="notice">
+    {{ receipt.incomplete }} not recorded: a verb was chosen with no place
+    given. Pick a place from the suggestions, or choose “No place in it”.
+  </p>
+  {% endif %}
+  {% if receipt.refused %}
+  <p class="notice">
+    {{ receipt.refused }} not recorded: the verb is no longer available on
+    that row — somebody else may have answered it first.
+  </p>
+  {% endif %}
+  {% if receipt.unreachable %}
+  <p class="notice">
+    {{ receipt.unreachable }} not recorded: the article could not be read
+    back. Reload the queue before deciding again.
+  </p>
+  {% endif %}
+  {% if receipt.nothing %}
+  <p class="notice">
+    Nothing was submitted — no row carried a decision.
   </p>
   {% endif %}
   {% endif %}
