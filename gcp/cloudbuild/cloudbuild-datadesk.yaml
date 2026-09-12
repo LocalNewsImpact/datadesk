@@ -363,6 +363,40 @@ steps:
         gcloud run jobs execute "${_SERVICE}-scan-sources" \
           --region "${_REGION}" --project "$PROJECT_ID"
 
+  # The nightly reconciliation, re-pinned for the same reason as the scan:
+  # a job runs the image it was deployed with and nothing about it follows
+  # the service, so a rule added to review/reconcile.py would never run.
+  #
+  # CRAWLER_RW, not CRAWLER_DB. This one WRITES to the crawler --
+  # `explorer.routers.CrawlerRouter` sends writes to the `crawler_rw`
+  # alias when it is configured and falls through to the read-only
+  # `crawler` alias when it is not, where Postgres refuses datadesk_ro.
+  # The scan above reads only, which is why it carries neither.
+  #
+  # Not executed here. The scan is idempotent and costs nothing to run on
+  # every release; this moves 545 records and takes 161 articles out of
+  # BigQuery, and a deploy is not when that should happen. The schedule
+  # owns it (infra/reconcile_queues.sh, 02:30 UTC).
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'reconcile-job'
+    entrypoint: 'bash'
+    waitFor: ['migrate']
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        IMAGE="${_REGISTRY}/${_SERVICE}:${_SHORT_SHA}"
+        gcloud run jobs deploy "${_SERVICE}-reconcile-queues" \
+          --image "$$IMAGE" --region "${_REGION}" --project "$PROJECT_ID" \
+          --command python \
+          --args "manage.py,reconcile_queues,--apply,--actor,${_RUN_SA}" \
+          --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_DB_PASSWORD=crawler-ro-password:latest,CRAWLER_RW_DB_PASSWORD=crawler-rw-password:latest" \
+          --set-env-vars "^@^SERVICE_ROLE=datadesk@CLOUD_SQL_CONNECTION_NAME=${_SQL_INSTANCE}@DB_NAME=datadesk@DB_USER=datadesk@CRAWLER_DB_NAME=mizzou@CRAWLER_DB_USER=datadesk_ro@CRAWLER_RW_DB_USER=datadesk_rw" \
+          --set-cloudsql-instances "${_SQL_INSTANCE}" \
+          --task-timeout 30m \
+          --max-retries 1 \
+          --service-account "${_RUN_SA}"
+
   # The console's daily work: the To Do counts every landing page reads,
   # and the scan for publishers whose parser returns the same string for
   # every article.
