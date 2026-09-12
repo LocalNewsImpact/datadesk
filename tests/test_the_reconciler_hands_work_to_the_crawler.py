@@ -349,3 +349,101 @@ def test_a_report_only_run_writes_no_rows(corpus):
     call_command("reconcile_queues")
 
     assert not PipelineRework.objects.exists()
+
+
+# --- a run that died halfway ------------------------------------------------------
+
+
+def test_a_record_moved_without_its_row_is_asked_for_again(corpus, reviewer):
+    """The status change and the rework row are two writes and cannot be
+    one transaction -- the audit entry lands in the console's database and
+    the row in the crawler's. A run that dies between them leaves a record
+    sitting in the status a stage selects with nothing telling that stage
+    to take it, and every other rule keys on the status it moves FROM, so
+    the next run plans nothing.
+
+    On 2026-09-12 the nightly reconciliation moved two articles to
+    `cleaned` and then failed on `permission denied for table
+    pipeline_rework`. Both were invisible to every run after it."""
+    from explorer.models import PipelineRework
+
+    _article(corpus, "a20", "cleaned", text=BODY)
+    _decide("extraction", "article", "a20", "accept")
+
+    plan = reconcile.build_plan()
+
+    assert plan.changes == [], "the status is already right; nothing to move"
+    assert plan.rework == [
+        reconcile.Rework(
+            "article",
+            "a20",
+            "classify",
+            "review: moved but never asked for, repairing the request",
+        )
+    ]
+
+    reconcile.apply_plan(plan, reviewer)
+    row = PipelineRework.objects.get(record_id="a20")
+    assert (row.stage, row.done_at) == ("classify", None)
+
+
+def test_a_repair_is_not_repeated_once_a_stage_has_carried_it(corpus, reviewer):
+    """A closed row means housekeeping did the work. The disposition that
+    sent the article back never goes away, so re-asking on the strength of
+    it would redo the work every night forever."""
+    from explorer.models import PipelineRework
+
+    _article(corpus, "a21", "cleaned", text=BODY)
+    _decide("extraction", "article", "a21", "accept")
+    PipelineRework.objects.create(
+        record_type="article",
+        record_id="a21",
+        stage="classify",
+        requested_by="nightly-reconciliation",
+        done_at=timezone.now(),
+        outcome="classified",
+    )
+
+    plan = reconcile.build_plan()
+
+    assert plan.rework == []
+    assert plan.changes == []
+
+
+def test_a_repair_is_not_asked_twice_while_it_is_outstanding(corpus, reviewer):
+    from explorer.models import PipelineRework
+
+    _article(corpus, "a22", "cleaned", text=BODY)
+    _decide("extraction", "article", "a22", "accept")
+
+    reconcile.apply_plan(reconcile.build_plan(), reviewer)
+    reconcile.apply_plan(reconcile.build_plan(), reviewer)
+
+    assert PipelineRework.objects.filter(record_id="a22").count() == 1
+
+
+def test_a_record_this_run_moves_is_not_also_reported_as_needing_repair(
+    corpus, reviewer
+):
+    """The repair rule runs after the rules that move records. An article
+    moved to `cleaned` by this very run already has its row from that
+    move, and must not get a second one."""
+    _article(corpus, "a23", "paused", text=BODY)
+    _decide("extraction", "article", "a23", "accept")
+
+    plan = reconcile.build_plan()
+
+    assert [c.after for c in plan.changes] == ["cleaned"]
+    assert len(plan.rework) == 1
+    assert plan.rework[0].reason == "review: accept, back to classification"
+
+
+def test_an_article_nobody_decided_about_is_never_repaired(corpus):
+    """450 articles sit at `cleaned` because the pipeline put them there.
+    A repair rule that read the status alone would ask for all of them --
+    which is the sweep this whole design exists to prevent."""
+    _article(corpus, "a24", "cleaned", text=BODY)
+
+    plan = reconcile.build_plan()
+
+    assert plan.rework == []
