@@ -36,7 +36,18 @@
   const clear = document.getElementById("q-clear");
   const incompleteNote = document.getElementById("q-incomplete");
 
-  const store = (row) => row.querySelector('input[type="hidden"]');
+  // BY NAME, not "the first hidden input in the row".
+  //
+  // The decision field is `name="d-<id>"` -- the line above has said so
+  // since this was written -- and the selector looked for a TYPE instead.
+  // That held only while no other hidden input existed in a `.prop`. The
+  // geography queue's chip field hides the value boxes, which made one of
+  // them the first hidden input: the pressed verb was written into
+  // `v-<id>-set_place` and `d-<id>` was never set at all. `posted()`
+  // reads only `d-` keys, so every submission posted no decisions,
+  // returned 302, and wrote nothing -- three times in production before
+  // the form data was read rather than the code.
+  const store = (row) => row.querySelector('input[name^="d-"]');
   // The box belonging to the verb that was pressed, where the row has
   // one box per verb. A row whose verbs take different vocabularies has
   // two, and testing the first one asked about a list the reviewer was
