@@ -442,6 +442,43 @@ class ArticlePlaceManual(CrawlerModel):
         db_table = "article_places_manual"
 
 
+class PipelineRework(CrawlerModel):
+    """A record a review decision rewound, and the crawler stage that
+    now owes it work.
+
+    Every crawler stage selects by status, and a rewound record shares
+    its status with the whole backlog: the 14 articles a reviewer sent
+    back to `cleaned` sit beside 450 the pipeline put there. The nightly
+    housekeeping run reads this table and nothing else, so it takes the
+    14. The reconciler writes a row when it rewinds a record; the stage
+    that handles it closes the row with an outcome, and queues the next
+    stage itself. Closed rather than deleted: "what did housekeeping do"
+    is a question.
+
+    Created here, never updated or deleted here. One outstanding row per
+    (record, stage) -- the crawler's partial unique index -- so asking
+    twice is the same ask.
+
+    See MizzouNewsCrawler/docs/HOUSEKEEPING_PLAN.md.
+    """
+
+    id = models.AutoField(primary_key=True)
+    #: 'candidate_link' or 'article'
+    record_type = models.TextField()
+    record_id = models.TextField()
+    #: 'extract', 'classify' or 'enrich': the stage the record re-enters at
+    stage = models.TextField()
+    #: the disposition, in words
+    reason = models.TextField(null=True)
+    requested_by = models.TextField()
+    requested_at = models.DateTimeField(auto_now_add=True)
+    done_at = models.DateTimeField(null=True)
+    outcome = models.TextField(null=True)
+
+    class Meta(CrawlerModel.Meta):
+        db_table = "pipeline_rework"
+
+
 class ArticleEnrichment(CrawlerModel):
     # One row per article (the crawler upserts ON CONFLICT (article_id)).
     article = models.OneToOneField(

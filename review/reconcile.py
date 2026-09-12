@@ -63,20 +63,94 @@ class Change:
     rule: str
 
 
+@dataclass(frozen=True)
+class Rework:
+    """A record a rewind handed to a crawler stage.
+
+    The status change alone schedules nothing housekeeping can find: every
+    stage selects by status, and a rewound record shares its status with
+    the whole backlog. This is the row that says which records were asked
+    for. The crawler closes it and queues the stage after it.
+    """
+
+    record_type: str
+    record_id: str
+    stage: str
+    reason: str
+
+
+#: The crawler stages housekeeping runs, in order. `discovered` is not
+#: here: discovery and URL verification are the pipeline's own crons, and
+#: housekeeping starts at records ready for extraction. A rule that wants
+#: a stage outside this set is asking for something no workflow runs.
+HOUSEKEEPING_STAGES = ("extract", "classify", "enrich")
+
+#: The status a record must already carry for a stage to select it. A row
+#: written against any other status sits open forever, because the stage
+#: reads `pipeline_rework` AND its own status filter.
+STAGE_SELECTS = {
+    "extract": ("article",),
+    "classify": ("cleaned", "local"),
+    "enrich": ("labeled",),
+}
+
+
 @dataclass
 class Plan:
-    """Everything a run would do, before it does any of it."""
+    """Everything a run would do, before it does any of it.
 
+    Rules propose; the plan resolves. A record is the unit: two rules
+    that agree about one move it once, and two that disagree move it not
+    at all. Before this, the last rule to run won -- silently, and only
+    because the two rules that overlapped on the first night happened to
+    agree.
+    """
+
+    proposals: list = field(default_factory=list)
     changes: list = field(default_factory=list)
+    rework: list = field(default_factory=list)
     skipped: list = field(default_factory=list)
 
-    def add(self, model, pk, fieldname, before, after, rule):
+    def add(self, model, pk, fieldname, before, after, rule, stage=None):
+        """Propose a move, and the stage it owes afterwards, if any."""
         if (before or "") == (after or ""):
             return
-        self.changes.append(Change(model, pk, fieldname, before or "", after, rule))
+        if stage is not None:
+            assert stage in HOUSEKEEPING_STAGES, stage
+            assert after in STAGE_SELECTS[stage], (stage, after)
+        self.proposals.append(
+            (Change(model, pk, fieldname, before or "", after, rule), stage)
+        )
 
     def refuse(self, pk, why):
         self.skipped.append((pk, why))
+
+    def resolve(self):
+        """Turn proposals into changes, one per record.
+
+        A record two rules disagree about is refused with both answers in
+        the reason, and owes nothing: the rework row is the instruction,
+        and a refusal is the absence of one.
+        """
+        by_record = {}
+        for change, stage in self.proposals:
+            by_record.setdefault((change.model, change.pk), []).append((change, stage))
+
+        for (model, pk), entries in by_record.items():
+            wanted = {c.after for c, _ in entries}
+            if len(wanted) > 1:
+                rules = ", ".join(sorted(f"{c.rule} -> {c.after}" for c, _ in entries))
+                self.refuse(pk, f"rules disagree about this {model}: {rules}")
+                continue
+            change, stage = entries[0]
+            self.changes.append(change)
+            if stage is None:
+                continue
+            record_type = "article" if model == "article" else "candidate_link"
+            row = Rework(record_type, pk, stage, change.rule)
+            if row not in self.rework:
+                self.rework.append(row)
+        return self
 
     def by_rule(self):
         counts = {}
@@ -100,11 +174,24 @@ class Plan:
 
 
 def _decisions(queue, verbs=None):
+    """The current decision about each subject in a queue.
+
+    Decisions are a history, not a state: a person who said "not a story"
+    and then "story" left both rows, and reading every row makes two rules
+    disagree about a record the reviewer was clear on. The latest row for
+    a subject is the verdict. Filtered by verb AFTER that, so a superseded
+    verb disappears rather than still matching its own rule.
+    """
     from review.models import ReviewDecision
 
-    rows = ReviewDecision.objects.filter(queue=queue)
+    latest = {}
+    for row in ReviewDecision.objects.filter(queue=queue).order_by(
+        "-decided_at", "-id"
+    ):
+        latest.setdefault((row.subject_type, row.subject_id), row)
+    rows = list(latest.values())
     if verbs:
-        rows = rows.filter(verb__in=verbs)
+        rows = [row for row in rows if row.verb in verbs]
     return rows
 
 
@@ -120,9 +207,7 @@ def plan_not_a_story(plan):
     """
     from explorer.models import Article
 
-    decided = list(
-        _decisions("discovery", ["not_story"]).values_list("subject_id", flat=True)
-    )
+    decided = [row.subject_id for row in _decisions("discovery", ["not_story"])]
     if not decided:
         return
     for article in Article.objects.filter(candidate_link_id__in=decided).only(
@@ -149,9 +234,7 @@ def plan_rejected_in_extraction(plan):
     """
     from explorer.models import Article
 
-    decided = list(
-        _decisions("extraction", ["reject"]).values_list("subject_id", flat=True)
-    )
+    decided = [row.subject_id for row in _decisions("extraction", ["reject"])]
     if not decided:
         return
     for article in Article.objects.filter(id__in=decided).only("id", "status"):
@@ -217,7 +300,7 @@ def plan_kind_mismatch(plan):
     # withheld kind is a kind no enrichment stage selects, so an article
     # sitting at a published status contradicts the reviewer.
     for article in Article.objects.filter(candidate_link_id__in=list(decided)).only(
-        "id", "status", "candidate_link_id"
+        "id", "status", "text", "candidate_link_id"
     ):
         kind = decided.get(article.candidate_link_id, "")
         verdict = discovery_verdict.build(
@@ -225,8 +308,30 @@ def plan_kind_mismatch(plan):
         )
         wanted_link = discovery_verdict.link_status_for(verdict)
         if wanted_link == discovery_verdict.RESTORED_STATUS:
-            # An ordinary story: nothing about the kind constrains the
-            # article, and the pipeline decides its status.
+            # An ordinary story. Nothing about the kind constrains the
+            # article -- except that a superseded "not a story" decision
+            # already retracted it, and nothing put it back. Latest-wins
+            # makes the retraction rule stop firing; it does not undo
+            # what an earlier night wrote. So an article at `not_article`
+            # whose reviewer has since called it a story goes back to
+            # classification, where a story with a body re-enters.
+            if article.status == REJECTED:
+                if (article.text or "").strip():
+                    plan.add(
+                        "article",
+                        article.id,
+                        "status",
+                        article.status,
+                        CLASSIFIABLE,
+                        "discovery: restored, back to classification",
+                        stage="classify",
+                    )
+                else:
+                    plan.refuse(
+                        article.candidate_link_id,
+                        "restored, but the article has no body: needs a "
+                        "method, not a status",
+                    )
             continue
         if article.status in PUBLISHED:
             plan.add(
@@ -322,6 +427,7 @@ def plan_parked_by_review(plan):
             article.status,
             CLASSIFIABLE,
             f"review: {verb}, back to classification",
+            stage="classify",
         )
 
 
@@ -342,7 +448,7 @@ def build_plan():
     plan = Plan()
     for rule in RULES:
         rule(plan)
-    return plan
+    return plan.resolve()
 
 
 def apply_plan(plan, user):
@@ -352,6 +458,11 @@ def apply_plan(plan, user):
     action with a reason, and 159 entries saying "not a story" is a log
     nobody reads. Grouped by model too, because `audited_update` takes
     rows of one model.
+
+    The rework rows come last, and only for changes that were written: a
+    row is an instruction to a crawler stage, and instructing a stage to
+    work on a record whose status was not moved is how a run spends a
+    night on nothing.
     """
     from explorer.models import Article, CandidateLink
     from review.services import audited_update
@@ -362,6 +473,7 @@ def apply_plan(plan, user):
     for change in plan.changes:
         grouped.setdefault((change.rule, change.model, change.after), []).append(change)
 
+    moved = set()
     for (rule, model_name, after), changes in grouped.items():
         model = models[model_name]
         rows = list(model.objects.filter(pk__in=[c.pk for c in changes]))
@@ -374,5 +486,53 @@ def apply_plan(plan, user):
             action=f"reconcile:{model_name}",
             reason=f"{rule} ({len(rows)} rows)",
         )
+        moved.update((model_name, str(row.pk)) for row in rows)
         written.append((rule, model_name, after, len(rows), entry.pk))
+
+    _request_rework(plan, user, moved)
     return written
+
+
+def _request_rework(plan, user, moved):
+    """Write the outstanding-work rows for the records that moved.
+
+    `ON CONFLICT DO NOTHING` is not available through the ORM's audited
+    create, and the crawler's partial unique index would raise on a row
+    that is already outstanding -- which happens whenever a run finds a
+    record the crawler has not taken yet. So the outstanding rows are
+    read first and those requests are skipped: asking twice is the same
+    ask.
+    """
+    from explorer.models import PipelineRework
+    from review.services import audited_create
+
+    wanted = [row for row in plan.rework if (row.record_type, row.record_id) in moved]
+    if not wanted:
+        return None
+
+    outstanding = {
+        (r.record_type, r.record_id, r.stage)
+        for r in PipelineRework.objects.filter(
+            done_at__isnull=True,
+            record_id__in=[row.record_id for row in wanted],
+        )
+    }
+    fresh = [
+        PipelineRework(
+            record_type=row.record_type,
+            record_id=row.record_id,
+            stage=row.stage,
+            reason=row.reason,
+            requested_by=user.get_username(),
+        )
+        for row in wanted
+        if (row.record_type, row.record_id, row.stage) not in outstanding
+    ]
+    if not fresh:
+        return None
+    return audited_create(
+        user,
+        fresh,
+        action="reconcile:rework",
+        reason=f"{len(fresh)} record(s) owe a crawler stage",
+    )
