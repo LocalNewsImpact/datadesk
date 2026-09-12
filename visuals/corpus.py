@@ -646,7 +646,30 @@ def _base_queryset(spec, scopes):
     # somebody chooses -- it is a floor under every one of them.
     qs = qs.exclude(status__in=IN_FLIGHT)
     if spec.get("subset") == ENRICHED:
-        qs = qs.filter(status__in=ENRICHED_STATUSES)
+        # A PERSON ENRICHES IT TOO.
+        #
+        # A story behind a paywall arrives as a headline and a
+        # subscription prompt. The pipeline cannot place it and stops,
+        # correctly, and its status stays whatever extraction left --
+        # often `cleaned`. When a reviewer then reads the link and says
+        # where it is, the article IS enriched: not completely, but to
+        # the extent an article under that constraint can be. That is
+        # what `source = 'human'` records.
+        #
+        # Measured on the first 12 articles a reviewer placed: 7 were
+        # `cleaned`, so the work was done and no visual could draw it --
+        # the queue offers articles the corpus then refuses.
+        #
+        # By CONTRIBUTION, not by rewriting `articles.status`. The status
+        # is the pipeline's account of what it did and is read by the
+        # export, the queue and BigQuery; editing it to satisfy a chart
+        # would make every one of them describe something that did not
+        # happen. The floor above still applies: an article in flight is
+        # excluded however much geography it has.
+        qs = qs.filter(
+            Q(status__in=ENRICHED_STATUSES)
+            | Q(id__in=ArticlePlaceManual.objects.values("article_id"))
+        )
     if scopes is not ALL_SCOPES:
         if not scopes:
             qs = qs.none()

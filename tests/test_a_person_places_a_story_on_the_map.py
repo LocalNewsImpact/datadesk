@@ -315,3 +315,159 @@ def test_the_cache_stamp_moves_when_somebody_places_a_story():
         .split("\ndef ")[0]
     )
     assert "ArticlePlaceManual" in body, "a contribution does not move the stamp"
+
+
+# --- a person's contribution is enrichment ------------------------------------
+
+
+@pytest.fixture
+def cleaned_story(dataset, newsroom):
+    """An article extraction finished with and enrichment could not place.
+
+    `cleaned` is not in `ENRICHED_STATUSES`, so a visual asking for the
+    enriched subset never saw it -- which is the state 7 of the first 12
+    articles a reviewer placed were in.
+    """
+    from explorer.models import Article, ArticleEnrichment, CandidateLink
+
+    link = CandidateLink.objects.get_or_create(
+        id="cl-clean", defaults={"url": "https://u.example/c", "source": newsroom}
+    )[0]
+    article = Article.objects.create(
+        id="cleaned1",
+        status="cleaned",
+        candidate_link=link,
+        publish_date=timezone.make_aware(dt.datetime(2026, 3, 14, 12)),
+    )
+    ArticleEnrichment.objects.create(
+        article=article, scope="local", skip_reason="paywall_stub", cost_usd="0.00"
+    )
+    return article
+
+
+def _enriched_spec(dataset):
+    return {
+        "kind": "story_map",
+        "shape": "story_map",
+        "subset": "enriched",
+        "datasets": [dataset.slug],
+    }
+
+
+def test_a_cleaned_story_is_not_in_the_enriched_subset_on_its_own(
+    dataset, cleaned_story
+):
+    """The existing rule, asserted so the change below is visibly a
+    widening and not a replacement."""
+    from visuals.corpus import _base_queryset
+
+    ids = set(
+        _base_queryset(_enriched_spec(dataset), [dataset.slug]).values_list(
+            "id", flat=True
+        )
+    )
+    assert "cleaned1" not in ids
+
+
+def test_a_story_a_person_placed_is_enriched_however_the_pipeline_left_it(
+    dataset, cleaned_story
+):
+    """A story behind a paywall arrives as a headline and a subscription
+    prompt. The pipeline cannot place it and stops; when a reviewer reads
+    the link and says where it is, the article IS enriched -- not
+    completely, but to the extent an article under that constraint can
+    be.
+
+    Without this the queue offers articles the corpus then refuses, and
+    the work is done for nothing."""
+    from explorer.models import ArticlePlaceManual
+    from visuals.corpus import _base_queryset
+
+    ArticlePlaceManual.objects.create(
+        article=cleaned_story,
+        full_name="Linn",
+        city="Linn",
+        state="MO",
+        geoid="2943238",
+        geoid_level="place",
+        is_point=True,
+        added_by="someone@example.org",
+    )
+
+    ids = set(
+        _base_queryset(_enriched_spec(dataset), [dataset.slug]).values_list(
+            "id", flat=True
+        )
+    )
+    assert "cleaned1" in ids
+
+
+def test_it_draws_on_the_map_and_not_merely_in_the_queryset(dataset, cleaned_story):
+    """The queryset is the means; the dot is the point."""
+    from explorer.models import ArticlePlaceManual
+    from visuals.corpus import run_story_map
+
+    ArticlePlaceManual.objects.create(
+        article=cleaned_story,
+        full_name="Linn",
+        city="Linn",
+        state="MO",
+        geoid="2943238",
+        geoid_level="place",
+        is_point=True,
+        added_by="someone@example.org",
+    )
+    payload = run_story_map(_enriched_spec(dataset), [dataset.slug])
+    assert [p["geoid"] for p in payload["points"]] == ["2943238"]
+    assert [a["geoid"] for a in payload["areas"]] == ["29151"]
+
+
+def test_an_article_in_flight_stays_out_however_much_geography_it_has(
+    dataset, cleaned_story
+):
+    """The floor under every filter: a visual drawn from an article the
+    pipeline has not finished with would change under the reader. A
+    contribution does not lift it."""
+    from explorer.models import Article, ArticlePlaceManual
+    from visuals.corpus import _base_queryset
+
+    Article.objects.filter(id="cleaned1").update(status="paused")
+    ArticlePlaceManual.objects.create(
+        article_id="cleaned1",
+        full_name="Linn",
+        city="Linn",
+        state="MO",
+        geoid="2943238",
+        geoid_level="place",
+        is_point=True,
+        added_by="someone@example.org",
+    )
+
+    ids = set(
+        _base_queryset(_enriched_spec(dataset), [dataset.slug]).values_list(
+            "id", flat=True
+        )
+    )
+    assert "cleaned1" not in ids
+
+
+def test_the_status_column_is_not_rewritten(dataset, cleaned_story):
+    """`articles.status` is the pipeline's account of what it did, and is
+    read by the export, the queue and BigQuery. Editing it to satisfy a
+    chart would make every one of them describe something that did not
+    happen."""
+    from explorer.models import Article, ArticlePlaceManual
+    from visuals.corpus import _base_queryset
+
+    ArticlePlaceManual.objects.create(
+        article=cleaned_story,
+        full_name="Linn",
+        city="Linn",
+        state="MO",
+        geoid="2943238",
+        geoid_level="place",
+        is_point=True,
+        added_by="someone@example.org",
+    )
+    _base_queryset(_enriched_spec(dataset), [dataset.slug]).count()
+    assert Article.objects.get(id="cleaned1").status == "cleaned"
