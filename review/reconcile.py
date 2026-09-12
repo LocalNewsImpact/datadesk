@@ -108,16 +108,38 @@ class Plan:
 
     proposals: list = field(default_factory=list)
     changes: list = field(default_factory=list)
+    #: Records already in the right status that nothing has asked a stage
+    #: to carry. No status to write; only the missing request.
+    repairs: list = field(default_factory=list)
     rework: list = field(default_factory=list)
     skipped: list = field(default_factory=list)
 
     def add(self, model, pk, fieldname, before, after, rule, stage=None):
-        """Propose a move, and the stage it owes afterwards, if any."""
-        if (before or "") == (after or ""):
-            return
+        """Propose a move, and the stage it owes afterwards, if any.
+
+        A record ALREADY in the target status still owes the stage its
+        work when nothing has asked for it. The status change and the
+        rework row are two writes -- they cannot be one transaction,
+        because the audit entry lands in a different database -- so a run
+        that dies between them leaves a record moved and unasked-for, and
+        the next run sees the status it wanted and plans nothing. Two
+        production articles were stranded that way: moved to `cleaned` by
+        a run whose row insert was refused, then invisible to every run
+        after it.
+
+        So a no-op move with a stage is a REPAIR: no status change, and a
+        rework row if there is not one already. A no-op with no stage is
+        nothing at all.
+        """
         if stage is not None:
             assert stage in HOUSEKEEPING_STAGES, stage
             assert after in STAGE_SELECTS[stage], (stage, after)
+        if (before or "") == (after or ""):
+            if stage is not None:
+                self.proposals.append(
+                    (Change(model, pk, fieldname, before or "", after, rule), stage)
+                )
+            return
         self.proposals.append(
             (Change(model, pk, fieldname, before or "", after, rule), stage)
         )
@@ -143,7 +165,12 @@ class Plan:
                 self.refuse(pk, f"rules disagree about this {model}: {rules}")
                 continue
             change, stage = entries[0]
-            self.changes.append(change)
+            if change.before != change.after:
+                self.changes.append(change)
+            else:
+                # A repair: the record is already where the stage looks,
+                # and only the request for work is missing.
+                self.repairs.append(change)
             if stage is None:
                 continue
             record_type = "article" if model == "article" else "candidate_link"
@@ -431,6 +458,72 @@ def plan_parked_by_review(plan):
         )
 
 
+def plan_repairs_missing_requests(plan):
+    """A record a decision already moved, that nothing was ever asked to
+    carry.
+
+    The status change and the rework row are two writes and cannot be one
+    transaction: the audit entry lands in the console's database and the
+    row in the crawler's. A run that dies between them leaves a record
+    sitting in the status a stage selects, with nothing telling that stage
+    to take it -- and every rule here keys on the status it moves FROM, so
+    the next run sees the status it wanted and plans nothing.
+
+    That is not hypothetical: on 2026-09-12 the nightly reconciliation
+    moved two articles to `cleaned` and then failed on `permission denied
+    for table pipeline_rework`. Both were invisible to every run after it.
+
+    So: an article whose disposition says it was sent back, which is
+    already `cleaned`, and which has NO rework row for `classify` -- not
+    an open one and not a closed one -- is asked for. A closed row means
+    housekeeping already carried it, and asking again would redo the work
+    every night forever.
+    """
+    from explorer.models import Article, PipelineRework
+
+    sent_back = {
+        row.subject_id for row in _decisions("extraction", ["restore", "accept"])
+    }
+    restored_links = {
+        row.subject_id
+        for row in _decisions("discovery", ["story"])
+        if (row.value or "").strip()
+    }
+    if not sent_back and not restored_links:
+        return
+
+    candidates = Article.objects.filter(status=CLASSIFIABLE).only(
+        "id", "status", "candidate_link_id"
+    )
+    candidates = [
+        article
+        for article in candidates
+        if article.id in sent_back or article.candidate_link_id in restored_links
+    ]
+    if not candidates:
+        return
+
+    asked = set(
+        PipelineRework.objects.filter(
+            record_type="article",
+            stage="classify",
+            record_id__in=[a.id for a in candidates],
+        ).values_list("record_id", flat=True)
+    )
+    for article in candidates:
+        if article.id in asked:
+            continue
+        plan.add(
+            "article",
+            article.id,
+            "status",
+            article.status,
+            CLASSIFIABLE,
+            "review: moved but never asked for, repairing the request",
+            stage="classify",
+        )
+
+
 #: Every rule, in the order a run applies them. Retraction first, so a
 #: record that should not be published stops being published before
 #: anything spends effort moving it through the pipeline.
@@ -439,6 +532,9 @@ RULES = (
     plan_rejected_in_extraction,
     plan_kind_mismatch,
     plan_parked_by_review,
+    # After the rules that move records, so a record this run has just
+    # moved is not also reported as needing repair.
+    plan_repairs_missing_requests,
     report_stalled_extractions,
 )
 
@@ -489,6 +585,10 @@ def apply_plan(plan, user):
         moved.update((model_name, str(row.pk)) for row in rows)
         written.append((rule, model_name, after, len(rows), entry.pk))
 
+    # A repair has no status to write and its record is already where the
+    # stage looks, so it counts as in place: the row is the only thing
+    # missing.
+    moved.update((c.model, str(c.pk)) for c in plan.repairs)
     _request_rework(plan, user, moved)
     return written
 
@@ -510,12 +610,21 @@ def _request_rework(plan, user, moved):
     if not wanted:
         return None
 
+    # Outstanding rows for a record this run MOVED: asking twice is the
+    # same ask. For a repair the test is any row at all, open or closed --
+    # a closed row means housekeeping already carried it, and the
+    # disposition that sent it back never goes away, so re-asking would
+    # redo the work every night forever.
+    repaired = {(c.model, str(c.pk)) for c in plan.repairs}
+    rows = PipelineRework.objects.filter(
+        record_id__in=[row.record_id for row in wanted]
+    ).values_list("record_type", "record_id", "stage", "done_at")
     outstanding = {
-        (r.record_type, r.record_id, r.stage)
-        for r in PipelineRework.objects.filter(
-            done_at__isnull=True,
-            record_id__in=[row.record_id for row in wanted],
-        )
+        (record_type, record_id, stage)
+        for record_type, record_id, stage, done_at in rows
+        if done_at is None
+        or (record_type if record_type == "article" else "candidate_link", record_id)
+        in repaired
     }
     fresh = [
         PipelineRework(

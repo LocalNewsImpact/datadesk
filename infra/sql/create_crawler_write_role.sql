@@ -130,6 +130,44 @@ GRANT INSERT (id, dataset_id, source_id, legacy_host_id, legacy_meta)
   ON dataset_sources TO datadesk_rw;
 GRANT DELETE ON dataset_sources TO datadesk_rw;
 
+-- Whole-table INSERT on the two tables the console CREATES rows in.
+--
+-- Both are crawler-owned tables that exist for the console to write: a
+-- human's geography, and the record that a review decision rewound
+-- something. Whole-table rather than column-level because every column
+-- is the console's to fill -- there is no pipeline-owned column on
+-- either -- and because both take their id from a sequence, which needs
+-- its own grant. An INSERT that cannot reach the sequence fails with
+-- "permission denied for sequence", which reads like a different
+-- problem entirely.
+--
+-- SELECT is already held (GRANT SELECT ON ALL TABLES above) and is
+-- needed: the console reads outstanding rework rows before writing, so
+-- asking twice is the same ask.
+--
+-- No UPDATE and no DELETE on either. A manual place is a record of what
+-- a person said; a rework row is closed by the CRAWLER when a stage
+-- handles it, and closed is the record of what happened. Neither is the
+-- console's to revise.
+--
+-- Both grants existed only in production, applied by hand, and were
+-- written down nowhere: rebuilding this role from this file would have
+-- left manual geography unable to save. `pipeline_rework` was missed
+-- entirely -- the nightly reconciliation moved two articles and then
+-- failed on "permission denied for table pipeline_rework", which is how
+-- this was found.
+GRANT INSERT ON article_places_manual TO datadesk_rw;
+GRANT USAGE ON SEQUENCE article_places_manual_id_seq TO datadesk_rw;
+GRANT INSERT ON pipeline_rework TO datadesk_rw;
+GRANT USAGE ON SEQUENCE pipeline_rework_id_seq TO datadesk_rw;
+
+\echo ''
+\echo 'whole-table grants held by datadesk_rw (expect the two INSERTs):'
+SELECT table_name, privilege_type
+FROM information_schema.role_table_grants
+WHERE grantee = 'datadesk_rw' AND privilege_type <> 'SELECT'
+ORDER BY table_name, privilege_type;
+
 \echo ''
 \echo 'column grants held by datadesk_rw (expect only the boundary):'
 SELECT table_name, column_name, privilege_type
