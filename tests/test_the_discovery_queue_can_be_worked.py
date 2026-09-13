@@ -314,12 +314,16 @@ def test_the_story_list_holds_only_what_changes_the_outcome():
         verdict=discovery_verdict.IS_A_STORY, kind="column"
     )
     assert discovery_verdict.status_for(column) == "opinion"
-    # `wire` and `non_english` are never fetched, so no article status
-    # exists for them -- the LINK status carries the finding.
+    # `wire` and `non_english` are never fetched, and the LINK status
+    # carries that. Since contracts v0.16.0 the ARTICLE status answers too:
+    # "never fetched" is a rule about the link, and articles exist for both
+    # kinds anyway -- extracted before the verdict was given, or given a
+    # verdict afterwards. Answering None parked those at `labeled`, a status
+    # enrichment selects and no settle can close.
     for kind in ("wire", "non_english"):
         note = discovery_verdict.build(verdict=discovery_verdict.IS_A_STORY, kind=kind)
-        assert discovery_verdict.status_for(note) is None, kind
         assert discovery_verdict.link_status_for(note) == kind, kind
+        assert discovery_verdict.status_for(note) == kind, kind
 
 
 def test_it_is_a_story_submits_without_a_category(client, reviewer, crawler_schema):
