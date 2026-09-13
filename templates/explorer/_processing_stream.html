@@ -37,6 +37,48 @@
     </tbody>
   </table>
 
+  {% if rework.stages %}
+  <h2>Review backlog being carried</h2>
+  <p class="stream-note">
+    Records a review decision rewound, and the stage each is waiting for.
+    {% if rework.open %}{{ rework.open }} outstanding.{% else %}Nothing
+    outstanding.{% endif %}
+  </p>
+  <table>
+    <thead>
+      <tr><th>stage</th><th>waiting</th><th>carried</th><th>last carried</th></tr>
+    </thead>
+    <tbody>
+      {% for stage in rework.stages %}
+      <tr>
+        <td>{{ stage.stage }}</td>
+        <td>{{ stage.open }}</td>
+        <td>{{ stage.closed }}</td>
+        <td>{% if stage.last %}{{ stage.last|date:"H:i:s" }}{% else %}&mdash;{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if rework.carried %}
+  <table>
+    <thead>
+      <tr><th>record</th><th>stage</th><th>reached</th><th>because</th><th>when</th></tr>
+    </thead>
+    <tbody>
+      {% for row in rework.carried %}
+      <tr>
+        <td title="{{ row.record_id }}">{{ row.record_type }}</td>
+        <td>{{ row.stage }}</td>
+        <td>{{ row.outcome|default:"&mdash;" }}</td>
+        <td>{{ row.reason|default:"&mdash;" }}</td>
+        <td>{{ row.done_at|date:"H:i:s" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% endif %}
+
   <h2>Runs</h2>
   {% if jobs %}
   <table>

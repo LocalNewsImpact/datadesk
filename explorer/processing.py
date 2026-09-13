@@ -195,6 +195,69 @@ def recent_errors(dataset_ids=None, limit=LIMIT):
     )
 
 
+def rework(dataset_ids=None, limit=LIMIT):
+    """What the review backlog owes, and what has been carried.
+
+    The nightly housekeeping run carries records a review decision rewound
+    -- a URL a reviewer verified, an article they sent back -- through the
+    rest of the pipeline to a terminal status. `pipeline_rework` is the
+    list of what was asked for: one row per record per stage, closed by the
+    stage that handles it. Every other panel here reads the pipeline's own
+    tables and cannot tell a rewound record from the backlog it sits in.
+
+    Open rows are work outstanding; closed rows are what a stage did, with
+    the status the record reached as the outcome. A stage that fails leaves
+    its row open, so a count that stops falling is the signal that
+    something is stuck -- which is exactly what no panel could show before.
+    """
+    from explorer.models import PipelineRework
+
+    rows = PipelineRework.objects.all()
+    if dataset_ids is not None:
+        ids = list(dataset_ids)
+        # The table names a record, not a dataset: an article's dataset is
+        # on the article, a link's on the link. Scoped through both rather
+        # than by a column that does not exist.
+        rows = rows.filter(
+            Q(
+                record_type="article",
+                record_id__in=Article.objects.filter(dataset_id__in=ids).values("id"),
+            )
+            | Q(
+                record_type="candidate_link",
+                record_id__in=CandidateLink.objects.filter(dataset_id__in=ids).values(
+                    "id"
+                ),
+            )
+        )
+
+    by_stage = {
+        row["stage"]: row
+        for row in rows.values("stage").annotate(
+            open=Count("id", filter=Q(done_at__isnull=True)),
+            closed=Count("id", filter=Q(done_at__isnull=False)),
+            last=Max("done_at"),
+        )
+    }
+    stages = [
+        {"stage": stage, **by_stage.get(stage, {"open": 0, "closed": 0, "last": None})}
+        for stage in ("extract", "classify", "enrich")
+        if stage in by_stage
+    ]
+    carried = list(
+        rows.filter(done_at__isnull=False)
+        .order_by("-done_at")
+        .values("record_type", "record_id", "stage", "outcome", "reason", "done_at")[
+            :limit
+        ]
+    )
+    return {
+        "stages": stages,
+        "open": sum(s["open"] for s in stages),
+        "carried": carried,
+    }
+
+
 def by_domain(dataset_ids=None, limit=LIMIT):
     """Extraction in the window, grouped by the domain it was against.
 
