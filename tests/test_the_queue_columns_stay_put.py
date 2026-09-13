@@ -233,7 +233,56 @@ def test_a_row_with_no_recorded_reason_still_says_something_useful():
         enr_skip_reason = ""
         enr_gate_reason = ""
         metadata = {}
+        text_length = 120
 
     flag, hint = review_queue.flag_of(Row())
     assert flag == "minimal_capture"
     assert hint
+
+
+@pytest.mark.django_db
+def test_a_long_body_is_never_called_too_short():
+    """The flag says what was measured, not what the status implies.
+
+    `doubtful_q` deliberately surfaces `not_article` rows of 2,000+
+    characters -- the ones most worth a look -- and every one of them was
+    labelled "Body is too short to be a story". A reviewer reading that
+    against hundreds of words of body could trust neither the flag nor
+    the queue."""
+    from review import queue as review_queue
+
+    class Row:
+        status = "not_article"
+        enr_skip_reason = ""
+        enr_gate_reason = ""
+        metadata = {}
+        text_length = 3400
+
+    flag, hint = review_queue.flag_of(Row())
+    assert flag != "minimal_capture"
+    assert "short" not in hint.lower()
+    assert "3,400" in hint
+    assert "no reason recorded" in hint
+
+
+@pytest.mark.django_db
+def test_the_short_boundary_is_the_queues_own_stub_band():
+    """One definition of short. The band that says "1-499" and the flag
+    that says "too short" must agree, or the row contradicts its own
+    facet."""
+    from review import queue as review_queue
+
+    _low, high = review_queue.BAND_BOUNDS["stub"]
+
+    def row(n):
+        class Row:
+            status = "not_article"
+            enr_skip_reason = ""
+            enr_gate_reason = ""
+            metadata = {}
+            text_length = n
+
+        return Row()
+
+    assert review_queue.flag_of(row(high))[0] == "minimal_capture"
+    assert review_queue.flag_of(row(high + 1))[0] != "minimal_capture"

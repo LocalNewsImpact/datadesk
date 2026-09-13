@@ -100,6 +100,10 @@ def declared_flags():
     seen.setdefault(SCOPE_EXCLUDED_FLAG, "Excluded as about somewhere else")
     for flag, hint in (
         ("minimal_capture", "Body is too short to be a story"),
+        (
+            "not_article_unexplained",
+            "Called not an article with no reason recorded",
+        ),
         ("doubted_type", "The detector barely believed its own call"),
         ("flagged", ""),
     ):
