@@ -209,7 +209,10 @@ def test_a_disposed_article_does_not_come_straight_back(reviewer, flagged):
         decision="reject",
         stage=ENRICHMENT,
         user=reviewer,
-        content_type="not_article",
+        # The shared vocabulary's generic. `not_article` was extraction's
+        # own second generic and is gone: two words for "none of the above"
+        # is how a reviewer with legal notices reached for a third.
+        content_type="other",
     )
     stub.refresh_from_db()
     assert stub.status == "not_article", "the disposition crossed into another case"

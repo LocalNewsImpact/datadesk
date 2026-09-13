@@ -122,7 +122,12 @@ def test_the_types_offered_are_the_ones_the_pipeline_knows():
         ("weather", "Weather"),
         ("wire", "Wire"),
         ("obituary", "Obituary"),
-        ("not_article", "Not an article"),
+        # The generic is the shared list's `other`, not a second generic
+        # of extraction's own: two words for "none of the above" is how a
+        # reviewer with legal notices in front of them reached for a third.
+        ("other", "Other"),
+        ("section_index", "Section front"),
+        ("notices", "Classifieds or legal notices"),
         ("paywall", "Paywalled stub"),
         ("out_of_scope", "Non-local"),
         ("video", "Video"),
@@ -262,3 +267,60 @@ def test_the_dates_are_rendered_open_when_the_url_asks_for_them(
     ).content.decode()
     assert "js-custom-range hidden" not in body
     assert 'value="2026-03-01"' in body
+
+
+# --- the two queues name the same things -------------------------------------
+
+
+@pytest.mark.django_db
+def test_both_queues_offer_the_same_kinds():
+    """The drift this closes. Extraction offered one word, "Not an
+    article", for the seventeen things discovery could name, so a reviewer
+    holding legal notices had no way to say so -- and 61 rows went to "Out
+    of scope", a scope status nobody meant and the pipeline then believed.
+
+    Both lists now come from `lnic_contracts.discovery_verdict`. Extraction
+    adds verbs of its own about the CAPTURE -- put it back, paywalled stub,
+    non-local, garbage body -- which are not kinds of URL and are not
+    expected on the discovery side.
+    """
+    from review import discovery, dispositions
+
+    offered = {t["value"] for t in dispositions.CONTENT_TYPES}
+    named = {k["value"] for k in discovery.STORY_KINDS + discovery.NOT_STORY_KINDS}
+    assert named <= offered, sorted(named - offered)
+    assert offered - named == {
+        v for v, _label, _status in dispositions.EXTRACTION_OWN_TYPES
+    }
+
+
+@pytest.mark.django_db
+def test_section_front_can_be_said_in_the_extraction_queue():
+    """The one the review queue was missing by name."""
+    from lnic_contracts import discovery_verdict
+
+    from review import dispositions
+
+    offered = {t["value"]: t["label"] for t in dispositions.CONTENT_TYPES}
+    assert discovery_verdict.SECTION_FRONT_KIND in offered
+    assert offered[discovery_verdict.SECTION_FRONT_KIND] == "Section front"
+    assert (
+        dispositions.TYPE_BECOMES[discovery_verdict.SECTION_FRONT_KIND]
+        == discovery_verdict.SECTION_FRONT
+    )
+
+
+@pytest.mark.django_db
+def test_the_kinds_are_the_contracts_not_a_local_copy():
+    """Restating them here is the drift. A kind added to the contract
+    appears in both queues with no edit to either."""
+    from lnic_contracts import discovery_verdict
+
+    from review import discovery, dispositions
+
+    for value, label in discovery_verdict.NOT_STORY_KINDS:
+        assert {"value": value, "label": label} in discovery.NOT_STORY_KINDS
+        assert value in dispositions.TYPE_BECOMES
+    for value, label in discovery_verdict.STORY_KINDS:
+        assert {"value": value, "label": label} in discovery.STORY_KINDS
+        assert value in dispositions.TYPE_BECOMES

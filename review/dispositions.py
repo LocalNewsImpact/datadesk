@@ -389,79 +389,38 @@ def _offered_types():
 #: that had already been through it.
 REWIND = "__rewind__"
 
+#: Extraction's OWN types: verbs about the capture rather than kinds of
+#: URL. "It is a news story" puts the record back; a paywalled stub keeps it
+#: exportable unenriched; "non-local" is a scope ruling. Everything else a
+#: reviewer can name is a KIND, and the kinds are the contract's.
+EXTRACTION_OWN_TYPES = (
+    ("news", "News", REWIND),
+    ("paywall", "Paywalled stub", "enrichment_skipped"),
+    ("out_of_scope", "Non-local", "out_of_scope"),
+    (BAD_CAPTURE, "An article, but the body is garbage", REEXTRACT_TO),
+)
+
+#: What each type a reviewer can choose becomes. Built from the contract
+#: rather than restated: the story kinds land where WITHHELD_STATUS says
+#: (a column is opinion), the not-a-story kinds where `not_story_status_for`
+#: says (a section front has a status of its own; the rest are
+#: `not_article`). The two queues used to carry their own lists and they
+#: drifted -- extraction offered one word, "Not an article", for
+#: seventeen things discovery could name, and a reviewer holding legal
+#: notices reached for "Out of scope" instead. 61 rows.
 TYPE_BECOMES = {
-    "news": REWIND,
-    "not_article": "not_article",
-    "obituary": "obituary",
-    "weather": "weather",
-    "opinion": "opinion",
-    "wire": "wire",
-    # A story the pipeline cannot read, kept under a status of its own so
-    # it stays countable. The status comes from the contract rather than
-    # being retyped: `non_english` was added to the form without being
-    # added here, so a reviewer could choose it and nothing happened.
-    "non_english": _verdict.WITHHELD_STATUS["non_english"],
-    "out_of_scope": "out_of_scope",
-    "paywall": "enrichment_skipped",
-    # Neither is a status the pipeline writes, and inventing one would be
-    # wrong (SCOPE.md 2.2): a video page and a photo gallery are both
-    # `not_article` as far as every later stage is concerned. Which one a
-    # reviewer said is kept on the decision (`wrote.content_type`), so the
-    # distinction survives for counting against the detector even though
-    # the article carries the general status.
-    "video": "not_article",
-    "photo_gallery": "not_article",
-    # Same shape, and the three a reviewer kept having to call "Not an
-    # article", losing which one it was. An events calendar, a named
-    # column and a page of the printed edition are each a recognisable
-    # thing a parser keeps mistaking for a story, and counting them per
-    # publisher is how the parser gets fixed.
-    "event": "not_article",
-    "column": "not_article",
-    "e_edition": "not_article",
-    # Sponsored copy running as editorial, which no detector looks for.
-    # `Financial Focus(R)` is an Edward Jones column carried unbylined by
-    # the Carthage Press; "Make health gains with whole grains" ran
-    # verbatim in four unrelated county papers. Both reached the wire
-    # queue with no reason recorded anywhere, because there is no byline
-    # naming a service, no canonical pointing home and no meta tag --
-    # nothing any rule reads. What a reviewer can see is that it is an
-    # advertisement, and now they can say so.
-    "advertorial": "not_article",
-    BAD_CAPTURE: REEXTRACT_TO,
+    **{value: status for value, _label, status in EXTRACTION_OWN_TYPES},
+    **{kind: _verdict.WITHHELD_STATUS[kind] for kind, _label in _verdict.STORY_KINDS},
+    **{
+        kind: _verdict.not_story_status_for(kind)
+        for kind, _label in _verdict.NOT_STORY_KINDS
+    },
 }
 
 CONTENT_TYPES = (
-    {"value": "news", "label": "News"},
-    {"value": "opinion", "label": "Opinion"},
-    {"value": "weather", "label": "Weather"},
-    {"value": "wire", "label": "Wire"},
-    {"value": "obituary", "label": "Obituary"},
-    # A story the pipeline cannot read: the classifier, the CIN codebook and
-    # the enrichment prompts are written for English. Kept and counted, never
-    # enriched -- the same shape as wire, and for the same reason it needs a
-    # name of its own rather than being called "not an article".
-    {"value": "non_english", "label": "Not in English"},
-    {"value": "not_article", "label": "Not an article"},
-    {"value": "paywall", "label": "Paywalled stub"},
-    # "Out of scope" named the pipeline's status rather than the finding.
-    # A reviewer is saying the story is about somewhere else; the status
-    # it writes is unchanged.
-    {"value": "out_of_scope", "label": "Non-local"},
-    {"value": "video", "label": "Video"},
-    {"value": "photo_gallery", "label": "Photo gallery"},
-    {"value": "event", "label": "Event listing"},
-    {"value": "column", "label": "Column"},
-    # `e_edition` rather than `e-edition`: the value is posted in a form
-    # and matched against TYPE_BECOMES, and every other value here is a
-    # bare identifier. The hyphen is in the label, which is what a
-    # reviewer reads.
-    {"value": "e_edition", "label": "E-edition"},
-    {"value": "advertorial", "label": "Advertorial"},
-    {
-        "value": BAD_CAPTURE,
-        "label": "An article, but the body is garbage",
-    },
+    *({"value": v, "label": label} for v, label, _s in EXTRACTION_OWN_TYPES),
+    *({"value": v, "label": label} for v, label in _verdict.STORY_KINDS),
+    *({"value": v, "label": label} for v, label in _verdict.NOT_STORY_KINDS),
 )
 
 

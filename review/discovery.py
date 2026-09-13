@@ -44,6 +44,7 @@ from datetime import UTC
 
 from django.core.cache import cache
 from django.db.models import Q
+from lnic_contracts import discovery_verdict
 
 from review import kernel
 
@@ -425,13 +426,10 @@ NOT_A_STORY = "not_story"
 #: how much of what these publishers write is not in English is a finding
 #: about coverage -- and a reviewer who can see the language from the URL
 #: has answered it more cheaply than a fetch would.
-STORY_KINDS = (
-    {"value": "obituary", "label": "Obituary"},
-    {"value": "opinion", "label": "Opinion"},
-    {"value": "weather", "label": "Weather"},
-    {"value": "column", "label": "Column"},
-    {"value": "wire", "label": "Wire"},
-    {"value": "non_english", "label": "Not in English"},
+#: The kinds are the contract's, shared with the extraction queue so the
+#: two cannot drift again. Only the shape differs: the console wants dicts.
+STORY_KINDS = tuple(
+    {"value": v, "label": label} for v, label in discovery_verdict.STORY_KINDS
 )
 
 #: What it is instead, asked after "Not a story".
@@ -459,27 +457,8 @@ STORY_KINDS = (
 #: These write nothing on the crawler. "Not a story" leaves the status
 #: alone -- it already excludes the row -- so the value is recorded on the
 #: `ReviewDecision` for analysis and needs no contract change to add to.
-NOT_STORY_KINDS = (
-    {"value": "not_found", "label": "404 or dead link"},
-    {"value": "feed", "label": "Feed (RSS, Atom or JSON)"},
-    {"value": "section_index", "label": "Section Front"},
-    # A briefs roundup is many short items on one page, so there is no
-    # single story to extract -- the same shape as a section front rather
-    # than a story that happens to be short.
-    {"value": "news_briefs", "label": "News briefs"},
-    {"value": "tag_or_author", "label": "Tag or author page"},
-    {"value": "search", "label": "Search results"},
-    {"value": "video", "label": "Video"},
-    {"value": "photo_gallery", "label": "Photo gallery"},
-    {"value": "event", "label": "Event listing"},
-    {"value": "notices", "label": "Classifieds or legal notices"},
-    {"value": "file", "label": "PDF or other file"},
-    {"value": "account", "label": "Subscribe or account page"},
-    {"value": "newsletter", "label": "Newsletter signup"},
-    {"value": "static_page", "label": "Contact, about or staff page"},
-    {"value": "homepage", "label": "Homepage"},
-    {"value": "e_edition", "label": "E-edition"},
-    {"value": "other", "label": "Other"},
+NOT_STORY_KINDS = tuple(
+    {"value": v, "label": label} for v, label in discovery_verdict.NOT_STORY_KINDS
 )
 
 
