@@ -770,3 +770,55 @@ def test_a_garbage_body_is_held_whatever_the_verb(reviewer, flagged):
     # Both defects recorded: the call was wrong AND the body is unusable.
     assert decision.verb == "reject"
     assert decision.wrote["body"] == "garbage"
+
+
+# --- a decision answers a question, not an article ---------------------------
+#
+# The list already keys "is this a new question" on (claim, status), so a
+# row whose status has changed since its decision correctly comes back.
+# The render then looked the decision up by article id alone, found the
+# old one, and drew the row as answered with no buttons: present, and
+# undecidable. On 2026-09-13 that took 74 articles held with a fresh claim
+# after a mislabelled "Out of scope" rejection.
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_row_asking_a_new_question_is_not_drawn_as_decided(reviewer, flagged):
+    """Decided under one status, then held under a new claim: the old
+    decision answered a different question and must not be shown as the
+    answer to this one."""
+    from lnic_contracts import review_note as contract
+
+    record(flagged, decision="reject", stage=EXTRACTION, user=reviewer)
+    old_question = dispositions.question_for("not_article", EXTRACTION)
+    assert ReviewDecision.objects.filter(
+        subject_id="a1", question=old_question
+    ).exists()
+
+    # The same article, later held for a different reason.
+    flagged.status = contract.IN_REVIEW
+    flagged.metadata = {
+        contract.METADATA_KEY: contract.build(
+            claim="mislabelled_out_of_scope", status_before="cleaned", stage=EXTRACTION
+        )
+    }
+    flagged.save()
+
+    decided = dispositions.decisions_for(["a1"])
+    new_question = dispositions.current_question(flagged, EXTRACTION)
+    assert new_question != old_question
+    assert ("a1", old_question) in decided, "the old answer is still on record"
+    assert ("a1", new_question) not in decided, "and it is not the answer to this"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_row_asking_the_same_question_is_drawn_as_decided(reviewer, flagged):
+    """The other direction still holds: an answered question stays
+    answered, or live buttons would offer a click the submit path
+    refuses."""
+    record(flagged, decision="accept", stage=EXTRACTION, user=reviewer)
+    flagged.refresh_from_db()
+    decided = dispositions.decisions_for(["a1"])
+    question = dispositions.current_question(flagged, EXTRACTION)
+    assert ("a1", question) in decided
+    assert decided[("a1", question)].verb == "accept"
