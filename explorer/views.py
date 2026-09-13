@@ -857,6 +857,11 @@ def processing(request):
                 "milestones": pipeline.extraction_milestones(dataset_ids),
                 "errors": pipeline.recent_errors(dataset_ids),
                 "stages": pipeline.stage_counts(dataset_ids),
+                # What the review queues asked for and what has been
+                # carried. Every other panel reads the pipeline's own
+                # tables, which cannot tell a rewound record from the
+                # backlog it sits in.
+                "rework": pipeline.rework(dataset_ids),
                 "crawler_absent": False,
             }
         )
