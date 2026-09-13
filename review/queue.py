@@ -898,7 +898,22 @@ def flag_of(article):
     # FLAG, which is not the same as showing the status in its place.
     status = getattr(article, "status", "")
     if status == CASE_STATUS[MINIMAL_CAPTURE]:
-        return _words("minimal_capture", "Body is too short to be a story")
+        # Say what was measured, not what the status implies. A
+        # `not_article` with no recorded reason is here for a reason the
+        # QUERY found, and the query deliberately surfaces the long ones
+        # (`doubtful_q` keeps text_length >= 2000) -- so naming every one
+        # "too short" labelled hundreds-of-words bodies short, and a
+        # reviewer reading the flag against the body could trust neither.
+        # The band the row sits in is the honest flag; "no reason recorded"
+        # is the honest hint.
+        length = getattr(article, "text_length", None) or 0
+        _low, stub_high = BAND_BOUNDS["stub"]
+        if length <= stub_high:
+            return _words("minimal_capture", "Body is too short to be a story")
+        return _words(
+            "not_article_unexplained",
+            f"Called not an article with no reason recorded; {length:,} characters",
+        )
     if status == CASE_STATUS[DOUBTED_CONTENT_TYPE]:
         return _words("doubted_type", "Called an obituary; the headline is a sentence")
     if status == CASE_STATUS[EXPORTED_UNENRICHED]:
