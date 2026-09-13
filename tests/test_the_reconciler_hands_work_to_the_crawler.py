@@ -588,3 +588,88 @@ def test_a_withheld_kind_is_not_moved_to_article(corpus):
     change = next(c for c in plan.changes if c.pk == "l33")
     assert change.after == "wire"
     assert plan.rework == []
+
+
+# --- the kind decides the status, wherever the article has got to ------------------
+
+
+def test_a_reviewed_column_is_taken_out_of_the_enrichment_path(corpus):
+    """A column is an opinion type: kept, never CIN-coded, never enriched.
+
+    This fired only on an article already in the export, so a column
+    sitting at `labeled` was left there -- and `labeled` is what enrichment
+    selects. Housekeeping carried reviewed columns straight into
+    enrichment: 2 columns and 3 wire articles were in the enrich set in
+    production, and 4 more columns had reached `enrichment_skipped` only
+    because the content gate happened to catch them."""
+    _article(corpus, "a40", "labeled", text=BODY)
+    _decide("discovery", "candidate_link", "cl-a40", "story", value="column")
+
+    plan = reconcile.build_plan()
+
+    change = next(c for c in plan.changes if c.pk == "a40")
+    assert change.after == "opinion", "the status IS the instruction not to enrich"
+    assert plan.rework == [], "and it owes no stage"
+
+
+def test_a_reviewed_wire_article_is_not_left_where_enrichment_reads(corpus):
+    """`wire` has no article status of its own from `status_for` -- nothing
+    should have been fetched -- but one exists, and at `labeled` it is one
+    housekeeping run from being enriched."""
+    _article(corpus, "a41", "labeled", text=BODY)
+    _decide("discovery", "candidate_link", "cl-a41", "story", value="wire")
+
+    plan = reconcile.build_plan()
+
+    change = next(c for c in plan.changes if c.pk == "a41")
+    assert change.after == "wire"
+    assert plan.rework == []
+
+
+@pytest.mark.parametrize("status", ["cleaned", "local", "labeled"])
+def test_it_catches_the_kind_at_every_status_a_stage_reads(corpus, status):
+    """Any of the three is a stage away from enrichment."""
+    _article(corpus, f"a42{status}", status, text=BODY)
+    _decide("discovery", "candidate_link", f"cl-a42{status}", "story", value="column")
+
+    plan = reconcile.build_plan()
+
+    assert next(c for c in plan.changes if c.pk == f"a42{status}").after == "opinion"
+
+
+def test_an_article_already_in_its_kind_status_is_left_alone(corpus):
+    """A second run must find nothing: it runs nightly against a queue
+    people are still working."""
+    _article(corpus, "a43", "opinion", text=BODY)
+    _decide("discovery", "candidate_link", "cl-a43", "story", value="column")
+
+    plan = reconcile.build_plan()
+
+    assert [c for c in plan.changes if c.pk == "a43"] == []
+
+
+def test_an_ordinary_story_is_not_given_a_kind_status(corpus):
+    """`news`, and an unnamed kind, are the pipeline's to decide. Writing a
+    status for them would stop articles the corpus wants enriched."""
+    _article(corpus, "a44", "labeled", text=BODY)
+    _decide("discovery", "candidate_link", "cl-a44", "story", value="news")
+
+    plan = reconcile.build_plan()
+
+    assert [c for c in plan.changes if c.pk == "a44"] == []
+
+
+def test_a_non_english_story_is_kept_and_never_enriched(corpus):
+    """The new kind, through the same path: a story, not fetched, and
+    counted under a status of its own."""
+    from lnic_contracts import discovery_verdict
+
+    _link(corpus, "l45", "discovered")
+    _decide("discovery", "candidate_link", "l45", "story", value="non_english")
+
+    plan = reconcile.build_plan()
+
+    change = next(c for c in plan.changes if c.pk == "l45")
+    assert change.after == "non_english"
+    assert change.after == discovery_verdict.UNFETCHED_STATUS["non_english"]
+    assert plan.rework == [], "never fetched, so it owes no stage"

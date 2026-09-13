@@ -352,6 +352,34 @@ def plan_kind_mismatch(plan):
             verdict=discovery_verdict.IS_A_STORY, kind=kind, decided_by=""
         )
         wanted_link = discovery_verdict.link_status_for(verdict)
+
+        # THE KIND DECIDES THE ARTICLE'S STATUS, WHATEVER IT IS NOW.
+        #
+        # `status_for` answers for the kinds no enrichment stage selects --
+        # obituary, opinion, weather, and column, which is an opinion type.
+        # An article of one of those is kept and never enriched, and the
+        # status IS the instruction: there is no separate flag.
+        #
+        # This used to fire only on an article already in the export, so a
+        # column sitting at `labeled` was left there -- and `labeled` is
+        # what enrichment selects. Housekeeping then carried reviewed
+        # columns and wire straight into enrichment: 2 columns and 3 wire
+        # articles were in the enrich set, and 4 more columns had already
+        # reached `enrichment_skipped` only because the content gate caught
+        # them. CIN coding and model budget spent on opinion content a
+        # reviewer had already named.
+        wanted_article = discovery_verdict.status_for(verdict)
+        if wanted_article and article.status != wanted_article:
+            plan.add(
+                "article",
+                article.id,
+                "status",
+                article.status,
+                wanted_article,
+                f"discovery: {kind} is kept and never enriched",
+            )
+            continue
+
         if wanted_link == discovery_verdict.VERIFIED_STATUS:
             # An ordinary story. Nothing about the kind constrains the
             # article -- except that a superseded "not a story" decision
@@ -378,6 +406,10 @@ def plan_kind_mismatch(plan):
                         "method, not a status",
                     )
             continue
+        # A withheld kind -- `wire`, `other`, `non_english` -- for which
+        # `status_for` answers None because no article should exist at all.
+        # One does, so it must not be published: an article the reviewer
+        # called wire is excluded from the corpus by its status.
         if article.status in PUBLISHED:
             plan.add(
                 "article",
@@ -386,6 +418,18 @@ def plan_kind_mismatch(plan):
                 article.status,
                 kind,
                 f"discovery: {kind} should not be published",
+            )
+        elif article.status in (CLASSIFIABLE, "local", "labeled"):
+            # And must not be on its way there either. `labeled` is what
+            # enrichment selects, so a wire article left at `labeled` is
+            # one housekeeping run away from being enriched -- three were.
+            plan.add(
+                "article",
+                article.id,
+                "status",
+                article.status,
+                kind,
+                f"discovery: {kind} is not enriched",
             )
 
 
@@ -507,6 +551,8 @@ def plan_work_a_disposition_still_owes(plan):
     for. A closed row means a stage carried it; the disposition never goes
     away, so re-asking on it would redo the work every night forever.
     """
+    from lnic_contracts import discovery_verdict
+
     from explorer.models import Article, CandidateLink, PipelineRework
 
     #: Status a record is sitting in -> the stage that takes it.
@@ -523,10 +569,28 @@ def plan_work_a_disposition_still_owes(plan):
         row.subject_id: row.verb
         for row in _decisions("extraction", ["accept", "restore", "reextract"])
     }
-    decided_links = {
-        row.subject_id: (row.value or "").strip() or row.verb
-        for row in _decisions("discovery", ["story"])
-    }
+    # A KIND THAT ASSIGNS A STATUS OWES NO STAGE.
+    #
+    # `obituary`, `opinion`, `weather` and `column` are kept and never
+    # enriched, and `wire`, `other` and `non_english` are never fetched. For
+    # all of them the status IS the instruction, and `plan_kind_mismatch`
+    # writes it -- so claiming the article here as well put two rules in
+    # disagreement about one record, and the conflict guard then refused
+    # BOTH. A reviewed column sat at `labeled` with nothing moving it, one
+    # housekeeping run from being enriched.
+    decided_links = {}
+    for row in _decisions("discovery", ["story"]):
+        kind = (row.value or "").strip()
+        if kind:
+            note = discovery_verdict.build(
+                verdict=discovery_verdict.IS_A_STORY, kind=kind, decided_by=""
+            )
+            if (
+                discovery_verdict.status_for(note) is not None
+                or kind in discovery_verdict.UNFETCHED_TYPES
+            ):
+                continue
+        decided_links[row.subject_id] = kind or row.verb
     if not decided_articles and not decided_links:
         return
 

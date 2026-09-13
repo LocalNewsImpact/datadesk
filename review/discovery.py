@@ -417,12 +417,21 @@ NOT_A_STORY = "not_story"
 #: settled by evidence in the body, which a reviewer judging a bare URL
 #: has not seen, and extraction refuses a verdict over it. Offering the
 #: label records what the person saw without promising it decides.
+#: `non_english` is a story the pipeline cannot read: the classifier, the
+#: CIN codebook and the enrichment prompts are written for English, so
+#: fetching one spends a request and model budget to produce labels nobody
+#: should trust. It keeps a link status of its own (`non_english`, via the
+#: contract) rather than being folded into `wire` or `not_article`, because
+#: how much of what these publishers write is not in English is a finding
+#: about coverage -- and a reviewer who can see the language from the URL
+#: has answered it more cheaply than a fetch would.
 STORY_KINDS = (
     {"value": "obituary", "label": "Obituary"},
     {"value": "opinion", "label": "Opinion"},
     {"value": "weather", "label": "Weather"},
     {"value": "column", "label": "Column"},
     {"value": "wire", "label": "Wire"},
+    {"value": "non_english", "label": "Not in English"},
 )
 
 #: What it is instead, asked after "Not a story".

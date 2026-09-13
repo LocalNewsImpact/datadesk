@@ -412,6 +412,11 @@ CONTENT_TYPES = (
     {"value": "weather", "label": "Weather"},
     {"value": "wire", "label": "Wire"},
     {"value": "obituary", "label": "Obituary"},
+    # A story the pipeline cannot read: the classifier, the CIN codebook and
+    # the enrichment prompts are written for English. Kept and counted, never
+    # enriched -- the same shape as wire, and for the same reason it needs a
+    # name of its own rather than being called "not an article".
+    {"value": "non_english", "label": "Not in English"},
     {"value": "not_article", "label": "Not an article"},
     {"value": "paywall", "label": "Paywalled stub"},
     # "Out of scope" named the pipeline's status rather than the finding.
