@@ -38,3 +38,9 @@ logs/pre-push/
 # not this repository's to redistribute. Regenerate from the JotForm
 # exports rather than committing the output.
 data/coding/
+
+# Ad-hoc SQL kept beside the repo for reference, deliberately not shipped.
+# The queries behind the published visuals live here so they can be read and
+# re-run; they are not part of the application and were not asked to reach
+# origin.
+sql/
