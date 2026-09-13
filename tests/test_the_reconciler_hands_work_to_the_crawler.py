@@ -121,22 +121,38 @@ def test_a_retraction_owes_nothing(corpus):
     assert plan.rework == []
 
 
-def test_a_restored_link_goes_back_to_verification_which_is_not_housekeepings(
-    corpus,
-):
-    """`discovery_verdict.link_status_for` sends a restored story to
-    `discovered`, which is URL verification's input -- and housekeeping
-    starts at records ready for extraction, not at discovery. So the
-    status moves and no row is written: a row for a stage no workflow
-    runs would sit open forever and make the nightly guard fire on
-    nothing."""
+def test_a_restored_link_is_verified_and_owes_a_fetch(corpus):
+    """StorySniffer verified it, a reviewer approved that, and the record's
+    place is AFTER verification: `article`, which is what extraction
+    selects. It used to be `discovered` -- verification's input -- so the
+    approval was handed back to the process it had just approved, and 449
+    such links sat there unable to move."""
     _link(corpus, "l3", "not_article")
     _decide("discovery", "candidate_link", "l3", "story", value="news")
 
     plan = reconcile.build_plan()
 
-    assert [(c.pk, c.after) for c in plan.changes] == [("l3", "discovered")]
-    assert plan.rework == []
+    assert [(c.pk, c.after) for c in plan.changes] == [("l3", "article")]
+    assert plan.rework == [
+        reconcile.Rework("candidate_link", "l3", "extract", "discovery: kind is news")
+    ]
+
+
+def test_a_verified_link_that_already_has_an_article_owes_no_fetch(corpus):
+    """Extraction skips a link that already has an article (`NOT EXISTS`
+    in its batch query), so a row for one would never be closed. The
+    article in front of it is what the remaining stages act on."""
+    _article(corpus, "a3b", "cleaned", link_status="not_article", text=BODY)
+    _decide("discovery", "candidate_link", "cl-a3b", "story", value="news")
+
+    plan = reconcile.build_plan()
+
+    assert ("candidate_link", "cl-a3b", "extract") not in [
+        (r.record_type, r.record_id, r.stage) for r in plan.rework
+    ]
+    assert ("article", "a3b", "classify") in [
+        (r.record_type, r.record_id, r.stage) for r in plan.rework
+    ]
 
 
 def test_a_restored_link_whose_article_has_a_body_sends_the_article(corpus):
@@ -204,7 +220,7 @@ def test_the_latest_decision_on_a_subject_is_the_one_that_counts(corpus):
 
     plan = reconcile.build_plan()
 
-    assert [(c.pk, c.after) for c in plan.changes] == [("l7", "discovered")]
+    assert [(c.pk, c.after) for c in plan.changes] == [("l7", "article")]
 
 
 def test_two_rules_that_disagree_about_a_record_are_both_refused(corpus):
@@ -289,7 +305,15 @@ def test_a_row_the_crawler_settled_is_not_reopened_by_the_same_decision(
 
     plan = reconcile.build_plan()
 
-    assert plan.changes == [] and plan.rework == []
+    assert plan.changes == []
+    # The classify row stays closed -- it is not reopened -- and the
+    # article, now `labeled`, owes the NEXT stage. Carrying a record means
+    # to a terminal status, not to the end of one stage.
+    assert plan.rework == [
+        reconcile.Rework(
+            "article", "a12", "enrich", "review: accept, waiting for enrich"
+        )
+    ]
     assert _owed() == []
 
 
@@ -354,6 +378,22 @@ def test_a_report_only_run_writes_no_rows(corpus):
 # --- a run that died halfway ------------------------------------------------------
 
 
+def _reconciler_moved(reviewer, ids, status="cleaned"):
+    """An audit entry of the kind `apply_plan` writes. The repair rule
+    reads these, not statuses."""
+    from audit.models import AuditLogEntry
+
+    return AuditLogEntry.objects.create(
+        actor=reviewer,
+        action="reconcile:article",
+        target_table="articles",
+        target_ids=list(ids),
+        before=None,
+        after={"status": status},
+        reason="review: accept, back to classification",
+    )
+
+
 def test_a_record_moved_without_its_row_is_asked_for_again(corpus, reviewer):
     """The status change and the rework row are two writes and cannot be
     one transaction -- the audit entry lands in the console's database and
@@ -369,6 +409,7 @@ def test_a_record_moved_without_its_row_is_asked_for_again(corpus, reviewer):
 
     _article(corpus, "a20", "cleaned", text=BODY)
     _decide("extraction", "article", "a20", "accept")
+    _reconciler_moved(reviewer, ["a20"])
 
     plan = reconcile.build_plan()
 
@@ -378,7 +419,7 @@ def test_a_record_moved_without_its_row_is_asked_for_again(corpus, reviewer):
             "article",
             "a20",
             "classify",
-            "review: moved but never asked for, repairing the request",
+            "review: accept, waiting for classify",
         )
     ]
 
@@ -395,6 +436,7 @@ def test_a_repair_is_not_repeated_once_a_stage_has_carried_it(corpus, reviewer):
 
     _article(corpus, "a21", "cleaned", text=BODY)
     _decide("extraction", "article", "a21", "accept")
+    _reconciler_moved(reviewer, ["a21"])
     PipelineRework.objects.create(
         record_type="article",
         record_id="a21",
@@ -415,6 +457,7 @@ def test_a_repair_is_not_asked_twice_while_it_is_outstanding(corpus, reviewer):
 
     _article(corpus, "a22", "cleaned", text=BODY)
     _decide("extraction", "article", "a22", "accept")
+    _reconciler_moved(reviewer, ["a22"])
 
     reconcile.apply_plan(reconcile.build_plan(), reviewer)
     reconcile.apply_plan(reconcile.build_plan(), reviewer)
@@ -441,9 +484,107 @@ def test_a_record_this_run_moves_is_not_also_reported_as_needing_repair(
 def test_an_article_nobody_decided_about_is_never_repaired(corpus):
     """450 articles sit at `cleaned` because the pipeline put them there.
     A repair rule that read the status alone would ask for all of them --
-    which is the sweep this whole design exists to prevent."""
+    the sweep this whole design exists to prevent."""
     _article(corpus, "a24", "cleaned", text=BODY)
 
     plan = reconcile.build_plan()
 
+    assert plan.rework == []
+
+
+def test_an_article_the_pipeline_cleaned_is_carried_too_when_a_decision_names_it(
+    corpus, reviewer
+):
+    """Whichever process put it at `cleaned`, a reviewer accepted this
+    article and the pipeline's crons are suspended: nothing else will
+    classify it. The disposition is what makes it housekeeping's, and the
+    status only says which stage it is ready for."""
+    _article(corpus, "a25", "cleaned", text=BODY)
+    _decide("extraction", "article", "a25", "accept")
+
+    plan = reconcile.build_plan()
+
+    assert plan.changes == [], "the status is already right"
+    assert plan.rework == [
+        reconcile.Rework(
+            "article", "a25", "classify", "review: accept, waiting for classify"
+        )
+    ]
+
+
+def test_a_record_the_reconciler_moved_somewhere_else_is_not_repaired(corpus, reviewer):
+    """A retraction is terminal. An audit entry for `not_article` must not
+    make the record look like something owed a classification."""
+    _article(corpus, "a26", "not_article", text=BODY)
+    _reconciler_moved(reviewer, ["a26"], status="not_article")
+
+    plan = reconcile.build_plan()
+
+    assert plan.rework == []
+
+
+def test_a_record_that_has_moved_on_since_is_not_repaired(corpus, reviewer):
+    """It was `cleaned` when the reconciler moved it and is `labeled` now:
+    housekeeping or the pipeline carried it, and the work is done."""
+    _article(corpus, "a27", "labeled", text=BODY)
+    _reconciler_moved(reviewer, ["a27"])
+
+    plan = reconcile.build_plan()
+
+    assert plan.rework == []
+
+
+# --- links written before the mapping was corrected ------------------------------
+
+
+def test_a_link_left_at_verifications_input_is_moved_and_asked_for(corpus):
+    """449 links carrying a human story verdict sat at `discovered`,
+    because `link_status_for` used to answer verification's INPUT for a
+    post-verification review. They are moved to `article` -- verification's
+    output, which extraction selects -- and asked for the fetch in the same
+    run, so one run carries them rather than two."""
+    _link(corpus, "l30", "discovered")
+    _decide("discovery", "candidate_link", "l30", "story", value="news")
+
+    plan = reconcile.build_plan()
+
+    change = next(c for c in plan.changes if c.pk == "l30")
+    assert (change.before, change.after) == ("discovered", "article")
+    assert reconcile.Rework("candidate_link", "l30", "extract", change.rule) in (
+        plan.rework
+    )
+
+
+def test_such_a_link_with_an_article_is_moved_but_owes_no_fetch(corpus):
+    _article(corpus, "a31", "cleaned", link_status="discovered", text=BODY)
+    _decide("discovery", "candidate_link", "cl-a31", "story", value="news")
+
+    plan = reconcile.build_plan()
+
+    assert next(c for c in plan.changes if c.pk == "cl-a31").after == "article"
+    assert ("candidate_link", "cl-a31", "extract") not in [
+        (r.record_type, r.record_id, r.stage) for r in plan.rework
+    ]
+
+
+def test_a_link_nobody_reviewed_is_left_at_discovered(corpus):
+    """Verification's queue is verification's. Only a reviewed link is
+    moved past it."""
+    _link(corpus, "l32", "discovered")
+
+    plan = reconcile.build_plan()
+
+    assert [c.pk for c in plan.changes] == []
+
+
+def test_a_withheld_kind_is_not_moved_to_article(corpus):
+    """`wire` keeps a link out of the fetch queue. Moving it to `article`
+    would fetch what a reviewer said never to fetch."""
+    _link(corpus, "l33", "discovered")
+    _decide("discovery", "candidate_link", "l33", "story", value="wire")
+
+    plan = reconcile.build_plan()
+
+    change = next(c for c in plan.changes if c.pk == "l33")
+    assert change.after == "wire"
     assert plan.rework == []

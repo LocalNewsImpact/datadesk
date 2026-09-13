@@ -177,9 +177,13 @@ def test_the_page_says_how_the_rows_were_drawn(client, reviewer, crawler_schema)
 # ---------------------------------------------------------- the verbs
 
 
-def test_calling_it_a_story_returns_the_url_to_the_pipeline(
+def test_calling_it_a_story_marks_it_verified_and_ready_to_fetch(
     client, reviewer, crawler_schema
 ):
+    """`article`, which extraction selects -- not `discovered`, which is
+    verification's input. This queue is a post-verification review:
+    StorySniffer decided, the reviewer approves or corrects, and the record
+    carries on from there rather than going back to be decided again."""
     link = _link(crawler_schema, "isastory", status="not_article")
     _verification(crawler_schema, link, 5.0, True)
     client.force_login(reviewer)
@@ -193,7 +197,7 @@ def test_calling_it_a_story_returns_the_url_to_the_pipeline(
         },
     )
     link.refresh_from_db()
-    assert link.status == "discovered"
+    assert link.status == "article"
 
 
 def test_not_a_story_leaves_the_crawler_alone(client, reviewer, crawler_schema):
@@ -317,7 +321,7 @@ def test_it_is_a_story_submits_without_a_category(client, reviewer, crawler_sche
         },
     )
     link.refresh_from_db()
-    assert link.status == discovery_verdict.RESTORED_STATUS, "it did not submit"
+    assert link.status == discovery_verdict.VERIFIED_STATUS, "it did not submit"
     note = (link.meta or {})[discovery_verdict.METADATA_KEY]
     assert note["kind"] == "", "a category was invented"
     assert discovery_verdict.status_for(note) is None, "the pipeline must classify it"
@@ -545,7 +549,7 @@ def test_calling_it_a_story_records_what_kind(client, reviewer, crawler_schema):
     _answer(client, "kindly", discovery.IT_IS_A_STORY, "opinion")
 
     link.refresh_from_db()
-    assert link.status == discovery_verdict.RESTORED_STATUS
+    assert link.status == discovery_verdict.VERIFIED_STATUS
     note = (link.meta or {})[discovery_verdict.METADATA_KEY]
     assert discovery_verdict.is_readable(note)
     assert note["kind"] == "opinion"
@@ -710,13 +714,20 @@ def test_wire_is_withheld_from_the_fetch_queue(client, reviewer, crawler_schema)
     link.refresh_from_db()
     assert link.status == "wire"
     assert link.status != "discovered", "wire went back into the fetch queue"
+    assert link.status != "article", "wire was sent to be fetched"
 
 
-def test_an_ordinary_story_still_goes_back_to_the_fetch_queue(
+def test_an_ordinary_story_is_verified_and_waits_to_be_fetched(
     client, reviewer, crawler_schema
 ):
     """The commonest answer must keep working: withholding wire must not
-    withhold everything."""
+    withhold everything.
+
+    `article` and not `discovered`: this is a POST-verification review.
+    StorySniffer decided, the reviewer approved, and the record's place is
+    verification's output -- the status extraction selects. Sending it to
+    `discovered` handed the approval back to the process it approved, and
+    449 links sat there."""
     link = _link(crawler_schema, "ranked")
     _verification(crawler_schema, link, 5.0, True)
     client.force_login(reviewer)
@@ -730,12 +741,14 @@ def test_an_ordinary_story_still_goes_back_to_the_fetch_queue(
         },
     )
     link.refresh_from_db()
-    assert link.status == "discovered"
+    assert link.status == "article"
 
 
 def test_an_obituary_is_still_fetched(client, reviewer, crawler_schema):
     """Unenriched is not unfetched. An obituary is extracted and kept and
-    merely not enriched, so it must still reach the fetch queue."""
+    merely not enriched, so it must still reach the fetch queue -- which is
+    `article`, verification's output, now that a reviewed link is not sent
+    back to be verified again."""
     link = _link(crawler_schema, "ranked")
     _verification(crawler_schema, link, 5.0, True)
     client.force_login(reviewer)
@@ -749,7 +762,7 @@ def test_an_obituary_is_still_fetched(client, reviewer, crawler_schema):
         },
     )
     link.refresh_from_db()
-    assert link.status == "discovered"
+    assert link.status == "article"
 
 
 def test_the_verdict_is_recorded_either_way(client, reviewer, crawler_schema):

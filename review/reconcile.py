@@ -314,6 +314,23 @@ def plan_kind_mismatch(plan):
             verdict=discovery_verdict.IS_A_STORY, kind=kind, decided_by=""
         )
         wanted = discovery_verdict.link_status_for(verdict)
+        # THE 449. `link_status_for` used to answer `discovered` --
+        # verification's INPUT -- for a post-verification review, so a
+        # reviewer's approval was handed back to the process it approved.
+        # It now answers `article`, and this rule moves the links written
+        # the old way as a matter of course: it compares each link's
+        # current status against the contract's answer, whatever wrote it.
+        #
+        # A link this rule moves to `article` is verified and unfetched, so
+        # it owes the fetch -- named here, by the rule that moves it,
+        # because nothing downstream can tell the difference between a link
+        # this run verified and the 4,802 already sitting at `article`.
+        # Unless it already has an article: extraction skips those
+        # (`NOT EXISTS` in its batch query), so the row would never close.
+        owes_a_fetch = (
+            wanted == FETCHABLE_LINK
+            and not Article.objects.filter(candidate_link_id=link.id).exists()
+        )
         plan.add(
             "candidate_link",
             link.id,
@@ -321,6 +338,7 @@ def plan_kind_mismatch(plan):
             link.status,
             wanted,
             f"discovery: kind is {kind}",
+            stage="extract" if owes_a_fetch else None,
         )
 
     # And the article, where one exists in a state the kind forbids. A
@@ -334,7 +352,7 @@ def plan_kind_mismatch(plan):
             verdict=discovery_verdict.IS_A_STORY, kind=kind, decided_by=""
         )
         wanted_link = discovery_verdict.link_status_for(verdict)
-        if wanted_link == discovery_verdict.RESTORED_STATUS:
+        if wanted_link == discovery_verdict.VERIFIED_STATUS:
             # An ordinary story. Nothing about the kind constrains the
             # article -- except that a superseded "not a story" decision
             # already retracted it, and nothing put it back. Latest-wins
@@ -458,83 +476,126 @@ def plan_parked_by_review(plan):
         )
 
 
-def plan_repairs_missing_requests(plan):
-    """A record a decision already moved, that nothing was ever asked to
-    carry.
+def plan_work_a_disposition_still_owes(plan):
+    """Every disposed record short of a terminal status owes the stage its
+    current status is the input to.
 
-    The status change and the rework row are two writes and cannot be one
-    transaction: the audit entry lands in the console's database and the
-    row in the crawler's. A run that dies between them leaves a record
-    sitting in the status a stage selects, with nothing telling that stage
-    to take it -- and every rule here keys on the status it moves FROM, so
-    the next run sees the status it wanted and plans nothing.
+    THE REQUIREMENT. A review decision puts a record back into the
+    pipeline. From there it has to reach a terminal status -- in the
+    export, or deliberately not enriched -- and nothing else will carry
+    it: the pipeline's own crons are suspended, and every stage selects by
+    status, so a rewound record is indistinguishable from the backlog
+    unless something names it. `pipeline_rework` names it. This rule keeps
+    naming it at each step, and each stage queues the next as it finishes.
 
-    That is not hypothetical: on 2026-09-12 the nightly reconciliation
-    moved two articles to `cleaned` and then failed on `permission denied
-    for table pipeline_rework`. Both were invisible to every run after it.
+    A record is owed the stage its CURRENT status feeds:
 
-    So: an article whose disposition says it was sent back, which is
-    already `cleaned`, and which has NO rework row for `classify` -- not
-    an open one and not a closed one -- is asked for. A closed row means
-    housekeeping already carried it, and asking again would redo the work
-    every night forever.
+        candidate_link at `article`   -> extract   (verified, unfetched)
+        article at `cleaned`/`local`  -> classify
+        article at `labeled`          -> enrich
+
+    Terminal statuses owe nothing: `enriched` and `enrichment_skipped` are
+    in the export, `not_article` is retracted, and `wire`, `obituary`,
+    `opinion`, `weather` and `out_of_scope` are kinds no enrichment stage
+    selects -- recording the kind IS the instruction to stop.
+
+    WHY IT IS NOT A SWEEP. Every record is named by a disposition. Of 450
+    articles at `cleaned`, 105 have one and 345 are the pipeline's own
+    backlog, which is not asked for. Of 85,189 at `labeled`, 46.
+
+    A row already present, open OR closed, means the record has been asked
+    for. A closed row means a stage carried it; the disposition never goes
+    away, so re-asking on it would redo the work every night forever.
     """
-    from explorer.models import Article, PipelineRework
+    from explorer.models import Article, CandidateLink, PipelineRework
 
-    sent_back = {
-        row.subject_id for row in _decisions("extraction", ["restore", "accept"])
+    #: Status a record is sitting in -> the stage that takes it.
+    ARTICLE_READY_FOR = {
+        CLASSIFIABLE: "classify",
+        "local": "classify",
+        "labeled": "enrich",
     }
-    restored_links = {
-        row.subject_id
+    LINK_READY_FOR = {FETCHABLE_LINK: "extract"}
+
+    #: Dispositions that put a record back into the pipeline. A rejection
+    #: takes it out, and has its own rule.
+    decided_articles = {
+        row.subject_id: row.verb
+        for row in _decisions("extraction", ["accept", "restore", "reextract"])
+    }
+    decided_links = {
+        row.subject_id: (row.value or "").strip() or row.verb
         for row in _decisions("discovery", ["story"])
-        if (row.value or "").strip()
     }
-    if not sent_back and not restored_links:
+    if not decided_articles and not decided_links:
         return
 
-    candidates = Article.objects.filter(status=CLASSIFIABLE).only(
+    owed = []
+
+    # Links a decision restored that verification has since advanced to
+    # `article`: verified URLs waiting to be fetched. Extraction skips a
+    # link that already has an article (`NOT EXISTS` in its batch query),
+    # so one that does is not owed a fetch.
+    for link in CandidateLink.objects.filter(
+        id__in=list(decided_links), status__in=list(LINK_READY_FOR)
+    ).only("id", "status"):
+        if Article.objects.filter(candidate_link_id=link.id).exists():
+            continue
+        owed.append(("candidate_link", link.id, LINK_READY_FOR[link.status], "story"))
+
+    # Articles, whether the decision was about the article or about the
+    # link in front of it: once an article exists, the article is what the
+    # remaining stages act on.
+    articles = Article.objects.filter(status__in=list(ARTICLE_READY_FOR)).only(
         "id", "status", "candidate_link_id"
     )
-    candidates = [
-        article
-        for article in candidates
-        if article.id in sent_back or article.candidate_link_id in restored_links
-    ]
-    if not candidates:
+    for article in articles:
+        verb = decided_articles.get(article.id)
+        if verb is None and article.candidate_link_id in decided_links:
+            verb = "story"
+        if verb is None:
+            continue
+        owed.append(("article", article.id, ARTICLE_READY_FOR[article.status], verb))
+
+    if not owed:
         return
 
-    asked = set(
-        PipelineRework.objects.filter(
-            record_type="article",
-            stage="classify",
-            record_id__in=[a.id for a in candidates],
-        ).values_list("record_id", flat=True)
-    )
-    for article in candidates:
-        if article.id in asked:
+    asked = {
+        (row.record_type, row.record_id, row.stage)
+        for row in PipelineRework.objects.filter(
+            record_id__in=[record_id for _, record_id, _, _ in owed]
+        )
+    }
+    for record_type, record_id, stage, verb in owed:
+        if (record_type, record_id, stage) in asked:
             continue
+        model = "article" if record_type == "article" else "candidate_link"
+        status = FETCHABLE_LINK if record_type == "candidate_link" else None
+        if status is None:
+            status = (
+                next(st for st, sg in ARTICLE_READY_FOR.items() if sg == stage)
+                if stage != "classify"
+                else CLASSIFIABLE
+            )
         plan.add(
-            "article",
-            article.id,
+            model,
+            record_id,
             "status",
-            article.status,
-            CLASSIFIABLE,
-            "review: moved but never asked for, repairing the request",
-            stage="classify",
+            status,
+            status,
+            f"review: {verb}, waiting for {stage}",
+            stage=stage,
         )
 
 
-#: Every rule, in the order a run applies them. Retraction first, so a
-#: record that should not be published stops being published before
-#: anything spends effort moving it through the pipeline.
 RULES = (
     plan_not_a_story,
     plan_rejected_in_extraction,
     plan_kind_mismatch,
     plan_parked_by_review,
-    # After the rules that move records, so a record this run has just
-    # moved is not also reported as needing repair.
-    plan_repairs_missing_requests,
+    # After the rules that move records: a record this run has just moved
+    # already carries its request, and this asks for the ones nothing did.
+    plan_work_a_disposition_still_owes,
     report_stalled_extractions,
 )
 
