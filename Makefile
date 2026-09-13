@@ -27,10 +27,32 @@ setup: $(VENV) .env migrate ## Provision everything for a new checkout
 	@echo "Ready. 'make run' starts the server, 'make check' runs what CI runs."
 	@echo "First time? 'make superuser' to create an admin login."
 
-$(VENV):
-	python3 -m venv $(VENV)
+# The venv is kept in step with the pins by a stamp named after the CONTENT
+# of the requirements files, and every local stage already depends on
+# $(VENV). A pin bump therefore reinstalls once, on the next `make` of
+# anything.
+#
+# It was a bare directory target, which Make considers satisfied the moment
+# `.venv/` exists. So a changed pin never reinstalled: on 2026-09-13 the pin
+# said lnic-contracts v0.16.0 and the venv held v0.14.0, and every local run
+# tested the wrong version of the one package both repositories share -- it
+# passed on a name the installed copy did not have, and failed on the name it
+# did. The crawler already solves it this way.
+#
+# Content rather than mtime, because a checkout or a fresh worktree makes
+# every file new without changing a single pin.
+REQS := requirements.txt requirements-dev.txt
+REQS_SHA := $(shell cat $(REQS) | shasum -a 256 | cut -c1-16)
+VENV_STAMP := $(VENV)/.requirements-$(REQS_SHA)
+
+$(VENV_STAMP):
+	[ -x $(VENV)/bin/python ] || python3 -m venv $(VENV)
 	$(PIP) install --quiet --upgrade pip
 	$(PIP) install --quiet -r requirements-dev.txt
+	rm -f $(VENV)/.requirements-*
+	touch $@
+
+$(VENV): $(VENV_STAMP)
 
 .env:
 	cp .env.example .env

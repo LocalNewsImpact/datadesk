@@ -71,6 +71,7 @@ REEXTRACT_TO = "paused"
 #: reads it, and each repository having its own copy of the key names is
 #: what let a rename strand every held article -- two tests, neither able
 #: to see the other. lnic_contracts is the one definition both import.
+from lnic_contracts import discovery_verdict as _verdict  # noqa: E402
 from lnic_contracts import review_note as _contract  # noqa: E402
 
 from review import kernel  # noqa: E402
@@ -376,6 +377,11 @@ TYPE_BECOMES = {
     "weather": "weather",
     "opinion": "opinion",
     "wire": "wire",
+    # A story the pipeline cannot read, kept under a status of its own so
+    # it stays countable. The status comes from the contract rather than
+    # being retyped: `non_english` was added to the form without being
+    # added here, so a reviewer could choose it and nothing happened.
+    "non_english": _verdict.WITHHELD_STATUS["non_english"],
     "out_of_scope": "out_of_scope",
     "paywall": "enrichment_skipped",
     # Neither is a status the pipeline writes, and inventing one would be
@@ -412,6 +418,11 @@ CONTENT_TYPES = (
     {"value": "weather", "label": "Weather"},
     {"value": "wire", "label": "Wire"},
     {"value": "obituary", "label": "Obituary"},
+    # A story the pipeline cannot read: the classifier, the CIN codebook and
+    # the enrichment prompts are written for English. Kept and counted, never
+    # enriched -- the same shape as wire, and for the same reason it needs a
+    # name of its own rather than being called "not an article".
+    {"value": "non_english", "label": "Not in English"},
     {"value": "not_article", "label": "Not an article"},
     {"value": "paywall", "label": "Paywalled stub"},
     # "Out of scope" named the pipeline's status rather than the finding.

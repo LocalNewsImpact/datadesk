@@ -297,10 +297,33 @@ def test_the_story_list_holds_only_what_changes_the_outcome():
     # decide a status outright; wire and column are handled downstream
     # without one, so the rule is "the pipeline acts on it", not "it
     # sets a status".
-    assert offered == {"obituary", "opinion", "weather", "column", "wire"}
+    assert offered == {
+        "obituary",
+        "opinion",
+        "weather",
+        "column",
+        "wire",
+        "non_english",
+    }
     for kind in ("obituary", "opinion", "weather"):
         note = discovery_verdict.build(verdict=discovery_verdict.IS_A_STORY, kind=kind)
         assert discovery_verdict.status_for(note) == kind
+    # `column` is an opinion type: kept, never enriched, and recorded as
+    # `opinion` because there is no `column` pipeline status.
+    column = discovery_verdict.build(
+        verdict=discovery_verdict.IS_A_STORY, kind="column"
+    )
+    assert discovery_verdict.status_for(column) == "opinion"
+    # `wire` and `non_english` are never fetched, and the LINK status
+    # carries that. Since contracts v0.16.0 the ARTICLE status answers too:
+    # "never fetched" is a rule about the link, and articles exist for both
+    # kinds anyway -- extracted before the verdict was given, or given a
+    # verdict afterwards. Answering None parked those at `labeled`, a status
+    # enrichment selects and no settle can close.
+    for kind in ("wire", "non_english"):
+        note = discovery_verdict.build(verdict=discovery_verdict.IS_A_STORY, kind=kind)
+        assert discovery_verdict.link_status_for(note) == kind, kind
+        assert discovery_verdict.status_for(note) == kind, kind
 
 
 def test_it_is_a_story_submits_without_a_category(client, reviewer, crawler_schema):
