@@ -664,7 +664,9 @@ def queue(request):
         # Read in one query for the page rather than per row.
         decided = dispositions.decisions_for([a.id for a in page])
         for article in page:
-            article.decision = decided.get(str(article.id))
+            article.decision = decided.get(
+                (str(article.id), dispositions.current_question(article, article.stage))
+            )
         # Clustered by publisher, the way the proposals queue clusters by
         # record: one header, then the rows under it. Fifty separate cards
         # each repeating the same publisher is fifty headings to read past,

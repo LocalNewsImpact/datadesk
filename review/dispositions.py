@@ -161,13 +161,22 @@ def answered_questions(article_ids):
 
 
 def decisions_for(article_ids):
-    """The decision on each of these articles, by article id.
+    """The decision on each question asked of these articles.
+
+    Keyed on (article id, question), NOT on the article. A decision answers
+    a question -- `question_for(claim, stage)` -- and an article whose
+    status has since changed is asking a new one. The list already knows
+    this: `_without_answered` keys on (claim, status) and correctly brings
+    such a row back. Keying the render on the article alone then found the
+    OLD decision and drew the row as answered, with no buttons: present,
+    and undecidable. That is the "18 rows came back permanently" defect
+    the queue module records, and on 2026-09-13 it took 74 articles held
+    with a fresh claim after a mislabelled rejection.
 
     One query for a page of rows. Used to render a decided row as decided
-    rather than offering verbs that would be refused -- the proposals
-    queue's `state=all` does the same, and showing an answered question
-    with live buttons is how somebody comes to believe they changed
-    something they did not.
+    rather than offering verbs that would be refused -- showing an answered
+    question with live buttons is how somebody comes to believe they
+    changed something they did not.
     """
     from review.models import ReviewDecision
 
@@ -177,8 +186,18 @@ def decisions_for(article_ids):
         subject_type="article",
         subject_id__in=[str(i) for i in article_ids],
     ).order_by("decided_at"):
-        latest[decision.subject_id] = decision
+        latest[(decision.subject_id, decision.question)] = decision
     return latest
+
+
+def current_question(article, stage):
+    """The question this row is asking right now.
+
+    A held article asks about its claim; any other asks about its status.
+    The same key the submit path writes, so a decision is found only when
+    it answered THIS question.
+    """
+    return question_for(claim_under_review(article) or article.status, stage)
 
 
 #: The verbs, as names. They used to be class attributes on
