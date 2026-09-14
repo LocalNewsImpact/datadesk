@@ -1174,6 +1174,42 @@ label.stacked input, label.stacked textarea, label.stacked select {
 
 .dd-ramp { display: inline-flex; align-items: center; gap: var(--s-2); color: var(--text-3); }
 .dd-ramp span { display: inline-flex; align-items: center; gap: var(--s-1); }
+
+/* THE SCALE IS ONE OBJECT, so it is drawn as one strip rather than as a
+   labelled chip per band. Eleven chips reading "143-208" across the top
+   of a map do not fit and wrap into a paragraph of numbers; butted
+   swatches with a few boundaries written underneath is how a reader uses
+   a choropleth key anyway -- to place a shade between two ends. */
+/* A DEFINITE WIDTH, not a flex basis. The blocks are `flex: 1 1 0` with
+   `min-width: 0`, so their intrinsic width is zero; inside a
+   content-sized `inline-flex` parent that collapsed the whole bar to
+   0px -- no colour at all -- and the milestones, positioned as
+   percentages of a zero-width box, all landed on the same point and
+   stacked on top of each other. */
+.dd-ramp-strip { display: inline-flex !important; flex-direction: column;
+  gap: 3px !important; align-items: stretch;
+  width: 13rem; flex: 0 0 auto; }
+/* Flush, with the rounding on the bar rather than on each block: the eye
+   reads one object. A ramp with slots cut into it says "categories",
+   which is the opposite of what a sequential scale means. */
+.dd-ramp-blocks { display: flex !important; gap: 0 !important;
+  width: 100%; height: 10px; border-radius: 5px; overflow: hidden; }
+.dd-ramp-block { display: block !important; flex: 1 1 0; min-width: 0;
+  height: 100%; }
+/* The milestones sit where their value falls, so the row is a
+   positioning context rather than a flex line -- a flex row would space
+   them evenly and put every number somewhere it does not belong. */
+.dd-ramp-marks { display: block !important; position: relative;
+  width: 100%; height: .8rem;
+  font-size: .64rem; line-height: 1; font-variant-numeric: tabular-nums;
+  color: var(--text-3); }
+.dd-ramp-mark { position: absolute; top: 0; transform: translateX(-50%);
+  white-space: nowrap; }
+/* The two ends would otherwise hang off the bar. */
+.dd-ramp-mark[data-align="start"] { transform: none; }
+.dd-ramp-mark[data-align="end"] { transform: translateX(-100%); }
+@media (max-width: 34rem) { .dd-ramp-strip { width: 10rem; } }
+
 .dd-beyond { color: var(--text-3); font-style: italic; }
 
 .builder {
