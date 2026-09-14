@@ -21,6 +21,22 @@
     The palette, not its name. Somebody choosing colours is choosing
     colours; "Mizzou" says nothing until you have picked it and looked.
     {% endcomment %}
+    {% comment %}
+      INHERIT IS A CHOICE, and it has to be one that can be made: this step
+      wrote a theme on every visit, so a visual that had merely been looked
+      at carried an explicit palette and could never take its folder's.
+      Offered first, and selected by default, so a folder's palette is what
+      a new visual in it gets.
+    {% endcomment %}
+    {% if visual.folder %}
+    <label class="swatch{% if not theme_chosen %} on{% endif %}">
+      <input type="radio" name="theme" value="" {% if not theme_chosen %}checked{% endif %}>
+      <span class="bar" aria-hidden="true">
+        {% for c in folder_swatch %}<i style="background:{{ c }}"></i>{% endfor %}
+      </span>
+      <span class="name">From {{ visual.folder.name }}</span>
+    </label>
+    {% endif %}
     {% for t in themes %}
     <label class="swatch{% if t.on %} on{% endif %}">
       <input type="radio" name="theme" value="{{ t.id }}" {% if t.on %}checked{% endif %}>

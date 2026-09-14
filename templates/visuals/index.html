@@ -87,6 +87,45 @@
             <button type="submit" class="rename-save">Rename</button>
           </form>
           <span class="dim">{{ group.visuals|length }}</span>
+          {% comment %}
+            The palette belongs to the folder, because a project's charts
+            are read together. Changing it restyles every visual inside
+            that has not chosen its own, which is a lot moving at once --
+            so it asks first, and the row offers the way back rather than
+            expecting somebody to remember what it was.
+          {% endcomment %}
+          <form method="post" class="folder-theme"
+                action="{% url 'visuals:folder_set_theme' group.folder.id %}"
+                onsubmit="return confirm('Restyle every visual in “{{ group.folder.name|escapejs }}” that has not chosen its own palette?');">
+            {% csrf_token %}
+            {% comment %}
+              HIDDEN UNTIL ASKED FOR, like the move control beside every
+              row: "one dropdown per row is a wall of identical controls,
+              and the list is meant to be read rather than operated". The
+              button carries the current palette, so the header still says
+              what the folder is set to without a select being open.
+            {% endcomment %}
+            <button type="button" class="theme-open" aria-expanded="false"
+                    aria-controls="theme-{{ group.folder.id }}">
+              Theme: {{ group.folder.theme|default:"house default" }}
+            </button>
+            <label class="visually-hidden" for="theme-{{ group.folder.id }}">Palette for this folder</label>
+            <select id="theme-{{ group.folder.id }}" name="theme" hidden>
+              <option value="" {% if not group.folder.theme %}selected{% endif %}>Theme: house default</option>
+              {% for id, label, swatch in themes %}
+                <option value="{{ id }}" {% if group.folder.theme == id %}selected{% endif %}>Theme: {{ label }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="theme-save" hidden>Apply</button>
+          </form>
+          {% if undo_folder == group.folder.id %}
+          <form method="post" class="folder-theme-undo"
+                action="{% url 'visuals:folder_set_theme' group.folder.id %}">
+            {% csrf_token %}
+            <input type="hidden" name="theme" value="{{ undo_was }}">
+            <button type="submit">Undo — back to {{ undo_was|default:"the house default" }}</button>
+          </form>
+          {% endif %}
         </th>
       </tr>
       {% for visual in group.visuals %}
@@ -191,6 +230,21 @@ is a shortcut to it rather than a second implementation.
       })
       .catch(function () { window.location.reload(); });
   }
+
+  // The palette control opens on request. Same reason the move control
+  // does: a page of folders each showing an open dropdown is a wall of
+  // identical controls over a list meant to be read.
+  document.querySelectorAll("button.theme-open").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var form = button.closest("form");
+      var open = button.getAttribute("aria-expanded") === "true";
+      form.querySelectorAll("select, button.theme-save").forEach(function (el) {
+        el.hidden = open;
+      });
+      button.setAttribute("aria-expanded", open ? "false" : "true");
+      if (!open) form.querySelector("select").focus();
+    });
+  });
 
   // The grip drags, and the row is what appears under the pointer. A
   // draggable row would start a drag on the way to any click inside it
