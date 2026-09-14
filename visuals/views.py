@@ -945,6 +945,40 @@ def folder_set_theme(request, pk):
     return redirect(f"{reverse('visuals:index')}?undo={folder.pk}&was={was}")
 
 
+def folder_preview(request, pk):
+    """Every visual in one folder, small, on one page.
+
+    A LIST OF TITLES DOES NOT SAY WHAT A PROJECT LOOKS LIKE. The index
+    answers "what is in here" and cannot answer "do these read as one
+    set" -- which is the question a folder palette exists to serve, and
+    the only way to answer it is to see them together.
+
+    Each one is its own embed in an iframe rather than a screenshot: the
+    embed already exists, already serves the pinned snapshot, and is the
+    same thing a reader will see. A thumbnail would be a second rendering
+    path to keep true, and the first time it drifted this page would be
+    quietly lying about the work.
+
+    Readable by anyone who can read the index. It shows what the index
+    shows, in a different arrangement.
+    """
+    from visuals.models import Folder
+
+    folder = Folder.objects.filter(pk=pk).first()
+    if folder is None:
+        raise Http404("No such folder")
+    return render(
+        request,
+        "visuals/folder_preview.html",
+        {
+            "folder": folder,
+            # Ordered as the index orders them, so the page is the same
+            # set in the same sequence rather than a second opinion.
+            "visuals": folder.visuals.all(),
+        },
+    )
+
+
 @requires(DESIGN)
 def folder_create(request):
     """Make a project folder, and say so either way.
