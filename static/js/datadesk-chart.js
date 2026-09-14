@@ -2567,8 +2567,21 @@
       const focused = /^\d{2,5}$/.test(focus);
       const shown = focused ? framed : features;
       const inFrame = new Set(shown.map((f) => String(f.id).slice(0, 2)));
+      // The counties this map actually paints. Declared here because the
+      // scale, the legend's gate and the cuts all read it, and `const`
+      // is not hoisted -- used above its declaration it throws.
+      //
+      // It follows the frame wherever that came from: an explicit
+      // `config.frame`, a focus, or the auto weighting above.
+      const painted = new Set(shown.map((f) => String(f.id)));
       const byCounty = new Map(areas.map((a) => [String(a.geoid), a.stories]));
-      const max = d3.max(areas, (a) => a.stories) || 0;
+      // Whether there is anything to put a scale on. Read off the
+      // painted counties for the same reason the cuts are: a frame with
+      // no stories in it must not draw a key for somebody else's.
+      const max = d3.max(
+        areas.filter((a) => painted.has(String(a.geoid))),
+        (a) => a.stories
+      ) || 0;
       // Bands are equal-count groups of the counties that actually have
       // stories, so the map stays informative whether it is a 500-article
       // sample or the whole corpus. config.bands: "fixed" restores the
@@ -2594,7 +2607,20 @@
         ? 4
         : Math.min(12, Math.max(3, parseInt(config.bands, 10) || 10));
       const ramp = quantizeRamp(t.seqLow, t.seqHigh, steps + 1);
-      const values = areas.map((a) => a.stories).filter((n) => n > 0).sort(d3.ascending);
+      // BANDED ON WHAT IS DRAWN, not on what the feed carries. The
+      // payload holds every county the corpus touched -- 710 of them on
+      // the Missouri map -- while the map paints 115. The 595 counties
+      // outside the frame have a median of 2 stories, so the deciles
+      // came out at 1,1,1,2,2,4,7,20,44 and every Missouri county
+      // (median 44, max 969) landed in the top band or two: the whole
+      // state one flat colour. Over the counties actually shown the
+      // same cuts are 15,22,30,38,44,56,70,92,184.
+      //
+      const values = areas
+        .filter((a) => painted.has(String(a.geoid)))
+        .map((a) => a.stories)
+        .filter((n) => n > 0)
+        .sort(d3.ascending);
       // Cuts at i/steps, rising, de-duplicated. A count with many ties
       // can put two quantiles on the same number, which would draw two
       // bands covering the same range with one of them always empty.
