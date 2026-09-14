@@ -20,6 +20,7 @@ CHART_KINDS = (
     "sankey",
     "choropleth",
     "points",
+    "locator",
     "storymap",
     "flowmap",
 )
@@ -63,6 +64,10 @@ _STRING_KEYS = (
     "geo_join",
     "geo_value",
     "geo_palette",
+    # The locator map: the column of area codes, and how to frame them.
+    # It has no value column and no scale -- see types.ChartType("locator").
+    "area",
+    "locator_frame",
     "focus",
     "focus_name",
     "bands",
@@ -70,7 +75,7 @@ _STRING_KEYS = (
     "lon",
     "place",
 )
-_BOOL_KEYS = ("horizontal", "stacked", "geo_fit")
+_BOOL_KEYS = ("horizontal", "stacked", "geo_fit", "locator_labels")
 # "stack" is a string ("percent") rather than a flag.
 
 MAX_ROWS = 20_000
@@ -200,6 +205,9 @@ CHART_LIBS = {
     "scatter": ("d3", "plot"),
     "choropleth": ("d3", "plot", "topojson"),
     "points": ("d3", "plot", "topojson"),
+    # Same three as a choropleth: boundaries from topojson, the marks from
+    # Plot, and d3 only for the centroid a label sits on.
+    "locator": ("d3", "plot", "topojson"),
     # Counties from topojson and its own arcs and arrowheads in d3. Plot
     # draws none of it, so a flow map does not pay for Plot.
     "flowmap": ("d3", "topojson"),

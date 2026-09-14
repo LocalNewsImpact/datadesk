@@ -33,6 +33,11 @@ urlpatterns = [
         views.builder_duplicate,
         name="builder_duplicate",
     ),
+    path(
+        "visuals/builder/<slug:slug>/delete/",
+        views.builder_delete,
+        name="builder_delete",
+    ),
     # The two counts that used to run while a step rendered. Fetched once
     # the step has drawn, so the page appears at once and fills in.
     path(

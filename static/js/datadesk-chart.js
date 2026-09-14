@@ -313,6 +313,9 @@
     if (kind === "choropleth" || kind === "points") {
       return renderMap(el, config, rows, opts, t, width);
     }
+    if (kind === "locator") {
+      return renderLocator(el, config, rows, opts, t, width);
+    }
     if (kind === "storymap") return renderStoryMap(el, config, rows, opts, t, width);
     if (kind === "donut") return renderDonut(el, config, rows, t, width);
     if (kind === "chord") return renderChord(el, config, rows, t, width);
@@ -746,6 +749,91 @@
       el.appendChild(oneTable(rows));
     }
     creditLine(el, credits);
+  }
+
+  // A GEOID says what it is by how long it is. Making this a setting is
+  // how a county map comes out blank: the control's default is `states`,
+  // 5-digit codes join nothing, and the page says nothing about it.
+  const LEVEL_BY_LENGTH = { 2: "states", 5: "counties", 7: "places", 11: "tracts" };
+
+  function levelOfIds(ids) {
+    const lengths = new Set(ids.map((id) => String(id).length));
+    if (lengths.size === 1) {
+      const only = LEVEL_BY_LENGTH[[...lengths][0]];
+      if (only) return only;
+    }
+    // Mixed or unrecognised lengths: the longest wins, so a list of
+    // counties with one state in it still draws counties rather than
+    // refusing. Nothing recognisable at all falls back to counties, the
+    // level almost every list in this corpus is.
+    const known = [...lengths].map((n) => LEVEL_BY_LENGTH[n]).filter(Boolean);
+    return known.length ? known[known.length - 1] : "counties";
+  }
+
+  // A basemap with chosen areas highlighted. No value, no scale, no
+  // legend: an area is in the list or it is not.
+  function renderLocator(el, config, rows, opts, t, width) {
+    const key = config.area || config.geo_join;
+    if (!key) {
+      el.textContent = "Pick the column of area codes.";
+      return;
+    }
+    const raw = rows.map((r) => r[key]).filter((v) => v != null && v !== "");
+    if (!raw.length) {
+      el.textContent = "No area codes in that column.";
+      return;
+    }
+    const level = levelOfIds(raw.map((v) => pad(v, String(v).length)));
+    const idLength = GEO_LEVELS[level].idLength;
+    const ids = new Set(raw.map((v) => pad(v, idLength)));
+    const labelBy = new Map();
+    if (config.locator_labels) {
+      const nameKey = Object.keys(rows[0] || {}).find(
+        (k) => k !== key && typeof rows[0][k] === "string");
+      if (nameKey) {
+        for (const r of rows) labelBy.set(pad(r[key], idLength), r[nameKey]);
+      }
+    }
+
+    Promise.all([
+      boundaries(opts.geoBase, level, [...ids], opts.geoUrls),
+      boundaries(opts.geoBase, "states", [...ids], opts.geoUrls),
+    ]).then(([areas, states]) => {
+      const picked = areas.filter((f) => ids.has(f.id));
+      // The states the highlights sit in -- the default frame, and the
+      // reason this map reads as "these counties, in Missouri" rather
+      // than as a shape floating in the Atlantic.
+      const homeStates = new Set([...ids].map((id) => id.slice(0, 2)));
+      const home = states.filter((f) => homeStates.has(f.id));
+      const frame = config.locator_frame;
+      const domain =
+        frame === "nation" ? null : frame === "areas" ? picked : home;
+
+      const marks = [
+        // Everything at this level, inside the frame: the basemap.
+        Plot.geo(areas, { fill: t.missing, stroke: t.boundary, strokeWidth: 0.4 }),
+        // State lines over it, so the frame is legible.
+        Plot.geo(states, { fill: "none", stroke: t.boundary, strokeWidth: 1 }),
+        // The highlights.
+        Plot.geo(picked, { fill: t.seqHigh, stroke: t.surface, strokeWidth: 0.6,
+                           title: (f) => labelBy.get(f.id) || f.id, tip: true }),
+      ];
+      if (labelBy.size) {
+        marks.push(Plot.text(picked, {
+          text: (f) => labelBy.get(f.id) || "",
+          fontSize: 10, fill: t.ink, stroke: t.surface, strokeWidth: 3,
+          paintOrder: "stroke",
+          x: (f) => d3.geoCentroid(f)[0], y: (f) => d3.geoCentroid(f)[1],
+        }));
+      }
+      el.replaceChildren(Plot.plot({
+        width,
+        projection: { type: "albers-usa", domain: domain && domain.length
+          ? { type: "FeatureCollection", features: domain } : undefined },
+        marks,
+        style: { background: "transparent", color: t.ink },
+      }));
+    }).catch((err) => { el.textContent = String(err.message || err); });
   }
 
   function renderMap(el, config, rows, opts, t, width) {
