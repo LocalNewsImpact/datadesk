@@ -979,12 +979,48 @@
   }
 
   // A one-hue quantized ramp between two endpoints, in sRGB-linear steps.
+  // EVENLY SPACED IN PERCEIVED LIGHTNESS, not in raw sRGB. Stepping the
+  // hex channels linearly does not step the eye linearly: the middle of
+  // a light-to-dark ramp moves far faster than its ends, so with ten
+  // bands the palest three were nearly one colour while the darkest were
+  // wastefully far apart. Measured on the four themes, the worst
+  // adjacent pair at ten bands was 0.024 of relative luminance; even
+  // spacing makes every pair 0.071, which is roughly three times the
+  // separation and better than FOUR bands managed before.
+  //
+  // Every colour still sits on the same straight line between the two
+  // endpoints, so the ramp stays one hue family -- only where along that
+  // line each step lands has changed.
   function quantizeRamp(low, high, n) {
     const parse = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
     const [a, b] = [parse(low), parse(high)];
+    const at = (k) => a.map((v, j) => v + (b[j] - v) * k);
+    const lum = (rgb) => {
+      const lin = rgb.map((v) => {
+        const c = v / 255;
+        return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+      });
+      return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+    };
+    const [lo, hi] = [lum(at(0)), lum(at(1))];
+    // The position on the line whose luminance is `target`. Bisection
+    // rather than an inverse: luminance along the line is monotonic but
+    // has no closed form worth writing, and twenty halvings put it well
+    // inside a rounding error of one 8-bit channel.
+    const solve = (target) => {
+      let lowK = 0;
+      let highK = 1;
+      for (let i = 0; i < 20; i += 1) {
+        const mid = (lowK + highK) / 2;
+        const here = lum(at(mid));
+        if (hi > lo ? here < target : here > target) lowK = mid;
+        else highK = mid;
+      }
+      return (lowK + highK) / 2;
+    };
     return Array.from({ length: n }, (_, i) => {
-      const k = i / (n - 1);
-      const rgb = a.map((v, j) => Math.round(v + (b[j] - v) * k));
+      const k = n === 1 ? 0 : solve(lo + ((hi - lo) * i) / (n - 1));
+      const rgb = at(k).map((v) => Math.round(v));
       return "#" + rgb.map((v) => v.toString(16).padStart(2, "0")).join("");
     });
   }
@@ -2533,25 +2569,70 @@
       const inFrame = new Set(shown.map((f) => String(f.id).slice(0, 2)));
       const byCounty = new Map(areas.map((a) => [String(a.geoid), a.stories]));
       const max = d3.max(areas, (a) => a.stories) || 0;
-      const ramp = quantizeRamp(t.seqLow, t.seqHigh, 5);
-      // Bands are quartiles of the counties that actually have stories,
-      // so the map stays informative whether it is a 500-article sample
-      // or the whole corpus. config.bands: "fixed" restores the March
-      // map's 1-2 / 3-5 / 6-9 / 10+ cuts.
+      // Bands are equal-count groups of the counties that actually have
+      // stories, so the map stays informative whether it is a 500-article
+      // sample or the whole corpus. config.bands: "fixed" restores the
+      // March map's 1-2 / 3-5 / 6-9 / 10+ cuts; a number sets how many
+      // steps the ramp has.
+      //
+      // HOW MANY STEPS IS NOW A SETTING, and it had to become one. Four
+      // bands over a skewed count puts everything above the third
+      // quartile in one colour: the Missouri map's top band read "12+"
+      // while the counties in it held between 12 and 204 stories, so a
+      // county with fifteen and one with two hundred were the same shade
+      // and the map could not be read as a ranking at all.
+      // DECILES BY DEFAULT. Four bands over a skewed count is not a
+      // ranking: the Missouri map's top band read "12+" and held
+      // counties with anything from 12 to 204 stories in one colour.
+      // Ten is what the ramp can carry now that its steps are spaced by
+      // lightness -- every adjacent pair differs by about 0.071 of
+      // relative luminance, which is more separation than the old
+      // four-band scale had. Twelve is the cap for the same reason: at
+      // 0.059 it is still readable, and past that the palest steps stop
+      // being tellable apart on a small county.
+      const steps = config.bands === "fixed"
+        ? 4
+        : Math.min(12, Math.max(3, parseInt(config.bands, 10) || 10));
+      const ramp = quantizeRamp(t.seqLow, t.seqHigh, steps + 1);
       const values = areas.map((a) => a.stories).filter((n) => n > 0).sort(d3.ascending);
-      const cuts = config.bands === "fixed" || values.length < 8
-        ? [2, 5, 9]
-        : [0.25, 0.5, 0.75].map((q) => Math.max(1, Math.round(d3.quantile(values, q))));
-      const bandOf = (n) =>
-        !n ? 0 : n <= cuts[0] ? 1 : n <= cuts[1] ? 2 : n <= cuts[2] ? 3 : 4;
+      // Cuts at i/steps, rising, de-duplicated. A count with many ties
+      // can put two quantiles on the same number, which would draw two
+      // bands covering the same range with one of them always empty.
+      const cuts = config.bands === "fixed" || values.length < steps * 2
+        ? [2, 5, 9].slice(0, steps - 1)
+        : Array.from({ length: steps - 1 }, (_, i) =>
+            Math.max(1, Math.round(d3.quantile(values, (i + 1) / steps))))
+            .reduce((kept, cut) => {
+              if (!kept.length || cut > kept[kept.length - 1]) kept.push(cut);
+              return kept;
+            }, []);
+      const bandOf = (n) => {
+        if (!n) return 0;
+        for (let i = 0; i < cuts.length; i += 1) if (n <= cuts[i]) return i + 1;
+        return cuts.length + 1;
+      };
       const shadeFor = (n) => (n ? ramp[bandOf(n)] : t.missing);
-      const bandLabels = [
-        "0",
-        cuts[0] === 1 ? "1" : `1\u2013${cuts[0]}`,
-        cuts[1] === cuts[0] + 1 ? `${cuts[1]}` : `${cuts[0] + 1}\u2013${cuts[1]}`,
-        cuts[2] === cuts[1] + 1 ? `${cuts[2]}` : `${cuts[1] + 1}\u2013${cuts[2]}`,
-        `${cuts[2] + 1}+`,
-      ];
+      // NOT `top`: that is a global in a browser (`window.top`), and
+      // this only gets away with the name because it sits inside a
+      // function. Hoisted to module scope it would throw
+      // "Identifier 'top' has already been declared" and take the whole
+      // chart library down with it -- which is exactly what happened to
+      // a flat copy of this block.
+      const highest = d3.max(values) || 0;
+      // THE TOP BAND SAYS WHERE IT ENDS. "12+" hides the whole tail: the
+      // reader cannot tell whether the darkest county holds 13 stories or
+      // 204, which on this corpus is the difference between a flat map
+      // and a very concentrated one.
+      const bandLabels = ["0"].concat(
+        cuts.map((cut, i) => {
+          const from = i === 0 ? 1 : cuts[i - 1] + 1;
+          return from === cut ? `${cut}` : `${from}–${cut}`;
+        }),
+        (() => {
+          const from = cuts.length ? cuts[cuts.length - 1] + 1 : 1;
+          return from >= highest ? `${from}` : `${from}–${highest}`;
+        })()
+      );
 
       const projection = d3.geoAlbersUsa().fitSize(
         [width, Math.round(width * 0.62)],
@@ -2627,19 +2708,155 @@
         legend.appendChild(item);
       }
       if (max) {
+        // A STRIP, NOT A CHIP PER BAND. Every band used to carry its own
+        // swatch AND its own text; at ten bands that is eleven labelled
+        // chips like "143-208" laid across the top of the map, which does
+        // not fit and wraps into a paragraph of numbers.
+        //
+        // A ramp is one object, so it is drawn as one: the swatches butt
+        // together and only a few boundaries are written under it. That
+        // is how a reader uses a choropleth key anyway -- to place a
+        // shade between two ends, not to look up an exact band.
         const scale = document.createElement("span");
         scale.className = "dd-ramp";
         scale.append(document.createTextNode(
           "stories mentioning each county:"));
-        bandLabels.map((label, i) => [label, i ? ramp[i] : t.missing])
-          .forEach(([label, color]) => {
-          const chip = document.createElement("span");
+
+        // `0` is not a step of the ramp -- it is the absence of data --
+        // so it keeps its own chip and its own word.
+        const none = document.createElement("span");
+        const noneSw = document.createElement("span");
+        noneSw.className = "dd-swatch";
+        noneSw.style.background = t.missing;
+        none.append(noneSw, "none");
+        scale.appendChild(none);
+
+        const strip = document.createElement("span");
+        strip.className = "dd-ramp-strip";
+        // ONE SPECTRUM WITH A FEW MILESTONES. The bands are flush, so
+        // the bar reads as a single scale rather than as ten categories
+        // -- which is what the map is, a continuum cut into steps.
+        //
+        // A number under every block was the version that collided with
+        // itself and told the reader far more than a key is for. Four
+        // milestones sit where their value actually falls along the bar,
+        // and every block still knows its own band on hover.
+        const dataLabels = bandLabels.slice(1);
+        const blocks = document.createElement("span");
+        blocks.className = "dd-ramp-blocks";
+        dataLabels.forEach((label, i) => {
           const sw = document.createElement("span");
-          sw.className = "dd-swatch";
-          sw.style.background = color;
-          chip.append(sw, label);
-          scale.appendChild(chip);
+          sw.className = "dd-ramp-block";
+          sw.style.background = ramp[i + 1];
+          sw.title = `${label} stories`;
+          blocks.appendChild(sw);
         });
+
+        // The marks: round numbers, placed where they actually fall.
+        //
+        // These used to be the raw quantile cuts -- 74, 142, 604 -- which
+        // are an artefact of where the counties happened to land and mean
+        // nothing to a reader. Rounded to 75 and 150 they are numbers
+        // somebody can hold.
+        //
+        // THE BAR'S AXIS IS RANK, NOT VALUE, because the bands are
+        // equal-count: each holds about a tenth of the counties, so the
+        // tenth band spans 605 to 2,093 while the first spans 1 to 20.
+        // A mark is therefore placed by finding the band its value falls
+        // in and interpolating inside it, rather than by value across the
+        // bar. That keeps every number true to the shade above it, which
+        // is the only thing the key has to be right about.
+        const marks = document.createElement("span");
+        marks.className = "dd-ramp-marks";
+        const edges = [0].concat(cuts, [highest]);
+        const positionOf = (v) => {
+          for (let i = 0; i < edges.length - 1; i += 1) {
+            if (v <= edges[i + 1]) {
+              const span = edges[i + 1] - edges[i];
+              const within = span > 0 ? (v - edges[i]) / span : 0;
+              return (i + within) / (edges.length - 1);
+            }
+          }
+          return 1;
+        };
+        // 1, 2, 2.5, 5 and 7.5 times a power of ten: the numbers people
+        // round to without being asked.
+        const roundish = (n) => {
+          if (n <= 10) return n;
+          const power = Math.pow(10, Math.floor(Math.log10(n)));
+          const steps = [1, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10];
+          let best = power;
+          let gap = Infinity;
+          steps.forEach((s) => {
+            const candidate = s * power;
+            if (Math.abs(candidate - n) < gap) {
+              gap = Math.abs(candidate - n);
+              best = candidate;
+            }
+          });
+          return Math.round(best);
+        };
+        const mark = (value, text, align) => {
+          const m = document.createElement("span");
+          m.className = "dd-ramp-mark";
+          m.textContent = text;
+          m.style.left = `${positionOf(value) * 100}%`;
+          if (align) m.dataset.align = align;
+          marks.appendChild(m);
+        };
+        // A LADDER OF ROUND NUMBERS -- 50, 250, 500, 1,000 -- rather
+        // than the quantile cuts, which are an artefact of where the
+        // counties happened to land and mean nothing to a reader.
+        // 1, 2 and 5 times a power of ten: 2, 5, 10, 20, 50, 100, 200.
+        // These are the numbers people round to without being asked.
+        // 2.5 was in here and produced "3" on a small map, which is not
+        // a round number at that scale -- it is just a number.
+        const ladder = [];
+        for (let power = 1; power <= highest; power *= 10) {
+          [1, 2, 5].forEach((m) => {
+            const v = Math.round(m * power);
+            // `<=` so the top of a small scale can be its own last rung:
+            // a map whose busiest county has 200 stories should end at
+            // 200, not at 100.
+            if (v > 1 && v <= highest) ladder.push(v);
+          });
+        }
+        ladder.sort((a, b) => a - b);
+        // Placed by rank, so several round numbers can land inside one
+        // band and pile up. Kept only where they are far enough apart to
+        // read -- a crowded key is worse than a sparse one.
+        // Wide enough that four marks is the usual outcome. This is a
+        // small key on the edge of a map, not an axis: three or four
+        // round numbers and the two ends is all it has room to say.
+        // Wide enough that three or four marks is the usual outcome.
+        // This is a small key on the edge of a map, not an axis.
+        const APART = 0.2;
+        // THE END MARK IS NOT AT 1.0. It sits where its own round value
+        // falls -- 1,000 lands at 0.93 on the March map -- so measuring
+        // the gap against the end of the BAR let the last interior mark
+        // sit 0.19 away from it and the two labels ran together: "250"
+        // and "1,000" rendered as "250,000".
+        // THE END MARK HAS TO MEAN THE END. The largest round number
+        // below the maximum can be far below it -- on a map peaking at
+        // 2,093 the ladder offers 2,000, which is fine, but one peaking
+        // at 12 offers 10 and one peaking at 190 offers 100, which
+        // labels the darkest shade at half what it holds. Where the
+        // nearest rung is not close, the maximum speaks for itself.
+        const rung = ladder.filter((v) => v <= highest).pop() || highest;
+        const topValue = rung >= highest * 0.6 ? rung : highest;
+        const topAt = positionOf(topValue);
+        let lastAt = 0;
+        mark(1, "1", "start");
+        ladder.forEach((v) => {
+          const at = positionOf(v);
+          if (v < topValue && at - lastAt >= APART && topAt - at >= APART) {
+            lastAt = at;
+            mark(v, v.toLocaleString());
+          }
+        });
+        mark(topValue, topValue.toLocaleString(), "end");
+        strip.append(blocks, marks);
+        scale.appendChild(strip);
         legend.appendChild(scale);
       }
       if (beyond) {

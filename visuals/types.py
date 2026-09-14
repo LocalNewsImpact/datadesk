@@ -488,7 +488,23 @@ CHART_TYPES = (
                 "bands",
                 "Shading steps",
                 "choice",
-                note="Read by the renderer; no control offers it yet.",
+                note=(
+                    "Equal-count bands: each holds about the same number "
+                    "of counties. Ten separates a heavy tail that four "
+                    "flattens into one colour."
+                ),
+                # IT HAD NONE, which is why it did nothing. A choice with
+                # no values renders an empty control, so the option was
+                # declared, documented as unreachable, and left that way.
+                values=(
+                    ("", "10 — deciles"),
+                    ("5", "5"),
+                    ("6", "6"),
+                    ("7", "7"),
+                    ("8", "8"),
+                    ("12", "12 — the most the ramp can carry"),
+                    ("fixed", "Fixed: 1–2 / 3–5 / 6–9 / 10+"),
+                ),
             ),
         ),
         also=("coverage map",),
