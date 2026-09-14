@@ -44,6 +44,9 @@ from datetime import UTC
 
 from django.core.cache import cache
 from django.db.models import Q
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Coalesce
+from django.db.models.lookups import In
 from lnic_contracts import discovery_verdict
 
 from review import kernel
@@ -87,6 +90,30 @@ DOUBTFUL_MARGIN = 25.0
 #: override rather than the model.
 DECISIVE_MARGIN = 100.0
 
+#: The mechanisms that mean STORYSNIFFER ITSELF ANSWERED.
+#:
+#: `_decided_by` in the crawler names four: `wire` (the wire-service URL
+#: filter), `pattern:<type>` (the URL pattern rules, including the
+#: asset-extension check), `sniffer` (guess() returned true) and
+#: `default` (nothing filtered and guess() returned false). Only the last
+#: two are the model. The first two return BEFORE `sniffer.guess()` is
+#: called and write `storysniffer_result = False` on their way out, so
+#: the column holds a rule's answer in the model's field.
+MODEL_DECIDED = ("sniffer", "default")
+
+#: Where the mechanism is written, which depends on which path wrote the
+#: row. The live verification path puts it in `decided_by`. The backfill
+#: puts the literal string "backfill" there -- it is recording that the
+#: original decision's mechanism was never captured -- and puts the
+#: rescore's mechanism in `rescored_by`. Reading either key alone is
+#: wrong on half the table, and today it is wrong on ALL of it: every one
+#: of the 245,473 rows is a backfill, because discovery has not run since
+#: 2026-08-12.
+MECHANISM = Coalesce(
+    KeyTextTransform("rescored_by", "meta"),
+    KeyTextTransform("decided_by", "meta"),
+)
+
 #: How many rows each stratum contributes. Doubtful is None -- it is
 #: reviewed in full, not sampled.
 STRATUM_SIZE = {
@@ -104,7 +131,8 @@ STRATA = (
     (
         OVERRULED,
         "Model disagrees",
-        "Scores a story now; the pipeline did not keep it then.",
+        "Storysniffer scores it a story; the pipeline did not keep it. "
+        "A URL rule rejecting it is not a disagreement and is not here.",
     ),
     (
         SAMPLE,
@@ -136,10 +164,27 @@ def predicate(stratum):
             verification_confidence__lte=DOUBTFUL_MARGIN,
         )
     if stratum == OVERRULED:
+        # THE MECHANISM HAS TO BE THE MODEL, or this stratum is not what
+        # its name says. Measured against production 2026-09-14: 69,514
+        # rows sit above the decisive margin with `storysniffer_result`
+        # false, and ZERO of them were decided by storysniffer. Every one
+        # is a wire hit or a URL pattern -- `/world/`, `/cnn/`, a feed, a
+        # photo gallery -- and a reviewer reading the stratum's name was
+        # being asked to second-guess a model that never spoke.
+        #
+        # Reviewed by hand before this changed: 50 of 50 were wire, feeds,
+        # video or photo galleries, and every rejection was correct.
+        #
+        # The mechanism test rides INSIDE the Q as a lookup rather than
+        # as an annotated column. An annotation has to be applied by
+        # whoever builds the queryset, and a caller that forgets gets
+        # `FieldError: Cannot resolve keyword` -- the review queue
+        # returning a 500 rather than a wrong count. A predicate that
+        # carries its own left-hand side cannot be used wrongly.
         return Q(
             verification_confidence__gt=DECISIVE_MARGIN,
             storysniffer_result=False,
-        )
+        ) & Q(In(MECHANISM, MODEL_DECIDED))
     return Q()
 
 

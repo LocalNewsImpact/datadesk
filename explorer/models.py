@@ -226,6 +226,21 @@ class UrlVerification(CrawlerModel):
     article_headline = models.TextField(null=True)
     article_excerpt = models.TextField(null=True)
     dataset_id = models.TextField(null=True)
+    #: WHICH MECHANISM PRODUCED THE VERDICT, which the boolean above does
+    #: not say. Four of them can write `storysniffer_result = False` and
+    #: only one of them is the model: the wire filter, the URL pattern
+    #: rules and the asset-extension check all return before
+    #: `sniffer.guess()` is ever called.
+    #:
+    #: The crawler records it under two different keys depending on which
+    #: path wrote the row -- see `discovery.MECHANISM` -- so read it
+    #: through that rather than reaching in here.
+    #:
+    #: Postgres `json`, not `jsonb`: Django's own key lookups
+    #: (`meta__rescored_by="x"`) compile to `->` compared against a jsonb
+    #: literal and ERROR on this column. `KeyTextTransform` compiles to
+    #: `->>` and works.
+    meta = DecodedJSONField(null=True)
 
     class Meta(CrawlerModel.Meta):
         db_table = "url_verifications"
