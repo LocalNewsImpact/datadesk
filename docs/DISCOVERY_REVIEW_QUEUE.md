@@ -427,38 +427,83 @@ A new nav group, **Discovery**, between Sources and Extraction
 ## 7. Triggers: what is in the queue
 
 Four row sets, chosen so that the queue finds errors *and* can measure
-them. The first three are ranked; the fourth is not, and that is what
+them. Three are ranked or scoped; the fourth is uniform, and that is what
 makes it useful.
 
-| Set | Rows | Answers |
-| --- | --- | --- |
-| **Overruled** | rejected, where storysniffer said story and something rejected it anyway | type II — the largest set, and the one no other surface can see |
-| **By rule** | the overruled set grouped by the rule that fired | a bad rule, fixed once for every URL it will ever match |
-| **Wrong acceptances** | accepted, where storysniffer said not-a-story | type I — 0.4% of acceptances, small and worth reading |
-| **Sample** | a random sample of each class | the true error rate |
+This is what `review/discovery.py` builds. It is **not** what the first
+draft of this section proposed, and the difference is recorded below
+rather than overwritten.
 
-The first three replace the confidence bands an earlier draft of this
-document assumed. They cannot be built on `predict_proba` (§5): the model
-is saturated, so *nearly said yes* has no meaning in it. **Disagreement
-between the mechanisms is the uncertainty signal that actually exists**,
-it is computable today, and it is where the errors are — 66.4% of
-rejections are cases where the model and a rule disagreed and the rule
-won silently.
+| Set | Key | Rows | Answers | Size |
+| --- | --- | --- | --- | --- |
+| **Doubtful** | `doubtful` | \|margin\| ≤ 25, either side | the boundary the model could not call | in full |
+| **Model disagrees** | `overruled` | margin > 100, `storysniffer_result` false, **and storysniffer itself produced the verdict** | type II — a story the model scored highly and the pipeline dropped | 300 |
+| **Never judged** | `never_judged` | `verdict_kind = "never_judged"` | nothing has ruled on these at all | in full |
+| **Random sample** | `sample` | drawn uniformly across the whole cohort | the true error rate, with an interval | 400 |
 
-Once §10's calibrated model exists, a genuine low-confidence band is
-added beside these, not instead of them: a calibrated score ranks within
-the overruled set, which is 17,300 rows and needs ranking.
+**The bands are cut on the log-odds margin, not on `predict_proba`.** The
+model is saturated, so *nearly said yes* has no meaning in a probability
+from it (§5); `predict_log_proba` still orders URLs, and `Doubtful` is
+that ordering cut at ±25. Its magnitudes run to thousands and mean
+nothing on their own.
 
-The fourth set is not optional. A doubt-ranked sample is biased by
-construction: it is drawn from the rows a signal already suspects, so it
-can only ever find errors and can never say how many there are. Two
-hundred randomly drawn labels per class give an error rate with a
-confidence interval; two hundred doubt-ranked ones give a list of
-mistakes. Both are wanted, for different questions.
+**Random is not optional.** A doubt-ranked set is biased by construction:
+it is drawn from rows a signal already suspects, so it can only ever find
+errors and can never say how many there are. 400 rows gives ±5% at 95%,
+which is the right precision for error rates in the 1–10% range. Both are
+wanted, for different questions, and every row carries which set drew it
+and with what probability — a rate measured over rows that were not
+equally likely to be drawn is not a rate.
 
-**Where the overruled rows are, measured.** Of 1,992 disagreements in the
-6,000-URL sample, 1,579 match an active rule and 413 match none at all —
-so those were rejected by the wire filter or by nothing matching:
+### What "Model disagrees" had to be narrowed to mean
+
+As first built, the set was *any* decisive positive margin that was
+rejected anyway. That is not a disagreement with the model:
+`storysniffer_result` is not storysniffer's answer. Four mechanisms write
+`False` into it and only one of them is the model — the wire-service URL
+filter, the URL pattern rules and the asset-extension check all return
+before `sniffer.guess()` is ever called.
+
+Measured 2026-09-14: **69,514 rows** sat in the set and **none** was
+decided by storysniffer — 51,815 wire, the rest URL patterns (`feed`
+4,013, `image_placeholder` 3,954, `video` 3,890, `opinion` 2,529,
+`asset_extension` 1,902). Reviewed by hand, 50 of 50 were wire, feeds,
+video or photo galleries and every rejection was correct. The set now
+requires the mechanism recorded on the row to be the model's own.
+
+### Never judged
+
+A link at `candidate_links.status = 'discovered'` has no verdict to
+second-guess: it was found, and neither the rules nor the model has been
+run over it since. The crawler scores those on request
+(`backfill-verifications --unjudged`) and marks each row a `prescore`
+rather than a backfill, because there is no decision to backfill.
+
+410 were written on 2026-09-14, of which 380 fall outside every
+doubt-ranked band on margin alone — without a set of their own, only the
+400-row uniform sample could have reached them, which across a cohort of
+hundreds of thousands is a handful. They are reviewed in full, and kept
+out of `Doubtful` and `Model disagrees`: nothing overruled a link nothing
+ruled on, and a reviewer answering here is making the first decision
+rather than reviewing one.
+
+### Two sets in the first draft that were not built
+
+| Proposed | Why not |
+| --- | --- |
+| **By rule** — the overruled set grouped by the rule that fired | The grouping is a report, not a queue: a reviewer dispositions rows, and "fix the rule once for every URL it matches" is a change to the rule rather than a disposition. §11 already excludes changing verdicts in bulk. The rule that fired is on every row, so the grouping is still available to a query. |
+| **Wrong acceptances** — accepted, where storysniffer said not-a-story | 0.4% of acceptances, and the content stage catches them anyway: a type I costs a wasted fetch, not a corpus error. The uniform sample holds them in proportion, which is enough to watch the rate. |
+
+Once §10's calibrated model exists, a calibrated score ranks *within*
+`Model disagrees` rather than replacing any of these.
+
+**Which rules fire, measured.** This was written as "where the overruled
+rows are", on the reading that a rule beating a high-scoring URL was a
+disagreement with the model. It is not — see the narrowing above — so it
+is kept for what it does say: which rules account for the rejections. Of
+1,992 such rows in the 6,000-URL sample, 1,579 match an active rule and
+413 match none at all, so those were rejected by the wire filter or by
+nothing matching:
 
 | Rule | URLs |
 | --- | ---: |
@@ -470,7 +515,10 @@ so those were rejected by the wire filter or by nothing matching:
 | no active rule matched | 413 |
 
 Three rules account for 1,430 of the 1,992. Whether they are wrong is a
-question for a reviewer; that they are the question is not.
+question for a reviewer; that they are the question is not. The
+full-corpus count taken on 2026-09-14 has the same three at the top of
+it, which is the reason a rule's quality is worth a queue of its own one
+day and is not this one.
 
 **Four of the 46 active rules have regexes that do not compile**:
 `/(entertainment`, `obituar(y`, `/(us-world-news`, `/(weather`. Whatever
