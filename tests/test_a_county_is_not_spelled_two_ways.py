@@ -41,6 +41,21 @@ class TestOneCountyOneKey:
     def test_the_three_words_a_county_is_called(self, spelled, expected):
         assert _county_key(spelled) == expected
 
+    @pytest.mark.parametrize(
+        "a,b",
+        [
+            ("St Louis", "St. Louis"),
+            ("St Charles", "St. Charles"),
+            ("Ste Genevieve", "Ste. Genevieve"),
+        ],
+    )
+    def test_a_period_does_not_make_a_second_county(self, a, b):
+        """The same fault as the suffix, found live after the first fix:
+        18 sources wrote "St. Louis" and 3 wrote "St Louis", so the tree
+        grew two St Louis branches. No two counties differ only by a
+        period, so the key ignores them."""
+        assert _county_key(a) == _county_key(b)
+
     def test_an_empty_county_is_not_a_place(self):
         """A record missing its county is a record the scan already
         flags, not a county called nothing."""
@@ -54,8 +69,8 @@ class TestWhatItMustNotTouch:
         """St. Louis City and St. Louis County are different places with
         different FIPS. Stripping a bare trailing "City" would merge a
         city of 280,000 into the county that surrounds it."""
-        assert _county_key("St. Louis City") == "St. Louis City"
         assert _county_key("St. Louis City") != _county_key("St. Louis")
+        assert _county_key("St Louis City") != _county_key("St Louis")
 
     @pytest.mark.parametrize("name", ["DeKalb", "McDonald"])
     def test_internal_capitals_survive(self, name):

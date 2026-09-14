@@ -1636,6 +1636,11 @@ def _newsroom_tree(visual):
 #: is called, and all three are suffixes the bare name drops.
 _COUNTY_SUFFIX = re.compile(r"\s+(County|Parish|Borough|City and Borough)$", re.I)
 
+#: Periods are punctuation, not identity: no two counties differ only by
+#: one. Removing them from the KEY lets "St Louis" and "St. Louis" meet
+#: without touching case, which would break DeKalb and McDonald.
+_PERIOD = re.compile(r"\.")
+
 
 def _county_key(value):
     """One key per county, whatever the record spells it.
@@ -1662,7 +1667,12 @@ def _county_key(value):
     independent city, not St. Louis County, and only "City and Borough"
     is stripped rather than a bare trailing "City".
     """
-    return _COUNTY_SUFFIX.sub("", (value or "").strip()).strip() or UNRECORDED
+    bare = _COUNTY_SUFFIX.sub("", (value or "").strip()).strip()
+    # PERIODS DO NOT DISTINGUISH TWO COUNTIES. "St Louis" and "St. Louis"
+    # are one place, and both were in the data: 18 sources wrote the
+    # period and 3 did not, so the tree grew two St Louis branches the
+    # same way it grew two Callaway ones. Same for St Charles.
+    return _PERIOD.sub("", bare) or UNRECORDED
 
 
 def newsroom_tree_for(scopes):
