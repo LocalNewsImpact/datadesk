@@ -372,8 +372,8 @@
 </section>
 
 {{ columns|json_script:"dd-columns" }}
-<script id="dd-config" type="application/json">{{ config_json }}</script>
-<script id="dd-rows" type="application/json">{{ preview_json }}</script>
+{{ config_json|json_script:"dd-config" }}
+{{ preview_json|json_script:"dd-rows" }}
 <script src="{% static 'js/d3.min.js' %}"></script>
 <script src="{% static 'js/plot.min.js' %}"></script>
 <script src="{% static 'js/topojson-client.min.js' %}"></script>

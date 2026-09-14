@@ -9,7 +9,6 @@ The feed serves the pinned snapshot — the embed stability rule — and
 ?live=1 runs the data source only where the visual explicitly allows it.
 """
 
-import json
 from urllib.parse import urlencode
 
 from django.core.cache import cache
@@ -1101,10 +1100,21 @@ def builder_edit(request, slug):
             "snapshot": snapshot,
             "columns": columns,
             "chart_kinds": CHART_KINDS,
-            "config_json": json.dumps(visual.config or {}),
+            # OBJECTS, NOT PRE-ENCODED JSON. `{{ config_json }}` in a
+            # <script> is autoescaped -- every `"` becomes `&quot;` -- so
+            # `JSON.parse` threw on the first line of the page's script and
+            # took everything after it with it: the form was never
+            # hydrated, `updateVisibility` never ran, the preview never
+            # drew. A locator map showed "table" and an empty title, and
+            # saving that page wrote them over a correct config.
+            #
+            # `json_script` escapes for exactly this context. `columns`
+            # already used it, which is why the column pickers were the one
+            # part of the page that worked.
+            "config_json": visual.config or {},
             "embed_snippet": embed_snippet(visual),
-            "spec_json": json.dumps(visual.spec or {}),
-            "preview_json": json.dumps(rows[:5000]),
+            "spec_json": visual.spec or {},
+            "preview_json": rows[:5000],
             "dimensions": [
                 {"key": k, "label": v["label"], "note": v.get("note", "")}
                 for k, v in DIMENSIONS.items()
