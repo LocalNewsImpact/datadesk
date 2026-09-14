@@ -92,6 +92,38 @@ def step(client, visual, name, **post):
 # --- each step writes its own keys and no others -----------------------------
 
 
+def _run_node(node, harness):
+    """Run a harness that embeds the whole renderer, from a FILE.
+
+    `node -e <harness>` puts the entire `datadesk-chart.js` into one
+    argument, and Linux caps a single argument at MAX_ARG_STRLEN --
+    32 pages, 131,072 bytes. The renderer was 129,543 of them, so these
+    four tests passed with about 1.5kB of headroom and broke the first
+    time somebody added comments to the file they are testing:
+
+        OSError: [Errno 7] Argument list too long: '/usr/local/bin/node'
+
+    Not on a developer's Mac, where the limit is higher, so it failed
+    only in CI and only for whoever touched the renderer next.
+
+    A file has no such limit, and `--check` in this same module already
+    took that route.
+    """
+    import os
+    import subprocess
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".js", delete=False, encoding="utf-8"
+    ) as fh:
+        fh.write(harness)
+        where = fh.name
+    try:
+        return subprocess.run([node, where], capture_output=True, text=True)
+    finally:
+        os.unlink(where)
+
+
 def test_choosing_a_type_writes_only_the_type(client, author, visual):
     visual.config = {"theme": "mizzou", "title": "Mine"}
     visual.save()
@@ -2679,7 +2711,6 @@ def test_an_ordered_series_is_drawn_as_one_hue_light_to_dark():
     darker, in the order the values appear."""
     import json
     import shutil
-    import subprocess
     from pathlib import Path
 
     node = shutil.which("node")
@@ -2707,7 +2738,7 @@ def test_an_ordered_series_is_drawn_as_one_hue_light_to_dark():
     }));
     """.replace("RUNTIME", Path("static/js/datadesk-chart.js").read_text())
 
-    done = subprocess.run([node, "-e", harness], capture_output=True, text=True)
+    done = _run_node(node, harness)
     assert done.returncode == 0, done.stderr[-2000:]
     got = json.loads(done.stdout)
 
@@ -2812,7 +2843,6 @@ def test_the_sankey_graph_is_two_columns_summed_and_never_recoloured():
     is d3 doing what d3 does."""
     import json
     import shutil
-    import subprocess
     from pathlib import Path
 
     node = shutil.which("node")
@@ -2851,7 +2881,7 @@ def test_the_sankey_graph_is_two_columns_summed_and_never_recoloured():
     }));
     """.replace("RUNTIME", Path("static/js/datadesk-chart.js").read_text())
 
-    done = subprocess.run([node, "-e", harness], capture_output=True, text=True)
+    done = _run_node(node, harness)
     assert done.returncode == 0, done.stderr[-2000:]
     got = json.loads(done.stdout)
 
@@ -3058,7 +3088,6 @@ def test_a_sankey_folds_each_side_and_says_so():
     must not do quietly."""
     import json
     import shutil
-    import subprocess
 
     node = shutil.which("node")
     if node is None:
@@ -3086,7 +3115,7 @@ def test_a_sankey_folds_each_side_and_says_so():
     }));
     """.replace("RUNTIME", (ROOT / "static/js/datadesk-chart.js").read_text())
 
-    done = subprocess.run([node, "-e", harness], capture_output=True, text=True)
+    done = _run_node(node, harness)
     assert done.returncode == 0, done.stderr[-2000:]
     got = json.loads(done.stdout)
 
@@ -3524,7 +3553,6 @@ def test_a_sankey_trims_a_label_only_when_it_must():
     """
     import json
     import shutil
-    import subprocess
 
     node = shutil.which("node")
     if node is None:
@@ -3559,7 +3587,7 @@ def test_a_sankey_trims_a_label_only_when_it_must():
     }));
     """.replace("RUNTIME", (ROOT / "static/js/datadesk-chart.js").read_text())
 
-    done = subprocess.run([node, "-e", harness], capture_output=True, text=True)
+    done = _run_node(node, harness)
     assert done.returncode == 0, done.stderr[-2000:]
     got = json.loads(done.stdout)
 
