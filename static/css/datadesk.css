@@ -2193,11 +2193,44 @@ a.button:hover{ background: var(--surface-2); }
 .new-folder input:focus{ border-color: var(--accent); }
 .new-folder button{ white-space: nowrap; }
 
+/* THE HEADING IS A BAR, so it has to lay out as one. Everything in here
+   is a form, and a form is block-level: the palette control broke to its
+   own line under the folder name and the undo form broke to a third,
+   which is what the screen showed -- three stacked rows for one heading,
+   and a "drawer" that was never hidden because nothing was holding it
+   beside the name. Flex puts them back on the line. */
 .visuals-list .folder-head th{ background: var(--surface-2);
   font-size: .82rem; letter-spacing: .02em; padding: .4rem .6rem;
-  border-top: 1px solid var(--border); }
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center; gap: .4rem; }
+/* The gap spaces the count now; the margin would double it. */
 .visuals-list .folder-head .dim{ color: var(--text-3); font-weight: 400;
-  margin-left: .4rem; font-variant-numeric: tabular-nums; }
+  font-variant-numeric: tabular-nums; }
+
+/* The palette sits at the far end, away from the name and the count --
+   it acts on the whole folder rather than on anything next to it, and at
+   the end it is out of the way of a list meant to be read. */
+.folder-head form.folder-theme{ display: inline-flex; align-items: center;
+  gap: .3rem; margin-left: auto; }
+.folder-head form.folder-theme-undo{ display: inline-flex; }
+/* Quiet chrome, like .rename-save: one of these per folder down the page
+   is a column of buttons, and none of them is the thing being read. */
+.folder-head .theme-open,
+.folder-head .theme-save,
+.folder-head .folder-theme-undo button{ font: inherit; font-size: .72rem;
+  padding: .1rem .45rem; white-space: nowrap; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text-2); }
+.folder-head .theme-open:hover,
+.folder-head .theme-save:hover,
+.folder-head .folder-theme-undo button:hover{ color: var(--text);
+  border-color: var(--border-strong); }
+/* Open, it is a live control and stops being quiet. */
+.folder-head .theme-open[aria-expanded="true"]{ color: var(--text);
+  border-color: var(--border-strong); background: var(--surface-2); }
+.folder-head form.folder-theme select{ font: inherit; font-size: .72rem;
+  padding: .1rem .3rem; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border-strong); border-radius: var(--r-sm); }
 
 /* Where a dragged visual will land. Marked on the heading, which is the
    drop target, so the feedback is where the pointer is. */

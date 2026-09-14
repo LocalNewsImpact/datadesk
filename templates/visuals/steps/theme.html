@@ -34,7 +34,12 @@
       <span class="bar" aria-hidden="true">
         {% for c in folder_swatch %}<i style="background:{{ c }}"></i>{% endfor %}
       </span>
-      <span class="name">From {{ visual.folder.name }}</span>
+      {% comment %}
+        It names the palette, not the folder. "From March Project" reads
+        as a bespoke theme somebody made for that project -- it is the
+        folder's own palette, which is one of the five below.
+      {% endcomment %}
+      <span class="name">The folder's — {{ folder_theme_label }}</span>
     </label>
     {% endif %}
     {% for t in themes %}

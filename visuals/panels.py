@@ -323,6 +323,17 @@ def theme_panel(visual, post=None):
             ),
             next(colours for i, _l, colours in THEMES if i == "datadesk"),
         ),
+        # And its name, because the option was labelled with the FOLDER'S
+        # name -- "From March Project" -- which reads as a sixth palette
+        # made for that project rather than as one of the five.
+        "folder_theme_label": next(
+            (
+                label
+                for i, label, _c in THEMES
+                if visual.folder and i == visual.folder.theme
+            ),
+            "the house default",
+        ),
         "taxonomy": config.get("taxonomy") == "cin",
         # What this chart can be told to do, and what it has been told.
         # Only the options whose role is filled: an option for a series
