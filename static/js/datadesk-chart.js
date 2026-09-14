@@ -794,14 +794,26 @@
     const level = levelOfIds(raw.map((v) => pad(v, String(v).length)));
     const idLength = GEO_LEVELS[level].idLength;
     const ids = new Set(raw.map((v) => pad(v, idLength)));
+    // A NAME, NOT A CODE. Hovering a county said "29019", which is the
+    // join key and not an answer to the question somebody is asking by
+    // hovering. Built whether or not the labels toggle is on: that toggle
+    // decides whether names are DRAWN on the map, and a tooltip is not a
+    // label.
+    //
+    // The data's own name column wins where there is one -- it is the
+    // spelling whoever made the file chose. Otherwise the boundary file
+    // carries `properties.name` for every county, state and place, which
+    // is where "Boone" comes from when the upload is a bare list of codes.
     const labelBy = new Map();
-    if (config.locator_labels) {
-      const nameKey = Object.keys(rows[0] || {}).find(
-        (k) => k !== key && typeof rows[0][k] === "string");
-      if (nameKey) {
-        for (const r of rows) labelBy.set(pad(r[key], idLength), r[nameKey]);
-      }
+    const nameKey = Object.keys(rows[0] || {}).find(
+      (k) => k !== key && typeof rows[0][k] === "string");
+    if (nameKey) {
+      for (const r of rows) labelBy.set(pad(r[key], idLength), r[nameKey]);
     }
+    const nameOf = (f) =>
+      labelBy.get(String(f.id))
+      || (f.properties && f.properties.name)
+      || String(f.id);
 
     Promise.all([
       boundaries(opts.geoBase, level, [...ids], opts.geoUrls),
@@ -835,14 +847,14 @@
         // The highlights.
         Plot.geo(picked, {
           fill: t.seqHigh, stroke: t.surface, strokeWidth: 0.6,
-          title: (f) => labelBy.get(String(f.id)) || String(f.id), tip: true,
+          title: nameOf, tip: true,
         }),
         // State lines last, over both, so the frame reads as one shape.
         Plot.geo(outline, { fill: "none", stroke: t.boundary, strokeWidth: 1.2 }),
       ];
-      if (labelBy.size) {
+      if (config.locator_labels) {
         marks.push(Plot.text(picked, {
-          text: (f) => labelBy.get(String(f.id)) || "",
+          text: nameOf,
           fontSize: 10, fill: t.ink, stroke: t.surface, strokeWidth: 3,
           paintOrder: "stroke",
           x: (f) => d3.geoCentroid(f)[0], y: (f) => d3.geoCentroid(f)[1],

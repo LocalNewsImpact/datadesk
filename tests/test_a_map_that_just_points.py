@@ -322,3 +322,39 @@ class TestItIsDrawnLikeAStoryMap:
         working map with nothing on it -- which is how a 5-digit FIPS drawn
         at state level presented. Say it instead."""
         assert "None of those codes matched" in self._locator()
+
+
+class TestHoveringNamesThePlace:
+    """Hovering a county said "29019". That is the join key, not an answer
+    to the question somebody is asking by hovering."""
+
+    def _locator(self):
+        source = CHART_JS.read_text()
+        start = source.index("function renderLocator")
+        return source[start : source.index("function renderMap", start)]
+
+    def test_the_tooltip_uses_the_name(self):
+        body = self._locator()
+        assert "title: nameOf" in body
+
+    def test_the_name_falls_back_to_the_boundary_file(self):
+        """`counties-10m.json` carries `properties.name` for every county --
+        `{"id": "04015", "properties": {"name": "Mohave"}}` -- so an upload
+        that is a bare list of codes still hovers as a place."""
+        body = self._locator()
+        assert "f.properties.name" in body
+
+    def test_the_data_column_wins(self):
+        """Where the file has its own name column, that spelling is the one
+        whoever made the file chose."""
+        body = self._locator()
+        assert body.index("labelBy.get(String(f.id))") < body.index("f.properties.name")
+
+    def test_the_tooltip_does_not_wait_for_the_labels_toggle(self):
+        """That toggle decides whether names are DRAWN on the map. A
+        tooltip is not a label, and gating one on the other is why a
+        hover showed a code."""
+        body = self._locator()
+        names_built = body.index("const labelBy = new Map();")
+        toggle = body.index("config.locator_labels")
+        assert names_built < toggle, "labels are still built inside the toggle"
