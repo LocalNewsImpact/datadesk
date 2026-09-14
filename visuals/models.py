@@ -161,12 +161,27 @@ class Visual(models.Model):
         Resolved here rather than in each of the four views that mount a
         renderer, and read rather than written, so a visual saved before
         the walk existed draws correctly without a migration.
+
+        THE FOLDER'S PALETTE is resolved the same way and for the same
+        reason. A folder is a project, and a project's charts are read
+        together -- side by side in a report, one after another in a deck.
+        Theme was a per-visual choice against one house default, so a story
+        map on `mizzou` shading gold sat in a folder beside a locator on
+        `datadesk` shading blue and nothing noticed.
+
+        A visual's own theme still wins where it has one: the folder sets
+        what the project looks like, it does not overrule somebody who
+        chose. Read rather than written, so moving a visual into a folder
+        restyles it and moving it out gives it back -- no migration, and no
+        copy of the folder's choice to go stale inside each visual.
         """
         from visuals.services import STORY_MAP_KIND
 
         config = dict(self.config or {})
         if (self.spec or {}).get("shape") == "story_map":
             config["kind"] = STORY_MAP_KIND
+        if not config.get("theme") and self.folder_id and self.folder.theme:
+            config["theme"] = self.folder.theme
         return config
 
     # The embed stability rule: the pinned snapshot is what embeds serve.
@@ -277,6 +292,18 @@ class Folder(models.Model):
     """
 
     name = models.CharField(max_length=120, unique=True)
+    #: The palette every visual in here uses unless it says otherwise.
+    #:
+    #: A folder is a project, and a project's charts are read together --
+    #: side by side in a report, one after another in a deck. Theme was a
+    #: per-visual choice with a single house default, so two charts of the
+    #: same counties came out in different palettes and nothing noticed: a
+    #: story map on `mizzou` shading gold beside a locator on `datadesk`
+    #: shading blue, in one folder.
+    #:
+    #: Blank means the house default, which is what every folder starts as
+    #: -- setting one is a decision, not a migration.
+    theme = models.CharField(max_length=32, blank=True, default="")
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
     )
