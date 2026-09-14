@@ -40,8 +40,14 @@
   // Chrome (ink, grid, surfaces) is shared; only series and ramps swap.
   const THEMES = {
     datadesk: {
-      light: { ...LIGHT, points: ["#eb6834", "#008300", "#4a3aa7"] },
-      dark: { ...DARK, points: ["#d95926", "#008300", "#9085e9"] },
+      light: {
+        ...LIGHT,
+        points: ["#a31414", "#4a3aa7", "#c2187e", "#eda100", "#6b6b6b"],
+      },
+      dark: {
+        ...DARK,
+        points: ["#c23a3a", "#9085e9", "#d55181", "#eda100", "#9a9a9a"],
+      },
     },
     lnic: {
       light: {
@@ -50,8 +56,14 @@
                  "#e87ba4", "#008300", "#4a3aa7", "#e34948"],
         seqLow: "#d3ecfa", seqHigh: "#003a56",
         divLow: "#003a56", divMid: "#f0efec", divHigh: "#8f1d1d",
-        // Dots must not read as another step of the shading ramp.
-        points: ["#eb6834", "#008300", "#4a3aa7"],
+        // Dots must not read as another step of the shading ramp, and
+        // must survive a mono print. The five slots are PRECISION-indexed
+        // (place, block, county, state, tract); `place` and `state` carry
+        // 8,863 and 2,090 of the corpus's points, so they take the two
+        // most separated colours -- 0.083 and 0.435 relative luminance, a
+        // gap of 0.352. The three they replaced spanned 0.205 in total and
+        // merged in greyscale.
+        points: ["#a31414", "#4a3aa7", "#c2187e", "#eda100", "#6b6b6b"],
       },
       dark: {
         ...DARK,
@@ -59,7 +71,7 @@
                  "#d55181", "#008300", "#9085e9", "#e66767"],
         seqLow: "#0e4a6d", seqHigh: "#9fd6f2",
         divLow: "#9fd6f2", divMid: "#383835", divHigh: "#e66767",
-        points: ["#d95926", "#008300", "#9085e9"],
+        points: ["#c23a3a", "#9085e9", "#d55181", "#eda100", "#9a9a9a"],
       },
     },
     mizzou: {
@@ -69,7 +81,10 @@
                  "#e87ba4", "#008300", "#4a3aa7", "#eb6834"],
         seqLow: "#f7e6bd", seqHigh: "#6b4d05",
         divLow: "#184f95", divMid: "#f0efec", divHigh: "#7a0f0f",
-        points: ["#a31414", "#2a78d6", "#008300"],
+        // Gold is this theme's ramp, so `state` is a light blue instead:
+        // same 0.353 greyscale gap from `place`, no collision with the
+        // shading underneath.
+        points: ["#a31414", "#4a3aa7", "#c2187e", "#59bbeb", "#6b6b6b"],
       },
       dark: {
         ...DARK,
@@ -77,7 +92,7 @@
                  "#199e70", "#9085e9", "#d55181", "#008300"],
         seqLow: "#5c4304", seqHigh: "#f0d488",
         divLow: "#9ec5f4", divMid: "#383835", divHigh: "#e66767",
-        points: ["#c23a3a", "#3987e5", "#008300"],
+        points: ["#c23a3a", "#9085e9", "#d55181", "#59bbeb", "#9a9a9a"],
       },
     },
     rji: {
@@ -87,7 +102,7 @@
                  "#2a78d6", "#e87ba4", "#008300", "#4a3aa7"],
         seqLow: "#d4e5f2", seqHigh: "#0d3350",
         divLow: "#0d3350", divMid: "#f0efec", divHigh: "#8f1d1d",
-        points: ["#d9a018", "#e34948", "#008300"],
+        points: ["#a31414", "#4a3aa7", "#c2187e", "#d9a018", "#6b6b6b"],
       },
       dark: {
         ...DARK,
@@ -95,7 +110,7 @@
                  "#3987e5", "#d55181", "#008300", "#9085e9"],
         seqLow: "#123a5c", seqHigh: "#a8cce8",
         divLow: "#a8cce8", divMid: "#383835", divHigh: "#e66767",
-        points: ["#c98500", "#e66767", "#008300"],
+        points: ["#c23a3a", "#9085e9", "#d55181", "#eda100", "#9a9a9a"],
       },
     },
   };
