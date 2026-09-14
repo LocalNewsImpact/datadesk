@@ -15,6 +15,9 @@ cannot roll up to a county — the county dimension therefore restricts
 itself to county/tract/block codings and says how many rows that drops.
 """
 
+import logging
+import time
+
 from django.db.models import Avg, Count, F, Q, Sum
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Substr, TruncMonth, TruncYear
@@ -29,6 +32,8 @@ from datasets.publishers import (  # noqa: F401  (re-exported)
     group_of,
 )
 from explorer.models import Article, ArticlePlaceManual, DatasetSource
+
+LOG = logging.getLogger(__name__)
 
 # --- dimensions -------------------------------------------------------------
 #
@@ -1714,6 +1719,39 @@ CORPUS_CACHE_SECONDS = 7 * 24 * 3600
 VERSION_CACHE_SECONDS = 300
 
 
+def _publisher_fingerprint():
+    """A stamp over the publisher fields the newsroom tree draws from.
+
+    `sources` carries no general `updated_at`, so an edit leaves nothing
+    to take a max over. A checksum of what is displayed is the next
+    honest thing: it moves when a county, a name or the set of publishers
+    moves, and not otherwise.
+
+    Deliberately narrow. Fingerprinting every column would move the stamp
+    on `bot_sensitivity_updated_at` and throw away every cached count in
+    the console for a change no reader can see.
+
+    Failure is not fatal: a version that cannot be derived should degrade
+    to "recompute", never to a 500 on every cached page.
+    """
+    from django.db import connections
+
+    try:
+        with connections["crawler"].cursor() as cur:
+            cur.execute("""
+                SELECT md5(string_agg(
+                    id || ':' || coalesce(county, '')
+                       || ':' || coalesce(canonical_name, ''),
+                    '|' ORDER BY id))
+                FROM sources
+                """)
+            row = cur.fetchone()
+        return (row[0] if row else None) or "none"
+    except Exception:  # noqa: BLE001 - a stamp is not worth a 500
+        LOG.warning("could not fingerprint publishers", exc_info=True)
+        return f"unavailable:{time.time() // VERSION_CACHE_SECONDS}"
+
+
 def corpus_version():
     """A stamp that changes when the corpus does, and not otherwise.
 
@@ -1766,11 +1804,25 @@ def corpus_version():
     # the queue was worked -- which is the same failure the third part
     # was added for, one source later.
     placed = ArticlePlaceManual.objects.aggregate(m=Max("added_at"))["m"]
+    # A FIFTH PART: the publisher records themselves.
+    #
+    # Same failure, one source further out. A source's county was
+    # corrected in the crawler -- "Nexstar Media Inc" to Jackson, and
+    # "Callaway County" to Callaway -- and none of the four parts above
+    # moved: no article was created, no membership changed, nothing was
+    # re-enriched and nobody placed a story. So the keys held, and the
+    # visual builder went on offering "Nexstar County" as a place to pick
+    # newsrooms from, for what would have been the full seven days.
+    #
+    # `sources` has no `updated_at` to take a max over, so this is a
+    # fingerprint of the fields the newsroom tree actually shows. 54ms
+    # over 1,148 rows, re-derived every five minutes like the rest.
     stamp = (
         f"{newest.isoformat() if newest else 'empty'}"
         f":{DatasetSource.objects.count()}"
         f":{enriched.isoformat() if enriched else 'none'}"
         f":{placed.isoformat() if placed else 'none'}"
+        f":{_publisher_fingerprint()}"
     )
     cache.set("corpus.version", stamp, VERSION_CACHE_SECONDS)
     return stamp
