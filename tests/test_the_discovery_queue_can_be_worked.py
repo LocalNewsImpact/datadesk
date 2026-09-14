@@ -74,7 +74,9 @@ def _link(crawler_schema, link_id, discovered="2026-03-10", status="not_article"
     )
 
 
-def _verification(crawler_schema, link, margin, sniffer, status="not_article"):
+def _verification(
+    crawler_schema, link, margin, sniffer, status="not_article", meta=None
+):
     return UrlVerification.objects.using("crawler").create(
         id=f"v-{link.id}",
         candidate_link=link,
@@ -82,6 +84,11 @@ def _verification(crawler_schema, link, margin, sniffer, status="not_article"):
         storysniffer_result=sniffer,
         verification_confidence=margin,
         new_status=status,
+        # Which mechanism decided. Defaults to the model's own verdict so
+        # a case that is not about the mechanism reads as one where
+        # storysniffer spoke -- `default` is what `_decided_by` returns
+        # when nothing filtered and `guess()` said no.
+        meta={"decided_by": "default"} if meta is None else meta,
     )
 
 
