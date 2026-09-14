@@ -3,12 +3,17 @@
 The subject is a candidate link, not an article: no body, no byline, no
 capture -- a URL, its publisher, and what the verification recorded.
 
-THREE STRATA, FOR TWO DIFFERENT QUESTIONS
------------------------------------------
+FOUR STRATA, FOR THREE DIFFERENT QUESTIONS
+------------------------------------------
 A doubt-ranked queue finds errors and can never say how many there are:
 it is drawn from rows a signal already suspects. A random sample says how
 many and finds almost none. Both are wanted, so both are here, and each
 row carries which stratum drew it.
+
+The third question is not about error at all. Some links have never been
+judged by anything -- they were found, and nothing ruled on them -- so
+there is no verdict to second-guess and a reviewer answering is making
+the first decision rather than reviewing one.
 
 **Doubtful** -- the model could not call it. Reviewed in full rather than
 sampled: 746 rows in March, and every one is a URL the classifier scored
@@ -22,6 +27,17 @@ doing the right job -- on the evidence of the URLs it catches
 (`/news/nation/`, `world_news`, `cnn-spanish`) it may be acting as a
 local-news filter rather than a story classifier, which is a different
 job than the one it is being scored on.
+
+**Never judged** -- nothing ruled on these. `candidate_links.status` is
+`discovered`: the link was found, and neither the URL rules nor the model
+has been run over it since. The crawler scores them on request
+(`backfill-verifications --unjudged`) and marks each row a `prescore`
+rather than a backfill, because there is no decision to backfill. 410
+were written on 2026-09-14, of which 380 fall outside every doubt-ranked
+band on margin alone -- without a stratum of their own only the random
+sample would ever have reached them, which for 410 rows is a handful.
+Reviewed in full: each one is a link waiting on a decision, not a sample
+of anything.
 
 **Sample** -- drawn uniformly across the whole cohort, including rows the
 other two strata also hold. This is the only stratum that can state a
@@ -43,7 +59,7 @@ import bisect
 from datetime import UTC
 
 from django.core.cache import cache
-from django.db.models import Q
+from django.db.models import Q, TextField, Value
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Coalesce
 from django.db.models.lookups import In
@@ -79,6 +95,7 @@ UNRESOLVED_STATUSES = frozenset({"discovered", "sampled_out"})
 #: Keys, so a template and a view cannot drift on a spelling.
 DOUBTFUL = "doubtful"
 OVERRULED = "overruled"
+NEVER_JUDGED = "never_judged"
 SAMPLE = "sample"
 
 #: |margin| within this is the band the model could not call. Cut at 25
@@ -109,6 +126,19 @@ MODEL_DECIDED = ("sniffer", "default")
 #: wrong on half the table, and today it is wrong on ALL of it: every one
 #: of the 245,473 rows is a backfill, because discovery has not run since
 #: 2026-08-12.
+#: What the crawler writes on a row it scored for the FIRST time. A link
+#: at `discovered` has no decision to rescore -- it was found, and
+#: nothing has judged it since -- so the crawler marks the row a
+#: `prescore` rather than a backfill and gives it this verdict kind.
+#:
+#: They are their own stratum because the question is different. Every
+#: other stratum asks "was the pipeline right about this". These have no
+#: pipeline verdict: the question is "is this a story", and a reviewer
+#: answering it is making the first decision rather than reviewing one.
+NEVER_JUDGED_KIND = "never_judged"
+
+VERDICT_KIND = KeyTextTransform("verdict_kind", "meta")
+
 MECHANISM = Coalesce(
     KeyTextTransform("rescored_by", "meta"),
     KeyTextTransform("decided_by", "meta"),
@@ -119,6 +149,10 @@ MECHANISM = Coalesce(
 STRATUM_SIZE = {
     DOUBTFUL: None,
     OVERRULED: 300,
+    # Reviewed in full, like the doubtful band. These are not a sample of
+    # anything -- each one is a link waiting on a decision that has never
+    # been made, and a capped draw would leave the rest waiting.
+    NEVER_JUDGED: None,
     SAMPLE: 400,
 }
 
@@ -133,6 +167,12 @@ STRATA = (
         "Model disagrees",
         "Storysniffer scores it a story; the pipeline did not keep it. "
         "A URL rule rejecting it is not a disagreement and is not here.",
+    ),
+    (
+        NEVER_JUDGED,
+        "Never judged",
+        "Nothing has ruled on these. Scored for the first time, and "
+        "waiting on a decision rather than a second opinion.",
     ),
     (
         SAMPLE,
@@ -158,10 +198,40 @@ def predicate(stratum):
     `SAMPLE` deliberately has no predicate: restricting it to what the
     other strata left over would destroy the only thing it is for.
     """
+    # A FIRST SCORE IS NOT A SECOND OPINION, so it is kept out of the
+    # strata that ask whether the pipeline was right. 30 of the 410
+    # written on 2026-09-14 land inside the doubtful band on margin
+    # alone, and they would have been asked about twice -- once with a
+    # question that has no answer for them.
+    #
+    # COALESCED BECAUSE SQL IS THREE-VALUED. Most rows have no
+    # `verdict_kind` at all, so `->>` gives NULL, `NULL IN (...)` is NULL
+    # rather than false, and `NOT NULL` is NULL -- which filters the row
+    # out. Negating a key that is usually absent emptied every stratum it
+    # was added to: 20 tests failed on it, all of them rows with no
+    # `verdict_kind`. An empty string is a value the negation can be
+    # true about.
+    #
+    # `output_field` because `Coalesce` refuses to guess across a
+    # TextField and the CharField a bare `Value("")` resolves to. It
+    # raises only when the expression is compiled, so the direct
+    # predicate tests passed and the queue itself returned a 500.
+    not_a_first_score = ~Q(
+        In(
+            Coalesce(VERDICT_KIND, Value(""), output_field=TextField()),
+            (NEVER_JUDGED_KIND,),
+        )
+    )
+
+    if stratum == NEVER_JUDGED:
+        return Q(In(VERDICT_KIND, (NEVER_JUDGED_KIND,)))
     if stratum == DOUBTFUL:
-        return Q(
-            verification_confidence__gte=-DOUBTFUL_MARGIN,
-            verification_confidence__lte=DOUBTFUL_MARGIN,
+        return (
+            Q(
+                verification_confidence__gte=-DOUBTFUL_MARGIN,
+                verification_confidence__lte=DOUBTFUL_MARGIN,
+            )
+            & not_a_first_score
         )
     if stratum == OVERRULED:
         # THE MECHANISM HAS TO BE THE MODEL, or this stratum is not what
@@ -181,10 +251,19 @@ def predicate(stratum):
         # `FieldError: Cannot resolve keyword` -- the review queue
         # returning a 500 rather than a wrong count. A predicate that
         # carries its own left-hand side cannot be used wrongly.
-        return Q(
-            verification_confidence__gt=DECISIVE_MARGIN,
-            storysniffer_result=False,
-        ) & Q(In(MECHANISM, MODEL_DECIDED))
+        return (
+            Q(
+                verification_confidence__gt=DECISIVE_MARGIN,
+                storysniffer_result=False,
+            )
+            & Q(In(MECHANISM, MODEL_DECIDED))
+            # Nothing overruled a link nothing ruled on. Every first
+            # score written so far has `storysniffer_result` true and
+            # would miss this anyway, which is exactly why it is stated:
+            # the next one that does not would be labelled an override
+            # of a verdict that was never reached.
+            & not_a_first_score
+        )
     return Q()
 
 
