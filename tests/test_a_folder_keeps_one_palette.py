@@ -173,3 +173,121 @@ class TestTheDotsSurviveAMonoPrint:
             assert ramp not in colours
             # And not the light end either.
             assert "#eda100" not in colours, "gold dot on a gold ramp"
+
+
+# --- setting it, and getting back ---------------------------------------------
+
+
+@pytest.fixture
+def designer(client, django_user_model):
+    from accounts.models import DATADESK, Grant
+
+    user = django_user_model.objects.create_user(
+        "setter", email="setter@localnewsimpact.org"
+    )
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="admin")
+    client.force_login(user)
+    return user
+
+
+class TestSettingAFoldersPalette:
+    def test_it_sets_the_theme(self, client, designer):
+        from django.urls import reverse
+
+        project = Folder.objects.create(name="P", created_by=designer)
+        client.post(
+            reverse("visuals:folder_set_theme", args=[project.id]), {"theme": "lnic"}
+        )
+        project.refresh_from_db()
+        assert project.theme == "lnic"
+
+    def test_a_get_does_nothing(self, client, designer):
+        """A link that restyles every chart in a project is one a crawler or
+        a link prefetch can trip."""
+        from django.urls import reverse
+
+        project = Folder.objects.create(name="P2", created_by=designer, theme="lnic")
+        assert (
+            client.get(
+                reverse("visuals:folder_set_theme", args=[project.id])
+            ).status_code
+            == 404
+        )
+        project.refresh_from_db()
+        assert project.theme == "lnic"
+
+    def test_an_unknown_theme_is_refused(self, client, designer):
+        from django.urls import reverse
+
+        project = Folder.objects.create(name="P3", created_by=designer, theme="lnic")
+        client.post(
+            reverse("visuals:folder_set_theme", args=[project.id]), {"theme": "neon"}
+        )
+        project.refresh_from_db()
+        assert project.theme == "lnic"
+
+    def test_blank_is_allowed_and_means_the_house_default(self, client, designer):
+        from django.urls import reverse
+
+        project = Folder.objects.create(name="P4", created_by=designer, theme="mizzou")
+        client.post(
+            reverse("visuals:folder_set_theme", args=[project.id]), {"theme": ""}
+        )
+        project.refresh_from_db()
+        assert project.theme == ""
+
+    def test_the_way_back_is_offered_on_the_folder(self, client, designer):
+        """A setting that changes many things at once needs a way back that
+        does not depend on remembering what it was."""
+        from django.urls import reverse
+
+        project = Folder.objects.create(name="P5", created_by=designer, theme="mizzou")
+        response = client.post(
+            reverse("visuals:folder_set_theme", args=[project.id]), {"theme": "lnic"}
+        )
+        assert f"undo={project.id}" in response["Location"]
+        assert "was=mizzou" in response["Location"]
+
+
+class TestAVisualCanOverrideItsFolder:
+    @pytest.fixture
+    def visual(self, folder):
+        user, project = folder
+        return Visual.objects.create(
+            slug="ov",
+            title="Override",
+            source_kind="inline",
+            template="builder",
+            config={"kind": "locator"},
+            folder=project,
+            created_by=user,
+        )
+
+    def test_the_look_step_accepts_blank(self, visual):
+        """BLANK HAS TO BE EXPRESSIBLE. The step wrote a theme on every
+        visit, so a visual that had merely been looked at carried an
+        explicit palette and could never take its folder's."""
+        from visuals.panels import theme_panel
+
+        assert theme_panel(visual, post={"theme": ""})["config"]["theme"] == ""
+
+    def test_it_still_refuses_a_theme_that_does_not_exist(self, visual):
+        from visuals.panels import theme_panel
+
+        with pytest.raises(ValueError):
+            theme_panel(visual, post={"theme": "neon"})
+
+    def test_a_chosen_theme_is_kept(self, visual):
+        from visuals.panels import theme_panel
+
+        assert theme_panel(visual, post={"theme": "rji"})["config"]["theme"] == "rji"
+
+    def test_the_inherit_option_is_offered_and_preselected(self, visual):
+        """A visual with no theme of its own marks none of the palettes, so
+        the "From <folder>" option takes the mark instead."""
+        from visuals.panels import theme_panel
+
+        panel = theme_panel(visual)
+        assert panel["theme_chosen"] is False
+        assert not any(t["on"] for t in panel["themes"])
+        assert panel["folder_swatch"]

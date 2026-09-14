@@ -1685,8 +1685,21 @@ def test_the_folder_list_is_not_repeated_down_the_page(client, designer):
 
     # Present for every row, so the keyboard and the screen reader have it...
     assert body.count('name="folder"') == 3
-    # ...and hidden until the grip beside it is used.
-    assert body.count("<select") == body.count("hidden>")
+    # ...and hidden until the control beside it is used.
+    #
+    # Asserted on the selects themselves rather than by counting `hidden>`
+    # against `<select`. That equality held only while a select was the
+    # only hidden thing on the page: the folder palette control hides its
+    # Apply button too, which broke the count while every select was still
+    # hidden. The property is what matters, so the property is what is
+    # checked.
+    import re as _re
+
+    selects = _re.findall(r"<select\b[^>]*>", body)
+    assert selects, "no selects on the page at all"
+    assert all("hidden" in tag for tag in selects), [
+        tag for tag in selects if "hidden" not in tag
+    ]
 
 
 def test_the_folder_form_says_what_it_did(client, designer):

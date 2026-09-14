@@ -761,8 +761,28 @@ def index(request):
             "groups": [{"folder": f, "visuals": filed[f.id]} for f in folders],
             "unfiled": unfiled,
             "folders": folders,
+            "themes": _themes(),
+            # The way back from a palette change, offered on the folder
+            # that changed rather than as a message somebody has to read
+            # and then act on from memory.
+            "undo_folder": _int_or_none(request.GET.get("undo")),
+            "undo_was": (request.GET.get("was") or "").strip(),
         },
     )
+
+
+def _themes():
+    """The palettes a folder may be set to, as (id, label, swatch)."""
+    from visuals.panels import THEMES
+
+    return THEMES
+
+
+def _int_or_none(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _untitled_folder_name():
@@ -813,6 +833,54 @@ def folder_rename(request, pk):
             request, f"\u201c{was}\u201d is now \u201c{folder.name}\u201d."
         )
     return redirect("visuals:index")
+
+
+@requires(DESIGN)
+def folder_set_theme(request, pk):
+    """Set the palette every visual in a folder inherits.
+
+    A folder is a project and its charts are read together, so the palette
+    belongs to the folder. Changing it restyles every visual inside that
+    has not chosen its own -- which is a lot of charts moving at once, and
+    why the control asks before it does it.
+
+    UNDOING IT IS THE POINT. The previous value rides back on the redirect,
+    so the folder's row offers to put it back rather than asking somebody
+    to remember what it was. A setting that changes many things at once
+    needs a way back that does not depend on memory.
+    """
+    from django.contrib import messages
+
+    from visuals.models import Folder
+    from visuals.panels import THEME_IDS
+
+    if request.method != "POST":
+        raise Http404("Use the form")
+    folder = Folder.objects.filter(pk=pk).first()
+    if folder is None:
+        raise Http404("No such folder")
+
+    theme = (request.POST.get("theme") or "").strip()
+    if theme and theme not in THEME_IDS:
+        messages.error(request, f"No such theme: {theme}.")
+        return redirect("visuals:index")
+
+    was = folder.theme
+    if was == theme:
+        return redirect("visuals:index")
+    folder.theme = theme
+    folder.save(update_fields=["theme"])
+
+    # How many actually moved: a visual that chose its own theme did not,
+    # and saying "12 visuals" when two changed is the sort of wrong that
+    # gets believed.
+    moved = sum(1 for v in folder.visuals.all() if not (v.config or {}).get("theme"))
+    messages.success(
+        request,
+        f"{folder.name}: {theme or 'the house default'} now, "
+        f"{moved} visual{'' if moved == 1 else 's'} restyled.",
+    )
+    return redirect(f"{reverse('visuals:index')}?undo={folder.pk}&was={was}")
 
 
 @requires(DESIGN)

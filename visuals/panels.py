@@ -187,8 +187,12 @@ def _chart_options(visual):
 
 def theme_panel(visual, post=None):
     if post is not None:
+        # BLANK MEANS THE FOLDER'S, and it has to be expressible or the
+        # folder's palette can never apply: this step wrote a theme on
+        # every visit, so a visual that had merely been looked at carried
+        # an explicit choice and inherited nothing.
         name = post.get("theme", "")
-        if name not in THEME_IDS:
+        if name and name not in THEME_IDS:
             raise ValueError("No such theme")
         config = {"theme": name}
         # The chart's own words. Separate from `visual.title`, which names
@@ -296,15 +300,29 @@ def theme_panel(visual, post=None):
         return {"config": config}
     config = visual.config or {}
     return {
+        # `on` is a real comparison now, not one against a default: a
+        # visual with no theme of its own selects none of these, and the
+        # "From <folder>" option above them takes the mark instead.
         "themes": [
             {
                 "id": i,
                 "label": label,
                 "colours": colours,
-                "on": config.get("theme", "datadesk") == i,
+                "on": config.get("theme", "") == i,
             }
             for i, label, colours in THEMES
         ],
+        "theme_chosen": bool(config.get("theme")),
+        # The folder's palette, shown on the inherit option so the choice
+        # is made against colours rather than against a folder's name.
+        "folder_swatch": next(
+            (
+                colours
+                for i, _label, colours in THEMES
+                if visual.folder and i == visual.folder.theme
+            ),
+            next(colours for i, _l, colours in THEMES if i == "datadesk"),
+        ),
         "taxonomy": config.get("taxonomy") == "cin",
         # What this chart can be told to do, and what it has been told.
         # Only the options whose role is filled: an option for a series
