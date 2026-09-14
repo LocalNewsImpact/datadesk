@@ -275,3 +275,50 @@ class TestAdvancedSettingsFollowsTheWalk:
             )
         ]
         assert form.count("<form") == 1
+
+
+# --- it looks like the other maps --------------------------------------------
+
+
+class TestItIsDrawnLikeAStoryMap:
+    """A locator and a story map are the same kind of picture and looked
+    like two different products.
+
+    The first version fitted a projection to the highlighted areas and drew
+    everything else in the file behind them, so Kansas and Illinois arrived
+    around Missouri -- they were in the national counties topojson and
+    nothing had excluded them. The story map filters its features to the
+    frame instead, and that is the difference."""
+
+    def _locator(self):
+        source = CHART_JS.read_text()
+        start = source.index("function renderLocator")
+        return source[start : source.index("function renderMap", start)]
+
+    def test_it_filters_to_the_frame(self):
+        """Dropped, not cropped. A projection fitted to the data still
+        draws every other feature the file holds."""
+        body = self._locator()
+        assert "areas.filter(inFrame)" in body
+        assert "const inFrame" in body
+
+    def test_it_uses_the_same_palette_as_the_other_maps(self):
+        """`missing` for the basemap and `boundary` for its lines are what
+        an unshaded county gets on a story map. A locator inventing its own
+        greys is how two charts of the same thing stop matching."""
+        body = self._locator()
+        assert "t.missing" in body
+        assert "t.boundary" in body
+        assert "t.seqHigh" in body
+
+    def test_it_keeps_the_house_aspect(self):
+        """0.62, as the story map sets it. Left to the container a map
+        reflows to whatever height the data's bounding box implies, and two
+        maps of the same counties come out different shapes."""
+        assert "width * 0.62" in self._locator()
+
+    def test_it_says_so_when_nothing_matched(self):
+        """A code that matches no boundary is the failure that looks like a
+        working map with nothing on it -- which is how a 5-digit FIPS drawn
+        at state level presented. Say it instead."""
+        assert "None of those codes matched" in self._locator()

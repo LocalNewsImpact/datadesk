@@ -772,6 +772,14 @@
 
   // A basemap with chosen areas highlighted. No value, no scale, no
   // legend: an area is in the list or it is not.
+  //
+  // Drawn the way the story map is drawn, because they are the same kind
+  // of picture and looked like two different products: the surrounding
+  // states FILTERED OUT rather than left for the projection to crop, the
+  // same `missing`/`boundary` palette, the same 0.62 aspect. Fitting a
+  // projection to the data still draws everything else in the file --
+  // Kansas and Illinois arrived around Missouri because they were in the
+  // national counties topojson and nothing had excluded them.
   function renderLocator(el, config, rows, opts, t, width) {
     const key = config.area || config.geo_join;
     if (!key) {
@@ -799,37 +807,53 @@
       boundaries(opts.geoBase, level, [...ids], opts.geoUrls),
       boundaries(opts.geoBase, "states", [...ids], opts.geoUrls),
     ]).then(([areas, states]) => {
-      const picked = areas.filter((f) => ids.has(f.id));
-      // The states the highlights sit in -- the default frame, and the
-      // reason this map reads as "these counties, in Missouri" rather
-      // than as a shape floating in the Atlantic.
       const homeStates = new Set([...ids].map((id) => id.slice(0, 2)));
-      const home = states.filter((f) => homeStates.has(f.id));
       const frame = config.locator_frame;
-      const domain =
-        frame === "nation" ? null : frame === "areas" ? picked : home;
+      // What the map is OF. Everything else is dropped rather than drawn
+      // and cropped, so no neighbouring state appears half-shown at the
+      // edge.
+      const inFrame = (f) =>
+        frame === "nation" ? true
+        : frame === "areas" ? ids.has(String(f.id))
+        : homeStates.has(String(f.id).slice(0, 2));
 
+      const base = areas.filter(inFrame);
+      const outline = states.filter(
+        (f) => frame === "nation" || homeStates.has(String(f.id)));
+      const picked = base.filter((f) => ids.has(String(f.id)));
+      if (!picked.length) {
+        el.textContent =
+          "None of those codes matched a " + level.replace(/s$/, "") + ".";
+        return;
+      }
+
+      const height = Math.round(width * 0.62);
       const marks = [
-        // Everything at this level, inside the frame: the basemap.
-        Plot.geo(areas, { fill: t.missing, stroke: t.boundary, strokeWidth: 0.4 }),
-        // State lines over it, so the frame is legible.
-        Plot.geo(states, { fill: "none", stroke: t.boundary, strokeWidth: 1 }),
+        // The basemap: every area in the frame, in the same grey an
+        // unshaded county gets on a story map.
+        Plot.geo(base, { fill: t.missing, stroke: t.boundary, strokeWidth: 0.6 }),
         // The highlights.
-        Plot.geo(picked, { fill: t.seqHigh, stroke: t.surface, strokeWidth: 0.6,
-                           title: (f) => labelBy.get(f.id) || f.id, tip: true }),
+        Plot.geo(picked, {
+          fill: t.seqHigh, stroke: t.surface, strokeWidth: 0.6,
+          title: (f) => labelBy.get(String(f.id)) || String(f.id), tip: true,
+        }),
+        // State lines last, over both, so the frame reads as one shape.
+        Plot.geo(outline, { fill: "none", stroke: t.boundary, strokeWidth: 1.2 }),
       ];
       if (labelBy.size) {
         marks.push(Plot.text(picked, {
-          text: (f) => labelBy.get(f.id) || "",
+          text: (f) => labelBy.get(String(f.id)) || "",
           fontSize: 10, fill: t.ink, stroke: t.surface, strokeWidth: 3,
           paintOrder: "stroke",
           x: (f) => d3.geoCentroid(f)[0], y: (f) => d3.geoCentroid(f)[1],
         }));
       }
       el.replaceChildren(Plot.plot({
-        width,
-        projection: { type: "albers-usa", domain: domain && domain.length
-          ? { type: "FeatureCollection", features: domain } : undefined },
+        width, height,
+        projection: {
+          type: "albers-usa",
+          domain: { type: "FeatureCollection", features: base },
+        },
         marks,
         style: { background: "transparent", color: t.ink },
       }));
