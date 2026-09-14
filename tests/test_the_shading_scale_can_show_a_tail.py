@@ -155,13 +155,14 @@ class TestTheTopBandSaysWhereItEnds:
 class TestTheRampSeparatesAtTenBands:
     """Measured on what ships, for every ramp in the file.
 
-    LIGHT AND DARK ARE NOT THE SAME PROBLEM. The light ramps span 0.706
-    to 0.770 of relative luminance; the dark ones span 0.481 to 0.611,
-    because a dark-mode ramp runs from a dark blue to a pale one and
-    neither end can reach paper-white or ink-black. The same number of
-    bands therefore separates about a third less in dark, and the floor
-    is asserted per family rather than averaged into one number that is
-    wrong about both.
+    LIGHT AND DARK WERE NOT THE SAME PROBLEM, and now they are. The dark
+    ramps spanned 0.481 to 0.611 of relative luminance against light's
+    0.706 to 0.770, so the same number of bands separated about a third
+    less in dark. The pale ends were extended along their own hue lines
+    on 2026-09-14 -- the room was all there, because the dark ends
+    already sit near the surface -- and both families now clear the same
+    floor. It is still asserted per family, so a palette change to one
+    cannot hide behind the other.
     """
 
     def _gaps(self, ramp):
@@ -184,14 +185,19 @@ class TestTheRampSeparatesAtTenBands:
         for ramp in light:
             assert min(self._gaps(ramp)) > 0.065, ramp
 
-    def test_dark_is_tighter_but_far_better_than_it_was(self):
-        """Dark cannot reach 0.068 at ten bands -- its ramp does not span
-        enough luminance for that -- but the old ramp gave it 0.027 at
-        the same count, and this gives 0.045. Recorded as the number it
-        is rather than hidden behind an average."""
+    def test_dark_separates_as_well_as_light(self):
+        """IT DID NOT, AND THAT WAS THE PALETTE. A dark-mode ramp runs
+        dark to pale and these stopped short -- 0.481 to 0.611 of
+        luminance against light's 0.706 to 0.770 -- so ten bands
+        separated at 0.045 where light managed 0.068 and the same map was
+        harder to read in dark mode.
+
+        The pale ends were extended along their own hue lines on
+        2026-09-14. Held to light's floor now, because there is no longer
+        a reason for them to differ."""
         _, dark = self._by_mode(11)
         for ramp in dark:
-            assert min(self._gaps(ramp)) > 0.044, ramp
+            assert min(self._gaps(ramp)) > 0.065, ramp
 
     def test_twelve_is_still_readable_in_light(self):
         """The cap, justified rather than guessed."""
@@ -199,13 +205,13 @@ class TestTheRampSeparatesAtTenBands:
         for ramp in light:
             assert min(self._gaps(ramp)) > 0.055, ramp
 
-    def test_twelve_is_the_edge_in_dark(self):
-        """0.038 is why twelve is a cap and not a default. A reader in
-        dark mode asking for every step the control offers gets the
-        tightest scale the palettes can draw."""
+    def test_twelve_is_still_readable_in_dark(self):
+        """The cap holds in both modes now. It was 0.038 in dark before
+        the ramps were widened, which is why twelve is a cap and not a
+        default; it is 0.056 now, the same as light."""
         _, dark = self._by_mode(13)
         for ramp in dark:
-            assert min(self._gaps(ramp)) > 0.037, ramp
+            assert min(self._gaps(ramp)) > 0.055, ramp
 
     def test_the_steps_are_even_rather_than_bunched(self):
         """THE WHOLE POINT. Linear sRGB steps put the biggest jumps in

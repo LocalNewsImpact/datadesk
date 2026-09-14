@@ -24,7 +24,17 @@
   const DARK = {
     series: ["#3987e5", "#d95926", "#199e70", "#c98500",
              "#d55181", "#008300", "#9085e9", "#e66767"],
-    seqLow: "#104281", seqHigh: "#9ec5f4",
+    // WIDENED 2026-09-14 so dark carries ten bands as well as light does.
+    // A dark-mode ramp runs dark to pale, and this one stopped at
+    // #9ec5f4 -- 0.481 of relative luminance against light's 0.706. Ten
+    // bands over that separated at 0.045 where light managed 0.068, so
+    // the same map was measurably harder to read in dark mode.
+    //
+    // The room was all at the pale end: the dark ends already sit near
+    // the surface and cannot go lower without the sparsest counties
+    // merging into the background. Lightened along the same line toward
+    // white, so the hue is unchanged and only the reach reaches further.
+    seqLow: "#104281", seqHigh: "#d2e4fa",
     divLow: "#9ec5f4", divMid: "#383835", divHigh: "#e66767",
     other: "#898781", missing: "#2c2c2a",
     ink: "#ffffff", muted: "#898781", grid: "#2c2c2a",
@@ -69,7 +79,7 @@
         ...DARK,
         series: ["#1d6f9e", "#d95926", "#2f9ecf", "#c98500",
                  "#d55181", "#008300", "#9085e9", "#e66767"],
-        seqLow: "#0e4a6d", seqHigh: "#9fd6f2",
+        seqLow: "#0e4a6d", seqHigh: "#d9effa",
         divLow: "#9fd6f2", divMid: "#383835", divHigh: "#e66767",
         points: ["#c23a3a", "#9085e9", "#d55181", "#eda100", "#9a9a9a"],
       },
@@ -90,7 +100,7 @@
         ...DARK,
         series: ["#c98500", "#c23a3a", "#3987e5", "#d95926",
                  "#199e70", "#9085e9", "#d55181", "#008300"],
-        seqLow: "#5c4304", seqHigh: "#f0d488",
+        seqLow: "#5c4304", seqHigh: "#f5e3b3",
         divLow: "#9ec5f4", divMid: "#383835", divHigh: "#e66767",
         points: ["#c23a3a", "#9085e9", "#d55181", "#59bbeb", "#9a9a9a"],
       },
@@ -108,7 +118,7 @@
         ...DARK,
         series: ["#2f7cb8", "#c98500", "#199e70", "#d95926",
                  "#3987e5", "#d55181", "#008300", "#9085e9"],
-        seqLow: "#123a5c", seqHigh: "#a8cce8",
+        seqLow: "#123a5c", seqHigh: "#d5e6f4",
         divLow: "#a8cce8", divMid: "#383835", divHigh: "#e66767",
         points: ["#c23a3a", "#9085e9", "#d55181", "#eda100", "#9a9a9a"],
       },
