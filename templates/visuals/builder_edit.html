@@ -4,7 +4,17 @@
 
 {% block content %}
 <section class="card card-wide">
-  <p class="breadcrumb"><a href="{% url 'visuals:index' %}">← Visuals</a></p>
+  {% comment %}
+    Back to the walk, not only out to the list. Advanced settings is
+    reached FROM the builder, so the way back has to be the builder --
+    without this the only exit is "← Visuals", which abandons the visual
+    being edited and makes the page feel like a dead end.
+  {% endcomment %}
+  <p class="breadcrumb">
+    <a href="{% url 'visuals:index' %}">← Visuals</a>
+    <span aria-hidden="true"> · </span>
+    <a href="{% url 'visuals:builder_step' visual.slug 'fields' %}">← Back to the editor</a>
+  </p>
   <h1>{{ visual.title }} <span class="notice">{{ visual.status }}{% if visual.pinned_snapshot %} · pinned v{{ visual.pinned_snapshot.version }}{% endif %}</span></h1>
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
   {% if not snapshot %}<p class="error">No data yet — refresh or upload below.</p>{% endif %}
@@ -79,6 +89,8 @@
       <form method="post" id="config-form">
         {% csrf_token %}
         <input type="hidden" name="form" value="config">
+        <fieldset class="step-group">
+          <legend>1 · Chart — what kind</legend>
         <label>Chart kind
           <select name="kind" id="f-kind">
             {% for kind in chart_kinds %}<option>{{ kind }}</option>{% endfor %}
@@ -91,9 +103,37 @@
         <p class="notice"><a href="{% url 'visuals:builder_type' visual.slug %}">See
         the chart types, with what each one needs →</a></p>
         <p class="kind-hint notice" id="kind-hint"></p>
+        </fieldset>
+
+<fieldset>
+          <legend>2 · Look — the words</legend>
+          <label>Title <input type="text" name="title"></label>
+          <label>Subtitle <input type="text" name="subtitle"></label>
+          <label>Source line <input type="text" name="source"></label>
+          <label data-kinds="bar line area scatter">X label <input type="text" name="xlabel"></label>
+          <label data-kinds="bar line area scatter">Y label <input type="text" name="ylabel"></label>
+        </fieldset>
+
+<fieldset>
+          <legend>2 · Look — colour</legend>
+          <label>Category taxonomy
+            <select name="taxonomy">
+              <option value="">none (colours by first appearance)</option>
+              <option value="cin">CIN — fixed order, all ten needs</option>
+            </select>
+          </label>
+          <label>Theme
+            <select name="theme">
+              <option value="lnic">LNIC (default)</option>
+              <option value="mizzou">Mizzou</option>
+              <option value="rji">RJI</option>
+              <option value="datadesk">Neutral</option>
+            </select>
+          </label>
+        </fieldset>
 
         <fieldset data-kinds="bar line area scatter donut">
-          <legend>Mapping</legend>
+          <legend>4 · Fields — which columns, and how they are arranged</legend>
           <label>X column <select name="x" data-columns></select></label>
           <label>Y column <select name="y" data-columns></select></label>
           <label data-kinds="bar line area scatter">Series (color) <select name="series" data-columns data-optional></select></label>
@@ -112,7 +152,7 @@
         </fieldset>
 
         <fieldset data-kinds="chord arc flowmap">
-          <legend>Flows</legend>
+          <legend>4 · Fields — the two ends and the weight</legend>
           <label>From <select name="from" data-columns></select></label>
           <label>To <select name="to" data-columns></select></label>
           <label>Value <select name="value" data-columns data-optional></select></label>
@@ -150,8 +190,25 @@
             </select></label>
         </fieldset>
 
+        <fieldset data-kinds="locator">
+          <legend>4 · Fields — the areas to highlight</legend>
+          <p class="notice">A basemap with the areas in your list
+          highlighted. No value column and no scale — an area is in the
+          list or it is not. The geography is read from the code's length:
+          2 digits a state, 5 a county, 7 a place, 11 a tract.</p>
+          <label>Area codes <select name="area" data-columns data-optional></select></label>
+          <label>Frame on
+            <select name="locator_frame">
+              <option value="">The states the areas are in</option>
+              <option value="areas">Just the highlighted areas</option>
+              <option value="nation">The whole country</option>
+            </select>
+          </label>
+          <label class="inline"><input type="checkbox" name="locator_labels" value="1"> Name the highlighted areas</label>
+        </fieldset>
+
         <fieldset data-kinds="choropleth points storymap">
-          <legend>Map (GIS)</legend>
+          <legend>4 · Fields — the geography, and how it is framed</legend>
           <label>Boundaries
             <select name="geo_level">
               <option value="nation">Nation</option>
@@ -210,32 +267,9 @@
           </label>
         </fieldset>
 
-        <fieldset>
-          <legend>Style</legend>
-          <label>Category taxonomy
-            <select name="taxonomy">
-              <option value="">none (colours by first appearance)</option>
-              <option value="cin">CIN — fixed order, all ten needs</option>
-            </select>
-          </label>
-          <label>Theme
-            <select name="theme">
-              <option value="lnic">LNIC (default)</option>
-              <option value="mizzou">Mizzou</option>
-              <option value="rji">RJI</option>
-              <option value="datadesk">Neutral</option>
-            </select>
-          </label>
-        </fieldset>
+        
 
-        <fieldset>
-          <legend>Text</legend>
-          <label>Title <input type="text" name="title"></label>
-          <label>Subtitle <input type="text" name="subtitle"></label>
-          <label>Source line <input type="text" name="source"></label>
-          <label data-kinds="bar line area scatter">X label <input type="text" name="xlabel"></label>
-          <label data-kinds="bar line area scatter">Y label <input type="text" name="ylabel"></label>
-        </fieldset>
+        
 
         <button type="submit">Save</button>
       </form>
@@ -256,7 +290,7 @@
       {% endcomment %}
       {% if visual.source_kind == "bigquery" or visual.source_kind == "gcs" %}
       <fieldset>
-        <legend>Source · {{ visual.get_source_kind_display }}</legend>
+        <legend>3 · Data — where it comes from · {{ visual.get_source_kind_display }}</legend>
         <form method="post">
           {% csrf_token %}
           <input type="hidden" name="form" value="source">
@@ -282,7 +316,7 @@
       {% endif %}
 
       <fieldset>
-        <legend>Data · snapshot {% if snapshot %}v{{ snapshot.version }} ({{ snapshot.created_at|date:"Y-m-d H:i" }}){% else %}none{% endif %}</legend>
+        <legend>3 · Data — the rows themselves · snapshot {% if snapshot %}v{{ snapshot.version }} ({{ snapshot.created_at|date:"Y-m-d H:i" }}){% else %}none{% endif %}</legend>
         {% if visual.source_kind == "inline" %}
         <form method="post" enctype="multipart/form-data">
           {% csrf_token %}
@@ -306,6 +340,28 @@
         sent to a page about data sources.
         {% endcomment %}
         <p class="notice"><a href="{% url 'visuals:builder_step' visual.slug 'publish' %}">Publish and get the embed code &rarr;</a></p>
+
+  {% comment %}
+    Deleting is destructive and cannot be undone by clicking again, so it
+    is a POST with a confirm, kept away from the settings controls, and
+    refused outright while the visual is published -- something may be
+    embedding it.
+  {% endcomment %}
+  <details class="danger-zone">
+    <summary>Delete this visual</summary>
+    {% if visual.status == "published" %}
+      <p class="notice">This visual is published. Unpublish it first — an
+      embed that 404s is a hole in somebody else's page.</p>
+    {% else %}
+      <p class="notice">Deletes {{ visual.title }} and its snapshots. This
+      cannot be undone.</p>
+      <form method="post" action="{% url 'visuals:builder_delete' visual.slug %}"
+            onsubmit="return confirm('Delete {{ visual.title|escapejs }}? This cannot be undone.');">
+        {% csrf_token %}
+        <button type="submit" class="danger">Delete this visual</button>
+      </form>
+    {% endif %}
+  </details>
     </div>
 
     <div class="builder-preview">

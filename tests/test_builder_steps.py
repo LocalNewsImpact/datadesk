@@ -1911,6 +1911,11 @@ FIELDS_FOR = {
         "role-series": "publisher",
     },
     "choropleth": {"role-geo_join": "geo_county", "role-geo_value": "articles"},
+    # One slot, and no measure: a locator map highlights the areas in a
+    # list and shades nothing. `geo_county` is the corpus variable that
+    # carries a county GEOID, which is the whole of what it needs -- the
+    # geography is read from the code's length rather than chosen.
+    "locator": {"role-area": "geo_county"},
     # The corpus has two geographies on one row: where the newsroom IS
     # (publisher_county) and where the story is ABOUT (geo_county). So a
     # flow map is buildable from the corpus after all -- which newsrooms

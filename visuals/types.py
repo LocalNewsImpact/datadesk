@@ -496,6 +496,48 @@ CHART_TYPES = (
         functions=("Location", "Distribution"),
     ),
     ChartType(
+        "locator",
+        "Locator map",
+        SPATIAL,
+        "A basemap with chosen areas highlighted.",
+        # NO VALUE, AND THAT IS THE POINT.
+        #
+        # Every other map here shades by a number, and the question this
+        # one answers has no number in it: which counties are in this
+        # market, which states a project covers, where these towns are.
+        # Asked of a choropleth that question has to be faked -- a column
+        # of 1s, a legend reading 0.143 to 1.0 -- and the reader is shown a
+        # scale that means nothing.
+        #
+        # So: one column of area codes, and they are either in the list or
+        # they are not.
+        roles=(Role("area", "Areas to highlight", accepts=(GEO, TEXT)),),
+        options=(
+            Option(
+                "locator_frame",
+                "Frame on",
+                "choice",
+                values=(
+                    ("", "The states the areas are in"),
+                    ("areas", "Just the highlighted areas"),
+                    ("nation", "The whole country"),
+                ),
+            ),
+            Option("locator_labels", "Name the highlighted areas", "toggle"),
+        ),
+        # THE LEVEL IS NOT A SETTING. A GEOID says what it is by how long
+        # it is -- 2 a state, 5 a county, 7 a place, 11 a tract -- and
+        # `GEO_LEVELS` already records those lengths for the loader. Making
+        # it a choice as the choropleth does adds a control that is right
+        # by luck: its default is `states`, so a county map drawn from
+        # 5-digit codes joins nothing and renders blank, with no error and
+        # nothing on the page to suggest the cause.
+        also=("basemap", "reference map", "highlight map", "inset"),
+        encoding=SHADING,
+        functions=("Location",),
+        rows_to=3200,
+    ),
+    ChartType(
         "table",
         "Table",
         TABLES,

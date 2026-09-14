@@ -1529,6 +1529,52 @@ def builder_duplicate(request, slug):
 
 
 @requires(DESIGN)
+def builder_delete(request, slug):
+    """Delete a visual, and say so in the audit log.
+
+    POST only, for the reason `builder_duplicate` is: a link that changes
+    records is one a crawler or a link prefetch can trip, and this one
+    cannot be undone by clicking again.
+
+    A PUBLISHED visual is refused. Something may be embedding it, and an
+    embed that 404s is a hole in somebody else's page -- unpublish first,
+    which is reversible, then delete. Deleting a draft takes its snapshots
+    with it (the FK cascades), and that is the whole of it.
+    """
+    from django.contrib import messages
+
+    if request.method != "POST":
+        raise Http404("Use the button")
+    visual = _get_visual(request, slug)
+    if not may_act_on(request.user, visual):
+        raise PermissionDenied("This visual is not yours to delete.")
+    if visual.status == Visual.PUBLISHED:
+        messages.error(
+            request,
+            f"{visual.title} is published. Unpublish it first — something "
+            "may be embedding it.",
+        )
+        return redirect("visuals:builder_edit", visual.slug)
+
+    title, slug_deleted = visual.title, visual.slug
+    AuditLogEntry.objects.create(
+        actor=request.user,
+        action="visual:delete",
+        target_table="visuals",
+        target_ids=[slug_deleted],
+        before={
+            "title": title,
+            "status": visual.status,
+            "kind": (visual.config or {}).get("kind", ""),
+        },
+        reason=f"deleted {slug_deleted}",
+    )
+    visual.delete()
+    messages.success(request, f"Deleted {title}.")
+    return redirect("visuals:index")
+
+
+@requires(DESIGN)
 def builder_step(request, slug, step):
     """One step of the builder.
 
