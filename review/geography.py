@@ -43,6 +43,28 @@ REVIEWABLE_SKIPS = (
     "city_not_in_census_gazetteer",
 )
 
+#: Statuses that mean the record is DONE, whatever the reason.
+#:
+#: Local news is enriched to the greatest extent possible, and that
+#: includes a local news paywall stub -- `enrichment_skipped` is therefore
+#: NOT here: the story is local, the capture was short, and a person can
+#: still say where it happened. `in_review` is not here either; a held
+#: record is waiting on a person, not disposed.
+#:
+#: Everything else on this list has had its content type settled: it is not
+#: local news, so there is no geography to attach and no question to ask.
+TERMINAL_DISPOSITIONS = (
+    "wire",
+    "obituary",
+    "weather",
+    "opinion",
+    "not_article",
+    "non_english",
+    "section_front",
+    "out_of_scope",
+    "curated_out",
+)
+
 #: The verdict that is NOT a gap.
 #:
 #: `no_codeable_geography` means the pipeline read the story and found no
@@ -67,15 +89,31 @@ def needs_geography(dataset=None, since=None, until=None, county=None, newsroom=
     """
     from explorer.models import Article
 
-    rows = Article.objects.exclude(
-        candidate_link__status__in=("wire", "obituary", "weather", "opinion")
-    ).filter(
-        # No geography of any kind: no centre, and no mentions.
-        Q(enrichment__point_geoid__isnull=True)
-        & (
-            Q(enrichment__geoids__isnull=True)
-            | Q(enrichment__geoids="")
-            | Q(enrichment__geoids="[]")
+    rows = (
+        Article.objects.exclude(
+            # ON THE ARTICLE, not only on the link in front of it.
+            #
+            # This excluded on `candidate_link.status` alone, and the two do not
+            # agree: an article ruled `opinion` or `wire` by extraction, or by a
+            # reviewer, keeps whatever status its link had -- so a settled
+            # opinion piece, a wire story and a non-article all still qualified
+            # for a queue that asks where a story happened. Nobody attaches
+            # geography to those. 201 such rows were in the March queue on
+            # 2026-09-13.
+            #
+            # A record with a terminal disposition is decided, and a decided
+            # record does not belong in any review queue.
+            status__in=TERMINAL_DISPOSITIONS
+        )
+        .exclude(candidate_link__status__in=("wire", "obituary", "weather", "opinion"))
+        .filter(
+            # No geography of any kind: no centre, and no mentions.
+            Q(enrichment__point_geoid__isnull=True)
+            & (
+                Q(enrichment__geoids__isnull=True)
+                | Q(enrichment__geoids="")
+                | Q(enrichment__geoids="[]")
+            )
         )
     )
     # A paywall stub is the clearest case for a person: the pipeline could

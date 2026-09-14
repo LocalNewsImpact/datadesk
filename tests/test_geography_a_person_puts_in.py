@@ -482,3 +482,77 @@ def test_a_refusal_writes_no_part_of_the_answer(crawler_schema):
         apply_geography(article, ALSO_MENTIONS, "Linn, MO; Fatima, MO", user)
 
     assert not ArticlePlaceManual.objects.filter(article_id="w5").exists()
+
+
+# --- a disposed record is not in a queue -------------------------------------
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_terminally_disposed_article_is_not_asked_about(crawler_schema):
+    """Nobody attaches geography to an opinion piece, a wire story or a
+    non-article. The queue excluded on the LINK's status alone, and the two
+    do not agree: an article ruled `opinion` by extraction keeps whatever
+    status its link had, so settled records were still being asked about --
+    201 of them in the March queue on 2026-09-13."""
+    import datetime as dt
+
+    from django.utils import timezone
+
+    from explorer.models import Article, ArticleEnrichment, CandidateLink, Source
+    from review.geography import TERMINAL_DISPOSITIONS, needs_geography
+
+    source = Source.objects.create(id="s-t", host="t.example", host_norm="t.example")
+    for i, status in enumerate(TERMINAL_DISPOSITIONS):
+        link = CandidateLink.objects.create(
+            id=f"c-t{i}",
+            source=source,
+            url=f"https://t.example/{i}",
+            status="extracted",
+        )
+        article = Article.objects.create(
+            id=f"a-t{i}",
+            candidate_link=link,
+            status=status,
+            title="Settled",
+            publish_date=timezone.make_aware(dt.datetime(2026, 3, 15, 12)),
+        )
+        ArticleEnrichment.objects.create(
+            article_id=article.id,
+            skip_reason="paywall_stub",
+            geo_skip_reason="not_scoped",
+        )
+
+    asked = {a.id for a in needs_geography()}
+    for i, status in enumerate(TERMINAL_DISPOSITIONS):
+        assert f"a-t{i}" not in asked, f"{status} was asked about"
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_local_news_paywall_stub_is_still_asked_about(crawler_schema):
+    """Local news is enriched to the greatest extent possible, and that
+    includes a local news paywall stub: the story is local, the capture was
+    short, and a person can still say where it happened. Excluding
+    `enrichment_skipped` would remove the case this queue was built for."""
+    import datetime as dt
+
+    from django.utils import timezone
+
+    from explorer.models import Article, ArticleEnrichment, CandidateLink, Source
+    from review.geography import needs_geography
+
+    source = Source.objects.create(id="s-k", host="k.example", host_norm="k.example")
+    link = CandidateLink.objects.create(
+        id="c-k", source=source, url="https://k.example/1", status="extracted"
+    )
+    article = Article.objects.create(
+        id="a-k",
+        candidate_link=link,
+        status="enrichment_skipped",
+        title="Council votes on the levy",
+        publish_date=timezone.make_aware(dt.datetime(2026, 3, 15, 12)),
+    )
+    ArticleEnrichment.objects.create(
+        article_id=article.id, skip_reason="paywall_stub", geo_skip_reason="not_scoped"
+    )
+
+    assert "a-k" in {a.id for a in needs_geography()}
