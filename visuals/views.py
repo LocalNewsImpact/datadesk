@@ -9,6 +9,7 @@ The feed serves the pinned snapshot — the embed stability rule — and
 ?live=1 runs the data source only where the visual explicitly allows it.
 """
 
+import re
 from urllib.parse import urlencode
 
 from django.core.cache import cache
@@ -1631,6 +1632,39 @@ def _newsroom_tree(visual):
     return newsroom_tree_for(scopes_of(visual))
 
 
+#: " County", " Parish" and " Borough" -- the three things a US county
+#: is called, and all three are suffixes the bare name drops.
+_COUNTY_SUFFIX = re.compile(r"\s+(County|Parish|Borough|City and Borough)$", re.I)
+
+
+def _county_key(value):
+    """One key per county, whatever the record spells it.
+
+    `sources.county` is free text: nothing validates it on the way in, so
+    a county arrives as "Callaway" from one publisher and "Callaway
+    County" from the next and the tree grows two branches for one place.
+
+    It does NOT try to decide whether the value is a county at all. A
+    publisher whose county column held "Nexstar Media Inc" -- the owner,
+    written into the wrong field -- appeared in the builder as a county,
+    and no amount of string tidying turns that into Jackson. That is a
+    data repair, made 2026-09-14, and the guard against a repeat belongs
+    where the value is written rather than where it is read.
+
+    IT DOES NOT TOUCH CASE EITHER, deliberately. Title-casing would be
+    the obvious next step and it breaks two real counties: `DeKalb` and
+    `McDonald` become "Dekalb" and "Mcdonald". Nothing in the data needs
+    it -- no county is spelled two ways once the suffix is gone -- so
+    folding case here would be machinery for a problem that does not
+    exist, bought at the price of two names it would get wrong.
+
+    `St. Louis City` survives for the same kind of reason: it is an
+    independent city, not St. Louis County, and only "City and Borough"
+    is stripped rather than a bare trailing "City".
+    """
+    return _COUNTY_SUFFIX.sub("", (value or "").strip()).strip() or UNRECORDED
+
+
 def newsroom_tree_for(scopes):
     """The same tree, by scope rather than by visual.
 
@@ -1661,7 +1695,15 @@ def newsroom_tree_for(scopes):
         # a place called "?" -- it is a record the scan already flags, and
         # saying so is more use than a punctuation mark nobody can act on.
         state = ((source.meta or {}).get("state") or "").strip() or UNRECORDED
-        county = (source.county or "").strip() or UNRECORDED
+        # NORMALISED, because `sources.county` is free text and two
+        # spellings of one county split it into two branches. The Missouri
+        # tree carried "Callaway" and "Callaway County" side by side, each
+        # holding one newsroom, which reads as two counties with one paper
+        # apiece rather than one county with two.
+        #
+        # 252 of the 253 recorded counties use the bare name, so the bare
+        # name is the convention and the suffix is what gets dropped.
+        county = _county_key(source.county)
         tree.setdefault(state, {}).setdefault(county, []).append(
             {
                 "id": source.id,
