@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ folder.name }} — preview — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>{{ folder.name }}</h1>
+  <p class="notice">
+    Every visual in this folder, at a size you can compare them at.
+    {% if folder.theme %}
+      They are drawn on the <strong>{{ folder.theme }}</strong> palette
+      except where one has chosen its own.
+    {% else %}
+      This folder has no palette set, so each is drawn on the house
+      default or on whatever it chose.
+    {% endif %}
+    <a href="{% url 'visuals:index' %}">Back to the list</a>.
+  </p>
+
+  {% comment %}
+  EACH ONE IS ITS OWN EMBED, in an iframe. The embed already exists, it
+  already serves the pinned snapshot, and it is the same thing a reader
+  sees -- a thumbnail would be a second rendering path to keep true, and
+  the first time it drifted this page would be quietly lying about the
+  work.
+
+  `loading="lazy"` because a folder of eight charts is eight renderers,
+  eight feeds and eight libraries; below the fold they can wait until
+  somebody scrolls to them.
+  {% endcomment %}
+  <div class="contact-sheet">
+    {% for visual in visuals %}
+    <figure class="sheet-item">
+      <div class="sheet-frame">
+        <iframe src="{% url 'visuals:embed' visual.slug %}"
+                title="{{ visual.title }}"
+                loading="lazy"
+                scrolling="no"></iframe>
+      </div>
+      <figcaption>
+        {% comment %}
+        The name is the link, which is what a reader reaches for after
+        looking at the picture above it.
+        {% endcomment %}
+        <a href="{% url 'visuals:page' visual.slug %}">{{ visual.title }}</a>
+        <span class="dim">{{ visual.status }}</span>
+      </figcaption>
+    </figure>
+    {% empty %}
+    <p class="notice">Nothing filed here yet.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

@@ -53,6 +53,13 @@
       <tr class="folder-head">
         <th colspan="5" scope="colgroup">
           {% comment %}
+          THE BAR IS A WRAPPER, not the cell. `display: flex` on a `th`
+          takes it out of table layout and the columns are then sized
+          without it -- the heading stopped spanning and every visual
+          title was pushed across the table, away from its own handle.
+          {% endcomment %}
+          <div class="folder-bar">
+          {% comment %}
           A folder collapses. With several projects open at once the list
           is longer than the screen and the one being worked on is
           somewhere in the middle of it.
@@ -105,9 +112,16 @@
               button carries the current palette, so the header still says
               what the folder is set to without a select being open.
             {% endcomment %}
+            {% comment %}
+              "Theme:" is a caption and the palette is the control. Both
+              were inside the button, and the whole thing inherited the
+              heading's weight -- so a row carried three bold phrases and
+              nothing said which of them could be pressed.
+            {% endcomment %}
+            <span class="theme-label" aria-hidden="true">Theme:</span>
             <button type="button" class="theme-open" aria-expanded="false"
                     aria-controls="theme-{{ group.folder.id }}">
-              Theme: {{ group.folder.theme|default:"house default" }}
+              {{ group.folder.theme|default:"house default" }}
             </button>
             <label class="visually-hidden" for="theme-{{ group.folder.id }}">Palette for this folder</label>
             <select id="theme-{{ group.folder.id }}" name="theme" hidden>
@@ -132,6 +146,15 @@
             <button type="submit">Undo — back to {{ undo_was|default:"the house default" }}</button>
           </form>
           {% endif %}
+          {% comment %}
+            The contact sheet. Outside the theme form so it is not a
+            submit, and last so it sits at the end of the bar next to the
+            palette -- both act on the folder rather than on anything
+            beside them.
+          {% endcomment %}
+          <a class="folder-preview"
+             href="{% url 'visuals:folder_preview' group.folder.id %}">Preview</a>
+          </div>
         </th>
       </tr>
       {% for visual in group.visuals %}
@@ -145,8 +168,11 @@
     <tbody class="folder" data-folder="">
       {% if groups %}
       <tr class="folder-head">
-        <th colspan="5" scope="colgroup">Unfiled
-          <span class="dim">{{ unfiled|length }}</span></th>
+        <th colspan="5" scope="colgroup">
+          <div class="folder-bar">Unfiled
+            <span class="dim">{{ unfiled|length }}</span>
+          </div>
+        </th>
       </tr>
       {% endif %}
       {% for visual in unfiled %}

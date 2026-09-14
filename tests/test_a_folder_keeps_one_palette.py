@@ -465,8 +465,15 @@ class TestTheHeadingLaysOutAsABar:
         start = source.index(selector)
         return source[start : source.index("}", start)]
 
-    def test_the_heading_cell_is_a_flex_row(self):
-        rule = self._rule(".visuals-list .folder-head th{")
+    def test_the_heading_lays_out_as_a_flex_row(self):
+        """ON A WRAPPER, NOT ON THE CELL -- which is where this test
+        first put it, and that was its own bug. `display: flex` on a `th`
+        takes it out of table layout, so the browser sized the columns
+        without it: the spanning heading stopped spanning and every
+        visual title was pushed across the table, away from its handle.
+        See test_the_folder_row_reads_left_to_right."""
+        assert "display: flex" not in self._rule(".visuals-list .folder-head th{")
+        rule = self._rule(".folder-head .folder-bar{")
         assert "display: flex" in rule
         assert "align-items: center" in rule
 

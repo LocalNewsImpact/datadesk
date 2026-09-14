@@ -20,6 +20,11 @@ urlpatterns = [
         views.folder_set_theme,
         name="folder_set_theme",
     ),
+    path(
+        "visuals/folders/<int:pk>/preview/",
+        views.folder_preview,
+        name="folder_preview",
+    ),
     path("visuals/<slug:slug>/move/", views.visual_move, name="visual_move"),
     path("visuals/builder/new/", views.builder_new, name="builder_new"),
     path(

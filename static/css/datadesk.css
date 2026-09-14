@@ -2193,16 +2193,16 @@ a.button:hover{ background: var(--surface-2); }
 .new-folder input:focus{ border-color: var(--accent); }
 .new-folder button{ white-space: nowrap; }
 
-/* THE HEADING IS A BAR, so it has to lay out as one. Everything in here
-   is a form, and a form is block-level: the palette control broke to its
-   own line under the folder name and the undo form broke to a third,
-   which is what the screen showed -- three stacked rows for one heading,
-   and a "drawer" that was never hidden because nothing was holding it
-   beside the name. Flex puts them back on the line. */
+/* THE HEADING IS A BAR, so it has to lay out as one -- but the flex box
+   goes on a wrapper INSIDE the cell, not on the cell.
+   `display: flex` on a `th` takes it out of table layout, and the browser
+   then sizes the columns without it: the spanning heading stopped
+   spanning and the Visual column was pushed most of the way across the
+   table, leaving every title stranded far from its own grab handle. */
 .visuals-list .folder-head th{ background: var(--surface-2);
   font-size: .82rem; letter-spacing: .02em; padding: .4rem .6rem;
-  border-top: 1px solid var(--border);
-  display: flex; align-items: center; gap: .4rem; }
+  border-top: 1px solid var(--border); }
+.folder-head .folder-bar{ display: flex; align-items: center; gap: .4rem; }
 /* The gap spaces the count now; the margin would double it. */
 .visuals-list .folder-head .dim{ color: var(--text-3); font-weight: 400;
   font-variant-numeric: tabular-nums; }
@@ -2215,6 +2215,11 @@ a.button:hover{ background: var(--surface-2); }
 .folder-head form.folder-theme-undo{ display: inline-flex; }
 /* Quiet chrome, like .rename-save: one of these per folder down the page
    is a column of buttons, and none of them is the thing being read. */
+/* "Theme:" is a caption, not a control. It sat inside a `th`, so it
+   inherited the heading's weight and read as loudly as the folder's own
+   name -- three bold words competing on one row. The palette name is the
+   part that is actionable and it keeps the button. */
+.folder-head .theme-label{ font-weight: 400; color: var(--text-2); }
 .folder-head .theme-open,
 .folder-head .theme-save,
 .folder-head .folder-theme-undo button{ font: inherit; font-size: .72rem;
@@ -2816,3 +2821,33 @@ table.rec-table.queue-rows tbody th .rec-read { overflow-wrap: anywhere; }
 .geo-suggest .geo-fix { background: var(--tone-warn-soft); color: var(--tone-warn); }
 .geo-suggest .geo-home { background: var(--tone-good-soft); color: var(--tone-good); }
 .geo-suggest .geo-rung { background: var(--tone-info-soft); color: var(--tone-info); }
+
+
+/* A folder's contact sheet. A link rather than a button: it goes to a
+   page, which is what a link means, and it stays visible when the folder
+   is shut -- looking at what a project contains is the reason to open
+   one, so it must not be behind opening it. */
+.folder-head .folder-preview{ font-size: .72rem; white-space: nowrap; }
+
+/* The contact sheet. A folder's charts side by side, small, so "do these
+   read as one set" can be answered by looking -- which is the question a
+   folder palette exists to serve and the one a list of titles cannot
+   answer. */
+.contact-sheet{ display: grid; gap: var(--s-4);
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  margin-top: var(--s-4); }
+.sheet-item{ margin: 0; display: flex; flex-direction: column; gap: .4rem; }
+/* THE FRAME IS THE SIZE; the page inside it is not. A chart drawn at
+   300px wide is not the chart -- its labels collide and its legend wraps,
+   so the sheet would show a fault that does not exist. The iframe is
+   rendered at a real width and scaled down, which shows the actual
+   composition. */
+.sheet-frame{ position: relative; overflow: hidden;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface); aspect-ratio: 4 / 3; }
+.sheet-frame iframe{ position: absolute; top: 0; left: 0;
+  width: 200%; height: 200%; border: 0;
+  transform: scale(.5); transform-origin: top left; }
+.sheet-item figcaption{ display: flex; align-items: baseline; gap: .5rem;
+  font-size: .82rem; }
+.sheet-item figcaption a{ font-weight: 500; }
