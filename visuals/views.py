@@ -835,19 +835,42 @@ def folder_rename(request, pk):
     return redirect("visuals:index")
 
 
+# Where a folder's cleared per-visual palettes wait for an undo. On the
+# session rather than a column: it is one step of history for one person,
+# it expires with the login, and an undo nobody takes should leave nothing
+# behind in the database.
+_THEME_UNDO = "visuals:folder-theme-undo:"
+
+
 @requires(DESIGN)
 def folder_set_theme(request, pk):
     """Set the palette every visual in a folder inherits.
 
     A folder is a project and its charts are read together, so the palette
-    belongs to the folder. Changing it restyles every visual inside that
-    has not chosen its own -- which is a lot of charts moving at once, and
-    why the control asks before it does it.
+    belongs to the folder. Changing it restyles every visual inside --
+    which is a lot of charts moving at once, and why the control asks
+    before it does it.
 
-    UNDOING IT IS THE POINT. The previous value rides back on the redirect,
-    so the folder's row offers to put it back rather than asking somebody
-    to remember what it was. A setting that changes many things at once
-    needs a way back that does not depend on memory.
+    IT HAS TO CLEAR THE PER-VISUAL THEME TO DO THAT. Inheritance only
+    applies where a visual has no theme of its own, and until this week
+    the Look step wrote one on EVERY visit: a visual that had merely been
+    opened carried an explicit palette. So on the existing corpus setting
+    a folder's palette restyled nothing at all and the success message
+    said "0 visuals restyled" -- the control existed, and the only way to
+    get a folder into one palette was still to open each visual and set
+    it by hand, which was the thing it was built to replace.
+
+    Clearing is what makes the folder the answer rather than a default
+    nobody reaches. A visual can still refuse it afterwards, in the Look
+    step, and that choice survives until the folder's palette is set
+    again -- deliberately, behind the same confirm.
+
+    UNDOING IT IS THE POINT, and now it has more to put back than the
+    folder's own value. What each visual carried is stashed on the session
+    under the folder's key, so undo restores the overrides it cleared
+    rather than leaving them flattened. The previous value rides back on
+    the redirect, so the folder's row offers the way back rather than
+    asking somebody to remember what it was.
     """
     from django.contrib import messages
 
@@ -865,16 +888,55 @@ def folder_set_theme(request, pk):
         messages.error(request, f"No such theme: {theme}.")
         return redirect("visuals:index")
 
+    # UNDO COMES BACK THROUGH THIS VIEW, and it has to put back more than
+    # the folder's own value -- setting a palette clears the per-visual
+    # overrides standing in the way of it, and an undo that restored only
+    # the folder would leave those flattened for good.
+    if request.POST.get("restore"):
+        folder.theme = theme
+        folder.save(update_fields=["theme"])
+        overrides = request.session.pop(f"{_THEME_UNDO}{folder.pk}", {}) or {}
+        for visual in folder.visuals.filter(pk__in=overrides):
+            config = dict(visual.config or {})
+            config["theme"] = overrides[str(visual.pk)]
+            visual.config = config
+            visual.save(update_fields=["config"])
+        messages.success(
+            request,
+            f"{folder.name} is back on {theme or 'the house default'}"
+            + (
+                f", and {len(overrides)} visual"
+                f"{'' if len(overrides) == 1 else 's'} kept what "
+                f"{'it' if len(overrides) == 1 else 'they'} had chosen."
+                if overrides
+                else "."
+            ),
+        )
+        return redirect("visuals:index")
+
     was = folder.theme
     if was == theme:
         return redirect("visuals:index")
     folder.theme = theme
     folder.save(update_fields=["theme"])
 
-    # How many actually moved: a visual that chose its own theme did not,
-    # and saying "12 visuals" when two changed is the sort of wrong that
-    # gets believed.
-    moved = sum(1 for v in folder.visuals.all() if not (v.config or {}).get("theme"))
+    # The overrides that were standing in the way, kept so undo can put
+    # them back, then cleared so the folder's palette is what the project
+    # looks like.
+    overrides = {}
+    for visual in folder.visuals.all():
+        config = dict(visual.config or {})
+        if not config.get("theme"):
+            continue
+        overrides[str(visual.pk)] = config.pop("theme")
+        visual.config = config
+        visual.save(update_fields=["config"])
+    request.session[f"{_THEME_UNDO}{folder.pk}"] = overrides
+
+    # Every visual in the folder moved, because none of them can refuse
+    # any more. Counting only the ones that were already inheriting is
+    # what reported "0 visuals restyled" on a folder of eight.
+    moved = folder.visuals.count()
     messages.success(
         request,
         f"{folder.name}: {theme or 'the house default'} now, "

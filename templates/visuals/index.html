@@ -96,7 +96,7 @@
           {% endcomment %}
           <form method="post" class="folder-theme"
                 action="{% url 'visuals:folder_set_theme' group.folder.id %}"
-                onsubmit="return confirm('Restyle every visual in “{{ group.folder.name|escapejs }}” that has not chosen its own palette?');">
+                onsubmit="return confirm('Restyle every visual in “{{ group.folder.name|escapejs }}”? Any that has chosen its own palette gives it up — undo puts them back.');">
             {% csrf_token %}
             {% comment %}
               HIDDEN UNTIL ASKED FOR, like the move control beside every
@@ -122,6 +122,12 @@
           <form method="post" class="folder-theme-undo"
                 action="{% url 'visuals:folder_set_theme' group.folder.id %}">
             {% csrf_token %}
+            {% comment %}
+              `restore` is what tells the view this is the way back rather
+              than a second setting: undo has to put the per-visual
+              palettes back too, and setting one clears them.
+            {% endcomment %}
+            <input type="hidden" name="restore" value="1">
             <input type="hidden" name="theme" value="{{ undo_was }}">
             <button type="submit">Undo — back to {{ undo_was|default:"the house default" }}</button>
           </form>
