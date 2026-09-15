@@ -44,7 +44,6 @@ def _rows():
             "publishers": 1,
             "city_geoid": "2915670",
             "city": "Columbia, MO",
-            "_publisher_ids": ["s1"],
         },
         {
             "geoid": "290190021003043",
@@ -56,7 +55,6 @@ def _rows():
             "publishers": 2,
             "city_geoid": "2915670",
             "city": "Columbia, MO",
-            "_publisher_ids": ["s1", "s2"],
         },
         {
             "geoid": "2915670",
@@ -68,7 +66,6 @@ def _rows():
             "publishers": 2,
             "city_geoid": "2915670",
             "city": "Columbia, MO",
-            "_publisher_ids": ["s2", "s3"],
         },
         {
             "geoid": "29019",
@@ -80,41 +77,85 @@ def _rows():
             "publishers": 1,
             "city_geoid": None,
             "city": None,
-            "_publisher_ids": ["s4"],
         },
     ]
 
 
-def _roll(rows, setting="city"):
-    """The shipped roll-up, lifted from the module that runs it."""
+def _roll(rows, setting="city", publishers=None):
+    """The shipped roll-up, lifted from the module that runs it.
+
+    `base` is stubbed: the block fetches publisher ids for the handful of
+    dots that actually merge, and the test says who wrote where instead of
+    reaching a database.
+    """
     import re
     from pathlib import Path
 
-    source = Path("visuals/corpus.py").read_text()
-    start = source.index('    if (config or {}).get("roll_up")')
-    end = source.index("    # The ids were only ever for the roll-up.")
-    body = re.sub(r"^    ", "", source[start:end], flags=re.M)
     from datasets.geo import centroid
 
-    MAX_GROUPS = 200
+    source = Path("visuals/corpus.py").read_text()
+    start = source.index('    if (config or {}).get("roll_up")')
+    end = source.index('    points.sort(key=lambda r: -r["stories"])')
+    body = re.sub(r"^    ", "", source[start:end], flags=re.M)
+
+    pairs = [
+        (geoid, source_id)
+        for geoid, ids in (publishers or {}).items()
+        for source_id in ids
+    ]
+
+    class _Values:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def distinct(self):
+            return self._rows
+
+    class _Base:
+        """Honours the filter it is given, so a test fails if the roll-up
+        asks for the wrong geoids rather than quietly getting them all."""
+
+        def __init__(self):
+            self.wanted = None
+
+        def filter(self, **kwargs):
+            self.wanted = set(kwargs.get("enrichment__point_geoid__in") or [])
+            return self
+
+        def values_list(self, *fields):
+            return _Values(
+                [p for p in pairs if self.wanted is None or p[0] in self.wanted]
+            )
+
     scope = {
         "config": {"roll_up": setting},
         "points": list(rows),
         "centroid": centroid,
-        "MAX_GROUPS": MAX_GROUPS,
+        "MAX_GROUPS": 200,
+        "base": _Base(),
     }
     exec(body, scope)  # noqa: S102 - the shipped code, not a copy
     return scope["points"]
 
 
+#: Who wrote at each dot. s1 is at both blocks and s2 at a block and the
+#: city, which is the overlap a summed publisher count gets wrong.
+WHO_WROTE = {
+    "290190011064015": ["s1"],
+    "290190021003043": ["s1", "s2"],
+    "2915670": ["s2", "s3"],
+    "29019": ["s4"],
+}
+
+
 class TestRollingUpToCity:
     def test_the_two_blocks_and_the_place_become_one_dot(self):
-        rolled = _roll(_rows())
+        rolled = _roll(_rows(), publishers=WHO_WROTE)
         columbia = [r for r in rolled if r["geoid"] == "2915670"]
         assert len(columbia) == 1
 
     def test_stories_add_because_the_groups_are_disjoint(self):
-        rolled = _roll(_rows())
+        rolled = _roll(_rows(), publishers=WHO_WROTE)
         columbia = next(r for r in rolled if r["geoid"] == "2915670")
         assert columbia["stories"] == 15  # 3 + 2 + 10
 
@@ -122,7 +163,7 @@ class TestRollingUpToCity:
         """THE ONE A SUM GETS WRONG. s1 wrote at both blocks and s2 at a
         block and the city: 1 + 2 + 2 = 5, but there are only three
         distinct publishers."""
-        rolled = _roll(_rows())
+        rolled = _roll(_rows(), publishers=WHO_WROTE)
         columbia = next(r for r in rolled if r["geoid"] == "2915670")
         assert columbia["publishers"] == 3
 
@@ -131,35 +172,35 @@ class TestRollingUpToCity:
         from datasets.geo import centroid
 
         lat, lon = centroid("2915670")
-        rolled = _roll(_rows())
+        rolled = _roll(_rows(), publishers=WHO_WROTE)
         columbia = next(r for r in rolled if r["geoid"] == "2915670")
         assert (columbia["lat"], columbia["lon"]) == (lat, lon)
 
     def test_the_merged_dot_is_named_for_the_city(self):
-        rolled = _roll(_rows())
+        rolled = _roll(_rows(), publishers=WHO_WROTE)
         columbia = next(r for r in rolled if r["geoid"] == "2915670")
         assert columbia["place"] == "Columbia, MO"
 
     def test_a_county_coding_is_left_where_it_was(self):
         """It belongs to no city, and putting it in one would claim
         something the coding never said."""
-        rolled = _roll(_rows())
+        rolled = _roll(_rows(), publishers=WHO_WROTE)
         county = next(r for r in rolled if r["geoid"] == "29019")
         assert county["stories"] == 4
         assert county["level"] == "county"
 
     def test_nothing_is_lost(self):
-        rolled = _roll(_rows())
+        rolled = _roll(_rows(), publishers=WHO_WROTE)
         assert sum(r["stories"] for r in rolled) == 19  # 3+2+10+4
 
 
 class TestShowingEveryPointWhereItWasCoded:
     def test_the_default_merges_nothing(self):
         rows = _rows()
-        assert _roll(rows, setting="") == rows
+        assert _roll(rows, setting="", publishers=WHO_WROTE) == rows
 
     def test_every_dot_survives(self):
-        rolled = _roll(_rows(), setting="")
+        rolled = _roll(_rows(), setting="", publishers=WHO_WROTE)
         assert len(rolled) == 4
 
 
