@@ -23,8 +23,7 @@ from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Substr, TruncMonth, TruncYear
 
 from accounts.access import ALL_SCOPES
-from datasets.geo import centroid, county_label
-from datasets.places import place_label
+from datasets.geo import centroid, county_label, geoid_label
 from datasets.publishers import (  # noqa: F401  (re-exported)
     GROUPED_VALUES,
     PUBLISHER_FREQUENCIES,
@@ -1518,12 +1517,36 @@ def run_story_map(spec, scopes):
     for row in points:
         row["lat"] = float(row["lat"]) if row["lat"] is not None else None
         row["lon"] = float(row["lon"]) if row["lon"] is not None else None
-        named = place_label(row["geoid"]) if row["level"] == "place" else None
-        if named is None and row["level"] == "county":
-            named = county_label(row["geoid"])
+        # WHICH LEVELS THE CENSUS CAN NAME, AND WHICH IT CANNOT.
+        #
+        #   state   name         Missouri
+        #   county  name         Johnson County
+        #   place   name         Holden city
+        #   tract   number only
+        #   block   number only  290190021003043 is state 29, county 019,
+        #                        tract 0021.00, block group 3, block 043
+        #
+        # WHERE THE CENSUS HAS A NAME, IT WINS. A venue at place level is
+        # standing in for a town that has a name of its own, which is how
+        # "high school football field/track" came to be a place.
+        #
+        # WHERE IT HAS NONE, THE ENTITY IS THE ONLY NAME THERE IS, and it
+        # is kept. "Ella Maxwell Fine Arts Center" against a block geoid
+        # says something the digits cannot, and that is the level where
+        # naming a venue is worth doing.
+        #
+        # An unnamed code falls back up the ladder -- county, then state,
+        # since tract and block group have no names and a block's digits
+        # do not encode its city. Coarser than the coding, but a dot with
+        # no label is worse than a coarse one, and the precision column
+        # still says which level the coding was.
+        level = row["level"]
+        if level in ("place", "county", "state"):
+            named = geoid_label(row["geoid"], level)
+        else:
+            named = row.get("place") or geoid_label(row["geoid"], level)
         if named:
             row["place"] = named
-
     # A HUMAN CENTRE IS A DOT WHERE THE PIPELINE FOUND NONE.
     #
     # The same rule the crawler's own merge uses (`is_point and geoid is
