@@ -244,10 +244,13 @@ class TestTheNameLadderWalksUpToTheFirstNamedParent:
     nearest parent that can be.
 
     The reachable ladder is narrower than it looks. Tract and block group
-    have no names, and PLACE IS NOT DERIVABLE FROM A BLOCK -- blocks nest
-    in tracts, which nest in counties, while a city is a separate
-    geography a block's digits do not encode. So the walk is: own level if
-    named, then county, then state.
+    have no names at all, and place -- though it IS a named level, and the
+    first one tried for a 7-digit code -- can only be a starting point,
+    never a destination: blocks nest in tracts and tracts in counties,
+    while a city is a separate geography a block's digits never encode.
+
+    So the walk is: own level if that level has names, then county, then
+    state. Nothing arrives at a place that did not start there.
     """
 
     def test_a_block_takes_its_county(self):
@@ -269,6 +272,27 @@ class TestTheNameLadderWalksUpToTheFirstNamedParent:
         assert geoid_label("2932572", "place") == "Holden, MO"
         assert geoid_label("29101", "county") == "Johnson, MO"
         assert geoid_label("29", "state") == "Missouri"
+
+    def test_a_block_inside_a_city_still_comes_back_as_its_county(self):
+        """THE DISTINCTION, AT ITS SHARPEST. Block 290190011064015 is in
+        Columbia -- the enrichment that coded it said so, and Columbia has
+        a place code of its own (2915670). The label is still "Boone, MO",
+        because the block's digits do not contain Columbia and nothing
+        here invents the connection.
+
+        If this ever returns "Columbia, MO", something has started
+        guessing a city from a code that does not carry one."""
+        from datasets.geo import geoid_label
+
+        assert geoid_label("290190011064015", "block") == "Boone, MO"
+
+    def test_a_place_code_is_tried_before_walking(self):
+        """Place IS a named level and the first one tried for a 7-digit
+        code -- it is only unreachable from below, not unused."""
+        from datasets.geo import geoid_label
+
+        assert geoid_label("2915670", "place") == "Columbia, MO"
+        assert geoid_label("2915670") == "Columbia, MO"
 
     def test_a_code_from_no_real_geography_names_nothing(self):
         """Better to have no label than a confident wrong one."""

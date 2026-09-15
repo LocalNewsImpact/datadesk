@@ -326,16 +326,20 @@ def geoid_label(geoid, level=None):
         3       block group
         043     block
 
-    And PLACE IS NOT DERIVABLE FROM A BLOCK. Blocks nest in tracts, which
-    nest in counties; a city is a separate geography that a block's digits
-    do not encode, so there is no way up from a block to its town without
-    a crosswalk we do not carry.
+    PLACE IS A LEVEL YOU CAN START FROM, NOT A RUNG YOU CAN CLIMB TO.
+    A 7-digit place code is named here, and named first. But nothing
+    walks UP to a place, because a finer code does not contain one:
+    blocks nest in tracts and tracts in counties, while a city is a
+    separate geography whose identity a block's digits never encode.
+    Reaching a town from a block would need a crosswalk this repository
+    does not carry.
 
-    So the ladder of names reachable from a code alone is: its own level
-    if that level is named, then the county, then the state. A block the
-    enrichment did not name reads "Boone, MO" rather than blank -- coarser
-    than the coding, but a dot with no label is worse than a coarse one,
-    and the precision column still says which level the coding was.
+    So: name the code at its own level if that level has names; otherwise
+    walk up through the levels that do, which are county and then state.
+    A block the enrichment did not name reads "Boone, MO" rather than
+    blank -- coarser than the coding, but a dot with no label is worse
+    than a coarse one, and the precision column still says which level
+    the coding was.
     """
     from datasets.places import place_label
 
