@@ -71,6 +71,11 @@ _STRING_KEYS = (
     "focus",
     "focus_name",
     "bands",
+    # Whether a story map draws each point where it was coded or counts
+    # every point that belongs to a city under that city. A display
+    # choice the SERVER has to honour, because the block-to-place
+    # crosswalk is a table rather than something the renderer can derive.
+    "roll_up",
     "lat",
     "lon",
     "place",

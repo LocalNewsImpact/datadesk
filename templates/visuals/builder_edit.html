@@ -264,6 +264,16 @@
               <input type="text" name="extent_custom"
                      placeholder="Callaway, MO; Howard, MO; 29053">
             </label>
+            <!-- Stories are coded at four precisions, so one town can
+                 carry several dots. Rolled up, every point that belongs
+                 to a city is counted under it; a county- or state-coded
+                 story belongs to no city and stays where it is. -->
+            <label data-kinds="storymap">Place precision
+              <select name="roll_up">
+                <option value="">show every point where it was coded</option>
+                <option value="city">roll up to city</option>
+              </select>
+            </label>
           </label>
         </fieldset>
 

@@ -251,7 +251,23 @@ def theme_panel(visual, post=None):
         # is keyed by, and nobody knows Missouri is 29 -- the same
         # resolution `builder.build_config` does for the older form,
         # which an uploaded-data visual never passes through.
-        if config.get("frame_on"):
+        # ONLY WHERE THIS CHART FRAMES FROM HERE. `frame_on` is a flow
+        # map's control; a story map is framed from the newsrooms step,
+        # which owns `focus`, `focus_name`, `focus_level`, `extent` and
+        # `frame`.
+        #
+        # This branch used to be `if config.get("frame_on")`, read off
+        # this panel's OWN freshly-built dict -- so for any chart that
+        # does not declare the option the key was never there, the else
+        # ran, and every save of this step wrote `focus: ""` and
+        # `frame: []` over the newsroom step's choice. Renaming a story
+        # map reset it from a state to every marker on the map, and the
+        # only step that did not do it was the one that set the frame.
+        #
+        # `steps.py` states the contract this broke: "Every step writes
+        # its own keys and none clears another's."
+        frames_here = any(option.id == "frame_on" for option in _chart_options(visual))
+        if frames_here and config.get("frame_on"):
             from visuals.geofocus import AUTO, FocusError, frame, resolve
 
             try:
@@ -266,7 +282,7 @@ def theme_panel(visual, post=None):
                 # did before this control existed.
                 config["focus"] = ""
                 config["frame"] = []
-        else:
+        elif frames_here:
             # CLEARED, by writing the blank rather than removing the key.
             #
             # This dict is a step's own, built fresh on every save, and

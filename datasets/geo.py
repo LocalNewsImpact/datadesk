@@ -282,6 +282,93 @@ def state_code(value):
     return _STATE_BY_NAME.get(text.lower(), "")
 
 
+_state_labels = None
+
+
+def state_label(geoid):
+    """ "Missouri" for a state FIPS, or None if it is not one.
+
+    THE ONLY LEVEL THAT HAD NO NAME AT ALL. Of the coded points in
+    production on 2026-09-15, every one of the 8,863 at place level
+    carried a name and 2,090 at state level carried none -- the enrichment
+    records a state coding without a place string, because there is no
+    place to name.
+
+    Derived rather than vendored: the county gazetteer already pairs every
+    GEOID with its USPS code, and the first two digits of any GEOID are
+    the state, so FIPS -> USPS falls out of a file that is already here.
+    The name comes back through the same table `state_code` reads, which
+    keeps one spelling of each state in the codebase.
+    """
+    global _state_labels
+    if _state_labels is None:
+        by_usps = {code: name.title() for name, code in _STATE_BY_NAME.items()}
+        _state_labels = {}
+        with open(_COUNTIES, newline="") as fh:
+            for row in csv.DictReader(fh):
+                fips = row["GEOID"][:2]
+                label = by_usps.get(row["USPS"])
+                if label:
+                    _state_labels.setdefault(fips, label)
+    return _state_labels.get(str(geoid or "").strip())
+
+
+def geoid_label(geoid, level=None):
+    """The best name a GEOID can be given, walking up until one exists.
+
+    THE NAMED LEVELS ARE STATE, COUNTY AND PLACE. Tract and block group
+    have no names -- a block GEOID is digits all the way down:
+
+        290190021003043
+        29      state
+        019     county
+        002100  tract
+        3       block group
+        043     block
+
+    PLACE IS A LEVEL YOU CAN START FROM, NOT A RUNG YOU CAN CLIMB TO.
+    A 7-digit place code is named here, and named first. But nothing
+    walks UP to a place, because a finer code does not contain one:
+    blocks nest in tracts and tracts in counties, while a city is a
+    separate geography whose identity a block's digits never encode.
+    Reaching a town from a block would need a crosswalk this repository
+    does not carry.
+
+    So: name the code at its own level if that level has names; otherwise
+    walk up through the levels that do, which are county and then state.
+    A block the enrichment did not name reads "Boone, MO" rather than
+    blank -- coarser than the coding, but a dot with no label is worse
+    than a coarse one, and the precision column still says which level
+    the coding was.
+    """
+    from datasets.places import place_label
+
+    code = str(geoid or "").strip()
+    if not code:
+        return None
+    if level == "place" or len(code) == 7:
+        named = place_label(code)
+        if named:
+            return named
+    if level == "county" or len(code) == 5:
+        named = county_label(code)
+        if named != code:
+            return named
+    if level == "state" or len(code) == 2:
+        named = state_label(code)
+        if named:
+            return named
+    # Walk up. County first, because it is the finest named parent any
+    # code longer than a county FIPS has.
+    if len(code) > 5:
+        named = county_label(code[:5])
+        if named != code[:5]:
+            return named
+    if len(code) >= 2:
+        return state_label(code[:2])
+    return None
+
+
 def states_with_county(name):
     """Every state whose gazetteer has a county by this name."""
     folded = _fold(name)

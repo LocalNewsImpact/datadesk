@@ -18,13 +18,14 @@ itself to county/tract/block codings and says how many rows that drops.
 import logging
 import time
 
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.db.models import Avg, Count, F, Min, Q, Sum
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Substr, TruncMonth, TruncYear
 
 from accounts.access import ALL_SCOPES
-from datasets.geo import centroid, county_label
-from datasets.places import place_label
+from datasets.blockplace import ladder, places_for_blocks
+from datasets.geo import centroid, county_label, geoid_label
 from datasets.publishers import (  # noqa: F401  (re-exported)
     GROUPED_VALUES,
     PUBLISHER_FREQUENCIES,
@@ -474,6 +475,12 @@ SUBSETS = {
         "What reached enrichment, which is what is exported to BigQuery.",
     ),
 }
+
+#: What a block in no Census place is called. It is a description of
+#: the land, not a placeholder: the BAF assigns every incorporated
+#: place AND every CDP, so a blank means rural ground between towns
+#: rather than a name nobody looked up.
+UNINCORPORATED = "Unincorporated"
 
 MAX_GROUPS = 5000
 # A rolled-up dimension groups on the raw coding first, which yields more
@@ -1446,7 +1453,7 @@ def run_spec(spec, scopes):
 STORY_MAP_LEVELS = ("place", "block", "county", "state", "tract")
 
 
-def run_story_map(spec, scopes):
+def run_story_map(spec, scopes, config=None):
     """Return {'points': [...], 'areas': [...]} plus meta for a story map."""
     import json as _json
 
@@ -1489,6 +1496,12 @@ def run_story_map(spec, scopes):
             stories=Count("id", distinct=True),
             publishers=Count("candidate_link__source_id", distinct=True),
             place=Min("enrichment__point_place"),
+            # THE IDS, NOT JUST THE COUNT, so rolling points up to a city
+            # can stay exact. Two dots in one town may share a publisher,
+            # and adding their counts would report it twice; the union of
+            # the ids cannot. Dropped from the payload once the roll-up
+            # has used it.
+            _publisher_ids=ArrayAgg("candidate_link__source_id", distinct=True),
         )
         .order_by("-stories")[:MAX_GROUPS]
     )
@@ -1518,12 +1531,83 @@ def run_story_map(spec, scopes):
     for row in points:
         row["lat"] = float(row["lat"]) if row["lat"] is not None else None
         row["lon"] = float(row["lon"]) if row["lon"] is not None else None
-        named = place_label(row["geoid"]) if row["level"] == "place" else None
-        if named is None and row["level"] == "county":
-            named = county_label(row["geoid"])
+        # Every block on this page, looked up once. A story coded to a block
+    # is countable under its city only through this table -- the code
+    # itself carries state, county, tract and block group and never the
+    # place.
+    block_cities = places_for_blocks(
+        row["geoid"] for row in points if row["level"] == "block"
+    )
+    for row in points:
+        pass
+        # WHICH LEVELS THE CENSUS CAN NAME, AND WHICH IT CANNOT.
+        #
+        #   state   name         Missouri
+        #   county  name         Johnson County
+        #   place   name         Holden city
+        #   tract   number only
+        #   block   number only  290190021003043 is state 29, county 019,
+        #                        tract 0021.00, block group 3, block 043
+        #
+        # WHERE THE CENSUS HAS A NAME, IT WINS. A venue at place level is
+        # standing in for a town that has a name of its own, which is how
+        # "high school football field/track" came to be a place.
+        #
+        # WHERE IT HAS NONE, THE ENTITY IS THE ONLY NAME THERE IS, and it
+        # is kept. "Ella Maxwell Fine Arts Center" against a block geoid
+        # says something the digits cannot, and that is the level where
+        # naming a venue is worth doing.
+        #
+        # An unnamed code falls back up the ladder -- county, then state,
+        # since tract and block group have no names and a block's digits
+        # do not encode its city. Coarser than the coding, but a dot with
+        # no label is worse than a coarse one, and the precision column
+        # still says which level the coding was.
+        level = row["level"]
+        if level in ("place", "county", "state"):
+            named = geoid_label(row["geoid"], level)
+        else:
+            # THE ENTITY IS THE LABEL; THE CITY IS THE AGGREGATION KEY.
+            # Two different jobs, and the crosswalk must not do the first.
+            # "Ella Maxwell Fine Arts Center" tells a reader where in
+            # Nevada the story happened; replacing it with "Nevada, MO"
+            # would throw away the only thing the block coding bought.
+            #
+            # So the city fills a GAP rather than overwriting a name: a
+            # block the model did not name reads "Columbia, MO" instead of
+            # falling all the way back to "Boone, MO". `city_geoid` is
+            # what a map groups by, and it is computed beside this rather
+            # than instead of it.
+            city = block_cities.get(row["geoid"]) if level == "block" else None
+            named = row.get("place") or geoid_label(city, "place")
+            if not named and level == "block":
+                # UNINCORPORATED IS A NAME, NOT A MISSING ONE. A block in
+                # no Census place -- 53% of Missouri -- is rural land
+                # between towns, and that is what it IS rather than a
+                # lookup that failed. Labelling it with its county instead
+                # would put a dot called "Adair, MO" next to a dot called
+                # "Adair, MO" that really is the county coding, and the
+                # two mean different things.
+                #
+                # The county still travels, on the county rung, so the
+                # point is aggregable and a reader can see where it is.
+                # The coordinates are the enrichment's own: all 60
+                # block-coded rows carry one, 54 distinct points for 54
+                # distinct blocks, so the dot lands where the story was
+                # rather than on a centroid.
+                named = UNINCORPORATED
+            named = named or geoid_label(row["geoid"], level)
+        # EVERY RUNG THE CODING CAN REACH, not just the one it is
+        # labelled with. A row carrying only its own label can be shown
+        # but not aggregated -- a block-coded story could not be counted
+        # by county, a place-coded one not by state -- even though both
+        # are derivable. Filled once here so a map can group by whichever
+        # rung it wants, and named as well as coded so the grouping has
+        # something to print. None at a rung means the coding genuinely
+        # cannot reach it, never that nobody looked.
+        row.update(ladder(row["geoid"], row["level"], blocks=block_cities))
         if named:
             row["place"] = named
-
     # A HUMAN CENTRE IS A DOT WHERE THE PIPELINE FOUND NONE.
     #
     # The same rule the crawler's own merge uses (`is_point and geoid is
@@ -1594,6 +1678,65 @@ def run_story_map(spec, scopes):
         entry["stories"] = stories
         entry["publishers"] = publishers
         points.append(entry)
+    # AFTER THE HUMAN CENTRES, NOT BEFORE THEM. A reviewer's own dot is
+    # appended above, so filling the ladder or rolling up any earlier
+    # reached only the pipeline's own points: seven manually placed rows
+    # arrived with no state, no county and no city, and a roll-up left
+    # them sitting beside the city they belong to instead of in it.
+    for row in points:
+        if "state_geoid" not in row:
+            row.update(ladder(row["geoid"], row["level"], blocks=block_cities))
+
+    # ROLL UP TO CITY, where the visual asks for it.
+    #
+    # The corpus codes stories at four precisions, so one town can carry
+    # several dots: a story placed to a block sits at the block, one
+    # placed to the city at the city. True, and noisy. A map OF CITIES
+    # wants them counted together.
+    #
+    # Stories add, because each article has one point and the groups are
+    # disjoint. PUBLISHERS DO NOT -- two dots in a town may share one --
+    # so the union of the ids is counted rather than the counts summed.
+    # The coordinates become the city's, since the merged dot is the city
+    # and not any of the points that went into it.
+    #
+    # A story coded only to a county or a state belongs to no city. It is
+    # left exactly where it was rather than invented into one.
+    if (config or {}).get("roll_up") == "city":
+        merged, kept = {}, []
+        for row in points:
+            city = row.get("city_geoid")
+            if not city:
+                kept.append(row)
+                continue
+            into = merged.get(city)
+            if into is None:
+                lat, lon = centroid(city)
+                merged[city] = {
+                    **row,
+                    "geoid": city,
+                    "level": "place",
+                    "place": row.get("city") or row.get("place"),
+                    "lat": lat if lat is not None else row["lat"],
+                    "lon": lon if lon is not None else row["lon"],
+                    "_publisher_ids": list(row.get("_publisher_ids") or []),
+                }
+                continue
+            into["stories"] += row["stories"]
+            into["_publisher_ids"] = list(
+                set(into["_publisher_ids"]) | set(row.get("_publisher_ids") or [])
+            )
+        for row in merged.values():
+            row["publishers"] = len(row["_publisher_ids"])
+        points = sorted([*merged.values(), *kept], key=lambda r: -r["stories"])[
+            :MAX_GROUPS
+        ]
+
+    # The ids were only ever for the roll-up. A payload is served to
+    # readers, and source ids are not theirs to have.
+    for row in points:
+        row.pop("_publisher_ids", None)
+
     points.sort(key=lambda r: -r["stories"])
     del points[MAX_GROUPS:]
 
