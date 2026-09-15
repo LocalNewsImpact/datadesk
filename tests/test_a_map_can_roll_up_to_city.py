@@ -183,3 +183,49 @@ class TestTheOptionIsOffered:
         from visuals.builder import _STRING_KEYS
 
         assert "roll_up" in _STRING_KEYS
+
+
+class TestAManuallyPlacedPointIsTreatedLikeAnyOther:
+    """A reviewer's own dot is appended to the point list AFTER the
+    pipeline's, so anything applied to the list before that reaches only
+    half of it.
+
+    FOUND BY RUNNING THE REAL MAP, not by reading the code: seven
+    manually placed rows came back with no state, no county and no city
+    while every pipeline row had all three. A roll-up had the same shape
+    of bug -- it would have left a reviewer's dot sitting beside the city
+    it belongs to instead of inside it.
+
+    The ladder fill and the roll-up now run after the merge, over the
+    whole list.
+    """
+
+    def _source(self):
+        from pathlib import Path
+
+        return Path("visuals/corpus.py").read_text()
+
+    def test_the_ladder_is_filled_after_the_human_centres(self):
+        source = self._source()
+        manual = source.index("A HUMAN CENTRE IS A DOT")
+        fill = source.index('if "state_geoid" not in row:')
+        assert manual < fill, "the ladder is filled before the manual points join"
+
+    def test_the_roll_up_runs_after_them_too(self):
+        source = self._source()
+        manual = source.index("A HUMAN CENTRE IS A DOT")
+        rollup = source.index("# ROLL UP TO CITY")
+        assert manual < rollup, "a reviewer's dot would not be rolled up"
+
+    def test_both_run_before_the_list_is_trimmed(self):
+        """Trimming to MAX_GROUPS first would drop points that the
+        roll-up was about to merge, changing the totals."""
+        source = self._source()
+        rollup = source.index("# ROLL UP TO CITY")
+        trim = source.index("del points[MAX_GROUPS:]")
+        assert rollup < trim
+
+    def test_the_fill_does_not_redo_rows_that_have_it(self):
+        """The pipeline's rows are laddered in their own loop. Doing it
+        twice would be a second crosswalk lookup per row for no change."""
+        assert 'if "state_geoid" not in row:' in self._source()

@@ -1608,56 +1608,6 @@ def run_story_map(spec, scopes, config=None):
         row.update(ladder(row["geoid"], row["level"], blocks=block_cities))
         if named:
             row["place"] = named
-    # ROLL UP TO CITY, where the visual asks for it.
-    #
-    # The corpus codes stories at four precisions, so one town can carry
-    # several dots: a story placed to a block sits at the block, one
-    # placed to the city at the city. True, and noisy. A map OF CITIES
-    # wants them counted together.
-    #
-    # Stories add, because each article has one point and the groups are
-    # disjoint. PUBLISHERS DO NOT -- two dots in a town may share one --
-    # so the union of the ids is counted rather than the counts summed.
-    # The coordinates become the city's, since the merged dot is the city
-    # and not any of the points that went into it.
-    #
-    # A story coded only to a county or a state belongs to no city. It is
-    # left exactly where it was rather than invented into one.
-    if (config or {}).get("roll_up") == "city":
-        merged, kept = {}, []
-        for row in points:
-            city = row.get("city_geoid")
-            if not city:
-                kept.append(row)
-                continue
-            into = merged.get(city)
-            if into is None:
-                lat, lon = centroid(city)
-                merged[city] = {
-                    **row,
-                    "geoid": city,
-                    "level": "place",
-                    "place": row.get("city") or row.get("place"),
-                    "lat": lat if lat is not None else row["lat"],
-                    "lon": lon if lon is not None else row["lon"],
-                    "_publisher_ids": list(row.get("_publisher_ids") or []),
-                }
-                continue
-            into["stories"] += row["stories"]
-            into["_publisher_ids"] = list(
-                set(into["_publisher_ids"]) | set(row.get("_publisher_ids") or [])
-            )
-        for row in merged.values():
-            row["publishers"] = len(row["_publisher_ids"])
-        points = sorted([*merged.values(), *kept], key=lambda r: -r["stories"])[
-            :MAX_GROUPS
-        ]
-
-    # The ids were only ever for the roll-up. A payload is served to
-    # readers, and source ids are not theirs to have.
-    for row in points:
-        row.pop("_publisher_ids", None)
-
     # A HUMAN CENTRE IS A DOT WHERE THE PIPELINE FOUND NONE.
     #
     # The same rule the crawler's own merge uses (`is_point and geoid is
@@ -1728,6 +1678,65 @@ def run_story_map(spec, scopes, config=None):
         entry["stories"] = stories
         entry["publishers"] = publishers
         points.append(entry)
+    # AFTER THE HUMAN CENTRES, NOT BEFORE THEM. A reviewer's own dot is
+    # appended above, so filling the ladder or rolling up any earlier
+    # reached only the pipeline's own points: seven manually placed rows
+    # arrived with no state, no county and no city, and a roll-up left
+    # them sitting beside the city they belong to instead of in it.
+    for row in points:
+        if "state_geoid" not in row:
+            row.update(ladder(row["geoid"], row["level"], blocks=block_cities))
+
+    # ROLL UP TO CITY, where the visual asks for it.
+    #
+    # The corpus codes stories at four precisions, so one town can carry
+    # several dots: a story placed to a block sits at the block, one
+    # placed to the city at the city. True, and noisy. A map OF CITIES
+    # wants them counted together.
+    #
+    # Stories add, because each article has one point and the groups are
+    # disjoint. PUBLISHERS DO NOT -- two dots in a town may share one --
+    # so the union of the ids is counted rather than the counts summed.
+    # The coordinates become the city's, since the merged dot is the city
+    # and not any of the points that went into it.
+    #
+    # A story coded only to a county or a state belongs to no city. It is
+    # left exactly where it was rather than invented into one.
+    if (config or {}).get("roll_up") == "city":
+        merged, kept = {}, []
+        for row in points:
+            city = row.get("city_geoid")
+            if not city:
+                kept.append(row)
+                continue
+            into = merged.get(city)
+            if into is None:
+                lat, lon = centroid(city)
+                merged[city] = {
+                    **row,
+                    "geoid": city,
+                    "level": "place",
+                    "place": row.get("city") or row.get("place"),
+                    "lat": lat if lat is not None else row["lat"],
+                    "lon": lon if lon is not None else row["lon"],
+                    "_publisher_ids": list(row.get("_publisher_ids") or []),
+                }
+                continue
+            into["stories"] += row["stories"]
+            into["_publisher_ids"] = list(
+                set(into["_publisher_ids"]) | set(row.get("_publisher_ids") or [])
+            )
+        for row in merged.values():
+            row["publishers"] = len(row["_publisher_ids"])
+        points = sorted([*merged.values(), *kept], key=lambda r: -r["stories"])[
+            :MAX_GROUPS
+        ]
+
+    # The ids were only ever for the roll-up. A payload is served to
+    # readers, and source ids are not theirs to have.
+    for row in points:
+        row.pop("_publisher_ids", None)
+
     points.sort(key=lambda r: -r["stories"])
     del points[MAX_GROUPS:]
 
