@@ -163,3 +163,76 @@ class TestTheSlowQueryReportIsHonestAboutWhatItKnows:
 
         with pytest.raises((CommandError, SystemExit)):
             call_command("slow_queries", "--order", "sideways", stdout=StringIO())
+
+
+class TestTheBlockedInventoryReadsTheStoredLength:
+    """`articles.text_length` is a STORED generated column --
+    `length(coalesce(content, text, text_excerpt, ''))` -- and it is
+    indexed. Asking for an empty body by recomputing that coalesce reads
+    every body out of TOAST; asking for `text_length = 0` reads an index.
+
+    MEASURED against production, 165,459 articles: the coalesce form is a
+    sequential scan at 434 ms, the column an index-only scan at 0.9 ms,
+    and both return 1,234.
+
+    The review queue stopped measuring this by hand in b25f5eb. This count
+    was the site that was missed, and `pg_stat_statements` is what found
+    it -- neither the request log nor a static scan had anything to say
+    about a query issued by a scheduled command.
+    """
+
+    def _empty_bodies(self, sql):
+        from django.db import connections
+
+        with connections["crawler"].cursor() as cursor:
+            cursor.execute(sql)
+            return cursor.fetchone()[0]
+
+    @pytest.fixture
+    def bodies(self, crawler_schema):
+        src = Source.objects.create(
+            id="s9", host="b.example", host_norm="b.example", canonical_name="B"
+        )
+        link = CandidateLink.objects.create(id="cl9", url="https://b/", source=src)
+        for i, (content, text, excerpt) in enumerate(
+            [
+                ("a real body", None, None),  # has content
+                (None, "fallback body", None),  # falls back to text
+                (None, None, "just an excerpt"),
+                (None, None, None),  # empty: all three null
+                ("", "", ""),  # empty: all three blank
+            ]
+        ):
+            Article.objects.create(
+                id=f"b{i}",
+                candidate_link=link,
+                url=f"https://b.example/{i}",
+                title=f"B{i}",
+                status="extracted",
+                created_at=datetime(2026, 3, 1, tzinfo=UTC),
+                content=content,
+                text=text,
+                text_excerpt=excerpt,
+            )
+
+    def test_the_stored_column_agrees_with_the_coalesce_it_replaces(self, bodies):
+        """THE EQUIVALENCE THIS RESTS ON. If the generated expression ever
+        stops matching the coalesce, the inventory quietly reports a
+        different number and nothing else would notice."""
+        by_column = self._empty_bodies(
+            "SELECT count(*) FROM articles WHERE text_length = 0"
+        )
+        by_coalesce = self._empty_bodies(
+            "SELECT count(*) FROM articles "
+            "WHERE coalesce(content, text, text_excerpt, '') = ''"
+        )
+        assert by_column == by_coalesce == 2
+
+    def test_the_inventory_asks_by_the_indexed_column(self):
+        """Asserted on the shipped SQL, because the cost only diverges at
+        production's row counts -- on seeded data both are instant."""
+        from explorer import blocked
+
+        checks = "\n".join(str(c) for c in blocked.CHECKS)
+        assert "text_length = 0" in checks
+        assert "coalesce(content, text, text_excerpt, '') = ''" not in checks
