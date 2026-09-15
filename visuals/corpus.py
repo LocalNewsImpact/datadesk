@@ -18,7 +18,6 @@ itself to county/tract/block codings and says how many rows that drops.
 import logging
 import time
 
-from django.contrib.postgres.aggregates import ArrayAgg
 from django.db.models import Avg, Count, F, Min, Q, Sum
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Substr, TruncMonth, TruncYear
@@ -1496,12 +1495,6 @@ def run_story_map(spec, scopes, config=None):
             stories=Count("id", distinct=True),
             publishers=Count("candidate_link__source_id", distinct=True),
             place=Min("enrichment__point_place"),
-            # THE IDS, NOT JUST THE COUNT, so rolling points up to a city
-            # can stay exact. Two dots in one town may share a publisher,
-            # and adding their counts would report it twice; the union of
-            # the ids cannot. Dropped from the payload once the roll-up
-            # has used it.
-            _publisher_ids=ArrayAgg("candidate_link__source_id", distinct=True),
         )
         .order_by("-stories")[:MAX_GROUPS]
     )
@@ -1703,6 +1696,49 @@ def run_story_map(spec, scopes, config=None):
     # A story coded only to a county or a state belongs to no city. It is
     # left exactly where it was rather than invented into one.
     if (config or {}).get("roll_up") == "city":
+        # WHO WROTE AT EACH DOT, FETCHED ONLY FOR THE DOTS THAT MERGE.
+        #
+        # Publishers are a distinct count, so merging two dots cannot add
+        # them: the same newsroom may have written at both, and 2 + 2 is
+        # not necessarily 4. The union of the ids is the only honest
+        # answer.
+        #
+        # Asking for those ids as an aggregate on the main query -- an
+        # ArrayAgg beside the counts -- cost 20.5s -> 63.3s against the
+        # live corpus, and charged it to EVERY story map whether or not
+        # anyone had asked to roll one up. Almost every point is already
+        # its own city and merges with nothing; only the handful coded to
+        # a block move. So the ids are fetched here, for those geoids
+        # alone, and the default path is left as it was.
+        moving = sorted(
+            {
+                row["geoid"]
+                for row in points
+                if row.get("city_geoid") and row["city_geoid"] != row["geoid"]
+            }
+        )
+        merging_into = {
+            row["city_geoid"]
+            for row in points
+            if row.get("city_geoid") and row["city_geoid"] != row["geoid"]
+        }
+        wanted = moving + sorted(
+            {
+                row["geoid"]
+                for row in points
+                if row.get("city_geoid") and row["geoid"] in merging_into
+            }
+        )
+        ids_by_geoid = {}
+        if wanted:
+            for geoid, source in (
+                base.filter(enrichment__point_geoid__in=wanted)
+                .values_list("enrichment__point_geoid", "candidate_link__source_id")
+                .distinct()
+            ):
+                if source:
+                    ids_by_geoid.setdefault(geoid, set()).add(source)
+
         merged, kept = {}, []
         for row in points:
             city = row.get("city_geoid")
@@ -1710,6 +1746,7 @@ def run_story_map(spec, scopes, config=None):
                 kept.append(row)
                 continue
             into = merged.get(city)
+            ids = ids_by_geoid.get(row["geoid"], set())
             if into is None:
                 lat, lon = centroid(city)
                 merged[city] = {
@@ -1719,23 +1756,21 @@ def run_story_map(spec, scopes, config=None):
                     "place": row.get("city") or row.get("place"),
                     "lat": lat if lat is not None else row["lat"],
                     "lon": lon if lon is not None else row["lon"],
-                    "_publisher_ids": list(row.get("_publisher_ids") or []),
+                    "_ids": set(ids),
+                    "_counted": row["publishers"],
                 }
                 continue
             into["stories"] += row["stories"]
-            into["_publisher_ids"] = list(
-                set(into["_publisher_ids"]) | set(row.get("_publisher_ids") or [])
-            )
+            into["_ids"] |= ids
         for row in merged.values():
-            row["publishers"] = len(row["_publisher_ids"])
+            # The ids where we have them; otherwise the count the query
+            # already gave, because a dot that merged with nothing needs
+            # no correction.
+            row["publishers"] = len(row["_ids"]) or row["_counted"]
+            del row["_ids"], row["_counted"]
         points = sorted([*merged.values(), *kept], key=lambda r: -r["stories"])[
             :MAX_GROUPS
         ]
-
-    # The ids were only ever for the roll-up. A payload is served to
-    # readers, and source ids are not theirs to have.
-    for row in points:
-        row.pop("_publisher_ids", None)
 
     points.sort(key=lambda r: -r["stories"])
     del points[MAX_GROUPS:]
