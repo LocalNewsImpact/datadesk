@@ -166,6 +166,17 @@ test: $(VENV) ## Run the test suite (Postgres, as production is)
 crawler-schema: $(VENV) ## Do the unmanaged models still match the crawler's schema?
 	$(PY) manage.py check_crawler_schema
 
+.PHONY: slow-queries
+slow-queries: $(VENV) ## What are the database's most expensive queries? (needs the proxy)
+# Ranked by TOTAL time, which is the right first question: it surfaces the
+# one query that takes four seconds AND the one that takes four
+# milliseconds ten thousand times. The second is an N+1 and no latency
+# percentile will ever show it.
+#
+# `--order calls` finds the N+1 candidates directly. `--database default`
+# inspects the console's own tables instead of the crawler's.
+	$(PY) manage.py slow_queries --database crawler
+
 .PHONY: smoke-queries
 smoke-queries: $(VENV) ## Do the console's read paths run against the real databases?
 	$(PY) manage.py smoke_queries
