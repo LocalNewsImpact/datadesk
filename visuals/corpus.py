@@ -18,12 +18,13 @@ itself to county/tract/block codings and says how many rows that drops.
 import logging
 import time
 
-from django.db.models import Avg, Count, F, Q, Sum
+from django.db.models import Avg, Count, F, Min, Q, Sum
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Substr, TruncMonth, TruncYear
 
 from accounts.access import ALL_SCOPES
 from datasets.geo import centroid, county_label
+from datasets.places import place_label
 from datasets.publishers import (  # noqa: F401  (re-exported)
     GROUPED_VALUES,
     PUBLISHER_FREQUENCIES,
@@ -1471,22 +1472,57 @@ def run_story_map(spec, scopes):
 
     points = list(
         base.filter(enrichment__point_lat__isnull=False)
+        # GROUPED BY THE CODE, NOT BY THE MODEL'S WORDS FOR IT. `place`
+        # was a grouping key, so one town arrived as two dots whenever the
+        # model named a venue instead of the locality -- and the counts
+        # were split with it. Taken as an aggregate instead, it is a
+        # fallback name for a point that has no code, and the distinct
+        # counts are computed across the whole place rather than per
+        # phrasing.
         .values(
             geoid=F("enrichment__point_geoid"),
             level=F("enrichment__point_geoid_level"),
-            place=F("enrichment__point_place"),
             lat=F("enrichment__point_lat"),
             lon=F("enrichment__point_lon"),
         )
         .annotate(
             stories=Count("id", distinct=True),
             publishers=Count("candidate_link__source_id", distinct=True),
+            place=Min("enrichment__point_place"),
         )
         .order_by("-stories")[:MAX_GROUPS]
     )
+    # A PLACE IS NAMED BY ITS CODE, NOT BY WHOEVER SUPPLIED THE CODE.
+    #
+    # `point_place` is the enrichment model's own words for where a story
+    # is centred, and `point_geoid` beside it is what the FIPS ladder
+    # resolved. When the model answers with a VENUE instead of a locality
+    # the code is still right and the string is not -- and this layer
+    # GROUPS by the string, so one town arrives as two dots:
+    #
+    #     2932572  Holden (11 stories)  /  "high school football
+    #              field/track" (1 story, 1 publisher)
+    #     2959096  Poplar Bluff (49)    /  "Three Rivers College" (1)
+    #     2951644  Nevada (64)          /  "Ella Maxwell Fine Arts
+    #              Center" (1)
+    #     2919792  Doniphan (38)        /  "Pilgrim's Rest Church" (1),
+    #              "near Highway C" (1)
+    #
+    # Eight such rows in production on 2026-09-15 across 832 coded
+    # places. The label is the visible part; the undercount is the harm,
+    # because Holden read as 11 stories when it had 12.
+    #
+    # The areas layer below already names itself from the geoid. This
+    # does the same, and keeps the model's string only where there is no
+    # code to name it by.
     for row in points:
         row["lat"] = float(row["lat"]) if row["lat"] is not None else None
         row["lon"] = float(row["lon"]) if row["lon"] is not None else None
+        named = place_label(row["geoid"]) if row["level"] == "place" else None
+        if named is None and row["level"] == "county":
+            named = county_label(row["geoid"])
+        if named:
+            row["place"] = named
 
     # A HUMAN CENTRE IS A DOT WHERE THE PIPELINE FOUND NONE.
     #
