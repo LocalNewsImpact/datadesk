@@ -142,10 +142,12 @@ class TestTheLabelIsAppliedToTheRows:
         assert entity < crosswalk, "the crosswalk is overwriting the entity name"
 
     def test_the_aggregation_key_is_computed_beside_the_label(self):
-        """A map of cities groups by `city_geoid`, which is a different
-        question from what the dot is called."""
+        """A map groups by a CODE, which is a different question from what
+        the dot is called. Every reachable rung is filled, not just the
+        city -- a block-coded story has to stay countable by county and by
+        state as well."""
         block = self._relabel_block()
-        assert 'row["city_geoid"] = city_geoid(' in block
+        assert "row.update(ladder(" in block
         assert "blocks=block_cities" in block
 
     def test_a_row_with_no_resolvable_name_keeps_the_model_string(self):

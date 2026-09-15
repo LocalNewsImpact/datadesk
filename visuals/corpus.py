@@ -475,6 +475,12 @@ SUBSETS = {
     ),
 }
 
+#: What a block in no Census place is called. It is a description of
+#: the land, not a placeholder: the BAF assigns every incorporated
+#: place AND every CDP, so a blank means rural ground between towns
+#: rather than a name nobody looked up.
+UNINCORPORATED = "Unincorporated"
+
 MAX_GROUPS = 5000
 # A rolled-up dimension groups on the raw coding first, which yields more
 # rows than the folded result; allow headroom before folding.
@@ -1566,11 +1572,24 @@ def run_story_map(spec, scopes):
             # what a map groups by, and it is computed beside this rather
             # than instead of it.
             city = block_cities.get(row["geoid"]) if level == "block" else None
-            named = (
-                row.get("place")
-                or geoid_label(city, "place")
-                or geoid_label(row["geoid"], level)
-            )
+            named = row.get("place") or geoid_label(city, "place")
+            if not named and level == "block":
+                # UNINCORPORATED IS A NAME, NOT A MISSING ONE. A block in
+                # no Census place -- 53% of Missouri -- is rural land
+                # between towns, and that is what it IS rather than a
+                # lookup that failed. Labelling it with its county instead
+                # would put a dot called "Adair, MO" next to a dot called
+                # "Adair, MO" that really is the county coding, and the
+                # two mean different things.
+                #
+                # The county still travels, on the county rung, so the
+                # point is aggregable and a reader can see where it is.
+                # The coordinates are the enrichment's own: all 60
+                # block-coded rows carry one, 54 distinct points for 54
+                # distinct blocks, so the dot lands where the story was
+                # rather than on a centroid.
+                named = UNINCORPORATED
+            named = named or geoid_label(row["geoid"], level)
         # EVERY RUNG THE CODING CAN REACH, not just the one it is
         # labelled with. A row carrying only its own label can be shown
         # but not aggregated -- a block-coded story could not be counted

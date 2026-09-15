@@ -306,3 +306,64 @@ class TestTheLadderIsFilledAtEveryReachableRung:
         with django_assert_num_queries(0):
             rung = blockplace.ladder("290190011064015", "block", blocks=blocks)
         assert rung["city"] == "Columbia, MO"
+
+
+class TestABlockInNoPlaceIsCalledUnincorporated:
+    """ "Unincorporated" is a description of the land, not a placeholder.
+
+    The Block Assignment File is INCPLACE_CDP: it assigns every
+    incorporated place AND every Census Designated Place. Missouri's 1,081
+    assigned places are 644 cities, 196 villages, 107 towns and 134 CDPs
+    -- so unincorporated-but-NAMED communities do get a code. A blank
+    PLACEFP means rural ground between towns, which 53% of Missouri's
+    blocks are.
+
+    So the dot is labelled for what it is, and the county travels on the
+    county rung rather than in the place column. Calling it "Adair, MO"
+    would put it beside a dot also called "Adair, MO" that really is a
+    county coding, and the two say different things.
+
+    The coordinates are the enrichment's own -- all 60 block-coded rows in
+    production carry one, 54 distinct points for 54 distinct blocks -- so
+    the dot lands where the story was, not on a centroid.
+    """
+
+    def _relabel_block(self):
+        from pathlib import Path
+
+        source = Path("visuals/corpus.py").read_text()
+        start = source.index("    for row in points:")
+        end = source.index("A HUMAN CENTRE IS A DOT", start)
+        return source[start:end]
+
+    def test_the_label_is_used_for_a_block_with_no_city(self):
+        block = self._relabel_block()
+        assert "named = UNINCORPORATED" in block
+        assert 'level == "block"' in block
+
+    def test_an_entity_still_wins_over_it(self):
+        """A rural block the model named "Pilgrim's Rest Church" should
+        say so. Unincorporated is what to call one nobody named."""
+        block = self._relabel_block()
+        entity = block.index('row.get("place")')
+        unincorporated = block.index("named = UNINCORPORATED")
+        assert entity < unincorporated
+
+    def test_a_city_still_wins_over_it(self):
+        block = self._relabel_block()
+        city = block.index('geoid_label(city, "place")')
+        unincorporated = block.index("named = UNINCORPORATED")
+        assert city < unincorporated
+
+    def test_only_a_block_gets_it(self):
+        """A county or state coding is not a statement about
+        incorporation, and calling one "Unincorporated" would be a claim
+        the data never made."""
+        block = self._relabel_block()
+        guard = block.index("named = UNINCORPORATED")
+        assert 'level == "block"' in block[:guard]
+
+    def test_the_constant_says_what_it_means(self):
+        from visuals.corpus import UNINCORPORATED
+
+        assert UNINCORPORATED == "Unincorporated"
