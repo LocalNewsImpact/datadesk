@@ -1910,23 +1910,30 @@
       // headcount broke both: every count is above 0.03, so the floor
       // stopped filtering and the map filled with arrows.
       //
-      // `own` (the default, and what shipped): width is a share of the
-      // subject county's OWN traffic. Within one county it is exactly
-      // right; across counties of different sizes it inverts. On the
-      // Audrain/Boone/Osage map 13% of arrow pairs had the WIDER arrow
-      // carrying FEWER people, worst case 10.6x -- `Miller -> Osage` at
-      // 173 people drew wider than `Randolph -> Boone` at 1,841.
+      // WIDTH IS THE COMMUTER COUNT, and there is no switch. One meaning
+      // everywhere, nothing inverts, and the big county dominates --
+      // true rather than tidy.
       //
-      // `people`: width is the commuter count. One meaning everywhere,
-      // nothing inverts, and the big county dominates -- true rather
-      // than tidy.
+      // The alternative, and what shipped first, was a share of the
+      // subject county's OWN traffic. Within a single county that is
+      // exactly right; across counties of different sizes it inverts,
+      // because 90% of a very small county's outflow outdraws 50% of a
+      // very large one's. On the Audrain/Boone/Osage map 13% of arrow
+      // pairs had the WIDER arrow carrying FEWER people, worst case
+      // 10.6x -- `Miller -> Osage` at 173 people drew wider than
+      // `Randolph -> Boone` at 1,841. Under a headcount, none do.
       //
-      // Dividing every flow by one shared denominator is not offered as
-      // a third option: the scale below normalises to the largest value,
-      // so a shared constant cancels and draws the same picture as
-      // `people`.
-      const byPeople = String(config.width_basis || "own") === "people";
-      const widthOf = byPeople ? (r) => r.n : (r) => r.share;
+      // Dividing every flow by one shared denominator is not offered
+      // either: the scale below normalises to the largest value, so a
+      // shared constant cancels and draws exactly this picture.
+      //
+      // `share` still means what it always meant -- a share of the
+      // county's own traffic -- and still drives the 3% floor, the
+      // fan-out order and the tooltip. It simply no longer sets width.
+      // Making `share` ITSELF a headcount, rather than separating the
+      // two, broke the floor: every count is above 0.03, so nothing
+      // filtered and the map filled with arrows.
+      const widthOf = (r) => r.n;
       // SQUARE ROOT WHEN WIDTH IS A HEADCOUNT. Commuting counts are
       // heavily skewed -- the Boone corridor carries several times what
       // a rural pair does -- and on a linear scale the top flows sit at
@@ -1935,13 +1942,10 @@
       //
       // The root compresses the top without reordering anything, which
       // is the whole point: a wider arrow still means more people, it
-      // just stops meaning "and nothing else matters". Shares need no
-      // such treatment -- they are bounded by 1 and already spread
-      // across the range -- so `own` keeps the linear scale it shipped
-      // with.
-      const w = (byPeople ? d3.scaleSqrt() : d3.scaleLinear())
+      // just stops meaning "and nothing else matters".
+      const w = d3.scaleSqrt()
         .domain([0, d3.max(shownArcs, widthOf) || 1])
-        .range([Math.max(1.2, fat / 8), byPeople ? fat * 0.58 : fat]);
+        .range([Math.max(1.2, fat / 8), fat * 0.58]);
 
       // Where INSIDE the destination each leg aims. Five flows into
       // Boone all aimed at its centroid is the Boone collision: five

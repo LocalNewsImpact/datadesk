@@ -323,3 +323,52 @@ class TestEveryChartMintsItsOwnArrowheads:
 
     def test_the_id_carries_it(self):
         assert re.search(r"`dd-ar-\$\{mint\}-\$\{arrowIds\.size\}`", JS)
+
+
+# --- width is the commuter count ---------------------------------------------
+
+
+class TestWidthIsTheHeadcountAndNothingElse:
+    """A share of the subject county's own traffic INVERTS across counties
+    of different sizes: 90% of a very small county's outflow draws wider
+    than 50% of a very large one's. Measured on the Audrain/Boone/Osage
+    map, 13% of arrow pairs had the wider arrow carrying fewer people --
+    worst case 10.6x, `Miller -> Osage` at 173 people drawing wider than
+    `Randolph -> Boone` at 1,841.
+
+    The whole of the arrow geometry -- the shortening, the border spacing,
+    the trimmed maximum -- was measured against the headcount. A switch
+    that could put it back on shares meant the shipped default was drawing
+    the one arrangement none of it was tuned for.
+    """
+
+    def _flow(self):
+        return JS.split("function renderFlowMap(")[1].split("\n  function ")[0]
+
+    def test_width_reads_the_headcount(self):
+        assert "const widthOf = (r) => r.n;" in self._flow()
+
+    def test_there_is_no_basis_switch(self):
+        """THE REGRESSION. `config.width_basis || "own"` shipped defaulting
+        to the inverting basis, so every published map drew shares while
+        every measurement behind the geometry was taken on counts."""
+        flow = self._flow()
+        assert "width_basis" not in flow, "the width switch is back"
+        assert "byPeople" not in flow
+
+    def test_the_scale_is_a_square_root(self):
+        """Counts are heavily skewed; on a linear scale the top flows sit at
+        the cap and everything else reads as absent rather than smaller.
+        The root compresses the top without reordering anything."""
+        assert "const w = d3.scaleSqrt()" in self._flow()
+
+    def test_share_still_means_a_share(self):
+        """`share` keeps its own meaning and its own jobs -- the 3% floor,
+        the fan-out order and the tooltip. Making `share` ITSELF a
+        headcount, rather than separating width from it, broke the floor:
+        every count is above 0.03, so nothing filtered and the map filled
+        with arrows."""
+        flow = self._flow()
+        assert "r.share >= FLOOR" in flow
+        assert "y.share - x.share" in flow
+        assert "(r.share * 100).toFixed(1)" in flow
