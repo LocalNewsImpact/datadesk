@@ -2172,9 +2172,18 @@ def test_nothing_on_the_flow_map_is_drawn_too_small_to_see():
     root = Path(__file__).resolve().parents[1]
     js = (root / "static/js/datadesk-chart.js").read_text()
     body = js.split("function renderFlowMap(")[1].split("\n  function ")[0]
-    # A floor on the width, not a range starting at zero.
-    assert ".range([Math.max(1.2, fat / 8), fat])" in body
+    # A floor on the width, not a range starting at zero. Asserted on the
+    # floor itself rather than on the whole `.range(...)` literal: the top
+    # of the range gained a branch when the people-width basis landed, and
+    # matching the literal made an edit to the MAXIMUM fail as though the
+    # minimum had been lost.
+    assert ".range([Math.max(1.2, fat / 8)," in body
     assert ".range([0," not in body
+    # The top of the range still comes from `fat`, so the widest arc stays
+    # tied to the county scale rather than to the data's own maximum.
+    import re as _re
+
+    assert _re.search(r"\.range\(\[Math\.max\(1\.2, fat / 8\), [^\]]*\bfat\b", body)
     # And a cap that moves with the page AND with the counties.
     # `max(20, width / 36)` floored the widest line at 20px however
     # small the map, so a 375px phone drew the same weight as a 720px

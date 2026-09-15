@@ -1294,6 +1294,11 @@
   // group arc — color is redundant there, so the eight-slot order holds.
   // A small stable hash, so the ids a chart mints for its own defs do not
   // collide with another chart's on the same page.
+  //: One per flow map drawn, so two on a page cannot mint the same
+  //: marker id. Module scope rather than a property of the export,
+  //: which is not assigned until the end of this file.
+  let arrowSeq = 0;
+
   function hashOf(s) {
     let h = 0;
     for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
@@ -1897,9 +1902,46 @@
       });
       const typical = d3.median(spans) || width / 10;
       const fat = Math.max(3, Math.min(width / 36, typical * 0.4));
-      const w = d3.scaleLinear()
-        .domain([0, d3.max(shownArcs, (r) => r.share) || 1])
-        .range([Math.max(1.2, fat / 8), fat]);
+      // WHAT WIDTH MEANS, and it is a real choice -- but it is the ONLY
+      // thing this setting changes. `share` goes on deciding which arcs
+      // clear the 3% floor and which six a county keeps, because those
+      // are questions about a county's own traffic and the answers
+      // should not move when the drawing does. Making `share` itself a
+      // headcount broke both: every count is above 0.03, so the floor
+      // stopped filtering and the map filled with arrows.
+      //
+      // `own` (the default, and what shipped): width is a share of the
+      // subject county's OWN traffic. Within one county it is exactly
+      // right; across counties of different sizes it inverts. On the
+      // Audrain/Boone/Osage map 13% of arrow pairs had the WIDER arrow
+      // carrying FEWER people, worst case 10.6x -- `Miller -> Osage` at
+      // 173 people drew wider than `Randolph -> Boone` at 1,841.
+      //
+      // `people`: width is the commuter count. One meaning everywhere,
+      // nothing inverts, and the big county dominates -- true rather
+      // than tidy.
+      //
+      // Dividing every flow by one shared denominator is not offered as
+      // a third option: the scale below normalises to the largest value,
+      // so a shared constant cancels and draws the same picture as
+      // `people`.
+      const byPeople = String(config.width_basis || "own") === "people";
+      const widthOf = byPeople ? (r) => r.n : (r) => r.share;
+      // SQUARE ROOT WHEN WIDTH IS A HEADCOUNT. Commuting counts are
+      // heavily skewed -- the Boone corridor carries several times what
+      // a rural pair does -- and on a linear scale the top flows sit at
+      // the cap and overpower the map: everything else reads as absent
+      // rather than as smaller.
+      //
+      // The root compresses the top without reordering anything, which
+      // is the whole point: a wider arrow still means more people, it
+      // just stops meaning "and nothing else matters". Shares need no
+      // such treatment -- they are bounded by 1 and already spread
+      // across the range -- so `own` keeps the linear scale it shipped
+      // with.
+      const w = (byPeople ? d3.scaleSqrt() : d3.scaleLinear())
+        .domain([0, d3.max(shownArcs, widthOf) || 1])
+        .range([Math.max(1.2, fat / 8), byPeople ? fat * 0.58 : fat]);
 
       // Where INSIDE the destination each leg aims. Five flows into
       // Boone all aimed at its centroid is the Boone collision: five
@@ -1916,22 +1958,66 @@
       for (const [geoid, group] of slots) {
         const box = path.bounds(shapeOf.get(geoid));
         const reach = Math.min(box[1][0] - box[0][0], box[1][1] - box[0][1]);
+        // BY WIDTH, NOT BY INDEX. This gave every arrival the same slot
+        // -- `(i - mid) * reach * 0.3` -- which holds only while the
+        // arrows are about the same width. They are, when width is a
+        // share of a county's own traffic: everything is a percentage
+        // and the spread is narrow. When width is a headcount the top
+        // flows are several times the rest, a wide arrow overruns a slot
+        // sized for an average one, and the heads collide on the way in.
+        //
+        // Each leg now takes a band as wide as it is drawn, plus a small
+        // gap, and the bands are laid end to end about the centre. Two
+        // arrivals cannot overlap because neither is given room the
+        // other is using.
+        const widths = group.map((r) => w(widthOf(r)));
+        const gap = Math.max(2, reach * 0.06);
+        const need = widths.reduce((a, b) => a + b, 0) + gap * (group.length - 1);
+        // A county only has so much edge. Where the bands do not fit,
+        // every one is squeezed by the same factor, so the order and the
+        // relative spacing survive and the fan stays inside the shape.
+        const squeeze = need > reach ? reach / need : 1;
+        let cursor = (-need * squeeze) / 2;
         group.forEach((r, i) => {
+          const band = widths[i] * squeeze;
           spread.set(r, {
-            step: (i - (group.length - 1) / 2) * reach * 0.3,
+            step: cursor + band / 2,
             crowd: group.length,
           });
+          cursor += band + gap * squeeze;
         });
       }
 
       // One hue for the whole map. Three put three meanings on colour at
       // once, and which county an arc belongs to is already given by
-      // where it starts. Colour is left to carry the pair: the larger
-      // leg darker, its partner lighter.
+      // where it starts.
+      //
+      // COLOUR CARRIES DIRECTION, not size within a pair. It used to be
+      // `rank === 0`, the larger leg of its own pair -- which is a
+      // comparison a reader cannot make across the map, because a dark
+      // arrow in one pair may be smaller than a light arrow in another.
+      // Nothing about the shading was readable as a signal.
+      //
+      // Now it says which way the traffic runs relative to the counties
+      // under study, which is the question the map exists to answer:
+      //
+      //   leaving a highlighted county   dark
+      //   arriving at one                light
+      //
+      // Between TWO highlighted counties neither of those applies --
+      // both are subjects -- so the pair rule stands there and the
+      // larger leg is the darker, which is the one case where comparing
+      // two arcs by shade is meaningful.
       const HUE = t.series[2 % t.series.length];
       const shadeBig = d3.interpolateLab(HUE, t.ink)(0.2);
       const shadeSmall = d3.interpolateLab(HUE, t.surface)(0.42);
-      const colourOf = (r) => (r.rank === 0 ? shadeBig : shadeSmall);
+      const colourOf = (r) => {
+        const leaving = isSubject(r.a);
+        const arriving = isSubject(r.b);
+        if (leaving && !arriving) return shadeBig;
+        if (arriving && !leaving) return shadeSmall;
+        return r.rank === 0 ? shadeBig : shadeSmall;
+      };
       const INK = 0.95, INK_SMALL = 1;
       const inkFor = (r) => (r.rank === 0 ? INK : INK_SMALL);
 
@@ -1946,6 +2032,18 @@
       // proportion to its own line. The geometry needs this before it
       // can leave room for it.
       const HEAD = 2.4, HEAD_W = 3.4;
+      // THE SHORTEST SHAFT THAT STILL READS AS AN ARROW, in multiples of
+      // the arrow's own width. A flat 2.5 was hardcoded in the four
+      // places that measure a leg -- the landing, the collision trace,
+      // the legality check and the drawn path -- which made the minimum
+      // length of any arrow 4.9 times its width, head included. For the
+      // widest arrows that floor was what set their length: Callaway's
+      // into Boone ran most of the way across the county because it was
+      // fat, not because it had far to go. A wide arrow's head is
+      // already unmistakable and needs almost no shaft behind it; a
+      // hairline one needs the length to read at all.
+      const leanOf = (wide) => Math.max(
+        0.8, 2.6 - (fat ? Math.min(1, wide / fat) : 0) * 2.2);
 
       // A point inside `geoid` offset sideways from its centre, or the
       // centre when that lands outside the county -- a crescent county
@@ -1979,10 +2077,28 @@
         // one before, so flows end at their own depths rather than
         // piling five heads onto one centroid.
         const back = 1 - Math.min(lay.crowd - 1, 4) * 0.06;
-        const wide = w(r.share);
-        const want = HEAD * wide + wide * 2.5;
-        const depth = Math.min(0.95, Math.max(
-          (r.rank === 0 ? DEEP : SHALLOW) * back, want / reach));
+        const wide = w(widthOf(r));
+        // AS SHORT AS PRACTICAL TO BE CLEARLY DIRECTIONAL, and it does
+        // not need to reach the centroid. `want` is the shortest arrow
+        // that still reads as one -- a head plus a little shaft -- and
+        // it was the FLOOR under a fixed 68%-of-the-way-in depth, so
+        // every arrow drove most of the way to the centre whatever its
+        // width. It is now the target and the old depth is the cap.
+        //
+        // The shaft a head needs shrinks as the arrow fattens: a wide
+        // arrow is unmistakably directional on a stub, a hairline one
+        // needs length to read at all. So the widest arrows -- which
+        // are the ones that overlap most, and the ones that overpower
+        // a county when they cross it -- become the shortest.
+        const rel = fat ? Math.min(1, wide / fat) : 0;
+        const want = HEAD * wide + wide * leanOf(wide);
+        // The cap shrinks with width too. For the fattest arrows `want`
+        // is longer than the run to the centroid, so the cap is what
+        // binds and they drove 68% of the way in regardless -- which is
+        // exactly the arrow that least needs the distance and most
+        // overpowers the county it crosses.
+        const cap = (r.rank === 0 ? DEEP : SHALLOW) * back * (1 - rel * 0.45);
+        const depth = Math.min(0.95, cap, Math.max(want / reach, 0.12));
         return along(enter, aim, depth);
       };
 
@@ -2004,7 +2120,12 @@
       // least shifted, least shortened arrangement that clears what is
       // already down -- so the big flows keep the straight routes and
       // the small ones go around them.
-      const SLIDE = [0, -0.4, 0.4, -0.8, 0.8];
+      // More places to try. Each is a pair's base sliding along the line
+      // between its two counties; with only five, a crowded county ran
+      // out of room and later pairs had to overlap. The tie-breaker
+      // below still prefers the unshifted arrangement, so this only
+      // matters where something is in the way.
+      const SLIDE = [0, -0.4, 0.4, -0.8, 0.8, -1.2, 1.2];
       // Radius as a multiple of the distance between the two counties,
       // flattest first. The tight end is what lets a pair whose
       // counties do not touch bend around a third county instead of
@@ -2013,7 +2134,16 @@
       // enough to route Audrain's line to Cole through Callaway.
       const CURVE = [9, 6, 4, 2.8, 2, 1.4, 1];
       const SIDE = [1, -1];
-      const RUN = [1, 0.82, 0.66];
+      // How far along its circle a leg runs before its head. SHORTENING
+      // IS THE CHEAPEST WAY OUT OF A COLLISION -- an arrow that stops
+      // earlier still starts in the right county, still points the right
+      // way and still carries its width, so nothing it says is lost --
+      // and it was both the least available option (34% at most) and the
+      // most penalised one (`ri * 22`, the heaviest tie-breaker), so the
+      // search would rather bend a pair into another arrow than let it
+      // end sooner. Three arrivals into Boone sat on top of each other
+      // for want of stopping short.
+      const RUN = [1, 0.82, 0.66, 0.52, 0.4];
       const STEPS = 14;
 
       // The base, and the direction the pair runs, for a given shift
@@ -2067,10 +2197,10 @@
           const line = [];
           out.line = line;
           runs.push(line);
-          const wide = w(leg.share);
+          const wide = w(widthOf(leg));
           const turn = (leg.b === c.y ? -1 : 1) * c.side;
           const far = Math.max((c.reach.get(leg.b) || 0) - HEAD * wide,
-            wide * 2.5) + HEAD * wide;
+            wide * leanOf(wide)) + HEAD * wide;
           for (let i = 0; i <= STEPS; i += 1) {
             const angle = c.base + turn * ((far * (i / STEPS)) / c.rad);
             const at01 = {
@@ -2112,10 +2242,10 @@
           c.cy + c.rad * Math.sin(c.base)];
         if (!inside(seat, x) && !inside(seat, y)) return false;
         for (const leg of legs) {
-          const wide = w(leg.share);
+          const wide = w(widthOf(leg));
           const turn = (leg.b === c.y ? -1 : 1) * c.side;
           const far = Math.max((c.reach.get(leg.b) || 0) - HEAD * wide,
-            wide * 2.5) + HEAD * wide;
+            wide * leanOf(wide)) + HEAD * wide;
           const angle = c.base + turn * (far / c.rad);
           if (!inside([c.cx + c.rad * Math.cos(angle),
             c.cy + c.rad * Math.sin(angle)], leg.b)) return false;
@@ -2142,13 +2272,85 @@
         return cost;
       };
 
+      // HOW FAR APART ARRIVALS INTO ONE COUNTY SHOULD CROSS ITS BORDER.
+      // Scaled to the county, because a big county has a long border to
+      // spread across and a small one does not. Roughly a third of the
+      // shape's diagonal: enough that two arrivals read as entering
+      // through different stretches, not so much that a county with
+      // four of them cannot satisfy it.
+      const apart = new Map();
+      {
+        const path = d3.geoPath(projection);
+        for (const [geoid, shape] of shapeOf) {
+          const box = path.bounds(shape);
+          apart.set(geoid, Math.hypot(box[1][0] - box[0][0],
+            box[1][1] - box[0][1]) * 0.32);
+        }
+      }
+
+      // Where each leg crosses into the county it is going to.
+      const doorsOf = (c, legs) => {
+        const out = [];
+        legs.forEach((leg, i) => {
+          const line = c.runs[i];
+          for (let k = 0; k < line.length; k += 1) {
+            if (inside([line[k].x, line[k].y], leg.b)) {
+              out.push({ geoid: leg.b, x: line[k].x, y: line[k].y });
+              return;
+            }
+          }
+        });
+        return out;
+      };
+
+      // THE FAN SPREADS WHERE ARROWS STOP; THIS SPREADS WHERE THEY ARRIVE.
+      // Landing points are fanned around the destination's centroid, so
+      // two arrivals can end well apart and still have entered the county
+      // through the same few pixels of border and lain on each other the
+      // whole way in -- which is what Randolph's and Audrain's arrows into
+      // Boone were doing. Osage reads clearly because its arrivals happen
+      // to come in through different stretches of its border; costing the
+      // distance between crossings is what makes that general rather than
+      // lucky.
+      //
+      // Semi-equal, not equal. It is a cost, so the exterior border
+      // (`legal`), the arrows already placed and the trespass rule can all
+      // still override it -- a county whose only clear approach is one
+      // stretch of border keeps that approach.
+      const bunched = (doors, already) => {
+        let cost = 0;
+        for (const d of doors) {
+          const want = apart.get(d.geoid) || 0;
+          if (!want) continue;
+          for (const e of already) {
+            if (e.geoid !== d.geoid) continue;
+            const gap = Math.hypot(d.x - e.x, d.y - e.y);
+            // Normalised, so it is worth about one crossing when two
+            // arrows enter through the same point and nothing at all
+            // once they are a third of the county apart.
+            if (gap < want) cost += (((want - gap) / want) ** 2) * 400;
+          }
+        }
+        return cost;
+      };
+
       const clash = (trace, placed, laid) => {
         let cost = 0;
         for (const p of trace.points) {
           for (const q of placed) {
             const need = (p.wide + q.wide) / 2 + 3;
             const gap = Math.hypot(p.x - q.x, p.y - q.y);
-            if (gap < need) cost += (need - gap) ** 2;
+            // NORMALISED BY THE ROOM THE PAIR NEEDED, not measured in
+            // raw pixels. `(need - gap) ** 2` is in units of width
+            // squared, so the fattest arrows -- exactly the ones the
+            // people-width scale makes fattest -- scored their overlaps
+            // in the thousands while everything else in the cost
+            // function was worth tens. Length, arc and border spacing
+            // were all being computed correctly and then drowned: the
+            // search was not ignoring them, it could not hear them.
+            // A full overlap is now worth about one crossing whatever
+            // the arrow's width.
+            if (gap < need) cost += (((need - gap) / need) ** 2) * 60;
           }
         }
         for (const mine of trace.runs) {
@@ -2170,9 +2372,16 @@
       for (const r of shownArcs) {
         byPair.set(r.key, (byPair.get(r.key) || []).concat([r]));
       }
-      const placed = [], laid = [];
+      const placed = [], laid = [], doorway = [];
+      // WIDEST FIRST, because the search is greedy: each pair is placed
+      // against everything already down, and nothing moves once placed.
+      // Whoever goes first gets the room. Ordering by `share` gave first
+      // pick to the largest share of its own county's traffic, which
+      // under a headcount width can be a thin arrow -- so the widest
+      // arrows were placed last, into whatever space was left, and they
+      // are the ones that cannot fit in a gap.
       const heaviest = [...byPair.entries()].sort(
-        (m, n) => n[1][0].share - m[1][0].share);
+        (m, n) => w(widthOf(n[1][0])) - w(widthOf(m[1][0])));
       for (const [key, legs] of heaviest) {
         const [x, y] = key.split("|");
         let best = null;
@@ -2186,21 +2395,40 @@
                 // Collisions dominate; the rest are tie-breakers that
                 // keep the straightest, longest, unshifted arrangement
                 // when nothing is in the way.
+                // Shortening now costs about what sliding does, rather
+                // than twice as much: it is a tie-breaker, so a clear
+                // map still draws full-length arrows, but a crowded one
+                // reaches for the shorter arrow before the contorted
+                // one.
+                const doors = doorsOf(trace, legs);
                 const cost = clash(trace, placed, laid)
                   + trespass(trace, x, y)
-                  + si * 14 + ci * 9 + ri * 22 + (side < 0 ? 6 : 0);
-                if (!best || cost < best.cost) best = { c, trace, cost };
+                  + bunched(doors, doorway)
+                  // SHORT AND STRAIGHT BEATS LONG AND BENT. Shortening
+                  // was the dearest escape from a collision and bending
+                  // among the cheapest, so the search bought its way out
+                  // of every crowded county with the tightest arc on
+                  // offer -- Cooper, Audrain and Osage->Cole all came
+                  // back at the extreme end of CURVE while barely
+                  // shortening at all. An arrow that stops earlier still
+                  // says everything it has to say; one bent into a hook
+                  // reads as a different kind of flow. Curving is now the
+                  // dearest of the three and shortening the cheapest.
+                  + si * 14 + ci * 26 + ri * 5 + (side < 0 ? 6 : 0);
+                if (!best || cost < best.cost) best = { c, trace, cost, doors };
               });
             }
           });
         });
         if (!best) {
           const c = circleFor(key, legs, 0, CURVE[1], 1, 1);
-          best = { c, trace: traceOf(c, legs) };
+          const trace = traceOf(c, legs);
+          best = { c, trace, doors: doorsOf(trace, legs) };
         }
         circles.set(key, best.c);
         for (const p of best.trace.points) placed.push(p);
         for (const line of best.trace.runs) laid.push(line);
+        for (const d of best.doors) doorway.push(d);
       }
 
       const routeOf = (r, wide) => {
@@ -2210,7 +2438,8 @@
         // is the same circle travelled the other way.
         const turn = (r.b === c.y ? -1 : 1) * c.side;
         const head = HEAD * wide;
-        const run = Math.max((c.reach.get(r.b) || 0) - head, wide * 2.5);
+        const run = Math.max((c.reach.get(r.b) || 0) - head,
+          wide * leanOf(wide));
         const stop = c.base + turn * (run / c.rad);
         const from = [c.cx + c.rad * Math.cos(c.base),
           c.cy + c.rad * Math.sin(c.base)];
@@ -2226,10 +2455,19 @@
       // viewBox and the tip sits on the edge -- without it every point
       // comes out flattened.
       const defs = svg.append("defs");
+      // UNIQUE PER MOUNT, not per canvas width. The id was
+      // `dd-ar-<n>-<hash of width>`, and `arrowIds` starts empty on
+      // every render -- so two flow maps of the same width on one page
+      // both minted `dd-ar-0-<same hash>`. SVG resolves `marker-end` by
+      // id across the whole document, so the second chart's markers
+      // captured the first's arrowheads and half the heads came out the
+      // wrong colour. Seen side by side while choosing what width should
+      // mean; it would happen to any page carrying two of these.
       const arrowIds = new Map();
+      const mint = (arrowSeq += 1);
       const arrowFor = (colour) => {
         if (!arrowIds.has(colour)) {
-          const id = `dd-ar-${arrowIds.size}-${Math.abs(hashOf(String(width)))}`;
+          const id = `dd-ar-${mint}-${arrowIds.size}`;
           arrowIds.set(colour, id);
           defs.append("marker")
             .attr("id", id).attr("viewBox", "0 0 10 10")
@@ -2262,10 +2500,10 @@
 
       const all = svg.append("g").attr("fill", "none")
         .selectAll("path").data(layers).join("path")
-        .attr("d", (d) => routeOf(d.r, w(d.r.share) + (d.halo ? 1.2 : 0)))
+        .attr("d", (d) => routeOf(d.r, w(widthOf(d.r)) + (d.halo ? 1.2 : 0)))
         // Butt, not round: a round cap pokes out from under the head.
         .attr("stroke-linecap", "butt")
-        .attr("stroke-width", (d) => w(d.r.share) + (d.halo ? 1.2 : 0))
+        .attr("stroke-width", (d) => w(widthOf(d.r)) + (d.halo ? 1.2 : 0))
         .attr("stroke", (d) => (d.halo ? t.boundary : colourOf(d.r)))
         .attr("stroke-opacity", (d) => (d.halo ? 1 : inkFor(d.r)))
         .attr("marker-end", (d) => `url(#${d.halo
