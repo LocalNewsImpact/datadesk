@@ -129,8 +129,24 @@ class TestTheLabelIsAppliedToTheRows:
 
     def test_an_unnamed_level_prefers_the_entity_it_was_given(self):
         """A block has no Census name, so the model's entity is the only
-        one there is -- and it says something the digits cannot."""
-        assert 'row.get("place") or geoid_label' in self._relabel_block()
+        one there is -- and it says something the digits cannot.
+
+        The block-to-place crosswalk must NOT override it. "Ella Maxwell
+        Fine Arts Center" tells a reader where in Nevada the story
+        happened; "Nevada, MO" throws away the only thing the finer coding
+        bought. The city fills a gap and drives aggregation; it does not
+        rename anything."""
+        block = self._relabel_block()
+        entity = block.index('row.get("place")')
+        crosswalk = block.index('geoid_label(city, "place")')
+        assert entity < crosswalk, "the crosswalk is overwriting the entity name"
+
+    def test_the_aggregation_key_is_computed_beside_the_label(self):
+        """A map of cities groups by `city_geoid`, which is a different
+        question from what the dot is called."""
+        block = self._relabel_block()
+        assert 'row["city_geoid"] = city_geoid(' in block
+        assert "blocks=block_cities" in block
 
     def test_a_row_with_no_resolvable_name_keeps_the_model_string(self):
         """A point placed by coordinates alone has no code to be named by.

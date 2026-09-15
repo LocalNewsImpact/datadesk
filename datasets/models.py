@@ -85,3 +85,59 @@ class VocabularyTerm(models.Model):
 
     def __str__(self):
         return f"{self.vocabulary}: {self.value}"
+
+
+class BlockPlace(models.Model):
+    """Which incorporated place (or CDP) a Census block sits in.
+
+    THE ONE HOP A GEOID CANNOT MAKE ON ITS OWN. A block GEOID encodes
+    state, county, tract and block group -- never the city, because a
+    place is a separate geography that cuts across tracts. The Census
+    publishes the assignment as a Block Assignment File, one per state:
+
+        BlockAssign_ST29_MO_INCPLACE_CDP.txt    BLOCKID|PLACEFP
+        290190011064015|15670                   -> 2915670 Columbia
+
+    Loaded per state the first time that state is needed, then read
+    locally forever. Missouri is 253,633 rows from a 4.3 MB download.
+
+    HALF OF EVERY STATE IS UNINCORPORATED. 134,493 of Missouri's blocks
+    (53%) have no PLACEFP at all -- they are not in any city. Those rows
+    are stored too, with `place_geoid` empty, because "looked and there is
+    no city" and "never looked" are different answers and only one of them
+    should send us back to the Census.
+    """
+
+    block_geoid = models.CharField(max_length=15, primary_key=True)
+    #: Empty where the block is unincorporated, which is the common case.
+    place_geoid = models.CharField(max_length=7, blank=True, default="", db_index=True)
+    state_fips = models.CharField(max_length=2, db_index=True)
+
+    class Meta:
+        verbose_name = "block-to-place assignment"
+
+    def __str__(self):
+        return f"{self.block_geoid} -> {self.place_geoid or '(unincorporated)'}"
+
+
+class BlockPlaceLoad(models.Model):
+    """That a state's crosswalk has been fetched, and what it cost.
+
+    Without this, an empty result for a state is indistinguishable from a
+    state nobody has loaded -- and the difference decides whether to go
+    back to census.gov or answer "no city" immediately.
+    """
+
+    state_fips = models.CharField(max_length=2, unique=True)
+    usps = models.CharField(max_length=2)
+    blocks = models.PositiveIntegerField(default=0)
+    in_a_place = models.PositiveIntegerField(default=0)
+    vintage = models.CharField(max_length=10, default="2020")
+    source_url = models.URLField(blank=True, default="")
+    loaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["usps"]
+
+    def __str__(self):
+        return f"{self.usps} ({self.blocks} blocks, {self.loaded_at:%Y-%m-%d})"

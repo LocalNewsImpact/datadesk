@@ -23,6 +23,7 @@ from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Substr, TruncMonth, TruncYear
 
 from accounts.access import ALL_SCOPES
+from datasets.blockplace import ladder, places_for_blocks
 from datasets.geo import centroid, county_label, geoid_label
 from datasets.publishers import (  # noqa: F401  (re-exported)
     GROUPED_VALUES,
@@ -1517,6 +1518,15 @@ def run_story_map(spec, scopes):
     for row in points:
         row["lat"] = float(row["lat"]) if row["lat"] is not None else None
         row["lon"] = float(row["lon"]) if row["lon"] is not None else None
+        # Every block on this page, looked up once. A story coded to a block
+    # is countable under its city only through this table -- the code
+    # itself carries state, county, tract and block group and never the
+    # place.
+    block_cities = places_for_blocks(
+        row["geoid"] for row in points if row["level"] == "block"
+    )
+    for row in points:
+        pass
         # WHICH LEVELS THE CENSUS CAN NAME, AND WHICH IT CANNOT.
         #
         #   state   name         Missouri
@@ -1544,7 +1554,32 @@ def run_story_map(spec, scopes):
         if level in ("place", "county", "state"):
             named = geoid_label(row["geoid"], level)
         else:
-            named = row.get("place") or geoid_label(row["geoid"], level)
+            # THE ENTITY IS THE LABEL; THE CITY IS THE AGGREGATION KEY.
+            # Two different jobs, and the crosswalk must not do the first.
+            # "Ella Maxwell Fine Arts Center" tells a reader where in
+            # Nevada the story happened; replacing it with "Nevada, MO"
+            # would throw away the only thing the block coding bought.
+            #
+            # So the city fills a GAP rather than overwriting a name: a
+            # block the model did not name reads "Columbia, MO" instead of
+            # falling all the way back to "Boone, MO". `city_geoid` is
+            # what a map groups by, and it is computed beside this rather
+            # than instead of it.
+            city = block_cities.get(row["geoid"]) if level == "block" else None
+            named = (
+                row.get("place")
+                or geoid_label(city, "place")
+                or geoid_label(row["geoid"], level)
+            )
+        # EVERY RUNG THE CODING CAN REACH, not just the one it is
+        # labelled with. A row carrying only its own label can be shown
+        # but not aggregated -- a block-coded story could not be counted
+        # by county, a place-coded one not by state -- even though both
+        # are derivable. Filled once here so a map can group by whichever
+        # rung it wants, and named as well as coded so the grouping has
+        # something to print. None at a rung means the coding genuinely
+        # cannot reach it, never that nobody looked.
+        row.update(ladder(row["geoid"], row["level"], blocks=block_cities))
         if named:
             row["place"] = named
     # A HUMAN CENTRE IS A DOT WHERE THE PIPELINE FOUND NONE.
