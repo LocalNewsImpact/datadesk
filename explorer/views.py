@@ -16,6 +16,7 @@ from django.db import DatabaseError
 from django.db.models import F
 from django.http import Http404
 from django.shortcuts import render
+from django.utils.functional import cached_property
 
 from accounts.access import ALL_SCOPES, is_application_admin
 from accounts.decorators import APP, requires
@@ -158,7 +159,41 @@ def _many(params, key):
     return out
 
 
-def _filtered_articles(params, user):
+class GridPaginator(Paginator):
+    """A paginator that counts without the display annotations.
+
+    Django's `Paginator` calls `.count()` on the queryset it is given.
+    `.count()` drops `select_related`, but an `annotate(F("enrichment__x"))`
+    survives into the count as a subquery -- and that join turns a parallel
+    index-only scan into a sequential scan of a 1.5 GB table.
+
+    MEASURED against production on 2026-09-15, 165,459 articles:
+
+        count as the grid built it      3,703 ms cold / 359 ms warm
+        count without the enrichment    ~200-360 ms
+        count with no joins at all        192 ms  (index-only scan)
+        the 50-row page itself             99 ms
+
+    So the count cost up to 37x the query it was counting, on every page
+    load, and held one of eight gunicorn threads while it ran.
+
+    The annotations exist to RENDER rows, not to select them: article to
+    enrichment is one-to-one, so joining it cannot change how many rows
+    there are. Filters that genuinely narrow through `enrichment__` are
+    left alone -- they are part of the question and must stay in the count.
+    """
+
+    def __init__(self, object_list, per_page, *, count_queryset=None, **kwargs):
+        super().__init__(object_list, per_page, **kwargs)
+        self._count_queryset = count_queryset
+
+    @cached_property
+    def count(self):
+        qs = self._count_queryset
+        return super().count if qs is None else qs.count()
+
+
+def _filtered_articles(params, user, annotated=True):
     """Apply the grid filters from the query string to the corpus.
 
     Narrowed to the datasets `user` may read before any filter runs, so a
@@ -170,12 +205,22 @@ def _filtered_articles(params, user):
     annotated onto the row so the grid can show them without a query per
     article.
     """
-    qs = Article.objects.select_related("candidate_link__source").annotate(
-        enr_scope=F("enrichment__scope"),
-        enr_point_place=F("enrichment__point_place"),
-        enr_point_geoid=F("enrichment__point_geoid"),
-        enr_point_level=F("enrichment__point_geoid_level"),
-    )
+    qs = Article.objects.select_related("candidate_link__source")
+    if annotated:
+        qs = qs.annotate(
+            enr_scope=F("enrichment__scope"),
+            enr_point_place=F("enrichment__point_place"),
+            enr_point_geoid=F("enrichment__point_geoid"),
+            enr_point_level=F("enrichment__point_geoid_level"),
+        )
+    # THE GRID SHOWS NO BODY TEXT. `text` and `content` hold the same
+    # article (2,044 bytes apiece on average; the crawler keeps `text` for
+    # compatibility) and `text_excerpt` another 466, so every page dragged
+    # roughly 200 KB of prose nobody rendered. Row width in the query plan
+    # falls from 2,227 bytes to 242. Deferred rather than whitelisted with
+    # only(), so adding a column to the template cannot silently start
+    # issuing one query per row.
+    qs = qs.defer("text", "content", "text_excerpt")
 
     qs = narrow(qs, user, READ)
 
@@ -295,7 +340,16 @@ def articles(request):
             page_number = int(request.GET.get("page", "1"))
         except ValueError:
             page_number = 1
-        paginator = Paginator(_filtered_articles(request.GET, request.user), PAGE_SIZE)
+        paginator = GridPaginator(
+            _filtered_articles(request.GET, request.user),
+            PAGE_SIZE,
+            # Same filters, no display annotations. Building the queryset
+            # twice costs nothing -- neither touches the database until
+            # it is evaluated.
+            count_queryset=_filtered_articles(
+                request.GET, request.user, annotated=False
+            ),
+        )
         context["page"] = paginator.get_page(page_number)
 
     # htmx swaps just the results region; a plain GET renders the page.
