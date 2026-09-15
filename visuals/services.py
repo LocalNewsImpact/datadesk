@@ -137,7 +137,12 @@ def fetch_source_data(visual):
             # that visuals carrying it keep drawing.
             kind = (visual.config or {}).get("kind")
             if kind == STORY_MAP_KIND or spec.get("shape") == "story_map":
-                return run_story_map(spec, scopes)
+                # The config too, because rolling points up to a
+                # city is a display choice made on the Look step
+                # that only the server can honour -- the
+                # block-to-place crosswalk is a table, not
+                # something the renderer can derive.
+                return run_story_map(spec, scopes, visual.config or {})
             rows, _meta = run_spec(spec, scopes)
         except CorpusSpecError as exc:
             raise DataSourceError(str(exc)) from exc

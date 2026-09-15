@@ -18,6 +18,7 @@ itself to county/tract/block codings and says how many rows that drops.
 import logging
 import time
 
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.db.models import Avg, Count, F, Min, Q, Sum
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Substr, TruncMonth, TruncYear
@@ -1452,7 +1453,7 @@ def run_spec(spec, scopes):
 STORY_MAP_LEVELS = ("place", "block", "county", "state", "tract")
 
 
-def run_story_map(spec, scopes):
+def run_story_map(spec, scopes, config=None):
     """Return {'points': [...], 'areas': [...]} plus meta for a story map."""
     import json as _json
 
@@ -1495,6 +1496,12 @@ def run_story_map(spec, scopes):
             stories=Count("id", distinct=True),
             publishers=Count("candidate_link__source_id", distinct=True),
             place=Min("enrichment__point_place"),
+            # THE IDS, NOT JUST THE COUNT, so rolling points up to a city
+            # can stay exact. Two dots in one town may share a publisher,
+            # and adding their counts would report it twice; the union of
+            # the ids cannot. Dropped from the payload once the roll-up
+            # has used it.
+            _publisher_ids=ArrayAgg("candidate_link__source_id", distinct=True),
         )
         .order_by("-stories")[:MAX_GROUPS]
     )
@@ -1601,6 +1608,56 @@ def run_story_map(spec, scopes):
         row.update(ladder(row["geoid"], row["level"], blocks=block_cities))
         if named:
             row["place"] = named
+    # ROLL UP TO CITY, where the visual asks for it.
+    #
+    # The corpus codes stories at four precisions, so one town can carry
+    # several dots: a story placed to a block sits at the block, one
+    # placed to the city at the city. True, and noisy. A map OF CITIES
+    # wants them counted together.
+    #
+    # Stories add, because each article has one point and the groups are
+    # disjoint. PUBLISHERS DO NOT -- two dots in a town may share one --
+    # so the union of the ids is counted rather than the counts summed.
+    # The coordinates become the city's, since the merged dot is the city
+    # and not any of the points that went into it.
+    #
+    # A story coded only to a county or a state belongs to no city. It is
+    # left exactly where it was rather than invented into one.
+    if (config or {}).get("roll_up") == "city":
+        merged, kept = {}, []
+        for row in points:
+            city = row.get("city_geoid")
+            if not city:
+                kept.append(row)
+                continue
+            into = merged.get(city)
+            if into is None:
+                lat, lon = centroid(city)
+                merged[city] = {
+                    **row,
+                    "geoid": city,
+                    "level": "place",
+                    "place": row.get("city") or row.get("place"),
+                    "lat": lat if lat is not None else row["lat"],
+                    "lon": lon if lon is not None else row["lon"],
+                    "_publisher_ids": list(row.get("_publisher_ids") or []),
+                }
+                continue
+            into["stories"] += row["stories"]
+            into["_publisher_ids"] = list(
+                set(into["_publisher_ids"]) | set(row.get("_publisher_ids") or [])
+            )
+        for row in merged.values():
+            row["publishers"] = len(row["_publisher_ids"])
+        points = sorted([*merged.values(), *kept], key=lambda r: -r["stories"])[
+            :MAX_GROUPS
+        ]
+
+    # The ids were only ever for the roll-up. A payload is served to
+    # readers, and source ids are not theirs to have.
+    for row in points:
+        row.pop("_publisher_ids", None)
+
     # A HUMAN CENTRE IS A DOT WHERE THE PIPELINE FOUND NONE.
     #
     # The same rule the crawler's own merge uses (`is_point and geoid is

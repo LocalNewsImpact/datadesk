@@ -484,6 +484,31 @@ CHART_TYPES = (
             Option("focus_level", "Which is a", "choice"),
             Option("extent", "Show", "choice"),
             Option("extent_custom", "Also show", "text", when="extent"),
+            # WHAT A DOT MEANS, when the corpus codes stories at four
+            # different precisions. Left alone, every point is drawn where
+            # it was coded: a story placed to a block sits at the block,
+            # one placed to a city at the city. That is the truest reading
+            # and the noisiest -- one town can carry several dots.
+            #
+            # Rolled up, every point that belongs to a city is counted
+            # under that city, which is the reading a map OF CITIES wants.
+            # A story coded only to a county or a state belongs to no city
+            # and is left where it is rather than invented into one.
+            Option(
+                "roll_up",
+                "Place precision",
+                "choice",
+                note=(
+                    "Stories are coded to a city, a block or a county. "
+                    "Rolled up, block-coded stories are counted under the "
+                    "city they sit in; county-coded ones have no city and "
+                    "stay where they are."
+                ),
+                values=(
+                    ("", "Show every point where it was coded"),
+                    ("city", "Roll up to city"),
+                ),
+            ),
             Option(
                 "bands",
                 "Shading steps",
