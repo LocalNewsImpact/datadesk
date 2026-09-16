@@ -4,7 +4,7 @@ from django.contrib import admin
 from django.urls import include, path
 
 from accounts import views as accounts_views
-from datadesk import views
+from datadesk import status, views
 
 urlpatterns = [
     # Public, and deliberately so: Google requires the page its consent
@@ -22,6 +22,8 @@ urlpatterns = [
     path("terms/", views.terms, name="terms"),
     path("", views.landing, name="landing"),
     path("_health", views.health, name="health"),
+    # A bookmark for a phone, deliberately outside the navigation.
+    path("status/", status.status, name="status"),
     path("explorer/", include("explorer.urls")),
     path("review/", include("review.urls")),
     path("manage/", include("datasets.urls")),
