@@ -287,6 +287,9 @@ class Article(CrawlerModel):
     #: retention, so a row older than that has none -- which is what
     #: decides whether a body can be re-parsed or is simply gone.
     raw_gcs_path = models.TextField(null=True)
+    # Moved by re-extraction, and by nothing else. `corpus_version`
+    # reads it so a re-extracted corpus lands under a new cache key.
+    entities_extracted_at = models.DateTimeField(null=True)
     status = models.TextField()
     wire_check_status = models.TextField()
     #: Characters of captured text, whichever column holds it. Generated

@@ -174,7 +174,12 @@ _CRAWLER_TABLES = {
         # The same generated column production has (crawler #539). Generated
         # here too, so a fixture that writes content gets the length the
         # queue will filter and sort on, exactly as production does.
-        "PRECISION, extracted_at TIMESTAMP, text_length INTEGER GENERATED ALWAYS AS "
+        "PRECISION, extracted_at TIMESTAMP, "
+        # Naive in production, and the status page subtracts it from an
+        # aware `now` -- so it is naive here too, or the fixture proves
+        # nothing about the arithmetic that actually runs.
+        "entities_extracted_at TIMESTAMP, "
+        "text_length INTEGER GENERATED ALWAYS AS "
         "(length(coalesce(content, text, text_excerpt, ''))) STORED)"
     ),
     "article_places_manual": (

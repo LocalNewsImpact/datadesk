@@ -33,16 +33,27 @@ def _stamp():
 
 
 def test_enrichment_is_part_of_the_stamp(crawler_schema):
-    """Three parts, and the third is the one that was missing."""
+    """The enrichment maximum is IN the stamp. Not that it is last.
+
+    This asked for the LAST part, which was true of the three-part stamp
+    it was written against and has not been true since the fourth was
+    appended -- it went on passing through its `or` clause rather than by
+    checking anything. Parts keep being appended, seven now, so position
+    is the wrong property to hold and membership is the right one.
+    """
+    from django.db.models import Max
+
     from explorer.models import ArticleEnrichment
 
     stamp = _stamp()
     assert (
         stamp.count(":") >= 2
     ), "the stamp still has two parts; a re-enrichment cannot move it"
-    # The last part is the newest enrichment, or `none` where there is
-    # not one yet -- a fresh database rather than a bug.
-    assert stamp.rsplit(":", 1)[-1] in ("none",) or ArticleEnrichment.objects.exists()
+    newest = ArticleEnrichment.objects.aggregate(m=Max("enriched_at"))["m"]
+    # A substring, not a split: the parts are joined on ":" and an
+    # ISO timestamp contains them too, so splitting does not recover them.
+    expected = newest.isoformat() if newest else "none"
+    assert expected in stamp, f"{expected!r} is not in {stamp!r}"
 
 
 def test_a_later_enrichment_moves_it(crawler_schema):

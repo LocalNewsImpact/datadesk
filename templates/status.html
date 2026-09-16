@@ -1,0 +1,110 @@
+<!doctype html>
+{% comment %}
+A bookmark, not a page in the app: no nav, no chrome, one screen.
+It refreshes itself because the reader is holding a phone, not sitting
+at a keyboard looking for a reload button.
+{% endcomment %}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="60">
+<title>Corpus status</title>
+<style>
+  :root{
+    --paper:#f6f7f8; --card:#fff; --ink:#15181d; --soft:#5c626d;
+    --faint:#8b919b; --rule:#e0e2e5;
+    --go:#2f7d32; --go-bg:#e6f2e6;
+    --stop:#b0341f; --stop-bg:#fbe9e6;
+    --wait:#8a6d1f; --wait-bg:#f6eed6;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --paper:#131519; --card:#1c1f25; --ink:#eceef1; --soft:#aeb4bf;
+      --faint:#767c87; --rule:#2b2f37;
+      --go:#84c98a; --go-bg:#22331f;
+      --stop:#e79287; --stop-bg:#3a1f1c;
+      --wait:#d9b75e; --wait-bg:#37301d;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  }
+  .wrap{max-width:32rem;margin:0 auto;padding:1.5rem 1.1rem 3rem}
+  .state{
+    display:inline-block;padding:.3rem .8rem;border-radius:2rem;
+    font-size:.78rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  }
+  .state.running{background:var(--go-bg);color:var(--go)}
+  .state.done{background:var(--go-bg);color:var(--go)}
+  .state.stalled{background:var(--stop-bg);color:var(--stop)}
+  .state.unknown{background:var(--wait-bg);color:var(--wait)}
+  h1{font-size:1.05rem;font-weight:600;margin:.9rem 0 .2rem}
+  .sub{color:var(--soft);font-size:.83rem;margin:0 0 1.3rem}
+  .big{
+    font-size:3.6rem;font-weight:700;line-height:1;margin:0;
+    font-variant-numeric:tabular-nums;
+  }
+  .big span{font-size:1.4rem;font-weight:600;color:var(--faint)}
+  .bar{
+    height:.6rem;background:var(--rule);border-radius:1rem;overflow:hidden;
+    margin:1rem 0 1.4rem;
+  }
+  .bar div{height:100%;background:var(--go);border-radius:1rem}
+  dl{
+    margin:0;background:var(--card);border:1px solid var(--rule);
+    border-radius:.5rem;overflow:hidden;
+  }
+  .row{
+    display:flex;justify-content:space-between;gap:1rem;
+    padding:.7rem .9rem;border-bottom:1px solid var(--rule);
+  }
+  .row:last-child{border-bottom:0}
+  dt{color:var(--soft);font-size:.85rem;margin:0}
+  dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
+  footer{margin-top:1.2rem;color:var(--faint);font-size:.74rem}
+  .none{
+    background:var(--stop-bg);color:var(--stop);padding:.9rem 1rem;
+    border-radius:.5rem;font-size:.9rem;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <span class="state {{ state }}">{{ state }}</span>
+
+  {% if not connected %}
+    <h1>Corpus status</h1>
+    <p class="sub">Entity extraction over the enriched corpus.</p>
+    <p class="none">No connection to the crawler database. This says
+      nothing about the run — only that this page cannot see it.</p>
+  {% else %}
+    <h1>Entity extraction</h1>
+    <p class="sub">Over the enriched corpus.</p>
+
+    <p class="big">{{ percent }}<span>%</span></p>
+    <div class="bar"><div style="width:{{ percent }}%"></div></div>
+
+    <dl>
+      <div class="row"><dt>Re-extracted</dt><dd>{{ done_fmt }}</dd></div>
+      <div class="row"><dt>Remaining</dt><dd>{{ remaining_fmt }}</dd></div>
+      <div class="row"><dt>Corpus</dt><dd>{{ total_fmt }}</dd></div>
+      <div class="row">
+        <dt>Last article</dt>
+        <dd>{% if latest %}{{ latest|timesince }} ago{% else %}never{% endif %}</dd>
+      </div>
+    </dl>
+
+    <footer>
+      Counting work done since {{ since|date:"M j, H:i" }} UTC.
+      Page reloads every 60 seconds; read at {{ now|date:"H:i" }} UTC.
+      <br>Stalled means no article finished in the last 15 minutes.
+    </footer>
+  {% endif %}
+
+</div>
+</body>
+</html>
