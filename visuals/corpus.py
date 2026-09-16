@@ -2033,7 +2033,12 @@ def corpus_version():
     hit = cache.get("corpus.version")
     if hit is not None:
         return hit
-    newest = Article.objects.aggregate(m=Max("created_at"))["m"]
+    # ONE aggregate over `articles`, not two. Both maxima come from the
+    # same table, and asking separately costs a second scan for nothing.
+    articles = Article.objects.aggregate(
+        newest=Max("created_at"), extracted=Max("entities_extracted_at")
+    )
+    newest = articles["newest"]
     enriched = ArticleEnrichment.objects.aggregate(m=Max("enriched_at"))["m"]
     # A FOURTH PART: geography a person put in.
     #
@@ -2066,7 +2071,7 @@ def corpus_version():
     # full re-extraction of the enriched corpus moved none of the five
     # parts above, so the keys would have held and the map would have gone
     # on drawing pre-re-extraction geography for the full seven days.
-    extracted = Article.objects.aggregate(m=Max("entities_extracted_at"))["m"]
+    extracted = articles["extracted"]
     # A SEVENTH PART: how much geography there IS.
     #
     # A max over a timestamp cannot see a DELETE. `enrich reground` removes
