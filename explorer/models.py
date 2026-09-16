@@ -532,6 +532,11 @@ class ArticleEnrichment(CrawlerModel):
     rationales = DecodedJSONField(null=True)
     point_place = models.TextField(null=True)
     point_method = models.TextField(null=True)
+    #: Why the gate kept this point: the story named the place, or it
+    #: named an institution that sits there. Written by the crawler,
+    #: because the reason is computed against the article text at
+    #: enrichment and cannot be recovered here.
+    point_support = models.TextField(null=True)
     point_geoid = models.TextField(null=True)
     point_geoid_level = models.TextField(null=True)
     point_lat = models.FloatField(null=True)
