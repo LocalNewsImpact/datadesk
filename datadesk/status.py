@@ -21,8 +21,10 @@ ordinary day.
 from datetime import UTC, datetime, timedelta
 
 from django.contrib.auth.decorators import login_required
-from django.db import DatabaseError, connections
+from django.db import DatabaseError, connections, transaction
 from django.shortcuts import render
+
+from explorer.dberrors import absent_or_raise
 
 # Extraction commits per source, so a gap between commits is normal. A
 # quarter hour without one is not: that is a dead run, not a slow batch.
@@ -88,12 +90,25 @@ def status(request):
     }
 
     try:
-        with connections["crawler"].cursor() as cursor:
+        # A SAVEPOINT, SO A FAILED QUERY CANNOT POISON THE CONNECTION.
+        #
+        # Catching the error is not enough. Postgres aborts the whole
+        # transaction on a failed statement, and every later query on
+        # that connection then dies with "current transaction is
+        # aborted" -- including queries belonging to other views. This
+        # page is early in the URL configuration, so without the
+        # savepoint it takes the pages after it down with it.
+        with (
+            transaction.atomic(using="crawler"),
+            connections["crawler"].cursor() as cursor,
+        ):
             cursor.execute(_SQL, {"since": since})
             done, remaining, latest = cursor.fetchone()
-    except DatabaseError:
-        # No crawler connection -- say so plainly rather than showing
-        # zeroes, which read as "finished" and are the opposite.
+    except DatabaseError as exc:
+        # Absent is not the same as broken: `absent_or_raise` re-raises a
+        # query defect and swallows only a missing database. Showing
+        # zeroes would read as "finished", which is the opposite.
+        absent_or_raise(exc, "datadesk.status")
         return render(request, "status.html", context)
 
     total = (done or 0) + (remaining or 0)
