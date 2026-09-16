@@ -2025,6 +2025,7 @@ def corpus_version():
     from explorer.models import (
         Article,
         ArticleEnrichment,
+        ArticleGeoid,
         ArticlePlaceManual,
         DatasetSource,
     )
@@ -2056,12 +2057,33 @@ def corpus_version():
     # `sources` has no `updated_at` to take a max over, so this is a
     # fingerprint of the fields the newsroom tree actually shows. 54ms
     # over 1,148 rows, re-derived every five minutes like the rest.
+    # A SIXTH PART: entities re-extracted.
+    #
+    # Same failure as the third, fourth and fifth, one stage further in.
+    # Re-extraction rewrites `article_entities` and rematch turns the new
+    # spans into place matches, and neither creates an article, changes a
+    # membership, re-enriches anything or places a story. On 2026-09-16 a
+    # full re-extraction of the enriched corpus moved none of the five
+    # parts above, so the keys would have held and the map would have gone
+    # on drawing pre-re-extraction geography for the full seven days.
+    extracted = Article.objects.aggregate(m=Max("entities_extracted_at"))["m"]
+    # A SEVENTH PART: how much geography there IS.
+    #
+    # A max over a timestamp cannot see a DELETE. `enrich reground` removes
+    # the geoids an article's own text does not support and gives nothing a
+    # new timestamp -- not `enriched_at`, not `entities_extracted_at` -- so
+    # a corpus that just had thousands of unsupported places removed is
+    # indistinguishable from one that did not, to every part above. A count
+    # moves when rows go away, which is the whole point.
+    geoids = ArticleGeoid.objects.count()
     stamp = (
         f"{newest.isoformat() if newest else 'empty'}"
         f":{DatasetSource.objects.count()}"
         f":{enriched.isoformat() if enriched else 'none'}"
         f":{placed.isoformat() if placed else 'none'}"
         f":{_publisher_fingerprint()}"
+        f":{extracted.isoformat() if extracted else 'none'}"
+        f":{geoids}"
     )
     cache.set("corpus.version", stamp, VERSION_CACHE_SECONDS)
     return stamp
