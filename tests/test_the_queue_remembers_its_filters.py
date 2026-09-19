@@ -48,7 +48,7 @@ def corpus(crawler_schema):
         title="A flagged story",
         status="not_article",
         wire_check_status="complete",
-        content="A captured body.",
+        raw="A captured body.",
         text="A captured body.",
         publish_date=timezone.now() - timedelta(days=2),
         created_at=timezone.now() - timedelta(days=2),

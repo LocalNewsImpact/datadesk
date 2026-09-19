@@ -47,7 +47,7 @@ def article(crawler_schema):
         candidate_link=link,
         title="Council picks a chair",
         author="Jane Doe",
-        content="The vote was unanimous.",
+        raw="The vote was unanimous.",
         status="labeled",
         wire_check_status="complete",
         created_at=datetime(2026, 3, 1, tzinfo=UTC),

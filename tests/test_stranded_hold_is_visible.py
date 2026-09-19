@@ -118,7 +118,7 @@ def test_the_queue_shows_a_stranded_article(client, reviewer, crawler_schema):
         candidate_link=link,
         status="not_article",
         wire_check_status="complete",
-        content="A body.",
+        raw="A body.",
         title="Held with a broken note",
         metadata={REVIEW_META_KEY: {"claim": "x", "stage": "y", "held_at": "z"}},
     )
@@ -150,7 +150,7 @@ def test_a_held_article_is_in_the_queue_at_all(client, reviewer, crawler_schema)
         candidate_link=link,
         status=IN_REVIEW,
         wire_check_status="complete",
-        content="A body.",
+        raw="A body.",
         title="Held",
         metadata={REVIEW_META_KEY: COMPLETE},
     )

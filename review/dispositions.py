@@ -551,11 +551,11 @@ def has_body_to_rewind_to(article) -> bool:
     """Is there anything for the pipeline to reprocess?
 
     Extraction drops `text` when it calls a body furniture, and on 788
-    rows dropped `content` as well. Rewinding one of those sends an empty
+    rows dropped `raw` as well. Rewinding one of those sends an empty
     body to the labeler, so Reject on it is not a decision anybody can
     act on.
     """
-    return bool((getattr(article, "content", "") or "").strip()) or bool(
+    return bool((getattr(article, "raw", "") or "").strip()) or bool(
         (getattr(article, "text", "") or "").strip()
     )
 

@@ -153,7 +153,7 @@ SCOPE_SKIP_REASON_PREFIX = "scope_excluded_"
 # `not_article` is written in two places, and they mean different things.
 #
 # EXTRACTION (src/cli/commands/extraction.py) judges a body "furniture,
-# not prose", sets the status and drops `text` while leaving `content`
+# not prose", sets the status and drops `text` while leaving `raw`
 # as captured. Such a row has no article_enrichment row and was never
 # labelled.
 #
@@ -370,7 +370,7 @@ def doubt(article, enrichment=None):
     rather than a random slice.
     """
     text = article.text or ""
-    content = article.content or ""
+    content = article.raw or ""
     bylined = bool((article.author or "").strip())
 
     if enrichment is not None:
@@ -391,7 +391,7 @@ def doubt(article, enrichment=None):
             score += 1
         return score
 
-    # Extraction. `content` survives on 263 of 1,051 rows; the other 788
+    # Extraction. `raw` survives on 263 of 1,051 rows; the other 788
     # went down the paywall branch, which empties both fields and leaves
     # nothing on the row to judge -- only the raw HTML in GCS, for 30 days.
     score = 5 if looks_rot47(content) else 0
@@ -1171,7 +1171,7 @@ def doubtful_q():
         reasonless_gate
         | Q(text_length__gte=2000)
         | ~Q(author__isnull=True) & ~Q(author="")
-        | Q(content__contains="k^Am")
+        | Q(raw__contains="k^Am")
     )
     return (
         _case_q(PAYWALL_STUB)

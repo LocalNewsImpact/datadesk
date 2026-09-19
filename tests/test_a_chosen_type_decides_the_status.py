@@ -65,7 +65,7 @@ def _article(pk, crawler_schema, status="labeled"):
         candidate_link=link,
         status=status,
         wire_check_status="complete",
-        content="A captured body.",
+        raw="A captured body.",
         text="A captured body.",
         enrichment_attempts=0,
     )

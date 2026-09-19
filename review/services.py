@@ -58,7 +58,7 @@ WRITABLE_SOURCE_FIELDS = tuple(
 )
 
 WRITABLE = {
-    Article: ("author", "title", "content", "text", "status", "wire_check_status"),
+    Article: ("author", "title", "raw", "text", "status", "wire_check_status"),
     # The discovery queue's only write to the crawler's link table, and
     # it is two columns. `status` returns a URL to the pipeline by
     # setting it back to 'discovered'; `meta` carries what the reviewer

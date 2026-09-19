@@ -46,17 +46,17 @@ def rows(crawler_schema):
     keeps_body = article(
         "with-body",
         title="A real story",
-        content="A body that was captured.",
+        raw="A body that was captured.",
         author="Jo Reporter",
     )
     archived = article(
         "no-body",
         title="Body was dropped",
-        content="",
+        raw="",
         text="",
         raw_gcs_path="gs://bucket/page.html.gz",
     )
-    gone = article("nothing-left", title="Nothing left", content="", text="")
+    gone = article("nothing-left", title="Nothing left", raw="", text="")
     return keeps_body, archived, gone
 
 

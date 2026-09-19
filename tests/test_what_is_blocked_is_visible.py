@@ -123,7 +123,7 @@ def test_the_page_reports_what_it_finds(client, an_editor, crawler_schema):
         candidate_link=link,
         status="labeled",
         wire_check_status="complete",
-        content="Some prose k^Am more prose",
+        raw="Some prose k^Am more prose",
     )
 
     _count_it()
@@ -151,7 +151,7 @@ def test_a_blockage_no_publisher_explains_says_so(client, an_editor, crawler_sch
         candidate_link=link,
         status="in_review",
         wire_check_status="complete",
-        content="A body.",
+        raw="A body.",
     )
     _count_it()
     client.force_login(an_editor)

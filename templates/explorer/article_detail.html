@@ -48,7 +48,7 @@ the dialog, and without any JavaScript, because it is the ordinary page.
   column of dead space beside it.
   {% endcomment %}
   <section class="panel panel-text">
-    <h2>Stored text{% if may_write %} <a class="edit-link" href="{% url 'review:edit_field' article.id 'content' %}">edit</a>{% endif %}</h2>
+    <h2>Stored text{% if may_write %} <a class="edit-link" href="{% url 'review:edit_field' article.id 'text' %}">edit</a>{% endif %}</h2>
     {% if stored_text %}
     <p class="notice">{{ stored_text|length }} characters</p>
     <div class="stored-text">{{ stored_text|linebreaks }}</div>

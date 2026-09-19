@@ -54,7 +54,7 @@ def two_articles(crawler_schema):
             title=f"a {name} story",
             status="not_article",
             wire_check_status="complete",
-            content="A captured body.",
+            raw="A captured body.",
             text="A captured body.",
             author="Ellen Reporter",
             publish_date=when,

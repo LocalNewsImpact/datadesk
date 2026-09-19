@@ -188,7 +188,7 @@ def enriched_article(crawler_schema):
     )
     link = CandidateLink.objects.create(id="cl1", url="https://t/", source=source)
     article = _article(
-        1, link, content="Officials met Tuesday to discuss the levy.\n\nIt passed."
+        1, link, text="Officials met Tuesday to discuss the levy.\n\nIt passed."
     )
     ArticleEnrichment.objects.create(
         article=article,

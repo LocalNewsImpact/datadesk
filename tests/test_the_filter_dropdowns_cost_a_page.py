@@ -53,7 +53,7 @@ def wire_rows(crawler_schema):
             dataset_id=dataset_id,
             status="wire",
             wire_check_status="complete",
-            content="A syndicated story, long enough to be doubted." * 8,
+            raw="A syndicated story, long enough to be doubted." * 8,
             wire=wire,
         )
 

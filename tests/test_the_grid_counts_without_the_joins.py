@@ -61,7 +61,7 @@ def corpus(crawler_schema):
             created_at=datetime(2026, 3, 1, tzinfo=UTC),
             publish_date=datetime(2026, 3, 1, tzinfo=UTC),
             text="body " * 400,
-            content="body " * 400,
+            raw="body " * 400,
         )
     return link
 

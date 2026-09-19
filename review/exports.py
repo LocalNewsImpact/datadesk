@@ -23,7 +23,8 @@ EXPORT_COLUMNS = {
     "primary_label_confidence": lambda a: (
         "" if a.primary_label_confidence is None else a.primary_label_confidence
     ),
-    "content": lambda a: a.content or a.text or "",
+    # The export column keeps its name; what it carries is the cleaned body.
+    "content": lambda a: a.text or "",
 }
 
 

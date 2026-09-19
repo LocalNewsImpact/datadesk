@@ -65,7 +65,7 @@ def _article(article_id, link, title, status, text="", **overrides):
         # window is tested.
         "created_at": timezone.now() - timedelta(days=1),
         "publish_date": timezone.now() - timedelta(days=1),
-        "content": text,
+        "raw": text,
         "primary_label": "government",
         "primary_label_confidence": 0.9,
     }

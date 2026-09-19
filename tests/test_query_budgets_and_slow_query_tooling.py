@@ -48,7 +48,7 @@ def corpus(crawler_schema):
             created_at=datetime(2026, 3, 1, tzinfo=UTC),
             publish_date=datetime(2026, 3, 1, tzinfo=UTC),
             text="body " * 400,
-            content="body " * 400,
+            raw="body " * 400,
         )
 
 
@@ -124,7 +124,7 @@ class TestTheGridStaysWithinItsQueryBudget:
             sql = query["sql"]
             if 'FROM "articles"' in sql or 'from "articles"' in sql.lower():
                 assert '"articles"."text"' not in sql
-                assert '"articles"."content"' not in sql
+                assert '"articles"."raw"' not in sql
 
 
 class TestTheSlowQueryReportIsHonestAboutWhatItKnows:
@@ -167,7 +167,7 @@ class TestTheSlowQueryReportIsHonestAboutWhatItKnows:
 
 class TestTheBlockedInventoryReadsTheStoredLength:
     """`articles.text_length` is a STORED generated column --
-    `length(coalesce(content, text, text_excerpt, ''))` -- and it is
+    `length(coalesce(text, raw, text_excerpt, ''))` -- and it is
     indexed. Asking for an empty body by recomputing that coalesce reads
     every body out of TOAST; asking for `text_length = 0` reads an index.
 
@@ -210,7 +210,7 @@ class TestTheBlockedInventoryReadsTheStoredLength:
                 title=f"B{i}",
                 status="extracted",
                 created_at=datetime(2026, 3, 1, tzinfo=UTC),
-                content=content,
+                raw=content,
                 text=text,
                 text_excerpt=excerpt,
             )
@@ -224,7 +224,7 @@ class TestTheBlockedInventoryReadsTheStoredLength:
         )
         by_coalesce = self._empty_bodies(
             "SELECT count(*) FROM articles "
-            "WHERE coalesce(content, text, text_excerpt, '') = ''"
+            "WHERE coalesce(text, raw, text_excerpt, '') = ''"
         )
         assert by_column == by_coalesce == 2
 
@@ -235,4 +235,4 @@ class TestTheBlockedInventoryReadsTheStoredLength:
 
         checks = "\n".join(str(c) for c in blocked.CHECKS)
         assert "text_length = 0" in checks
-        assert "coalesce(content, text, text_excerpt, '') = ''" not in checks
+        assert "coalesce(text, raw, text_excerpt, '') = ''" not in checks

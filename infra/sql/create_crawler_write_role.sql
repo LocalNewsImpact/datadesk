@@ -59,7 +59,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE mizzou_user IN SCHEMA public
 -- at `labeled` where no stage selects it again. The column was added to
 -- the write set without this grant, and every submit that rewound a row
 -- answered 500.
-GRANT UPDATE (author, title, content, text, status, wire_check_status,
+GRANT UPDATE (author, title, raw, text, status, wire_check_status,
               metadata, enrichment_attempts)
   ON articles TO datadesk_rw;
 -- scope and scope_confidence are here so a reviewer can correct a

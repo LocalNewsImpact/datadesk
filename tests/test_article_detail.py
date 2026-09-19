@@ -53,7 +53,7 @@ def article(crawler_schema):
         wire_check_status="complete",
         created_at=datetime(2026, 3, 4, tzinfo=UTC),
         publish_date=datetime(2026, 3, 4, tzinfo=UTC),
-        content="Officials met Tuesday to discuss the levy.",
+        raw="Officials met Tuesday to discuss the levy.",
         primary_label="government",
         primary_label_confidence=0.91,
     )

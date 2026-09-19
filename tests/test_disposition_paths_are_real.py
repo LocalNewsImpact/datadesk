@@ -57,7 +57,7 @@ def _article(pk, crawler_schema, **kwargs):
     fields = {
         "status": "not_article",
         "wire_check_status": "complete",
-        "content": "A captured body.",
+        "raw": "A captured body.",
         "enrichment_attempts": 1,
     }
     fields.update(kwargs)
@@ -154,7 +154,7 @@ def test_re_extraction_does_not_claim_extraction_succeeded(reviewer, crawler_sch
     housekeeping pauses. Setting it would queue a body-less row for
     labelling and then be undone by the next housekeeping run."""
     article = _article(
-        "r1", crawler_schema, content="", text="", raw_gcs_path="gs://bucket/p.html.gz"
+        "r1", crawler_schema, raw="", text="", raw_gcs_path="gs://bucket/p.html.gz"
     )
     record(article, decision="reextract", stage=EXTRACTION, user=reviewer)
     article.refresh_from_db()
@@ -167,7 +167,7 @@ def test_a_re_extracted_row_is_not_the_shape_housekeeping_pauses(
     reviewer, crawler_schema
 ):
     article = _article(
-        "r2", crawler_schema, content="", text="", raw_gcs_path="gs://bucket/p.html.gz"
+        "r2", crawler_schema, raw="", text="", raw_gcs_path="gs://bucket/p.html.gz"
     )
     record(article, decision="reextract", stage=EXTRACTION, user=reviewer)
     article.refresh_from_db()
@@ -180,7 +180,7 @@ def test_re_extraction_keeps_the_path_to_the_capture(reviewer, crawler_schema):
     """The status says it is out of the pipeline; raw_gcs_path says the
     body can be rebuilt. Both are needed and neither is cleared."""
     article = _article(
-        "r3", crawler_schema, content="", text="", raw_gcs_path="gs://bucket/p.html.gz"
+        "r3", crawler_schema, raw="", text="", raw_gcs_path="gs://bucket/p.html.gz"
     )
     record(article, decision="reextract", stage=EXTRACTION, user=reviewer)
     article.refresh_from_db()

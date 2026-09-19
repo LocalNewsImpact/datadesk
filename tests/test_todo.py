@@ -52,7 +52,7 @@ def work(crawler_schema):
         candidate_link=link,
         status="not_article",
         wire_check_status="complete",
-        content="A body.",
+        raw="A body.",
         author="Jo Reporter",
         title="Flagged",
     )

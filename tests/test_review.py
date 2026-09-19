@@ -39,7 +39,8 @@ def article(crawler_schema):
         candidate_link=link,
         title="Meet the councilâ€™s new chair",
         author="Jane Doe",
-        content="The councilâ€™s vote was unanimous.",
+        raw="The councilâ€™s vote was unanimous.",
+        text="The councilâ€™s vote was unanimous.",
         status="labeled",
         wire_check_status="complete",
         created_at=datetime(2026, 3, 1, tzinfo=UTC),
@@ -97,14 +98,16 @@ def test_edit_form_shows_mojibake_repair(client, editor, article):
 
 def test_apply_repaired_version(client, editor, article):
     response = client.post(
-        "/review/articles/a1/edit/content/", {"use_repaired": "1", "reason": "ftfy"}
+        "/review/articles/a1/edit/text/", {"use_repaired": "1", "reason": "ftfy"}
     )
     assert response.status_code == 302
     article.refresh_from_db()
-    assert article.content == "The council’s vote was unanimous."
+    assert article.text == "The council’s vote was unanimous."
+    # The capture is not what a reviewer edits.
+    assert article.raw == "The councilâ€™s vote was unanimous."
     entry = AuditLogEntry.objects.get()
-    assert entry.action == "edit:content"
-    assert entry.before["a1"]["content"] == "The councilâ€™s vote was unanimous."
+    assert entry.action == "edit:text"
+    assert entry.before["a1"]["text"] == "The councilâ€™s vote was unanimous."
 
 
 def test_manual_edit(client, editor, article):

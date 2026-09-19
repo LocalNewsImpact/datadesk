@@ -213,14 +213,14 @@ def _filtered_articles(params, user, annotated=True):
             enr_point_geoid=F("enrichment__point_geoid"),
             enr_point_level=F("enrichment__point_geoid_level"),
         )
-    # THE GRID SHOWS NO BODY TEXT. `text` and `content` hold the same
+    # THE GRID SHOWS NO BODY TEXT. `text` and `raw` hold the same
     # article (2,044 bytes apiece on average; the crawler keeps `text` for
     # compatibility) and `text_excerpt` another 466, so every page dragged
     # roughly 200 KB of prose nobody rendered. Row width in the query plan
     # falls from 2,227 bytes to 242. Deferred rather than whitelisted with
     # only(), so adding a column to the template cannot silently start
     # issuing one query per row.
-    qs = qs.defer("text", "content", "text_excerpt")
+    qs = qs.defer("text", "raw", "text_excerpt")
 
     qs = narrow(qs, user, READ)
 
@@ -580,7 +580,9 @@ def article_detail(request, article_id):
                     "-mention_count", "name"
                 )
             ),
-            "stored_text": article.content or article.text or article.text_excerpt,
+            # The cleaned body only. The capture is not shown; a compare view is
+            # the place for it, if one is ever built.
+            "stored_text": article.text or article.text_excerpt,
         },
     )
 

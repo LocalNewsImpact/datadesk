@@ -59,7 +59,7 @@ def _article(source, pk, **kwargs):
         "title": f"Story {pk}",
         "status": "enrichment_skipped",
         "wire_check_status": "complete",
-        "content": "A captured body of ordinary length.",
+        "raw": "A captured body of ordinary length.",
         "text": "A captured body of ordinary length.",
         "publish_date": timezone.now(),
         "created_at": timezone.now(),

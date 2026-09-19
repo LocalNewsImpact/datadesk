@@ -40,7 +40,7 @@ def article(crawler_schema):
         candidate_link=link,
         status="not_article",
         title="A real story",
-        content="A body that was captured.",
+        raw="A body that was captured.",
         text="",
         wire_check_status="complete",
     )
@@ -131,7 +131,7 @@ def test_a_decision_at_another_stage_is_another_question(reviewer, article):
 
 def test_a_row_with_a_body_can_be_rejected():
     class Row:
-        content, text, raw_gcs_path = "a body", "", ""
+        raw, text, raw_gcs_path = "a body", "", ""
 
     assert "reject" in verbs_for(Row(), EXTRACTION)
 
@@ -152,7 +152,7 @@ def test_an_exported_unenriched_row_can_still_be_restored():
     """
 
     class Row:
-        content, text, raw_gcs_path = "a full story body", "", ""
+        raw, text, raw_gcs_path = "a full story body", "", ""
         status = "enrichment_skipped"
 
     verbs = verbs_for(Row(), ENRICHMENT)
@@ -185,7 +185,7 @@ def test_a_row_with_no_body_is_offered_re_extraction_instead():
     sends an empty body to the labeler."""
 
     class Row:
-        content, text, raw_gcs_path = "", "", "gs://bucket/page.html.gz"
+        raw, text, raw_gcs_path = "", "", "gs://bucket/page.html.gz"
 
     verbs = verbs_for(Row(), EXTRACTION)
     assert "reextract" in verbs and "reject" not in verbs
@@ -195,7 +195,7 @@ def test_a_row_with_no_body_and_no_archive_can_only_be_accepted():
     """The bucket keeps 30 days. After that there is nothing to re-parse."""
 
     class Row:
-        content, text, raw_gcs_path = "", "", ""
+        raw, text, raw_gcs_path = "", "", ""
 
     assert verbs_for(Row(), EXTRACTION) == ["accept"]
 
@@ -209,7 +209,7 @@ def test_what_counts_as_a_body(content, text, expected):
         pass
 
     row = Row()
-    row.content, row.text = content, text
+    row.raw, row.text = content, text
     assert has_body_to_rewind_to(row) is expected
 
 
@@ -238,7 +238,7 @@ def test_re_extraction_takes_the_article_out_of_the_pipeline(reviewer, crawler_s
         candidate_link=link,
         status="not_article",
         title="Body was dropped",
-        content="",
+        raw="",
         text="",
         raw_gcs_path="gs://bucket/page.html.gz",
         wire_check_status="complete",
@@ -265,7 +265,7 @@ def test_the_archived_capture_is_the_flag(reviewer, crawler_schema):
         id="a3",
         candidate_link=link,
         status="not_article",
-        content="",
+        raw="",
         text="",
         raw_gcs_path="gs://bucket/page.html.gz",
         wire_check_status="complete",
@@ -277,7 +277,7 @@ def test_the_archived_capture_is_the_flag(reviewer, crawler_schema):
         id="a4",
         candidate_link=link2,
         status="not_article",
-        content="",
+        raw="",
         text="",
         wire_check_status="complete",
     )

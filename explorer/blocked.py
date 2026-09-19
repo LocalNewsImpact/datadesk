@@ -155,14 +155,14 @@ CHECKS = (
         "Body is still ROT47 ciphertext",
         "TownNews serves paywalled prose rotated. The decoder ran and the "
         "result did not pass its own check, so ciphertext was stored as text.",
-        "SELECT count(*) FROM articles WHERE content LIKE '%%k^Am%%'",
+        "SELECT count(*) FROM articles WHERE raw LIKE '%%k^Am%%'",
     ),
     (
         BODY_UNUSABLE,
         "No body at all",
-        "An article row with nothing in content, text or excerpt.",
+        "An article row with nothing in text, raw or excerpt.",
         # `text_length` is a STORED generated column, `length(coalesce(
-        # content, text, text_excerpt, ''))`, and it is indexed -- so an
+        # text, raw, text_excerpt, ''))`, and it is indexed -- so an
         # empty body is `text_length = 0` and Postgres can answer from the
         # index instead of reading every body out of TOAST.
         #
@@ -220,7 +220,7 @@ BY_PUBLISHER = {
         "SELECT coalesce(so.canonical_name, so.host) AS publisher, count(*) "
         "FROM articles a LEFT JOIN candidate_links cl ON cl.id = a.candidate_link_id "
         "LEFT JOIN sources so ON so.id = cl.source_id "
-        "WHERE a.content LIKE '%%k^Am%%' GROUP BY 1 ORDER BY 2 DESC LIMIT 8"
+        "WHERE a.raw LIKE '%%k^Am%%' GROUP BY 1 ORDER BY 2 DESC LIMIT 8"
     ),
 }
 

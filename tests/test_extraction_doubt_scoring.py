@@ -24,9 +24,9 @@ from review.queue import (
 
 
 class _Article:
-    def __init__(self, text="", content="", author="", confidence=0.0):
+    def __init__(self, text="", raw="", author="", confidence=0.0):
         self.text = text
-        self.content = content
+        self.raw = raw
         self.author = author
         self.primary_label_confidence = confidence
 
@@ -97,20 +97,20 @@ def test_a_reason_that_is_only_whitespace_counts_as_no_reason():
 
 def test_rot47_always_surfaces():
     """Never a correct rejection: the body was never decoded."""
-    article = _Article(content="kE23=6 4=2DDlQ" + "x" * 100000, author="StatBot")
+    article = _Article(raw="kE23=6 4=2DDlQ" + "x" * 100000, author="StatBot")
     assert doubt(article) >= DOUBT_THRESHOLD
 
 
 def test_rot47_surfaces_even_without_a_byline():
-    assert doubt(_Article(content="k^Am" + "x" * 5000)) >= DOUBT_THRESHOLD
+    assert doubt(_Article(raw="k^Am" + "x" * 5000)) >= DOUBT_THRESHOLD
 
 
 def test_a_prose_body_with_a_byline_surfaces():
-    assert doubt(_Article(content=PROSE * 40, author="Jo")) >= DOUBT_THRESHOLD
+    assert doubt(_Article(raw=PROSE * 40, author="Jo")) >= DOUBT_THRESHOLD
 
 
 def test_navigation_furniture_does_not_surface():
-    assert doubt(_Article(content=FURNITURE * 80)) < DOUBT_THRESHOLD
+    assert doubt(_Article(raw=FURNITURE * 80)) < DOUBT_THRESHOLD
 
 
 def test_a_row_with_nothing_left_on_it_does_not_surface():
@@ -122,4 +122,4 @@ def test_a_row_with_nothing_left_on_it_does_not_surface():
 
 def test_length_alone_does_not_carry_a_row_over_the_threshold():
     """The defect the density signal exists to prevent."""
-    assert doubt(_Article(content=FURNITURE * 2000)) < DOUBT_THRESHOLD
+    assert doubt(_Article(raw=FURNITURE * 2000)) < DOUBT_THRESHOLD
