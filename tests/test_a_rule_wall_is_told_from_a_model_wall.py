@@ -56,7 +56,7 @@ def stub(crawler_schema):
         title="Subscribers only: council votes",
         status="enrichment_skipped",
         wire_check_status="complete",
-        content="To continue reading, please subscribe.",
+        raw="To continue reading, please subscribe.",
         text="To continue reading, please subscribe.",
         publish_date=timezone.now(),
         created_at=timezone.now(),

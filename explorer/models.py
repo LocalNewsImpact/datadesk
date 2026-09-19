@@ -262,9 +262,10 @@ class Article(CrawlerModel):
     title = models.TextField(null=True)
     author = models.TextField(null=True)
     publish_date = models.DateTimeField(null=True)
-    content = models.TextField(null=True)
-    # The crawler keeps an older `text` column for compatibility; content
-    # is the current field and the one review edits will target.
+    # `raw` is the capture as the page served it: the crawler's input to
+    # cleaning, never the body a reviewer reads. `text` is the cleaned body,
+    # the one field every downstream stage reads.
+    raw = models.TextField(null=True)
     text = models.TextField(null=True)
     text_excerpt = models.TextField(null=True)
     #: How many times enrichment has tried. The selector requires it to be
@@ -292,7 +293,7 @@ class Article(CrawlerModel):
     entities_extracted_at = models.DateTimeField(null=True)
     status = models.TextField()
     wire_check_status = models.TextField()
-    #: Characters of captured text, whichever column holds it. Generated
+    #: Characters of the cleaned body, falling back to the capture. Generated
     #: on the crawler's side (crawler #539), so it is never stale and never
     #: written from here -- and `GeneratedField` is what tells the ORM not
     #: to try: a plain IntegerField goes into every INSERT as NULL, which
@@ -302,8 +303,8 @@ class Article(CrawlerModel):
     text_length = models.GeneratedField(
         expression=Length(
             Coalesce(
-                "content",
                 "text",
+                "raw",
                 "text_excerpt",
                 Value(""),
                 output_field=models.TextField(),

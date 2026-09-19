@@ -43,7 +43,7 @@ def corpus(crawler_schema):
             candidate_link=link,
             status=status,
             wire_check_status="complete",
-            content="body",
+            raw="body",
             **kwargs,
         )
 

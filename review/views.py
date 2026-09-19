@@ -48,9 +48,11 @@ from review.services import (
     revert,
 )
 
-# The inline-editable cleaned-text columns (SCOPE.md §1: they change only
-# through explicit, audited human actions — this is that path).
-TEXT_FIELDS = ("author", "title", "content")
+# The inline-editable columns (SCOPE.md §1: they change only through
+# explicit, audited human actions — this is that path). `raw` is the capture,
+# not the cleaned body: an edit here lands in the column enrichment reads and
+# CIN does not. See the crawler's RAW_IS_THE_CAPTURE_TEXT_IS_THE_CLEAN.md.
+TEXT_FIELDS = ("author", "title", "raw")
 
 # The queue is browsed, not paged through: a smaller page keeps the text
 # lengths and reasons on one screen.
@@ -2182,13 +2184,13 @@ READING_WORDS = 250
 def _reading_window(article):
     """The first `READING_WORDS` of the body, and whether there is more.
 
-    `text` is the cleaned body and `content` the raw capture, in that
+    `text` is the cleaned body and `raw` the capture, in that
     order: classifying the raw capture means classifying navigation
     menus and cookie notices, which is how 3% of stored articles got a
     CIN label derived from a list of section names.
     """
     body = ""
-    for field in ("text", "content"):
+    for field in ("text", "raw"):
         value = getattr(article, field, None)
         if isinstance(value, str) and value.strip():
             body = value.strip()

@@ -23,7 +23,7 @@ EXPORT_COLUMNS = {
     "primary_label_confidence": lambda a: (
         "" if a.primary_label_confidence is None else a.primary_label_confidence
     ),
-    "content": lambda a: a.content or a.text or "",
+    "content": lambda a: a.raw or a.text or "",
 }
 
 

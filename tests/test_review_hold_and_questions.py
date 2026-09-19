@@ -41,7 +41,7 @@ def _article(pk, crawler_schema, **kwargs):
     fields = {
         "status": "labeled",
         "wire_check_status": "complete",
-        "content": "A captured body.",
+        "raw": "A captured body.",
         "enrichment_attempts": 0,
     }
     fields.update(kwargs)

@@ -45,7 +45,7 @@ def flagged(crawler_schema):
                 title=f"story {n}",
                 status="not_article",
                 wire_check_status="complete",
-                content="A captured body worth reading.",
+                raw="A captured body worth reading.",
                 text="A captured body worth reading.",
                 author="Ellen Reporter",
                 publish_date=timezone.now(),

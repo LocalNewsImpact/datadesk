@@ -165,7 +165,7 @@ _CRAWLER_TABLES = {
     "articles": (
         "(id VARCHAR PRIMARY KEY, candidate_link_id VARCHAR, dataset_id "
         "VARCHAR, url VARCHAR, title TEXT, author VARCHAR, publish_date "
-        "TIMESTAMP, content TEXT, "
+        "TIMESTAMP, raw TEXT, "
         "text TEXT, text_excerpt VARCHAR(500), raw_gcs_path VARCHAR, "
         "enrichment_attempts SMALLINT, metadata JSON, status VARCHAR, "
         "wire_check_status VARCHAR, wire JSON, created_at TIMESTAMP, "
@@ -180,7 +180,7 @@ _CRAWLER_TABLES = {
         # nothing about the arithmetic that actually runs.
         "entities_extracted_at TIMESTAMP, "
         "text_length INTEGER GENERATED ALWAYS AS "
-        "(length(coalesce(content, text, text_excerpt, ''))) STORED)"
+        "(length(coalesce(text, raw, text_excerpt, ''))) STORED)"
     ),
     "article_places_manual": (
         "(id SERIAL PRIMARY KEY, article_id TEXT NOT NULL, full_name TEXT, "

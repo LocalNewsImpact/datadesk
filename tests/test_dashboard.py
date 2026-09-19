@@ -36,7 +36,7 @@ def _article(article_id, link, status, **overrides):
         "wire_check_status": "complete",
         "created_at": datetime(2026, 3, 1, tzinfo=UTC),
         "publish_date": datetime(2026, 3, 1, tzinfo=UTC),
-        "content": "text",
+        "raw": "text",
     }
     fields.update(overrides)
     return Article.objects.create(**fields)
@@ -67,7 +67,7 @@ def corpus(crawler_schema):
         ArticleEnrichment.objects.create(article=article, skip_reason="paywall_stub")
     _article("l0", link, "labeled")
     _article("l1", link, "labeled")
-    _article("n0", link, "not_article", content="")
+    _article("n0", link, "not_article", raw="")
     _article("o0", link, "out_of_scope")
 
 

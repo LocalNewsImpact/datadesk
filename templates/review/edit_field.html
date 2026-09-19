@@ -27,7 +27,7 @@
   <form method="post">
     {% csrf_token %}
     <label class="stacked">New value
-      {% if field == "content" %}
+      {% if field == "raw" %}
       <textarea name="value" rows="16">{{ current }}</textarea>
       {% else %}
       <input type="text" name="value" value="{{ current }}">
