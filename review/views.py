@@ -49,10 +49,10 @@ from review.services import (
 )
 
 # The inline-editable columns (SCOPE.md §1: they change only through
-# explicit, audited human actions — this is that path). `raw` is the capture,
-# not the cleaned body: an edit here lands in the column enrichment reads and
-# CIN does not. See the crawler's RAW_IS_THE_CAPTURE_TEXT_IS_THE_CLEAN.md.
-TEXT_FIELDS = ("author", "title", "raw")
+# explicit, audited human actions — this is that path). `text` is the cleaned
+# body, the one field every downstream stage reads; the console never shows
+# or edits the capture (`raw`) unless a view is built to compare the two.
+TEXT_FIELDS = ("author", "title", "text")
 
 # The queue is browsed, not paged through: a smaller page keeps the text
 # lengths and reasons on one screen.

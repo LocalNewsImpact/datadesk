@@ -580,7 +580,9 @@ def article_detail(request, article_id):
                     "-mention_count", "name"
                 )
             ),
-            "stored_text": article.raw or article.text or article.text_excerpt,
+            # The cleaned body only. The capture is not shown; a compare view is
+            # the place for it, if one is ever built.
+            "stored_text": article.text or article.text_excerpt,
         },
     )
 

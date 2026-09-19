@@ -45,6 +45,7 @@ def corpus(crawler_schema):
         created_at=datetime(2026, 3, 1, tzinfo=UTC),
         publish_date=datetime(2026, 3, 1, tzinfo=UTC),
         raw="Line one.\nLine two.",
+        text="Line one.\nLine two.",
     )
     Article.objects.create(
         id="a2",
