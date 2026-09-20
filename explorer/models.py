@@ -317,6 +317,14 @@ class Article(CrawlerModel):
     # services detected. Empty or absent on a local story.
     wire = DecodedJSONField(null=True)
     created_at = models.DateTimeField()
+    #: When anything on this row last changed, stamped by the crawler's
+    #: `BEFORE INSERT OR UPDATE` trigger (crawler #620) and never written
+    #: from here. It is the only timestamp that moves for a status change,
+    #: a headline repair or a retraction -- the writes a curation pass
+    #: actually makes, and the ones this console makes through
+    #: `datadesk_rw`. `extracted_at` answers only when the BODY was
+    #: written, so it is not a substitute.
+    last_modified = models.DateTimeField(null=True)
     primary_label = models.TextField(null=True)
     primary_label_confidence = models.FloatField(null=True)
     alternate_label = models.TextField(null=True)

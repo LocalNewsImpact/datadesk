@@ -179,6 +179,11 @@ _CRAWLER_TABLES = {
         # aware `now` -- so it is naive here too, or the fixture proves
         # nothing about the arithmetic that actually runs.
         "entities_extracted_at TIMESTAMP, "
+        # Stamped by a trigger in production (crawler #620). Plain and
+        # nullable here: the fixtures set it explicitly when a test is
+        # about ordering, and a trigger sqlite cannot parse would put
+        # every row at the same instant anyway.
+        "last_modified TIMESTAMP, "
         "text_length INTEGER GENERATED ALWAYS AS "
         "(length(coalesce(text, raw, text_excerpt, ''))) STORED)"
     ),
