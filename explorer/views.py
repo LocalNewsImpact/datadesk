@@ -94,6 +94,11 @@ def _filter_vocab(user=None):
 SORTS = {
     "date": ("Published", "publish_date", "desc"),
     "publication": ("Publisher", "candidate_link__source__canonical_name", "asc"),
+    # "Last modified" answers a different question from "Published": what has
+    # this pipeline touched, rather than when did the newsroom run it. A
+    # spot-check after a backfill and a review of what a run changed both need
+    # this one, and no other timestamp moves for a status or metadata write.
+    "modified": ("Last modified", "last_modified", "desc"),
 }
 
 

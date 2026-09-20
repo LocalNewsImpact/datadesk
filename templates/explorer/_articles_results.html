@@ -19,6 +19,7 @@
         <th scope="col" class="count">Confidence</th>
         <th scope="col">Scope</th>
         <th scope="col">Central place</th>
+        <th scope="col">{% include "explorer/_sort_header.html" with key="modified" h=headers.modified %}</th>
       </tr>
     </thead>
     <tbody>
@@ -47,10 +48,11 @@
           {% if article.enr_point_geoid %}<span class="truncate" title="{{ article.enr_point_geoid }} · {{ article.enr_point_level }}">{{ article.enr_point_place|default:"—" }} <span class="mono-inline">{{ article.enr_point_geoid }}</span></span>
           {% else %}<span class="absent">no claim</span>{% endif %}
         </td>
+        <td class="nowrap" title="{{ article.last_modified|date:"Y-m-d H:i" }}">{{ article.last_modified|date:"Y-m-d"|default:"—" }}</td>
       </tr>
       {% empty %}
       <tr class="empty-row">
-        <td colspan="{% if may_write %}11{% else %}10{% endif %}">
+        <td colspan="{% if may_write %}12{% else %}11{% endif %}">
           <span class="empty-state">
             <strong>No articles match these filters.</strong>
             Remove a filter above, or widen the date range.
