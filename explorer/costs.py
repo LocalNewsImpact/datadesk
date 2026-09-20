@@ -205,9 +205,28 @@ _GCP_SQL = """
       COUNT(DISTINCT DATE(usage_start_time)) AS days,
       project.id AS project,
       service.description AS service,
-      (
-        SELECT value FROM UNNEST(labels)
-        WHERE key = 'dataset' LIMIT 1
+      -- GKE cost allocation does not export a pod label under its own
+      -- name: it prefixes it. The `dataset` label the workflow templates
+      -- put on every pipeline pod arrives as `k8s-label/dataset`, beside
+      -- `k8s-label/stage` and `k8s-label/workflow-name`. Read as
+      -- `key = 'dataset'` this matched NOTHING -- 0 rows in the whole
+      -- export, checked 2026-09-20 -- so `attributed` was always $0 and
+      -- every dollar fell into the infrastructure bucket. The page showed
+      -- the total correctly and attributed none of it.
+      --
+      -- The unprefixed spelling is kept as a fallback rather than
+      -- replaced: a resource outside GKE (a Cloud Run job, a VM) carries
+      -- its own labels unprefixed, and dropping that reading would
+      -- silently stop attributing anything that is not a pod.
+      COALESCE(
+        (
+          SELECT value FROM UNNEST(labels)
+          WHERE key = 'k8s-label/dataset' LIMIT 1
+        ),
+        (
+          SELECT value FROM UNNEST(labels)
+          WHERE key = 'dataset' LIMIT 1
+        )
       ) AS dataset,
       SUM(cost) AS cost,
       SUM((SELECT SUM(c.amount) FROM UNNEST(credits) c)) AS credits
