@@ -247,6 +247,55 @@ def test_a_labelled_job_is_attributed_and_the_rest_is_not(monkeypatch):
     assert result["by_dataset"] == [{"dataset": "mizzou", "cost": 10.0}]
 
 
+def _executable_gcp_sql() -> str:
+    """The GCP query with its SQL comments removed.
+
+    The comments explain the label name this query used to read, so matching
+    them is matching the explanation rather than the query.
+    """
+    from explorer.costs import _GCP_SQL
+
+    return "\n".join(
+        line for line in _GCP_SQL.splitlines() if not line.lstrip().startswith("--")
+    )
+
+
+def test_the_gcp_query_reads_the_label_under_its_exported_name():
+    """GKE cost allocation prefixes a pod label; it does not export it under
+    its own name.
+
+    The workflow templates put `dataset` on every pipeline pod, and it arrives
+    in the billing export as `k8s-label/dataset`, beside `k8s-label/stage` and
+    `k8s-label/workflow-name`. Read as `key = 'dataset'` the subquery matched
+    NOTHING -- 0 rows in the entire export, checked against
+    `billing_export.gcp_billing_export_v1_*` on 2026-09-20, while
+    `k8s-label/stage` had 250 rows and `k8s-label/workflow-name` 18 for the
+    same three days. So `attributed` was always $0, `by_dataset` was always
+    empty, and every dollar fell into the infrastructure bucket: the page
+    showed the total correctly and attributed none of it.
+
+    Every other test here mocks `query_rows` with a ready-made `dataset` key,
+    which is why the aggregation was covered and the label name was not.
+
+    Asserted against the SQL with its `--` comments stripped. The comments
+    above the clause quote the wrong name on purpose, to say what it was; an
+    assertion that read them passed with the fix reverted, which is how this
+    test was first written.
+    """
+    assert "k8s-label/dataset" in _executable_gcp_sql()
+
+
+def test_a_label_outside_gke_is_still_read():
+    """The unprefixed spelling is a fallback, not a leftover. A Cloud Run job
+    or a VM carries its own labels unprefixed, and reading only the pod
+    spelling would silently stop attributing anything that is not a pod."""
+    sql = _executable_gcp_sql()
+    assert "COALESCE(" in sql
+    prefixed = sql.index("k8s-label/dataset")
+    plain = sql.index("key = 'dataset'")
+    assert prefixed < plain, "the pod label must win when both are present"
+
+
 def test_infrastructure_is_a_bucket_not_a_number_to_divide():
     """A load balancer, the database and the console serve every dataset at
     once and belong to none. Splitting one four ways produces four figures
