@@ -3,8 +3,8 @@
 The subject is a candidate link, not an article: no body, no byline, no
 capture -- a URL, its publisher, and what the verification recorded.
 
-FOUR STRATA, FOR THREE DIFFERENT QUESTIONS
-------------------------------------------
+FIVE STRATA, FOR FOUR DIFFERENT QUESTIONS
+-----------------------------------------
 A doubt-ranked queue finds errors and can never say how many there are:
 it is drawn from rows a signal already suspects. A random sample says how
 many and finds almost none. Both are wanted, so both are here, and each
@@ -96,6 +96,7 @@ UNRESOLVED_STATUSES = frozenset({"discovered", "sampled_out"})
 DOUBTFUL = "doubtful"
 OVERRULED = "overruled"
 NEVER_JUDGED = "never_judged"
+INGESTED = "ingested"
 SAMPLE = "sample"
 
 #: |margin| within this is the band the model could not call. Cut at 25
@@ -137,7 +138,21 @@ MODEL_DECIDED = ("sniffer", "default")
 #: answering it is making the first decision rather than reviewing one.
 NEVER_JUDGED_KIND = "never_judged"
 
+#: What the crawler writes on a row for an INGESTED URL -- one a person
+#: supplied as part of a chosen set (`candidate_links.is_curated`). Ingested
+#: URLs skip verification so no rule or model removes one; the crawler's
+#: `check-ingested` now runs the URL rules and storysniffer over them anyway
+#: and records the answer without acting on it. The link is still fetched.
+#:
+#: Their own stratum, for the same reason as a first score: there is no
+#: pipeline verdict to second-guess. A person chose the URL, and the question
+#: is whether it belongs in the set. Only the doubted ones are asked about --
+#: `flagged` is set when a URL rule rejects it, the URL wire filter matches,
+#: or storysniffer says it is not a story. On WSU that is 27 of 2,681.
+INGESTED_KIND = "ingested"
+
 VERDICT_KIND = KeyTextTransform("verdict_kind", "meta")
+FLAGGED = KeyTextTransform("flagged", "meta")
 
 MECHANISM = Coalesce(
     KeyTextTransform("rescored_by", "meta"),
@@ -153,6 +168,9 @@ STRATUM_SIZE = {
     # anything -- each one is a link waiting on a decision that has never
     # been made, and a capped draw would leave the rest waiting.
     NEVER_JUDGED: None,
+    # Reviewed in full: each is a supplied URL something doubts, and there
+    # are few of them.
+    INGESTED: None,
     SAMPLE: 400,
 }
 
@@ -173,6 +191,12 @@ STRATA = (
         "Never judged",
         "Nothing has ruled on these. Scored for the first time, and "
         "waiting on a decision rather than a second opinion.",
+    ),
+    (
+        INGESTED,
+        "Supplied, doubted",
+        "A URL someone supplied that the URL rules or storysniffer doubt. "
+        "It was still fetched; does it belong in the set?",
     ),
     (
         SAMPLE,
@@ -219,12 +243,18 @@ def predicate(stratum):
     not_a_first_score = ~Q(
         In(
             Coalesce(VERDICT_KIND, Value(""), output_field=TextField()),
-            (NEVER_JUDGED_KIND,),
+            # An ingested URL has no pipeline verdict either: a person
+            # chose it. Its own stratum asks about it.
+            (NEVER_JUDGED_KIND, INGESTED_KIND),
         )
     )
 
     if stratum == NEVER_JUDGED:
         return Q(In(VERDICT_KIND, (NEVER_JUDGED_KIND,)))
+    if stratum == INGESTED:
+        # `->>` of a JSON true is the text 'true'. Unflagged rows are
+        # checked-and-fine and are not asked about.
+        return Q(In(VERDICT_KIND, (INGESTED_KIND,))) & Q(In(FLAGGED, ("true",)))
     if stratum == DOUBTFUL:
         return (
             Q(
