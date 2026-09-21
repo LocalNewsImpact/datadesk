@@ -125,7 +125,10 @@ _CRAWLER_TABLES = {
         # date to group by. `meta` is `json` in production, like
         # articles.metadata, and declaring it TEXT here would hide the
         # same missing-equality-operator defect.
-        "discovered_at TIMESTAMP, discovered_by VARCHAR, meta JSON)"
+        "discovered_at TIMESTAMP, discovered_by VARCHAR, meta JSON, "
+        # NOT NULL with a false default, as in production (crawler
+        # d3e4f5a6b7c9): a row always says whether a person supplied it.
+        "is_curated BOOLEAN NOT NULL DEFAULT FALSE)"
     ),
     # One row per verification decision. `verification_confidence` is
     # DOUBLE PRECISION and holds a log-odds margin running to thousands,

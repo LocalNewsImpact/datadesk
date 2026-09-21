@@ -308,3 +308,49 @@ def test_a_byline_the_cleaner_found_nothing_in_is_doubtful(crawler_schema):
         metadata={"byline": {"primary_wire_service": None, "wire_services": []}},
     )
     assert Article.objects.filter(q._case_q(q.WIRE_EXCLUSION)).count() == 1
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_wire_call_on_a_supplied_url_is_reviewed_even_with_evidence(
+    crawler_schema,
+):
+    """An ingested URL skips the wire check by design, so `wire` on one is the
+    pipeline overruling a person's choice. Evidence does not settle that: all
+    24 WSU wire rows on 2026-09-21 carried it, all 24 were supplied, and none
+    reached the queue."""
+    link = CandidateLink.objects.create(
+        id="cl-sup", url="https://a.example/supplied", is_curated=True
+    )
+    Article.objects.create(
+        id="w-sup",
+        candidate_link=link,
+        status="wire",
+        wire_check_status="local",
+        metadata={"wire_detection": {"method": "byline"}},
+    )
+    ids = set(
+        q.base_queryset_unscoped()
+        .filter(q._case_q(q.WIRE_EXCLUSION))
+        .values_list("id", flat=True)
+    )
+    assert ids == {"w-sup"}
+
+
+@pytest.mark.django_db(databases=["default", "crawler"])
+def test_a_crawled_wire_call_with_evidence_still_is_not(crawler_schema):
+    """The narrowing stands for crawled links: an evidence-backed call there
+    does not earn a reviewer's time."""
+    link = CandidateLink.objects.create(id="cl-cr", url="https://a.example/crawled")
+    Article.objects.create(
+        id="w-cr",
+        candidate_link=link,
+        status="wire",
+        wire_check_status="complete",
+        metadata={"wire_detection": {"method": "byline"}},
+    )
+    ids = set(
+        q.base_queryset_unscoped()
+        .filter(q._case_q(q.WIRE_EXCLUSION))
+        .values_list("id", flat=True)
+    )
+    assert ids == set()

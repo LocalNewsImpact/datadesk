@@ -643,10 +643,17 @@ def _case_q(case):
     if case == WIRE_EXCLUSION:
         # Doubtful means nothing says why: no method recorded, and no
         # service named in the byline either.
-        return (
-            Q(status=CASE_STATUS[WIRE_EXCLUSION])
-            & _no_recorded_wire_evidence()
-            & ~_byline_names_a_service()
+        #
+        # OR A PERSON SUPPLIED THE URL. An ingested URL skips the wire
+        # check by design -- the set was chosen to be collected and
+        # exported -- so a `wire` status on one is the pipeline overruling
+        # that choice, and evidence behind the call does not settle it: the
+        # question is whether the study wants the story, not whether it was
+        # syndicated. All 24 WSU wire rows on 2026-09-21 had evidence
+        # recorded, so none reached the queue, and all 24 were supplied.
+        return Q(status=CASE_STATUS[WIRE_EXCLUSION]) & (
+            (_no_recorded_wire_evidence() & ~_byline_names_a_service())
+            | Q(candidate_link__is_curated=True)
         )
     if case in PLAIN_STATUS_CASES:
         # The status is the whole selector. DOUBTED_CONTENT_TYPE can narrow
