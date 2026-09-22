@@ -529,3 +529,19 @@ def test_an_exclusion_is_born_applied(page):
     assert row.applied_at is not None
     assert row.articles_updated == 1
     assert Article.objects.get(id="a-1").author == "Wire Reporter"
+
+
+def test_a_sample_offers_to_fix_that_one_articles_byline(page):
+    """Christopher Replogle has 896 stories on ky3.com and one on
+    unterrifieddemocrat.com, whose page reads "By Neal A. Johnson, UD Editor" --
+    the JSON-LD it was parsed from carries neither name.
+
+    Neither decision on the row is right for that: excluding throws out 896
+    genuine stories and fixing the string renames them. The correction belongs
+    to the one article."""
+    _candidate(
+        "Christopher Replogle", signal="CROSS_OWNER", signal_label="crosses owners"
+    )
+    _article("a-1", "Christopher Replogle")
+    body = _queue(page).content.decode()
+    assert reverse("review:edit_field", args=["a-1", "author"]) in body

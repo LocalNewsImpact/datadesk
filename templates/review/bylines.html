@@ -95,7 +95,19 @@
               <li>
                 <a href="{{ sample.url }}" rel="noreferrer noopener" target="_blank">{{ sample.title|truncatechars:70 }}&nbsp;↗</a>
                 <span class="hint">{{ sample.host }}{% if sample.publish_date %} · {{ sample.publish_date|date:"M j, Y" }}{% endif %}
-                · <a href="{% url 'explorer:article_detail' sample.id %}" rel="noreferrer noopener" target="_blank">what we captured&nbsp;↗</a></span>
+                · <a href="{% url 'explorer:article_detail' sample.id %}" rel="noreferrer noopener" target="_blank">what we captured&nbsp;↗</a>
+                {% comment %}
+                ONE ARTICLE'S BYLINE, not the string everywhere.
+
+                Christopher Replogle has 896 stories on ky3.com and one on
+                unterrifieddemocrat.com, whose page reads "By Neal A. Johnson, UD
+                Editor" -- the JSON-LD that story was parsed from carries neither
+                name. Neither decision on this row is right for that: excluding
+                throws out 896 genuine stories, and fixing the string renames
+                them. The correction belongs to the one article, so it is offered
+                on the one article.
+                {% endcomment %}
+                · <a href="{% url 'review:edit_field' sample.id 'author' %}" rel="noreferrer noopener" target="_blank">wrong byline&nbsp;↗</a></span>
               </li>
               {% endfor %}
             </ul>
