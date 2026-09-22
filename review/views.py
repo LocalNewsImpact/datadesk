@@ -1644,6 +1644,15 @@ def byline_queue(request):
         connected = False
 
     page = Paginator(rows, 25).get_page(request.GET.get("page"))
+    # A few of each byline's stories, so a cross-owner row can be judged by
+    # reading two of them rather than by guessing. After pagination: one query
+    # per row the reviewer can actually see, not per row in the queue.
+    if connected:
+        try:
+            for row in page.object_list:
+                row.samples = bylines.sample_articles(dataset.id, row.raw_byline)
+        except DatabaseError:
+            connected = False
     params = request.GET.copy()
     params.pop("page", None)
     return render(
@@ -1661,6 +1670,9 @@ def byline_queue(request):
             "dataset": chosen,
             "decided": decided,
             "decision_labels": bylines.DECISION_LABELS,
+            # The extraction queue's own dispositions, not a second list beside
+            # it: "these are wire stories" is the same answer that queue takes.
+            "exclusion_types": bylines.exclusion_types(),
         },
     )
 
@@ -1687,6 +1699,45 @@ def _decide_byline(request):
     decision = request.POST.get("decision", "")
     if not raw or decision not in bylines.DECISION_LABELS:
         return HttpResponseBadRequest("Pick a decision")
+
+    if decision == bylines.EXCLUDE:
+        # The byline AND its stories. The articles are re-disposed to what the
+        # reviewer says they are, through the same call the extraction queue
+        # makes, and the byline is recorded as naming nobody.
+        content_type = request.POST.get("content_type", "")
+        try:
+            written = bylines.exclude(
+                dataset.id,
+                raw,
+                content_type,
+                request.user,
+                reason=request.POST.get("reason", ""),
+            )
+        except ValueError:
+            return HttpResponseBadRequest("Say what the stories are")
+        AuditLogEntry.objects.create(
+            actor=request.user,
+            action="byline:exclude",
+            target_table="articles",
+            target_ids=[f"{dataset.slug}:{raw}"],
+            after={"content_type": content_type, "articles": written},
+            reason=request.POST.get("reason", "") or f"{raw} is not local reporting",
+        )
+        messages.success(
+            request,
+            f"{raw} excluded; {written} articles re-disposed as {content_type}.",
+        )
+        query = urlencode(
+            {
+                k: v
+                for k, v in (
+                    ("dataset", slug),
+                    ("signal", request.POST.get("signal", "")),
+                )
+                if v
+            }
+        )
+        return redirect(f"{reverse('review:bylines')}?{query}")
 
     names = bylines.parse_names(request.POST.get("names", ""))
     if decision == bylines.FIX and not names:
