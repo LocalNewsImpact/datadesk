@@ -36,6 +36,9 @@ urlpatterns = [
     path("export/<int:definition_id>/run/", views.export_run, name="export_run"),
     path("proposals/", views.proposals, name="proposals"),
     path("proposals/rescan/", views.rescan_sources, name="rescan"),
+    # Byline review: the strings, then the two reports they feed.
+    path("bylines/", views.byline_queue, name="bylines"),
+    path("bylines/report/", views.byline_report, name="byline_report"),
     path("paywalls/", views.paywalls, name="paywalls"),
     path("schema/", views.schema, name="schema"),
     path("audit/", views.audit_log, name="audit_log"),

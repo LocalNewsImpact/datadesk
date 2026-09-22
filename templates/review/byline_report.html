@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Byline reports — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <header>
+    <h1>{% if which == "hosts" %}Newsrooms and their bylines{% else %}Bylines and their newsrooms{% endif %}</h1>
+    {% comment %}
+    Both reports read the decisions made in the queue, so both count people
+    rather than spellings. Run before the queue is worked, the byline count per
+    newsroom is inflated by every misspelling the parser produced.
+    {% endcomment %}
+    <p class="notice">Local news only: articles that reached enrichment. A
+    byline on a wire story, a paywall stub or a page that was never an article
+    is not a local reporter's byline. {{ total }} rows.
+    <a href="{% url 'review:bylines' %}?dataset={{ dataset }}">Back to the queue</a>.</p>
+  </header>
+
+  {% if not crawler_connected %}
+  <p class="receipt-line">The crawler database is unreachable.</p>
+  {% endif %}
+
+  <form method="get" class="action-bar">
+    <label>Directory
+      <select name="dataset">
+        {% for d in datasets %}
+        <option value="{{ d.slug }}" {% if dataset == d.slug %}selected{% endif %}>{{ d.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Report
+      <select name="report">
+        <option value="bylines" {% if which == "bylines" %}selected{% endif %}>bylines, with their newsrooms</option>
+        <option value="hosts" {% if which == "hosts" %}selected{% endif %}>newsrooms, with their byline count</option>
+      </select>
+    </label>
+    <button type="submit">Show</button>
+    <a class="button" href="?dataset={{ dataset }}&amp;report={{ which }}&amp;format=csv">Export CSV</a>
+  </form>
+
+  <table class="grid">
+    {% if which == "hosts" %}
+    <thead><tr><th>Newsroom</th><th>Owner</th><th class="num">Unique bylines</th><th class="num">Articles</th><th>For instance</th></tr></thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.host }}</td>
+        <td>{{ row.owner|default:"—" }}</td>
+        <td class="num">{{ row.bylines }}</td>
+        <td class="num">{{ row.articles }}</td>
+        <td class="hint">{{ row.examples|join:", " }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="5" class="notice">No local articles with a byline in this directory.</td></tr>
+      {% endfor %}
+    </tbody>
+    {% else %}
+    <thead><tr><th>Byline</th><th class="num">Articles</th><th>Newsrooms</th><th>Owners</th></tr></thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.byline }}</td>
+        <td class="num">{{ row.articles }}</td>
+        {% comment %}
+        More than one newsroom is not a defect: a stringer files to several
+        papers and papers under one owner share copy. The report names them and
+        the reader judges it.
+        {% endcomment %}
+        <td>{% for host in row.hosts %}{{ host }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
+        <td class="hint">{{ row.owners|join:" | " }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4" class="notice">No local articles with a byline in this directory.</td></tr>
+      {% endfor %}
+    </tbody>
+    {% endif %}
+  </table>
+
+  {% if page.paginator.num_pages > 1 %}
+  <nav class="pager">
+    {% if page.has_previous %}<a href="?{{ params.urlencode }}&amp;page={{ page.previous_page_number }}">← previous</a>{% endif %}
+    {% if page.has_next %}<a href="?{{ params.urlencode }}&amp;page={{ page.next_page_number }}">next →</a>{% endif %}
+  </nav>
+  {% endif %}
+</section>
+{% endblock %}

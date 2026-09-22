@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Bylines — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <header>
+    <h1>Bylines</h1>
+    <p class="notice">Not every byline: the strings a parser produced that look
+    wrong. A near-duplicate spelling of a name already in the dataset, a job
+    title riding along after a name, a publication name, a contact address, or
+    a string that names no person at all. {{ remaining }} to decide.</p>
+    {% comment %}
+    Co-authors are deliberately absent. "Alyssa Mueller, Marcus Off" is two
+    reporters on one story, which is normal practice and not a parse error --
+    the reports below count it as two people without anybody deciding anything.
+    {% endcomment %}
+    <p class="notice">A decision is recorded once per string and applied to
+    every article carrying it, including articles extracted later. <a href="{% url 'review:byline_report' %}?dataset={{ dataset }}">See the reports</a>.</p>
+  </header>
+
+  {% if not crawler_connected %}
+  <p class="receipt-line">The crawler database is unreachable, so the queue
+  cannot be read right now.</p>
+  {% endif %}
+
+  <form method="get" class="action-bar">
+    <label>Directory
+      <select name="dataset">
+        {% for d in datasets %}
+        <option value="{{ d.slug }}" {% if dataset == d.slug %}selected{% endif %}>{{ d.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% comment %}
+    The signals are the reasons, and each is a different judgement: a
+    misspelling is compared against the standard, a title is trimmed off, a
+    desk name is dropped. Working one reason at a time is faster than working
+    a mixed list, because the reviewer holds one question at a time.
+    {% endcomment %}
+    <label>Reason
+      <select name="signal">
+        <option value="">all reasons</option>
+        {% for value, label, count in signals %}
+        <option value="{{ value }}" {% if signal == value %}selected{% endif %}>{{ label }} ({{ count }})</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Show</button>
+  </form>
+
+  {% if rows %}
+  <table class="grid">
+    <thead>
+      <tr>
+        <th>Byline as parsed</th>
+        <th>Reason</th>
+        <th>Where it appears</th>
+        <th class="num">Articles</th>
+        <th>Decision</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>
+          <strong>{{ row.raw_byline }}</strong>
+          {% if row.variants %}
+          {% comment %}
+          What it looks like a variant OF, with the difference named: two
+          spellings that differ only in an accent or a hyphen are impossible to
+          tell apart by eye in a table, and a reviewer who cannot see the
+          difference cannot decide which one is right.
+          {% endcomment %}
+          <p class="hint">near: {% for v in row.variants %}{{ v }}{% if not forloop.last %}; {% endif %}{% endfor %}
+          {% if row.differs_by %}<em>({{ row.differs_by|join:", " }})</em>{% endif %}</p>
+          {% endif %}
+        </td>
+        <td>{{ row.signal_label }}</td>
+        <td>
+          {% for host in row.hosts %}{{ host }}{% if not forloop.last %}<br>{% endif %}{% endfor %}
+          {% if row.owners %}<p class="hint">{{ row.owners|join:" | " }}</p>{% endif %}
+        </td>
+        <td class="num">{{ row.articles }}</td>
+        <td>
+          <form method="post" class="inline-form">
+            {% csrf_token %}
+            <input type="hidden" name="dataset" value="{{ dataset }}">
+            <input type="hidden" name="signal" value="{{ signal }}">
+            <input type="hidden" name="raw_byline" value="{{ row.raw_byline }}">
+            {% comment %}
+            Pre-filled with what the crawler proposes, so the common case is
+            one click: the proposal is the string with the title trimmed or the
+            spelling matched to the one already in the dataset. It is editable
+            because the proposal is a guess about a person's name.
+            {% endcomment %}
+            <label class="sr-only" for="names-{{ forloop.counter }}">Names</label>
+            <textarea id="names-{{ forloop.counter }}" name="names" rows="2"
+              placeholder="one name per line">{% for name in row.proposed %}{{ name }}
+{% endfor %}</textarea>
+            <button type="submit" name="decision" value="fix">Fix</button>
+            <button type="submit" name="decision" value="accept">Keep as is</button>
+            {% comment %}
+            "Names nobody" rather than "delete": nothing is deleted. The string
+            stays on the article and stops counting as a reporter.
+            {% endcomment %}
+            <button type="submit" name="decision" value="drop" class="secondary">Names nobody</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if page.paginator.num_pages > 1 %}
+  <nav class="pager">
+    {% if page.has_previous %}<a href="?{{ params.urlencode }}&amp;page={{ page.previous_page_number }}">← previous</a>{% endif %}
+    {% if page.has_next %}<a href="?{{ params.urlencode }}&amp;page={{ page.next_page_number }}">next →</a>{% endif %}
+  </nav>
+  {% endif %}
+  {% elif crawler_connected %}
+  <p class="receipt-line">Nothing to decide{% if signal %} for that reason{% endif %}.</p>
+  {% endif %}
+
+  {% if decided %}
+  {% comment %}
+  The receipt. A decision applies to every article carrying the string and is
+  not visible anywhere else until the crawler next applies it, so the reviewer
+  needs to see what they have said.
+  {% endcomment %}
+  <details class="card-inset">
+    <summary>Decided so far</summary>
+    <table class="grid">
+      <thead><tr><th>Byline as parsed</th><th>Decided</th><th>Now reads as</th><th>By</th></tr></thead>
+      <tbody>
+        {% for row in decided %}
+        <tr>
+          <td>{{ row.raw_byline }}</td>
+          <td>{{ row.label }}</td>
+          <td>{{ row.canonical_names|join:" | "|default:"—" }}</td>
+          <td>{{ row.decided_by|default:"—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% endif %}
+</section>
+{% endblock %}

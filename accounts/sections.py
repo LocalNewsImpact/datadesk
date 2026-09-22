@@ -140,6 +140,18 @@ SECTION_GROUPS = (
                     "location from a person."
                 ),
             },
+            {
+                # After Geography because it is the last thing that can be
+                # judged: a byline is only worth reviewing once the article
+                # carrying it has been kept as local news, and the reports
+                # this feeds count people per newsroom.
+                "url": "review:bylines",
+                "label": "Bylines",
+                "note": (
+                    "Byline strings that look like a misspelling, a title "
+                    "or not a person, awaiting a decision."
+                ),
+            },
         ),
     },
     {

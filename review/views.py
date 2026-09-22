@@ -1604,6 +1604,204 @@ def paywall_corpus_counts():
 
 
 @requires(WRITE)
+def byline_queue(request):
+    """The byline strings one dataset shows a defect in, one decision each.
+
+    NOT every byline: `byline_review_candidates` is computed by the crawler --
+    near-duplicate spellings, a job title riding along after a name, a
+    publication name, a contact address, a string that names no person at all.
+    On Mizzou that is about 150 strings against 1,824 people, which is a
+    session's work rather than a project.
+
+    Deciding a string writes `byline_normalizations` and drops the candidate.
+    The crawler applies the decision to `articles.author`, so the permanent
+    record carries the corrected name and a re-extraction that writes the raw
+    form again is corrected the same way, without anybody reviewing it twice.
+    """
+    from explorer.scoping import datasets_for
+    from review import bylines
+
+    choices = list(datasets_for(request.user, WRITE))
+    chosen = request.GET.get("dataset", "")
+    if not chosen and choices:
+        chosen = choices[0].slug
+    dataset = next((d for d in choices if d.slug == chosen), None)
+
+    if request.method == "POST":
+        return _decide_byline(request)
+
+    signal = request.GET.get("signal", "")
+    rows, signals, decided = [], [], []
+    connected = True
+    try:
+        if dataset is not None:
+            rows = list(bylines.candidates(dataset.id, signal=signal))
+            signals = bylines.signal_counts(dataset.id)
+            decided = list(bylines.decided(dataset.id))
+            for row in decided:
+                row.label = bylines.DECISION_LABELS.get(row.decision, row.decision)
+    except DatabaseError:
+        connected = False
+
+    page = Paginator(rows, 25).get_page(request.GET.get("page"))
+    params = request.GET.copy()
+    params.pop("page", None)
+    return render(
+        request,
+        "review/bylines.html",
+        {
+            "crawler_connected": connected,
+            "rows": page.object_list,
+            "page": page,
+            "params": params,
+            "remaining": sum(count for _, _, count in signals),
+            "signals": signals,
+            "signal": signal,
+            "datasets": choices,
+            "dataset": chosen,
+            "decided": decided,
+            "decision_labels": bylines.DECISION_LABELS,
+        },
+    )
+
+
+@require_POST
+@requires(WRITE)
+def _decide_byline(request):
+    """Record one decision and come back to the same filtered page.
+
+    Redirect rather than render: the decided string is gone from the queue, and
+    a re-POST on refresh would decide it again with whatever was in the form.
+    """
+    from explorer.scoping import datasets_for
+    from review import bylines
+
+    slug = request.POST.get("dataset", "")
+    dataset = next(
+        (d for d in datasets_for(request.user, WRITE) if d.slug == slug), None
+    )
+    if dataset is None:
+        return HttpResponseBadRequest("Not a dataset you can review")
+
+    raw = request.POST.get("raw_byline", "")
+    decision = request.POST.get("decision", "")
+    if not raw or decision not in bylines.DECISION_LABELS:
+        return HttpResponseBadRequest("Pick a decision")
+
+    names = bylines.parse_names(request.POST.get("names", ""))
+    if decision == bylines.FIX and not names:
+        # A fix with nothing typed would store an empty name list, which is
+        # what DROP means -- silently dropping a real reporter.
+        messages.error(request, "Type the name or names the byline should be.")
+    else:
+        row = bylines.decide(
+            dataset.id,
+            raw,
+            decision,
+            names,
+            request.user,
+            reason=request.POST.get("reason", ""),
+        )
+        AuditLogEntry.objects.create(
+            actor=request.user,
+            action="byline:decide",
+            target_table="byline_normalizations",
+            target_ids=[f"{dataset.slug}:{raw}"],
+            after={"decision": decision, "names": row.canonical_names},
+            reason=request.POST.get("reason", "") or f"{raw} — {decision}",
+        )
+        messages.success(request, f"{raw} — {bylines.DECISION_LABELS[decision]}.")
+
+    query = urlencode(
+        {
+            k: v
+            for k, v in (("dataset", slug), ("signal", request.POST.get("signal", "")))
+            if v
+        }
+    )
+    return redirect(f"{reverse('review:bylines')}?{query}")
+
+
+@requires(WRITE)
+def byline_report(request):
+    """The two reports the review exists to produce, for one dataset.
+
+    Unique local bylines with the hosts each appears on, and unique hosts with
+    how many distinct bylines each carries. Both read the decisions, so both
+    say what the review has established rather than what a parser produced.
+    """
+    from explorer.scoping import datasets_for
+    from review import bylines
+
+    choices = list(datasets_for(request.user, WRITE))
+    chosen = request.GET.get("dataset", "")
+    if not chosen and choices:
+        chosen = choices[0].slug
+    dataset = next((d for d in choices if d.slug == chosen), None)
+    which = "hosts" if request.GET.get("report") == "hosts" else "bylines"
+
+    rows = []
+    connected = True
+    try:
+        if dataset is not None:
+            rows = (
+                bylines.hosts_with_bylines(dataset.id)
+                if which == "hosts"
+                else bylines.bylines_with_hosts(dataset.id)
+            )
+    except DatabaseError:
+        connected = False
+
+    if request.GET.get("format") == "csv" and dataset is not None:
+        import csv as csv_module
+
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = (
+            f'attachment; filename="{which}-{dataset.slug}.csv"'
+        )
+        response.write("\ufeff")
+        writer = csv_module.writer(response, lineterminator="\n")
+        if which == "hosts":
+            writer.writerow(["host", "owner", "unique bylines", "articles"])
+            for row in rows:
+                writer.writerow(
+                    [row["host"], row["owner"], row["bylines"], row["articles"]]
+                )
+        else:
+            writer.writerow(["byline", "articles", "hosts", "owners"])
+            for row in rows:
+                # " | " between hosts: a comma inside a CSV cell reads as a
+                # column break to every viewer that is not a CSV parser.
+                writer.writerow(
+                    [
+                        row["byline"],
+                        row["articles"],
+                        " | ".join(row["hosts"]),
+                        " | ".join(row["owners"]),
+                    ]
+                )
+        return response
+
+    page = Paginator(rows, 100).get_page(request.GET.get("page"))
+    params = request.GET.copy()
+    params.pop("page", None)
+    return render(
+        request,
+        "review/byline_report.html",
+        {
+            "crawler_connected": connected,
+            "rows": page.object_list,
+            "page": page,
+            "params": params,
+            "total": len(rows),
+            "which": which,
+            "datasets": choices,
+            "dataset": chosen,
+        },
+    )
+
+
+@requires(WRITE)
 def paywalls(request):
     """Publishers we cannot read, and what it would take to read them.
 

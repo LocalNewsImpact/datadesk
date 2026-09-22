@@ -190,6 +190,21 @@ _CRAWLER_TABLES = {
         "text_length INTEGER GENERATED ALWAYS AS "
         "(length(coalesce(text, raw, text_excerpt, ''))) STORED)"
     ),
+    # Byline review: the queue the crawler computes, and the decisions this
+    # console writes back into it. Both are the crawler's tables (crawler
+    # #660), unmanaged here like every other row in this map.
+    "byline_review_candidates": (
+        "(id VARCHAR PRIMARY KEY, dataset_id VARCHAR, raw_byline TEXT, "
+        "signal VARCHAR, signal_label TEXT, signals JSON, proposed JSON, "
+        "variants JSON, differs_by JSON, articles INTEGER, hosts JSON, "
+        "owners JSON, computed_at TIMESTAMP)"
+    ),
+    "byline_normalizations": (
+        "(id VARCHAR PRIMARY KEY, dataset_id VARCHAR, raw_byline TEXT, "
+        "canonical_names JSON, decision VARCHAR, reason TEXT, decided_by "
+        "VARCHAR, decided_at TIMESTAMP, applied_at TIMESTAMP, "
+        "articles_updated INTEGER)"
+    ),
     "article_places_manual": (
         "(id SERIAL PRIMARY KEY, article_id TEXT NOT NULL, full_name TEXT, "
         "city TEXT, county TEXT, state TEXT, geoid TEXT, geoid_level TEXT, "
