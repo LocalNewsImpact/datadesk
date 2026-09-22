@@ -1647,14 +1647,29 @@ def byline_queue(request):
     # A few of each byline's stories, so a cross-owner row can be judged by
     # reading two of them rather than by guessing. After pagination: one query
     # per row the reviewer can actually see, not per row in the queue.
+    # One row at a time may be opened in full. Per row rather than per page: the
+    # spread of a byline with 900 stories is a page of its own, and rendering it
+    # for all 25 rows would be 25 of those.
+    expanded = request.GET.get("expand", "")
     if connected:
         try:
             for row in page.object_list:
                 row.samples = bylines.sample_articles(dataset.id, row.raw_byline)
+                row.expanded = row.raw_byline == expanded
+                row.groups = (
+                    bylines.every_article(dataset.id, row.raw_byline)
+                    if row.expanded
+                    else []
+                )
         except DatabaseError:
             connected = False
     params = request.GET.copy()
     params.pop("page", None)
+    # The same filters WITHOUT `expand`, for the link that opens a row and the
+    # one that closes it. Built from the live params and both would carry the
+    # row already open, so "Close" would reopen it.
+    base_params = params.copy()
+    base_params.pop("expand", None)
     return render(
         request,
         "review/bylines.html",
@@ -1673,6 +1688,8 @@ def byline_queue(request):
             # The extraction queue's own dispositions, not a second list beside
             # it: "these are wire stories" is the same answer that queue takes.
             "exclusion_types": bylines.exclusion_types(),
+            "expanded": expanded,
+            "base_params": base_params,
         },
     )
 
@@ -1699,6 +1716,38 @@ def _decide_byline(request):
     decision = request.POST.get("decision", "")
     if not raw or decision not in bylines.DECISION_LABELS:
         return HttpResponseBadRequest("Pick a decision")
+
+    if decision == bylines.REPLACE:
+        # A different byline on the stories the reviewer picked, and nothing
+        # recorded against the string: it is right on the rest of them.
+        try:
+            written = bylines.replace_on(
+                dataset.id,
+                raw,
+                request.POST.getlist("article"),
+                request.POST.get("new_byline", ""),
+                request.user,
+                reason=request.POST.get("reason", ""),
+            )
+        except ValueError as problem:
+            return HttpResponseBadRequest(str(problem))
+        messages.success(
+            request,
+            f"{written} stories now read "
+            f"{' '.join(request.POST.get('new_byline', '').split())}.",
+        )
+        query = urlencode(
+            {
+                k: v
+                for k, v in (
+                    ("dataset", slug),
+                    ("signal", request.POST.get("signal", "")),
+                    ("expand", raw),
+                )
+                if v
+            }
+        )
+        return redirect(f"{reverse('review:bylines')}?{query}")
 
     if decision == bylines.EXCLUDE:
         # The byline AND its stories. The articles are re-disposed to what the

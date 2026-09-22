@@ -88,7 +88,7 @@
           into it.
           {% endcomment %}
           {% if row.samples %}
-          <details class="card-inset">
+          <details class="card-inset" {% if row.expanded %}open{% endif %}>
             <summary>Read {{ row.samples|length }}</summary>
             <ul class="plain">
               {% for sample in row.samples %}
@@ -111,7 +111,65 @@
               </li>
               {% endfor %}
             </ul>
+            {% comment %}
+            The sample answers "is this one person". It cannot answer "which of
+            these stories are not his", and that is the question a full
+            replacement needs answered -- so every story is available, on
+            request, for the one row being worked.
+            {% endcomment %}
+            {% if not row.expanded %}
+            <p><a href="?{{ base_params.urlencode }}&amp;expand={{ row.raw_byline|urlencode }}">Show every story ({{ row.articles }})&nbsp;↓</a></p>
+            {% endif %}
           </details>
+
+          {% if row.expanded %}
+          {% comment %}
+          Outlying hosts first, and marked. A host that is not where most of the
+          byline's work is is the candidate for a wrong attribution; the byline's
+          main host is shown too, because a replacement made without seeing what
+          is being left alone is a guess.
+
+          Ties leave both unmarked: two hosts with equal counts is a stringer.
+          {% endcomment %}
+          <form method="post" class="card-inset">
+            {% csrf_token %}
+            <input type="hidden" name="dataset" value="{{ dataset }}">
+            <input type="hidden" name="signal" value="{{ signal }}">
+            <input type="hidden" name="raw_byline" value="{{ row.raw_byline }}">
+            {% for group in row.groups %}
+            <p class="hint">
+              {% if group.outlier %}<strong>{{ group.host }}</strong> — outlying{% else %}{{ group.host }} — the main one{% endif %}
+              {% if group.owner %} · {{ group.owner }}{% endif %} · {{ group.articles|length }}
+            </p>
+            <ul class="plain">
+              {% for article in group.articles %}
+              <li>
+                <label>
+                  <input type="checkbox" name="article" value="{{ article.id }}" {% if group.outlier %}checked{% endif %}>
+                  <a href="{{ article.url }}" rel="noreferrer noopener" target="_blank">{{ article.title|truncatechars:70 }}&nbsp;↗</a>
+                </label>
+                <span class="hint">{{ article.status }}{% if article.publish_date %} · {{ article.publish_date|date:"M j, Y" }}{% endif %}
+                · <a href="{% url 'review:edit_field' article.id 'author' %}" rel="noreferrer noopener" target="_blank">edit this one&nbsp;↗</a></span>
+              </li>
+              {% endfor %}
+            </ul>
+            {% endfor %}
+            {% comment %}
+            The outliers come pre-ticked because they are the answer in the common
+            case, and unticking two is less work than ticking nineteen. Nothing is
+            recorded against the byline: the string is right on the stories left
+            alone, so the candidate stays in the queue until somebody decides it.
+            {% endcomment %}
+            <label>Replace the byline on the ticked stories with
+              <input type="text" name="new_byline" placeholder="Neal A. Johnson">
+            </label>
+            <label>Why
+              <input type="text" name="reason" placeholder="the page reads a different name">
+            </label>
+            <button type="submit" name="decision" value="replace">Replace on the ticked stories</button>
+            <a class="button secondary" href="?{{ base_params.urlencode }}">Close</a>
+          </form>
+          {% endif %}
           {% endif %}
         </td>
         <td class="num">{{ row.articles }}</td>

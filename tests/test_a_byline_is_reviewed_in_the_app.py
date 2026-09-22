@@ -21,6 +21,7 @@ from django.test import Client
 from django.urls import reverse
 
 from accounts.models import DATADESK, Grant
+from audit.models import AuditLogEntry
 from explorer.models import (
     Article,
     BylineNormalization,
@@ -545,3 +546,142 @@ def test_a_sample_offers_to_fix_that_one_articles_byline(page):
     _article("a-1", "Christopher Replogle")
     body = _queue(page).content.decode()
     assert reverse("review:edit_field", args=["a-1", "author"]) in body
+
+
+# --- the whole spread, and a replacement across the part that is wrong ------
+
+
+def test_a_row_is_not_expanded_until_asked(page):
+    """The spread of a byline with 900 stories is a page of its own; rendering it
+    for all 25 rows would be 25 of those."""
+    _candidate("Christopher Replogle")
+    _article("a-1", "Christopher Replogle")
+    body = _queue(page).content.decode()
+    assert "Show every story" in body
+    assert 'name="new_byline"' not in body
+
+
+def test_expanding_shows_every_story_with_the_outliers_first(page):
+    _candidate("Christopher Replogle")
+    for n in range(3):
+        _article(f"a-main-{n}", "Christopher Replogle")
+    _article("a-out", "Christopher Replogle", host_id="s-2")
+    from review import bylines
+
+    groups = bylines.every_article("d-mo", "Christopher Replogle")
+    assert [(g["host"], g["outlier"]) for g in groups] == [
+        ("two.example", True),
+        ("one.example", False),
+    ]
+
+
+def test_equal_counts_are_a_stringer_not_an_outlier(page):
+    """Two hosts with the same number of stories is somebody filing to both."""
+    _article("a-1", "Jon Smith")
+    _article("a-2", "Jon Smith", host_id="s-2")
+    from review import bylines
+
+    assert not any(g["outlier"] for g in bylines.every_article("d-mo", "Jon Smith"))
+
+
+def test_the_spread_includes_a_story_at_any_status(page):
+    """A wrong byline is wrong on a story nobody has enriched yet too."""
+    _article("a-1", "Jon Smith", status="labeled")
+    from review import bylines
+
+    groups = bylines.every_article("d-mo", "Jon Smith")
+    assert [a["status"] for g in groups for a in g["articles"]] == ["labeled"]
+
+
+def test_the_expanded_form_offers_the_replacement(page):
+    _candidate("Christopher Replogle")
+    _article("a-1", "Christopher Replogle")
+    body = page.get(
+        reverse("review:bylines"),
+        {"dataset": "Mizzou-Missouri-State", "expand": "Christopher Replogle"},
+    ).content.decode()
+    assert 'name="new_byline"' in body
+    assert 'name="article" value="a-1"' in body
+
+
+def test_a_replacement_writes_only_the_picked_stories(page):
+    _candidate("Christopher Replogle")
+    _article("a-keep", "Christopher Replogle")
+    _article("a-fix", "Christopher Replogle", host_id="s-2")
+    page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Christopher Replogle",
+            "decision": "replace",
+            "article": ["a-fix"],
+            "new_byline": "Neal A. Johnson",
+        },
+    )
+    assert Article.objects.get(id="a-fix").author == "Neal A. Johnson"
+    assert Article.objects.get(id="a-keep").author == "Christopher Replogle"
+
+
+def test_a_replacement_records_nothing_against_the_byline(page):
+    """The string is right on the stories left alone, so the candidate stays in
+    the queue until somebody decides the string itself."""
+    _candidate("Christopher Replogle")
+    _article("a-fix", "Christopher Replogle")
+    page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Christopher Replogle",
+            "decision": "replace",
+            "article": ["a-fix"],
+            "new_byline": "Neal A. Johnson",
+        },
+    )
+    assert not BylineNormalization.objects.exists()
+    assert BylineReviewCandidate.objects.filter(
+        raw_byline="Christopher Replogle"
+    ).exists()
+
+
+def test_a_replacement_is_audited_and_revertible(page):
+    _article("a-fix", "Christopher Replogle")
+    from review import bylines
+
+    bylines.replace_on(
+        "d-mo",
+        "Christopher Replogle",
+        ["a-fix"],
+        "Neal A. Johnson",
+        User.objects.get(username="ed"),
+    )
+    entry = AuditLogEntry.objects.get(action="byline:replace")
+    assert entry.before == {"a-fix": {"author": "Christopher Replogle"}}
+    assert entry.after == {"author": "Neal A. Johnson"}
+
+
+def test_a_replacement_with_no_name_is_refused(page):
+    _candidate("Christopher Replogle")
+    _article("a-fix", "Christopher Replogle")
+    response = page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Christopher Replogle",
+            "decision": "replace",
+            "article": ["a-fix"],
+            "new_byline": "  ",
+        },
+    )
+    assert response.status_code == 400
+    assert Article.objects.get(id="a-fix").author == "Christopher Replogle"
+
+
+def test_a_replacement_cannot_reach_a_story_with_another_byline(page):
+    _article("a-other", "Jon Smith")
+    from review import bylines
+
+    with pytest.raises(ValueError):
+        bylines.replace_on(
+            "d-mo", "Christopher Replogle", ["a-other"], "Neal A. Johnson", None
+        )
+    assert Article.objects.get(id="a-other").author == "Jon Smith"

@@ -334,6 +334,9 @@ def exclusion_types():
     ]
 
 
+REPLACE = "replace"
+DECISION_LABELS[REPLACE] = "replaced on some of its stories"
+
 EXCLUDE = "exclude"
 DECISION_LABELS[EXCLUDE] = "excluded, with its stories re-disposed"
 
@@ -395,4 +398,116 @@ def exclude(dataset_id, raw_byline, content_type, user, reason=""):
     row.applied_at = timezone.now()
     row.articles_updated = len(articles)
     row.save(using="crawler", update_fields=["applied_at", "articles_updated"])
+    return len(articles)
+
+
+# ---------------------------------------------------------------------------
+# The whole spread, and a replacement across the part of it that is wrong.
+#
+# The sample answers "is this one person"; it cannot answer "which of these 19
+# stories are not his". Christopher Replogle has 896 on ky3.com and one on
+# unterrifieddemocrat.com whose page reads "By Neal A. Johnson, UD Editor" --
+# so the fix is a replacement on the outliers, and the reviewer has to see all
+# of them to pick.
+# ---------------------------------------------------------------------------
+
+
+def every_article(dataset_id, raw_byline):
+    """Every story carrying the string, outlying hosts first.
+
+    ALL statuses, not the local ones: a wrong byline is wrong on a story nobody
+    has enriched yet too, and leaving those behind means the same correction
+    comes back the week they are enriched.
+
+    `outlier` marks a host that is not the byline's main one. That is the whole
+    question a cross-owner row asks -- which of these does not belong -- so the
+    grouping answers it rather than leaving the reviewer to count rows.
+    """
+    from explorer.models import Article
+
+    rows = list(
+        Article.objects.using("crawler")
+        .filter(dataset_id=dataset_id, author=raw_byline)
+        .order_by("-publish_date")
+        .values(
+            "id",
+            "url",
+            "title",
+            "status",
+            "publish_date",
+            "candidate_link__source__host",
+            "candidate_link__source__owner",
+        )
+    )
+    counts: dict[str, int] = {}
+    for row in rows:
+        host = row["candidate_link__source__host"] or ""
+        counts[host] = counts.get(host, 0) + 1
+    # The main host is where most of the byline's work is. Ties leave both
+    # unmarked: two hosts with equal counts is a stringer, not an outlier.
+    biggest = max(counts.values()) if counts else 0
+    main = {host for host, n in counts.items() if n == biggest}
+
+    groups: dict[str, dict] = {}
+    for row in rows:
+        host = row["candidate_link__source__host"] or ""
+        group = groups.setdefault(
+            host,
+            {
+                "host": host,
+                "owner": row["candidate_link__source__owner"] or "",
+                "outlier": host not in main,
+                "articles": [],
+            },
+        )
+        group["articles"].append(
+            {
+                "id": row["id"],
+                "url": row["url"],
+                "title": row["title"] or row["url"],
+                "status": row["status"],
+                "publish_date": row["publish_date"],
+            }
+        )
+    out = sorted(
+        groups.values(),
+        key=lambda g: (not g["outlier"], -len(g["articles"]), g["host"]),
+    )
+    return out
+
+
+def replace_on(dataset_id, raw_byline, article_ids, new_byline, user, reason=""):
+    """Write a different byline onto the stories the reviewer picked.
+
+    NOT a normalization. A normalization says what the string means everywhere,
+    and the case this answers is the opposite: the string is right on 896 stories
+    and wrong on one, so only the one is written and the string keeps its
+    meaning. Nothing is recorded against the byline, and the candidate stays in
+    the queue until somebody decides the string itself.
+
+    Through `audited_update`, the same write the extraction queue's field edit
+    makes, so a byline corrected in bulk here is revertible exactly like one
+    corrected on its own article page.
+    """
+    from explorer.models import Article
+    from review.services import audited_update
+
+    new_byline = " ".join((new_byline or "").split())
+    if not new_byline:
+        raise ValueError("A replacement needs a name")
+
+    articles = list(
+        Article.objects.using("crawler").filter(
+            dataset_id=dataset_id, author=raw_byline, id__in=list(article_ids)
+        )
+    )
+    if not articles:
+        raise ValueError("None of those stories carries that byline")
+    audited_update(
+        user,
+        articles,
+        {"author": new_byline},
+        action="byline:replace",
+        reason=reason or f"{raw_byline} was not the byline on these stories",
+    )
     return len(articles)
