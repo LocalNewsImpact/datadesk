@@ -343,3 +343,189 @@ def test_a_report_downloads_as_csv(page):
     # " | " between hosts: a comma inside a cell reads as a column break to
     # every viewer that is not a CSV parser.
     assert "Jon Smith,2,one.example | two.example" in body
+
+
+# --- reading the evidence, and excluding a byline that is not local ---------
+#
+# `cross_owner` is 96 of Mizzou's 148 candidates, and is the softest signal: a
+# byline under unrelated owners is legitimate for a stringer and a defect for a
+# wire reporter the parser credited as local. Nothing else on the row tells them
+# apart, so the stories have to be on the page -- and when the answer is "these
+# are wire stories", the stories have to be re-disposed too, or they are
+# enriched again next week and the byline comes back.
+
+
+def test_the_row_offers_a_few_of_the_stories(page):
+    _candidate("Jon Smith")
+    _article("a-1", "Jon Smith")
+    _article("a-2", "Jon Smith", host_id="s-2")
+    from review import bylines
+
+    samples = bylines.sample_articles("d-mo", "Jon Smith")
+    assert {s["host"] for s in samples} == {"one.example", "two.example"}
+
+
+def test_the_sample_spreads_across_the_hosts(page):
+    """The question a cross-owner row asks is whether the same person really
+    writes for both papers; a sample from one of them cannot answer it."""
+    for n in range(6):
+        _article(f"a-one-{n}", "Jon Smith")
+    _article("a-two", "Jon Smith", host_id="s-2")
+    from review import bylines
+
+    samples = bylines.sample_articles("d-mo", "Jon Smith")
+    by_host = {}
+    for sample in samples:
+        by_host[sample["host"]] = by_host.get(sample["host"], 0) + 1
+    assert by_host == {"one.example": bylines.PER_HOST, "two.example": 1}
+
+
+def test_the_links_open_in_their_own_window(page):
+    """Reading a story must not lose a queue page with decisions typed in."""
+    _candidate("Jon Smith")
+    _article("a-1", "Jon Smith")
+    body = _queue(page).content.decode()
+    assert 'target="_blank"' in body
+    assert "https://one.example/a-1" in body
+
+
+def test_the_row_links_to_what_we_captured(page):
+    _candidate("Jon Smith")
+    _article("a-1", "Jon Smith")
+    body = _queue(page).content.decode()
+    assert reverse("explorer:article_detail", args=["a-1"]) in body
+
+
+def test_the_exclusions_are_the_extraction_queues_own_words(page):
+    """One vocabulary. The two lists drifted once before -- extraction offered
+    one word for seventeen things discovery could name."""
+    from review import bylines
+    from review.dispositions import CONTENT_TYPES
+
+    offered = {t["value"] for t in bylines.exclusion_types()}
+    assert "wire" in offered
+    assert "obituary" in offered
+    assert offered < {t["value"] for t in CONTENT_TYPES}
+
+
+def test_a_disposition_that_keeps_the_story_is_not_offered(page):
+    """ "News" means this IS a story we keep, which is the opposite of excluding
+    the byline -- one dropdown must not both exclude and restore."""
+    from review import bylines
+    from review.dispositions import BAD_CAPTURE
+
+    offered = {t["value"] for t in bylines.exclusion_types()}
+    assert "news" not in offered
+    assert BAD_CAPTURE not in offered
+
+
+def test_excluding_re_disposes_every_story(page):
+    _candidate("Wire Reporter", signal="CROSS_OWNER", signal_label="crosses owners")
+    _article("a-1", "Wire Reporter")
+    _article("a-2", "Wire Reporter", host_id="s-2")
+    page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Wire Reporter",
+            "decision": "exclude",
+            "content_type": "wire",
+        },
+    )
+    assert [a.status for a in Article.objects.order_by("id")] == ["wire", "wire"]
+
+
+def test_excluding_reaches_a_story_at_any_status(page):
+    """Stopping at the local statuses leaves the same wire stories at `labeled`
+    to be enriched next week, and the byline comes back."""
+    _candidate("Wire Reporter", signal="CROSS_OWNER", signal_label="crosses owners")
+    _article("a-1", "Wire Reporter", status="labeled")
+    page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Wire Reporter",
+            "decision": "exclude",
+            "content_type": "wire",
+        },
+    )
+    assert Article.objects.get(id="a-1").status == "wire"
+
+
+def test_excluding_takes_the_byline_out_of_the_reports(page):
+    _candidate("Wire Reporter", signal="CROSS_OWNER", signal_label="crosses owners")
+    _article("a-1", "Wire Reporter")
+    _article("a-2", "Jon Smith")
+    page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Wire Reporter",
+            "decision": "exclude",
+            "content_type": "wire",
+        },
+    )
+    from review import bylines
+
+    assert [r["byline"] for r in bylines.bylines_with_hosts("d-mo")] == ["Jon Smith"]
+    assert not BylineReviewCandidate.objects.filter(raw_byline="Wire Reporter").exists()
+
+
+def test_excluding_without_saying_what_they_are_is_refused(page):
+    _candidate("Wire Reporter", signal="CROSS_OWNER", signal_label="crosses owners")
+    _article("a-1", "Wire Reporter")
+    response = page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Wire Reporter",
+            "decision": "exclude",
+            "content_type": "",
+        },
+    )
+    assert response.status_code == 400
+    assert Article.objects.get(id="a-1").status == "enriched"
+    assert not BylineNormalization.objects.exists()
+
+
+def test_an_excluded_story_carries_the_same_decision_note_as_one_dispositioned(page):
+    """Through the extraction queue's own `record`, so an article excluded here
+    is indistinguishable from one dispositioned a row at a time."""
+    _candidate("Wire Reporter", signal="CROSS_OWNER", signal_label="crosses owners")
+    _article("a-1", "Wire Reporter")
+    page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Wire Reporter",
+            "decision": "exclude",
+            "content_type": "wire",
+        },
+    )
+    from review.models import ReviewDecision
+
+    assert ReviewDecision.objects.filter(subject_id="a-1").exists()
+    assert Article.objects.get(id="a-1").metadata
+
+
+def test_an_exclusion_is_born_applied(page):
+    """The crawler's nightly apply writes a decision's names onto
+    `articles.author`, and an exclusion names nobody -- so left unapplied it
+    would blank the byline on every one of these stories. A wire reporter really
+    wrote the wire story; the answer is about the stories, and it is already
+    carried out."""
+    _candidate("Wire Reporter", signal="CROSS_OWNER", signal_label="crosses owners")
+    _article("a-1", "Wire Reporter")
+    page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Wire Reporter",
+            "decision": "exclude",
+            "content_type": "wire",
+        },
+    )
+    row = BylineNormalization.objects.get(raw_byline="Wire Reporter")
+    assert row.applied_at is not None
+    assert row.articles_updated == 1
+    assert Article.objects.get(id="a-1").author == "Wire Reporter"

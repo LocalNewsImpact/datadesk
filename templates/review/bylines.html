@@ -79,6 +79,28 @@
         <td>
           {% for host in row.hosts %}{{ host }}{% if not forloop.last %}<br>{% endif %}{% endfor %}
           {% if row.owners %}<p class="hint">{{ row.owners|join:" | " }}</p>{% endif %}
+          {% comment %}
+          The stories themselves, a couple per host. A byline under unrelated
+          owners is legitimate for a stringer and a defect for a wire reporter
+          the parser credited as local, and nothing else on the row tells those
+          apart -- so the reviewer reads two of them. Every link opens in its own
+          window: reading one must not lose a queue page with decisions typed
+          into it.
+          {% endcomment %}
+          {% if row.samples %}
+          <details class="card-inset">
+            <summary>Read {{ row.samples|length }}</summary>
+            <ul class="plain">
+              {% for sample in row.samples %}
+              <li>
+                <a href="{{ sample.url }}" rel="noreferrer noopener" target="_blank">{{ sample.title|truncatechars:70 }}&nbsp;↗</a>
+                <span class="hint">{{ sample.host }}{% if sample.publish_date %} · {{ sample.publish_date|date:"M j, Y" }}{% endif %}
+                · <a href="{% url 'explorer:article_detail' sample.id %}" rel="noreferrer noopener" target="_blank">what we captured&nbsp;↗</a></span>
+              </li>
+              {% endfor %}
+            </ul>
+          </details>
+          {% endif %}
         </td>
         <td class="num">{{ row.articles }}</td>
         <td>
@@ -104,6 +126,23 @@
             stays on the article and stops counting as a reporter.
             {% endcomment %}
             <button type="submit" name="decision" value="drop" class="secondary">Names nobody</button>
+            {% comment %}
+            Excluding takes the byline out of local reporting AND re-disposes
+            its stories to what they actually are. The list is the extraction
+            queue's own: "these are wire stories" is the same answer that queue
+            takes, and a second list beside it would drift from it.
+
+            The dropdown carries the verb, so a disposition cannot be chosen
+            without being applied and the button cannot fire without one.
+            {% endcomment %}
+            <label class="sr-only" for="excl-{{ forloop.counter }}">Exclude as</label>
+            <select id="excl-{{ forloop.counter }}" name="content_type">
+              <option value="">exclude the reporter and their stories as…</option>
+              {% for type in exclusion_types %}
+              <option value="{{ type.value }}">{{ type.label }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" name="decision" value="exclude" class="secondary">Exclude</button>
           </form>
         </td>
       </tr>

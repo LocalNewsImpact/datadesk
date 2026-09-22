@@ -251,3 +251,148 @@ def hosts_with_bylines(dataset_id, statuses=LOCAL_STATUSES):
         rows.append(row)
     rows.sort(key=lambda r: (-r["bylines"], r["host"]))
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Reading the evidence, and excluding a byline that is not local reporting.
+#
+# `cross_owner` is 96 of Mizzou's 148 candidates and is the softest signal: a
+# byline appearing under unrelated owners is legitimate for a stringer and for
+# papers sharing copy, and a defect for a wire reporter the parser credited as
+# local. Nothing on the row distinguishes those, so the reviewer has to read a
+# couple of the stories -- which means the stories have to be on the page.
+# ---------------------------------------------------------------------------
+
+#: How many stories to offer per host. Two is enough to tell a stringer from a
+#: wire feed, and a row carrying forty links is a row nobody reads.
+PER_HOST = 2
+
+
+def sample_articles(dataset_id, raw_byline, per_host=PER_HOST, statuses=LOCAL_STATUSES):
+    """A few of this byline's stories, spread across the hosts it appears on.
+
+    Spread deliberately: the question a cross-owner row asks is whether the
+    same person really writes for both papers, and a sample that happens to
+    come from one of them cannot answer it.
+    """
+    from explorer.models import Article
+
+    rows = (
+        Article.objects.using("crawler")
+        .filter(dataset_id=dataset_id, author=raw_byline, status__in=statuses)
+        .order_by("-publish_date")
+        .values(
+            "id",
+            "url",
+            "title",
+            "publish_date",
+            "candidate_link__source__host",
+            "candidate_link__source__owner",
+        )[:200]
+    )
+    seen: dict[str, int] = {}
+    out = []
+    for row in rows:
+        host = row["candidate_link__source__host"] or ""
+        if seen.get(host, 0) >= per_host:
+            continue
+        seen[host] = seen.get(host, 0) + 1
+        out.append(
+            {
+                "id": row["id"],
+                "url": row["url"],
+                "title": row["title"] or row["url"],
+                "publish_date": row["publish_date"],
+                "host": host,
+                "owner": row["candidate_link__source__owner"] or "",
+            }
+        )
+    out.sort(key=lambda r: (r["host"], r["publish_date"] or ""))
+    return out
+
+
+#: The excluded byline's stories are RE-DISPOSED, not deleted, and with the
+#: extraction queue's own vocabulary rather than a second list beside it. Those
+#: two lists drifted once before -- extraction offered one word for seventeen
+#: things discovery could name -- and the reviewer's answer here ("these are
+#: wire stories") is the same answer the extraction queue already takes.
+#:
+#: What is left out: `news` and the bad-capture type. Both mean "this IS a story
+#: we keep", which is the opposite of excluding the byline, and offering them
+#: here would let one dropdown both exclude and restore.
+_NOT_EXCLUSIONS = {"news"}
+
+
+def exclusion_types():
+    """The dispositions a byline can be excluded as, in the queue's own words."""
+    from review.dispositions import BAD_CAPTURE, CONTENT_TYPES
+
+    return [
+        t
+        for t in CONTENT_TYPES
+        if t["value"] not in _NOT_EXCLUSIONS and t["value"] != BAD_CAPTURE
+    ]
+
+
+EXCLUDE = "exclude"
+DECISION_LABELS[EXCLUDE] = "excluded, with its stories re-disposed"
+
+
+@transaction.atomic(using="crawler")
+def exclude(dataset_id, raw_byline, content_type, user, reason=""):
+    """Take the byline out of local reporting, and its stories with it.
+
+    Two writes, because the byline and the stories are two different claims: the
+    articles are re-disposed to what the reviewer says they are (wire, an
+    obituary, a section front), and the byline is recorded as naming nobody so
+    neither report counts it.
+
+    The article write goes through `dispositions.record`, the same call the
+    extraction queue makes, so an article excluded here carries the same
+    decision note, the same status and the same `ReviewDecision` row as one
+    dispositioned one at a time. A second implementation would be a second set
+    of rules about the same column.
+
+    Returns how many articles it re-disposed.
+    """
+    from explorer.models import Article
+    from review.dispositions import REJECT, TYPE_BECOMES, record, stage_of
+
+    if content_type not in TYPE_BECOMES:
+        raise ValueError(f"not a disposition: {content_type!r}")
+
+    # Every article carrying the string, whatever its status: a byline being
+    # excluded is a statement about the byline, and stopping at the local
+    # statuses would leave the same wire stories at `labeled` to be enriched
+    # next week and come back.
+    articles = list(
+        Article.objects.using("crawler").filter(
+            dataset_id=dataset_id, author=raw_byline
+        )
+    )
+    for article in articles:
+        record(
+            article,
+            decision=REJECT,
+            stage=stage_of(article),
+            user=user,
+            content_type=content_type,
+            reason=reason or f"byline excluded: {raw_byline}",
+            label=(article.title or "")[:300],
+        )
+
+    row = decide(
+        dataset_id, raw_byline, EXCLUDE, [], user, reason=reason or content_type
+    )
+    # STAMPED APPLIED HERE, unlike every other decision.
+    #
+    # The crawler's nightly `apply-byline-decisions` writes a decision's names
+    # onto `articles.author`, and an exclusion names nobody -- so left unapplied
+    # it would blank the byline on every one of these stories. The byline is not
+    # wrong: a wire reporter really wrote the wire story, and the answer this
+    # decision records is about the STORIES, which the loop above already
+    # carried out.
+    row.applied_at = timezone.now()
+    row.articles_updated = len(articles)
+    row.save(using="crawler", update_fields=["applied_at", "articles_updated"])
+    return len(articles)
