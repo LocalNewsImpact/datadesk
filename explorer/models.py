@@ -180,6 +180,10 @@ class CandidateLink(CrawlerModel):
     discovered_at = models.DateTimeField(null=True)
     discovered_by = models.TextField(null=True)
     meta = DecodedJSONField(null=True)
+    #: A person supplied this URL as part of a chosen set (the WSU tracker, a
+    #: manual import) rather than the crawler finding it. Such a URL skips
+    #: URL verification and the external wire check by design.
+    is_curated = models.BooleanField(default=False)
 
     class Meta(CrawlerModel.Meta):
         db_table = "candidate_links"
