@@ -685,3 +685,40 @@ def test_a_replacement_cannot_reach_a_story_with_another_byline(page):
             "d-mo", "Christopher Replogle", ["a-other"], "Neal A. Johnson", None
         )
     assert Article.objects.get(id="a-other").author == "Jon Smith"
+
+
+# --- the write goes on the write connection ---------------------------------
+#
+# `crawler` is the READ-ONLY alias: it authenticates as `datadesk_ro`, which
+# Postgres refuses every write on. The suite pops `crawler_rw`, so both aliases
+# are one sqlite file here and `using("crawler")` on a write passes every test
+# and fails in production only, as "permission denied for table
+# byline_normalizations". That is exactly how the page shipped.
+
+
+def test_a_write_never_goes_through_the_read_only_alias(settings):
+    """With `crawler_rw` configured -- which is production -- the alias a byline
+    write uses must not be the read-only one."""
+    from review import bylines
+
+    settings.DATABASES["crawler_rw"] = dict(settings.DATABASES["crawler"])
+    try:
+        assert bylines.write_alias() == "crawler_rw"
+    finally:
+        del settings.DATABASES["crawler_rw"]
+
+
+def test_no_byline_write_names_the_read_only_alias():
+    """The source form of the same rule, because the aliases collapse to one
+    database in the suite and a hard-coded `using("crawler")` on a write is
+    invisible to every behavioural test."""
+    import inspect
+
+    from review import bylines
+
+    for name in ("decide", "_decide", "exclude", "replace_on"):
+        source = inspect.getsource(getattr(bylines, name))
+        assert 'using("crawler")' not in source, (
+            f"{name} writes through the read-only alias; it must use "
+            "write_alias() so production routes it to crawler_rw"
+        )

@@ -18,6 +18,8 @@ from explorer.models import (
     Article,
     ArticleEnrichment,
     ArticlePlaceManual,
+    BylineNormalization,
+    BylineReviewCandidate,
     CandidateLink,
     Dataset,
     DatasetSource,
@@ -98,6 +100,23 @@ WRITABLE = {
         "owner_name",
         "owner_email",
     ),
+    # THE ONE CREATABLE ROW THAT IS ALSO REVISABLE, and the reason is the
+    # unique constraint: there is one decision per (dataset, byline string),
+    # so re-deciding a string has to be the same row. Every other creatable
+    # table takes a second row instead and keeps the first as history.
+    #
+    # `applied_at` is in here because clearing it is how a re-decision asks
+    # the crawler to write the new names over the old ones; leaving it set
+    # would record a decision the corpus never received.
+    BylineNormalization: (
+        "canonical_names",
+        "decision",
+        "reason",
+        "decided_by",
+        "decided_at",
+        "applied_at",
+        "articles_updated",
+    ),
 }
 
 # Phase 4 (SCOPE.md §2.5): what may be created, and the one thing that
@@ -109,8 +128,20 @@ WRITABLE = {
 # and every row carries who added it and when. The crawler rebuilds the
 # geoid set from it rather than the console writing geoids directly --
 # datadesk never writes `article_geoids`, which stays the pipeline's.
-CREATABLE = (Source, Dataset, DatasetSource, ArticlePlaceManual, PipelineRework)
-DELETABLE = (DatasetSource,)
+# A byline decision is a record like a manual place: who said what a byline
+# string means, in a table the crawler reads and applies. The queue row beside
+# it is NOT a record -- the crawler recomputes `byline_review_candidates`
+# wholesale every night, so a worked row being removed is a cache being kept
+# current, which is why it is deletable and a decision is not.
+CREATABLE = (
+    Source,
+    Dataset,
+    DatasetSource,
+    ArticlePlaceManual,
+    PipelineRework,
+    BylineNormalization,
+)
+DELETABLE = (DatasetSource, BylineReviewCandidate)
 
 # Every model the audited path can touch, for resolving revert targets.
 _BY_TABLE = {
