@@ -431,6 +431,64 @@ class ContentTypeDetection(CrawlerModel):
         db_table = "content_type_detection_telemetry"
 
 
+class BylineReviewCandidate(CrawlerModel):
+    """A byline string waiting for a person, computed by the crawler.
+
+    The signals live in the crawler's `byline_review` and are written to this
+    table by housekeeping, wholesale per dataset. Rendering them here keeps one
+    copy of the rules and keeps thousands of strings from being scored inside a
+    web request.
+
+    See MizzouNewsCrawler `alembic/versions/9d3a7e2b1c48`.
+    """
+
+    id = models.TextField(primary_key=True)
+    dataset_id = models.TextField()
+    raw_byline = models.TextField()
+    #: The worst thing about this string: what orders the queue.
+    signal = models.TextField()
+    signal_label = models.TextField()
+    signals = DecodedJSONField(null=True)
+    #: The names the splitter reads, in order -- the proposal on the row.
+    proposed = DecodedJSONField(null=True)
+    #: Other spellings of the same name, and how each differs ("case only",
+    #: "spelling"), because two of them can look identical on the page.
+    variants = DecodedJSONField(null=True)
+    differs_by = DecodedJSONField(null=True)
+    articles = models.IntegerField(default=0)
+    hosts = DecodedJSONField(null=True)
+    owners = DecodedJSONField(null=True)
+    computed_at = models.DateTimeField(null=True)
+
+    class Meta(CrawlerModel.Meta):
+        db_table = "byline_review_candidates"
+
+
+class BylineNormalization(CrawlerModel):
+    """What a raw byline string is, for one dataset: the decision.
+
+    Per dataset, because the same string can be a person in one corpus and a
+    desk in another. Applying it writes `articles.author`, which the crawler
+    does; the row is the decision and the audit.
+    """
+
+    id = models.TextField(primary_key=True)
+    dataset_id = models.TextField()
+    raw_byline = models.TextField()
+    #: The people it names, in order. Empty means it names nobody.
+    canonical_names = DecodedJSONField(null=True)
+    #: `fix`, `accept` or `drop`.
+    decision = models.TextField()
+    reason = models.TextField(null=True)
+    decided_by = models.TextField(null=True)
+    decided_at = models.DateTimeField(null=True)
+    applied_at = models.DateTimeField(null=True)
+    articles_updated = models.IntegerField(null=True)
+
+    class Meta(CrawlerModel.Meta):
+        db_table = "byline_normalizations"
+
+
 class ArticlePlaceManual(CrawlerModel):
     """Geography a person put in, for a story the pipeline could not read.
 
