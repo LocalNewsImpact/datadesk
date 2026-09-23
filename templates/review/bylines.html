@@ -98,6 +98,76 @@
           window: reading one must not lose a queue page with decisions typed
           into it.
           {% endcomment %}
+          {% comment %}
+          THE OUTLYING NEWSROOMS, AND THEIR STORIES, ON THE ROW.
+
+          Not in a drawer: this is the question the row asks, and it was two
+          disclosures deep. A newsroom is outlying when the byline has fewer
+          stories there than on its main one; equal counts make neither an
+          outlier, because that is somebody filing to both papers.
+
+          Where the page prints a byline, it is quoted and offered as a one-click
+          correction. That is the only provable answer and it is rare -- one of
+          138 rows -- so it decorates a story rather than being the affordance.
+          Everywhere else the reviewer types the name, because the body does not
+          print one.
+          {% endcomment %}
+          {% comment %}
+          The provable corrections, one form each: the page names somebody else,
+          so the name is already known and the reviewer only confirms it. Each is
+          its own form because a form cannot nest inside another, and a button
+          that fills a field in a sibling form would need JavaScript.
+          {% endcomment %}
+          {% for story in row.outlying_stories %}
+          {% if story.printed %}
+          <form method="post" class="card-inset proven">
+            {% csrf_token %}
+            <input type="hidden" name="dataset" value="{{ dataset }}">
+            <input type="hidden" name="signal" value="{{ signal }}">
+            <input type="hidden" name="raw_byline" value="{{ row.raw_byline }}">
+            <input type="hidden" name="article" value="{{ story.id }}">
+            <input type="hidden" name="new_byline" value="{{ story.printed }}">
+            <input type="hidden" name="reason" value="the page reads {{ story.printed }}">
+            <p>{{ story.host }} &mdash; the page reads <strong>{{ story.printed }}</strong>, the record says {{ row.raw_byline }}.</p>
+            <button type="submit" name="decision" value="replace">Set that story to {{ story.printed }}</button>
+          </form>
+          {% endif %}
+          {% endfor %}
+
+          {% if row.outlying_stories %}
+          <form method="post" class="card-inset outliers">
+            {% csrf_token %}
+            <input type="hidden" name="dataset" value="{{ dataset }}">
+            <input type="hidden" name="signal" value="{{ signal }}">
+            <input type="hidden" name="raw_byline" value="{{ row.raw_byline }}">
+            <p class="hint">Outlying:
+              {% for outlier in row.outliers %}<strong>{{ outlier.host }}</strong> ({{ outlier.articles }}){% if not forloop.last %}, {% endif %}{% endfor %}
+            </p>
+            <ul class="plain">
+              {% for story in row.outlying_stories %}
+              <li>
+                <label>
+                  <input type="checkbox" name="article" value="{{ story.id }}" checked>
+                  <a href="{{ story.url }}" rel="noreferrer noopener" target="_blank">{{ story.title|truncatechars:70 }}&nbsp;↗</a>
+                </label>
+                <span class="hint">{{ story.host }} · {{ story.status }}{% if story.publish_date %} · {{ story.publish_date|date:"M j, Y" }}{% endif %}
+                · <a href="{% url 'review:edit_field' story.id 'author' %}" rel="noreferrer noopener" target="_blank">edit this one&nbsp;↗</a></span>
+                {% if story.printed %}
+                <p class="receipt-line">The page reads <strong>{{ story.printed }}</strong> &mdash; see below.</p>
+                {% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+            <label>Set the byline on the ticked stories to
+              <input type="text" name="new_byline" placeholder="the name the page carries">
+            </label>
+            <label>Why
+              <input type="text" name="reason" placeholder="optional">
+            </label>
+            <button type="submit" name="decision" value="replace">Set on the ticked stories</button>
+          </form>
+          {% endif %}
+
           {% if row.samples %}
           <details class="card-inset" {% if row.expanded %}open{% endif %}>
             <summary>Read {{ row.samples|length }}</summary>

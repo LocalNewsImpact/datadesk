@@ -619,3 +619,115 @@ def _decide_cluster(dataset_id, spellings, canonical, user, reason):
         else:
             decide(dataset_id, name, FIX, [canonical], user, reason=reason)
     return len(spellings)
+
+
+# ---------------------------------------------------------------------------
+# Which newsroom is wrong.
+#
+# `cross_owner` is 119 of Mizzou's 138 rows and is the softest signal the queue
+# has: a byline under unrelated owners is legitimate for a stringer and for
+# papers sharing copy. The row used to say only that the condition held, and the
+# stories that could settle it were two disclosures deep -- "Show every story"
+# sat inside a collapsed "Read 8", and the one outlying story was one unlabelled
+# row among eight spread two-per-host.
+# ---------------------------------------------------------------------------
+
+
+def outlying_hosts(candidate):
+    """The newsrooms that are not where this byline's work is, biggest first.
+
+    A host is outlying when the byline has fewer stories there than on its main
+    one. Equal counts make neither an outlier: that is somebody filing to both
+    papers, which is the legitimate case this signal cannot tell apart on its
+    own.
+    """
+    counts = _host_counts(candidate)
+    if len(counts) < 2:
+        return []
+    biggest = max(counts.values())
+    return sorted(
+        ({"host": host, "articles": n} for host, n in counts.items() if n < biggest),
+        key=lambda row: (-row["articles"], row["host"]),
+    )
+
+
+def _host_counts(candidate):
+    """`{host: stories}` for one candidate, from the corpus.
+
+    Counted here rather than carried on the candidate because the row's `hosts`
+    is a list of names with no counts, and which host is the outlier is exactly
+    a question about counts.
+    """
+    from django.db.models import Count
+
+    from explorer.models import Article
+
+    rows = (
+        Article.objects.using("crawler")
+        .filter(dataset_id=candidate.dataset_id, author=candidate.raw_byline)
+        .values("candidate_link__source__host")
+        .annotate(n=Count("id"))
+    )
+    return {
+        row["candidate_link__source__host"]: row["n"]
+        for row in rows
+        if row["candidate_link__source__host"]
+    }
+
+
+def outlying_stories(candidate, hosts, per_host=6):
+    """The stories on those newsrooms, which are the ones a reviewer acts on.
+
+    Capped per host: a byline wrongly attributed on one story is the common case,
+    and a row rendering hundreds of checkboxes is a row nobody reads. The full
+    list stays behind "Show every story".
+    """
+    from explorer.models import Article
+
+    if not hosts:
+        return []
+    names = [row["host"] for row in hosts]
+    printed = {
+        story.get("article_id"): story.get("printed")
+        for story in (candidate.mismatches or [])
+        if story.get("article_id")
+    }
+    rows = (
+        Article.objects.using("crawler")
+        .filter(
+            dataset_id=candidate.dataset_id,
+            author=candidate.raw_byline,
+            candidate_link__source__host__in=names,
+        )
+        .order_by("candidate_link__source__host", "-publish_date")
+        .values(
+            "id",
+            "url",
+            "title",
+            "status",
+            "publish_date",
+            "candidate_link__source__host",
+        )
+    )
+    seen: dict[str, int] = {}
+    out = []
+    for row in rows:
+        host = row["candidate_link__source__host"]
+        if seen.get(host, 0) >= per_host:
+            continue
+        seen[host] = seen.get(host, 0) + 1
+        out.append(
+            {
+                "id": row["id"],
+                "url": row["url"],
+                "title": row["title"] or row["url"],
+                "status": row["status"],
+                "publish_date": row["publish_date"],
+                "host": host,
+                # The name the page prints, where it prints one. This is the
+                # only provable answer, and it is rare -- one of 138 rows -- so
+                # it decorates a story rather than being the affordance.
+                "printed": printed.get(str(row["id"]), ""),
+            }
+        )
+    return out

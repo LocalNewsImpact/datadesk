@@ -1655,6 +1655,13 @@ def byline_queue(request):
         try:
             for row in page.object_list:
                 row.samples = bylines.sample_articles(dataset.id, row.raw_byline)
+                # WHICH NEWSROOM IS WRONG, on the row itself. `cross_owner` is
+                # 119 of Mizzou's 138 rows, and the row used to say only that
+                # the condition held: the stories that settle it were two
+                # disclosures deep, and the one outlying story was one
+                # unlabelled row among eight.
+                row.outliers = bylines.outlying_hosts(row)
+                row.outlying_stories = bylines.outlying_stories(row, row.outliers)
                 row.expanded = row.raw_byline == expanded
                 row.groups = (
                     bylines.every_article(dataset.id, row.raw_byline)

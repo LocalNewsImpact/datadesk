@@ -907,3 +907,129 @@ def test_a_shared_byline_is_named_on_the_row(page):
     body = _queue(page).content.decode()
     assert "shares a byline" in body
     assert "Alyssa Mueller, Marcus Officer" in body
+
+
+# --- which newsroom is wrong, on the row ------------------------------------
+#
+# `cross_owner` is 119 of Mizzou's 138 rows and is the softest signal the queue
+# has. The row said only that the condition held: "Show every story" sat inside a
+# collapsed "Read 8", and the one outlying story was one unlabelled row among
+# eight spread two-per-host. No request in production ever carried `expand=`.
+
+
+def _replogle(**kwargs):
+    """The real shape: 896 stories on one host, one on an unrelated one."""
+    for n in range(4):
+        _article(f"a-main-{n}", "Christopher Replogle")
+    _article("a-out", "Christopher Replogle", host_id="s-2")
+    return _candidate(
+        "Christopher Replogle",
+        signal="CROSS_OWNER",
+        signal_label="Same name, unrelated owners",
+        articles=5,
+        hosts=["one.example", "two.example"],
+        **kwargs,
+    )
+
+
+def test_the_outlying_newsroom_is_named_on_the_row(page):
+    _replogle()
+    body = _queue(page).content.decode()
+    assert "Outlying:" in body
+    assert "two.example" in body
+
+
+def test_the_main_newsroom_is_not_called_an_outlier(page):
+    _replogle()
+    from review import bylines
+
+    row = BylineReviewCandidate.objects.get(raw_byline="Christopher Replogle")
+    assert [o["host"] for o in bylines.outlying_hosts(row)] == ["two.example"]
+
+
+def test_equal_counts_make_neither_an_outlier(page):
+    """Somebody filing to both papers, which is the legitimate case this signal
+    cannot tell apart on its own."""
+    _article("a-1", "Jon Smith")
+    _article("a-2", "Jon Smith", host_id="s-2")
+    row = _candidate("Jon Smith", signal="CROSS_OWNER", signal_label="x")
+    from review import bylines
+
+    assert bylines.outlying_hosts(row) == []
+
+
+def test_the_outlying_stories_are_on_the_row_and_ticked(page):
+    """Not in a drawer. This is the question the row asks."""
+    _replogle()
+    body = _queue(page).content.decode()
+    assert 'name="article" value="a-out"' in body
+    assert "Set on the ticked stories" in body
+
+
+def test_the_main_newsrooms_stories_are_not_ticked_on_the_row(page):
+    """Ticking 896 genuine stories by default would be the opposite of the fix."""
+    _replogle()
+    body = _queue(page).content.decode()
+    assert 'value="a-main-0"' not in body.split("Show every story")[0]
+
+
+def test_a_proven_mismatch_is_offered_as_one_click(page):
+    """The page names somebody else, so the name is already known and the
+    reviewer only confirms it."""
+    _replogle(
+        mismatches=[
+            {
+                "article_id": "a-out",
+                "url": "https://two.example/a-out",
+                "title": "Linn R-2 hires Haslag",
+                "host": "two.example",
+                "printed": "Neal A. Johnson",
+            }
+        ]
+    )
+    body = _queue(page).content.decode()
+    assert "Set that story to Neal A. Johnson" in body
+    assert 'name="new_byline" value="Neal A. Johnson"' in body
+
+
+def test_the_one_click_correction_writes_only_that_story(page):
+    _replogle(
+        mismatches=[
+            {
+                "article_id": "a-out",
+                "url": "https://two.example/a-out",
+                "title": "T",
+                "host": "two.example",
+                "printed": "Neal A. Johnson",
+            }
+        ]
+    )
+    page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Christopher Replogle",
+            "decision": "replace",
+            "article": ["a-out"],
+            "new_byline": "Neal A. Johnson",
+        },
+    )
+    assert Article.objects.get(id="a-out").author == "Neal A. Johnson"
+    assert Article.objects.get(id="a-main-0").author == "Christopher Replogle"
+
+
+def test_a_row_with_no_outlier_shows_no_outlier_form(page):
+    """The 19 rows that are not cross-owner, and the cross-owner rows whose
+    counts are even."""
+    _candidate("Jon Smtih")
+    _article("a-1", "Jon Smtih")
+    body = _queue(page).content.decode()
+    assert "Outlying:" not in body
+
+
+def test_a_byline_with_one_newsroom_has_no_outlier(page):
+    _article("a-1", "Jon Smith")
+    row = _candidate("Jon Smith", signal="CROSS_OWNER", signal_label="x")
+    from review import bylines
+
+    assert bylines.outlying_hosts(row) == []
