@@ -99,6 +99,71 @@
           into it.
           {% endcomment %}
           {% comment %}
+          EACH NEWSROOM DECIDED ON ITS OWN.
+
+          Steph Quinn has 112 stories on missouriindependent.com, where she
+          works, and 288 across 41 other domains, because States Newsroom copy is
+          syndicated across Missouri. Her byline is not wrong on any of them --
+          what is wrong is counting the republished ones as that paper's local
+          reporting.
+
+          But those 41 are not 41 instances of one fact: a paper may republish
+          her, and another may have her filing directly. So every newsroom gets
+          its own ruling, and "keep" is the default everywhere -- a form that
+          excluded by default would be a blanket ruling with extra steps, and one
+          careless submit would re-dispose all 42.
+
+          Biggest first, which is usually the reporter's own. That is a reading
+          aid, not an answer.
+          {% endcomment %}
+          {% if row.host_choices|length > 1 %}
+          <details class="card-inset">
+            <summary>{{ row.host_choices|length }} newsrooms carry this byline</summary>
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="dataset" value="{{ dataset }}">
+              <input type="hidden" name="signal" value="{{ signal }}">
+              <input type="hidden" name="raw_byline" value="{{ row.raw_byline }}">
+              <table class="grid grid-inset">
+                <thead><tr><th>Newsroom</th><th class="num">Stories</th><th>Owner</th><th>These stories are</th></tr></thead>
+                <tbody>
+                  {% for choice in row.host_choices %}
+                  <tr>
+                    <td>{{ choice.host }}</td>
+                    <td class="num">{{ choice.articles }}</td>
+                    <td class="hint">{{ choice.owner|default:"—" }}</td>
+                    <td>
+                      {% comment %}
+                      The hidden host sits beside its select so the two lists
+                      arrive in the same order and can be paired by position.
+                      {% endcomment %}
+                      <input type="hidden" name="host" value="{{ choice.host }}">
+                      <label class="sr-only" for="h{{ forloop.parentloop.counter }}-{{ forloop.counter }}">{{ choice.host }}</label>
+                      <select id="h{{ forloop.parentloop.counter }}-{{ forloop.counter }}" name="disposition">
+                        <option value="">their own reporting — keep</option>
+                        {% for type in exclusion_types %}
+                        <option value="{{ type.value }}">{{ type.label }}</option>
+                        {% endfor %}
+                      </select>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              <label>Why
+                <input type="text" name="reason" placeholder="optional">
+              </label>
+              {% comment %}
+              The byline itself is accepted: the name is right, and the ruling is
+              about which stories are local reporting. Stories already carrying
+              the disposition are skipped, so a second pass costs nothing.
+              {% endcomment %}
+              <button type="submit" name="decision" value="primary">Record these rulings</button>
+            </form>
+          </details>
+          {% endif %}
+
+          {% comment %}
           THE OUTLYING NEWSROOMS, AND THEIR STORIES, ON THE ROW.
 
           Not in a drawer: this is the question the row asks, and it was two
