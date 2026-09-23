@@ -471,6 +471,12 @@ class BylineReviewCandidate(CrawlerModel):
     # `group` is the column name and a reserved word in SQL, which is why it is
     # given explicitly rather than derived from the attribute.
     group = DecodedJSONField(db_column="group", null=True)
+    # The stories whose page names somebody else (crawler 4b7d8f2a6c53):
+    # `[{article_id, url, title, host, printed}]`. The only provable answer to
+    # "which of these newsrooms is wrong about this byline", and rare -- one of
+    # Mizzou's 138 rows, because only 6.8% of bodies print a byline at all. So
+    # the page shows it when it exists and never leads with it.
+    mismatches = DecodedJSONField(null=True)
     computed_at = models.DateTimeField(null=True)
 
     class Meta(CrawlerModel.Meta):

@@ -200,7 +200,8 @@ _CRAWLER_TABLES = {
         # `sources`: the byline strings a name was read out of. `group`: every
         # spelling of it, when there is more than one -- quoted, because GROUP
         # is a reserved word.
-        'owners JSON, sources JSON, "group" JSON, computed_at TIMESTAMP)'
+        'owners JSON, sources JSON, "group" JSON, mismatches JSON, '
+        "computed_at TIMESTAMP)"
     ),
     "byline_normalizations": (
         "(id VARCHAR PRIMARY KEY, dataset_id VARCHAR, raw_byline TEXT, "
