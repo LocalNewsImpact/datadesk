@@ -1605,7 +1605,7 @@ def paywall_corpus_counts():
 
 @requires(WRITE)
 def byline_queue(request):
-    """The byline strings one dataset shows a defect in, one decision each.
+    """The byline strings one dataset shows a defect in, 25 to a page.
 
     NOT every byline: `byline_review_candidates` is computed by the crawler --
     near-duplicate spellings, a job title riding along after a name, a
@@ -1613,10 +1613,11 @@ def byline_queue(request):
     On Mizzou that is about 150 strings against 1,824 people, which is a
     session's work rather than a project.
 
-    Deciding a string writes `byline_normalizations` and drops the candidate.
-    The crawler applies the decision to `articles.author`, so the permanent
-    record carries the corrected name and a re-extraction that writes the raw
-    form again is corrected the same way, without anybody reviewing it twice.
+    Everything on a page is answered in ONE submit at the bottom. A decision
+    writes `byline_normalizations` and drops the candidate; the crawler applies
+    it to `articles.author`, so the permanent record carries the corrected name
+    and a re-extraction that writes the raw form again is corrected the same
+    way, without anybody reviewing it twice.
     """
     from explorer.scoping import datasets_for
     from review import bylines
@@ -1628,7 +1629,7 @@ def byline_queue(request):
     dataset = next((d for d in choices if d.slug == chosen), None)
 
     if request.method == "POST":
-        return _decide_byline(request)
+        return _submit_bylines(request)
 
     signal = request.GET.get("signal", "")
     rows, signals, decided = [], [], []
@@ -1643,49 +1644,28 @@ def byline_queue(request):
     except DatabaseError:
         connected = False
 
-    page = Paginator(rows, 25).get_page(request.GET.get("page"))
-    # A few of each byline's stories, so a cross-owner row can be judged by
-    # reading two of them rather than by guessing. After pagination: one query
-    # per row the reviewer can actually see, not per row in the queue.
-    # One row at a time may be opened in full. Per row rather than per page: the
-    # spread of a byline with 900 stories is a page of its own, and rendering it
-    # for all 25 rows would be 25 of those.
-    expanded = request.GET.get("expand", "")
-    if connected:
+    page = Paginator(rows, PAGE_OF_BYLINES).get_page(request.GET.get("page"))
+    shown = list(page.object_list)
+    if connected and shown:
         try:
-            for row in page.object_list:
-                row.samples = bylines.sample_articles(dataset.id, row.raw_byline)
-                # WHICH NEWSROOM IS WRONG, on the row itself. `cross_owner` is
-                # 119 of Mizzou's 138 rows, and the row used to say only that
-                # the condition held: the stories that settle it were two
-                # disclosures deep, and the one outlying story was one
-                # unlabelled row among eight.
-                row.outliers = bylines.outlying_hosts(row)
-                # The newsrooms this byline appears on, with counts, for the
-                # ruling that one of them is the reporter's own.
-                row.host_choices = bylines.host_choices(row)
-                row.outlying_stories = bylines.outlying_stories(row, row.outliers)
-                row.expanded = row.raw_byline == expanded
-                row.groups = (
-                    bylines.every_article(dataset.id, row.raw_byline)
-                    if row.expanded
-                    else []
-                )
+            # The stories of every row on the page in ONE query. Reading them per
+            # row was two unindexed `author LIKE '%name%'` scans a row -- 50 a
+            # page, and a page is re-read after every submit.
+            stories = bylines.articles_naming_any(
+                dataset.id, [row.raw_byline for row in shown]
+            )
+            for row in shown:
+                row.newsrooms = bylines.host_choices(row, stories[row.raw_byline])
         except DatabaseError:
             connected = False
     params = request.GET.copy()
     params.pop("page", None)
-    # The same filters WITHOUT `expand`, for the link that opens a row and the
-    # one that closes it. Built from the live params and both would carry the
-    # row already open, so "Close" would reopen it.
-    base_params = params.copy()
-    base_params.pop("expand", None)
     return render(
         request,
         "review/bylines.html",
         {
             "crawler_connected": connected,
-            "rows": page.object_list,
+            "rows": shown,
             "page": page,
             "params": params,
             "remaining": sum(count for _, _, count in signals),
@@ -1698,19 +1678,24 @@ def byline_queue(request):
             # The extraction queue's own dispositions, not a second list beside
             # it: "these are wire stories" is the same answer that queue takes.
             "exclusion_types": bylines.exclusion_types(),
-            "expanded": expanded,
-            "base_params": base_params,
         },
     )
 
 
+#: How many bylines make a page, and so how many one submit disposes of.
+PAGE_OF_BYLINES = 25
+
+
 @require_POST
 @requires(WRITE)
-def _decide_byline(request):
-    """Record one decision and come back to the same filtered page.
+def _submit_bylines(request):
+    """Dispose of everything on the page at once, and come back to the queue.
 
-    Redirect rather than render: the decided string is gone from the queue, and
-    a re-POST on refresh would decide it again with whatever was in the form.
+    Redirect rather than render: the decided strings are gone from the queue, and
+    a re-POST on refresh would decide them again with whatever was in the form.
+    Back to the first page, because what was decided has left it.
+
+    A page with anything wrong in it is refused whole and writes nothing.
     """
     from explorer.scoping import datasets_for
     from review import bylines
@@ -1722,188 +1707,6 @@ def _decide_byline(request):
     if dataset is None:
         return HttpResponseBadRequest("Not a dataset you can review")
 
-    raw = request.POST.get("raw_byline", "")
-    decision = request.POST.get("decision", "")
-    if not raw or decision not in bylines.DECISION_LABELS:
-        return HttpResponseBadRequest("Pick a decision")
-
-    if decision == bylines.PRIMARY:
-        # The newsrooms TICKED as not their own reporting, and the one thing
-        # they are. Unticked newsrooms are absent and keep their stories, so a
-        # submit with nothing ticked changes nothing and is refused as an
-        # accident rather than recorded as a ruling.
-        chosen = request.POST.getlist("exclude_host")
-        content_type = request.POST.get("content_type", "")
-        try:
-            result = bylines.rule_newsrooms(
-                dataset.id,
-                raw,
-                dict.fromkeys(chosen, content_type),
-                request.user,
-                reason=request.POST.get("reason", ""),
-            )
-        except ValueError as problem:
-            return HttpResponseBadRequest(str(problem))
-        AuditLogEntry.objects.create(
-            actor=request.user,
-            action="byline:newsrooms",
-            target_table="articles",
-            target_ids=[f"{dataset.slug}:{raw}"],
-            after={
-                "excluded": chosen,
-                "content_type": content_type,
-                "stories": result["stories"],
-            },
-            reason=request.POST.get("reason", "") or f"newsrooms ruled for {raw}",
-        )
-        messages.success(
-            request,
-            f"{result['stories']} stories on {result['hosts']} newsrooms "
-            f"re-disposed as {content_type}.",
-        )
-        query = urlencode(
-            {
-                k: v
-                for k, v in (
-                    ("dataset", slug),
-                    ("signal", request.POST.get("signal", "")),
-                )
-                if v
-            }
-        )
-        return redirect(f"{reverse('review:bylines')}?{query}")
-
-    if decision == bylines.CLUSTER:
-        # Every spelling of one name, in one answer. The spellings come from the
-        # form rather than being re-read: the reviewer answered the cluster they
-        # were shown, and a refresh between the page and the submit must not
-        # silently widen what they agreed to.
-        try:
-            settled = bylines.decide_cluster(
-                dataset.id,
-                request.POST.getlist("spelling"),
-                request.POST.get("canonical", ""),
-                request.user,
-                reason=request.POST.get("reason", ""),
-            )
-        except ValueError as problem:
-            return HttpResponseBadRequest(str(problem))
-        chosen = request.POST.get("canonical", "")
-        messages.success(
-            request,
-            (
-                f"{settled} spellings kept apart."
-                if chosen == bylines.DIFFERENT
-                else f"{settled} spellings now read {chosen}."
-            ),
-        )
-        query = urlencode(
-            {
-                k: v
-                for k, v in (
-                    ("dataset", slug),
-                    ("signal", request.POST.get("signal", "")),
-                )
-                if v
-            }
-        )
-        return redirect(f"{reverse('review:bylines')}?{query}")
-
-    if decision == bylines.REPLACE:
-        # A different byline on the stories the reviewer picked, and nothing
-        # recorded against the string: it is right on the rest of them.
-        try:
-            written = bylines.replace_on(
-                dataset.id,
-                raw,
-                request.POST.getlist("article"),
-                request.POST.get("new_byline", ""),
-                request.user,
-                reason=request.POST.get("reason", ""),
-            )
-        except ValueError as problem:
-            return HttpResponseBadRequest(str(problem))
-        messages.success(
-            request,
-            f"{written} stories now read "
-            f"{' '.join(request.POST.get('new_byline', '').split())}.",
-        )
-        query = urlencode(
-            {
-                k: v
-                for k, v in (
-                    ("dataset", slug),
-                    ("signal", request.POST.get("signal", "")),
-                    ("expand", raw),
-                )
-                if v
-            }
-        )
-        return redirect(f"{reverse('review:bylines')}?{query}")
-
-    if decision == bylines.EXCLUDE:
-        # The byline AND its stories. The articles are re-disposed to what the
-        # reviewer says they are, through the same call the extraction queue
-        # makes, and the byline is recorded as naming nobody.
-        content_type = request.POST.get("content_type", "")
-        try:
-            written = bylines.exclude(
-                dataset.id,
-                raw,
-                content_type,
-                request.user,
-                reason=request.POST.get("reason", ""),
-            )
-        except ValueError:
-            return HttpResponseBadRequest("Say what the stories are")
-        AuditLogEntry.objects.create(
-            actor=request.user,
-            action="byline:exclude",
-            target_table="articles",
-            target_ids=[f"{dataset.slug}:{raw}"],
-            after={"content_type": content_type, "articles": written},
-            reason=request.POST.get("reason", "") or f"{raw} is not local reporting",
-        )
-        messages.success(
-            request,
-            f"{raw} excluded; {written} articles re-disposed as {content_type}.",
-        )
-        query = urlencode(
-            {
-                k: v
-                for k, v in (
-                    ("dataset", slug),
-                    ("signal", request.POST.get("signal", "")),
-                )
-                if v
-            }
-        )
-        return redirect(f"{reverse('review:bylines')}?{query}")
-
-    names = bylines.parse_names(request.POST.get("names", ""))
-    if decision == bylines.FIX and not names:
-        # A fix with nothing typed would store an empty name list, which is
-        # what DROP means -- silently dropping a real reporter.
-        messages.error(request, "Type the name or names the byline should be.")
-    else:
-        row = bylines.decide(
-            dataset.id,
-            raw,
-            decision,
-            names,
-            request.user,
-            reason=request.POST.get("reason", ""),
-        )
-        AuditLogEntry.objects.create(
-            actor=request.user,
-            action="byline:decide",
-            target_table="byline_normalizations",
-            target_ids=[f"{dataset.slug}:{raw}"],
-            after={"decision": decision, "names": row.canonical_names},
-            reason=request.POST.get("reason", "") or f"{raw} — {decision}",
-        )
-        messages.success(request, f"{raw} — {bylines.DECISION_LABELS[decision]}.")
-
     query = urlencode(
         {
             k: v
@@ -1911,7 +1714,29 @@ def _decide_byline(request):
             if v
         }
     )
-    return redirect(f"{reverse('review:bylines')}?{query}")
+    back = f"{reverse('review:bylines')}?{query}"
+
+    try:
+        instructions = bylines.read_page(request.POST)
+        if not instructions:
+            messages.info(request, "Nothing on the page was changed.")
+            return redirect(back)
+        done = bylines.apply_page(dataset, instructions, request.user)
+    except bylines.PageError as error:
+        for problem in error.problems:
+            messages.error(request, problem)
+        messages.error(request, "Nothing was saved. Fix those and submit again.")
+        return redirect(back)
+    except ValueError as problem:
+        return HttpResponseBadRequest(str(problem))
+
+    messages.success(
+        request,
+        f"{done['rows']} bylines dealt with: {done['decisions']} decided, "
+        f"{done['stories']} stories re-disposed, {done['edited']} bylines "
+        f"changed on single stories.",
+    )
+    return redirect(back)
 
 
 @requires(WRITE)

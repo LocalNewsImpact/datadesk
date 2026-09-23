@@ -113,6 +113,29 @@ def _queue(client, **params):
     return client.get(reverse("review:bylines"), params)
 
 
+def _submit(client, *rows, **extra):
+    """The page's ONE submit, built the way the form builds it.
+
+    Each row is a dict with `raw` and whatever the reviewer answered on it. Keys
+    that name a newsroom or a story use a colon -- `"ruling:two.example"`,
+    `"edit:a-1"` -- and land as `ruling-<row>-two.example`, `edit-<row>-a-1`.
+    """
+    data = {"dataset": "Mizzou-Missouri-State", "signal": ""}
+    data.update(extra)
+    data["row"] = [str(i) for i in range(len(rows))]
+    for i, row in enumerate(rows):
+        data[f"raw-{i}"] = row["raw"]
+        for key, value in row.items():
+            if key == "raw":
+                continue
+            if ":" in key:
+                prefix, rest = key.split(":", 1)
+                data[f"{prefix}-{i}-{rest}"] = value
+            else:
+                data[f"{key}-{i}"] = value
+    return client.post(reverse("review:bylines"), data)
+
+
 # --- the queue is reachable, which is the thing that was missing ------------
 
 
@@ -158,15 +181,7 @@ def test_one_reason_at_a_time(page):
 
 def test_a_fix_records_the_names(page):
     _candidate("Jon Smtih")
-    page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Jon Smtih",
-            "decision": "fix",
-            "names": "Jon Smith",
-        },
-    )
+    _submit(page, {"raw": "Jon Smtih", "decision": "fix", "names": "Jon Smith"})
     row = BylineNormalization.objects.get(raw_byline="Jon Smtih")
     assert row.decision == "fix"
     assert row.canonical_names == ["Jon Smith"]
@@ -177,34 +192,18 @@ def test_a_decided_string_leaves_the_queue(page):
     """So a worked queue empties as it is worked. The crawler rewrites the row
     only if the string still shows a defect, and a decided one does not."""
     _candidate("Jon Smtih")
-    page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Jon Smtih",
-            "decision": "fix",
-            "names": "Jon Smith",
-        },
-    )
+    _submit(page, {"raw": "Jon Smtih", "decision": "fix", "names": "Jon Smith"})
     assert not BylineReviewCandidate.objects.filter(raw_byline="Jon Smtih").exists()
 
 
 def test_a_drop_names_nobody(page):
     _candidate("Sports Desk", signal="NOT_A_PERSON", signal_label="not a person")
-    page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Sports Desk",
-            "decision": "drop",
-            "names": "Sports Desk",
-        },
-    )
+    _submit(page, {"raw": "Sports Desk", "decision": "drop", "names": "Sports Desk"})
     row = BylineNormalization.objects.get(raw_byline="Sports Desk")
     assert row.decision == "drop"
     # Even though a name was in the box: "not a real name" means the string
-    # names no person, and
-    # keeping the text would put the desk back into both reports.
+    # names no person, and keeping the text would put the desk back into both
+    # reports.
     assert row.canonical_names == []
 
 
@@ -212,15 +211,7 @@ def test_a_fix_with_no_name_is_refused(page):
     """An empty fix stores an empty name list, which is what drop means -- so
     it would silently drop a real reporter."""
     _candidate("Jon Smtih")
-    page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Jon Smtih",
-            "decision": "fix",
-            "names": "   ",
-        },
-    )
+    _submit(page, {"raw": "Jon Smtih", "decision": "fix", "names": "   "})
     assert not BylineNormalization.objects.exists()
     assert BylineReviewCandidate.objects.filter(raw_byline="Jon Smtih").exists()
 
@@ -230,15 +221,7 @@ def test_the_article_author_column_is_not_written_here(page):
     request that updated thousands of rows would be a write nobody asked for."""
     _candidate("Jon Smtih")
     article = _article("a-1", "Jon Smtih")
-    page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Jon Smtih",
-            "decision": "fix",
-            "names": "Jon Smith",
-        },
-    )
+    _submit(page, {"raw": "Jon Smtih", "decision": "fix", "names": "Jon Smith"})
     article.refresh_from_db()
     assert article.author == "Jon Smtih"
 
@@ -366,31 +349,6 @@ def test_a_report_downloads_as_csv(page):
 # enriched again next week and the byline comes back.
 
 
-def test_the_row_offers_a_few_of_the_stories(page):
-    _candidate("Jon Smith")
-    _article("a-1", "Jon Smith")
-    _article("a-2", "Jon Smith", host_id="s-2")
-    from review import bylines
-
-    samples = bylines.sample_articles("d-mo", "Jon Smith")
-    assert {s["host"] for s in samples} == {"one.example", "two.example"}
-
-
-def test_the_sample_spreads_across_the_hosts(page):
-    """The question a cross-owner row asks is whether the same person really
-    writes for both papers; a sample from one of them cannot answer it."""
-    for n in range(6):
-        _article(f"a-one-{n}", "Jon Smith")
-    _article("a-two", "Jon Smith", host_id="s-2")
-    from review import bylines
-
-    samples = bylines.sample_articles("d-mo", "Jon Smith")
-    by_host = {}
-    for sample in samples:
-        by_host[sample["host"]] = by_host.get(sample["host"], 0) + 1
-    assert by_host == {"one.example": bylines.PER_HOST, "two.example": 1}
-
-
 def test_the_links_open_in_their_own_window(page):
     """Reading a story must not lose a queue page with decisions typed in."""
     _candidate("Jon Smith")
@@ -434,14 +392,8 @@ def test_excluding_re_disposes_every_story(page):
     _candidate("Wire Reporter", signal="CROSS_OWNER", signal_label="crosses owners")
     _article("a-1", "Wire Reporter")
     _article("a-2", "Wire Reporter", host_id="s-2")
-    page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Wire Reporter",
-            "decision": "exclude",
-            "content_type": "wire",
-        },
+    _submit(
+        page, {"raw": "Wire Reporter", "decision": "exclude", "content_type": "wire"}
     )
     assert [a.status for a in Article.objects.order_by("id")] == ["wire", "wire"]
 
@@ -451,14 +403,8 @@ def test_excluding_reaches_a_story_at_any_status(page):
     to be enriched next week, and the byline comes back."""
     _candidate("Wire Reporter", signal="CROSS_OWNER", signal_label="crosses owners")
     _article("a-1", "Wire Reporter", status="labeled")
-    page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Wire Reporter",
-            "decision": "exclude",
-            "content_type": "wire",
-        },
+    _submit(
+        page, {"raw": "Wire Reporter", "decision": "exclude", "content_type": "wire"}
     )
     assert Article.objects.get(id="a-1").status == "wire"
 
@@ -467,14 +413,8 @@ def test_excluding_takes_the_byline_out_of_the_reports(page):
     _candidate("Wire Reporter", signal="CROSS_OWNER", signal_label="crosses owners")
     _article("a-1", "Wire Reporter")
     _article("a-2", "Jon Smith")
-    page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Wire Reporter",
-            "decision": "exclude",
-            "content_type": "wire",
-        },
+    _submit(
+        page, {"raw": "Wire Reporter", "decision": "exclude", "content_type": "wire"}
     )
     from review import bylines
 
@@ -485,16 +425,7 @@ def test_excluding_takes_the_byline_out_of_the_reports(page):
 def test_excluding_without_saying_what_they_are_is_refused(page):
     _candidate("Wire Reporter", signal="CROSS_OWNER", signal_label="crosses owners")
     _article("a-1", "Wire Reporter")
-    response = page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Wire Reporter",
-            "decision": "exclude",
-            "content_type": "",
-        },
-    )
-    assert response.status_code == 400
+    _submit(page, {"raw": "Wire Reporter", "decision": "exclude", "content_type": ""})
     assert Article.objects.get(id="a-1").status == "enriched"
     assert not BylineNormalization.objects.exists()
 
@@ -504,14 +435,8 @@ def test_an_excluded_story_carries_the_same_decision_note_as_one_dispositioned(p
     is indistinguishable from one dispositioned a row at a time."""
     _candidate("Wire Reporter", signal="CROSS_OWNER", signal_label="crosses owners")
     _article("a-1", "Wire Reporter")
-    page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Wire Reporter",
-            "decision": "exclude",
-            "content_type": "wire",
-        },
+    _submit(
+        page, {"raw": "Wire Reporter", "decision": "exclude", "content_type": "wire"}
     )
     from review.models import ReviewDecision
 
@@ -527,14 +452,8 @@ def test_an_exclusion_is_born_applied(page):
     carried out."""
     _candidate("Wire Reporter", signal="CROSS_OWNER", signal_label="crosses owners")
     _article("a-1", "Wire Reporter")
-    page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Wire Reporter",
-            "decision": "exclude",
-            "content_type": "wire",
-        },
+    _submit(
+        page, {"raw": "Wire Reporter", "decision": "exclude", "content_type": "wire"}
     )
     row = BylineNormalization.objects.get(raw_byline="Wire Reporter")
     assert row.applied_at is not None
@@ -542,115 +461,19 @@ def test_an_exclusion_is_born_applied(page):
     assert Article.objects.get(id="a-1").author == "Wire Reporter"
 
 
-def test_a_sample_offers_to_fix_that_one_articles_byline(page):
-    """Christopher Replogle has 896 stories on ky3.com and one on
-    unterrifieddemocrat.com, whose page reads "By Neal A. Johnson, UD Editor" --
-    the JSON-LD it was parsed from carries neither name.
-
-    Neither decision on the row is right for that: excluding throws out 896
-    genuine stories and fixing the string renames them. The correction belongs
-    to the one article."""
-    _candidate(
-        "Christopher Replogle", signal="CROSS_OWNER", signal_label="crosses owners"
-    )
-    _article("a-1", "Christopher Replogle")
-    body = _queue(page).content.decode()
-    assert reverse("review:edit_field", args=["a-1", "author"]) in body
-
-
 # --- the whole spread, and a replacement across the part that is wrong ------
-
-
-def test_a_row_is_not_expanded_until_asked(page):
-    """The spread of a byline with 900 stories is a page of its own; rendering it
-    for all 25 rows would be 25 of those."""
-    _candidate("Christopher Replogle")
-    _article("a-1", "Christopher Replogle")
-    body = _queue(page).content.decode()
-    assert "Show every story" in body
-    assert 'name="new_byline"' not in body
-
-
-def test_expanding_shows_every_story_with_the_outliers_first(page):
-    _candidate("Christopher Replogle")
-    for n in range(3):
-        _article(f"a-main-{n}", "Christopher Replogle")
-    _article("a-out", "Christopher Replogle", host_id="s-2")
-    from review import bylines
-
-    groups = bylines.every_article("d-mo", "Christopher Replogle")
-    assert [(g["host"], g["outlier"]) for g in groups] == [
-        ("two.example", True),
-        ("one.example", False),
-    ]
-
-
-def test_equal_counts_are_a_stringer_not_an_outlier(page):
-    """Two hosts with the same number of stories is somebody filing to both."""
-    _article("a-1", "Jon Smith")
-    _article("a-2", "Jon Smith", host_id="s-2")
-    from review import bylines
-
-    assert not any(g["outlier"] for g in bylines.every_article("d-mo", "Jon Smith"))
-
-
-def test_the_spread_includes_a_story_at_any_status(page):
-    """A wrong byline is wrong on a story nobody has enriched yet too."""
-    _article("a-1", "Jon Smith", status="labeled")
-    from review import bylines
-
-    groups = bylines.every_article("d-mo", "Jon Smith")
-    assert [a["status"] for g in groups for a in g["articles"]] == ["labeled"]
-
-
-def test_the_expanded_form_offers_the_replacement(page):
-    _candidate("Christopher Replogle")
-    _article("a-1", "Christopher Replogle")
-    body = page.get(
-        reverse("review:bylines"),
-        {"dataset": "Mizzou-Missouri-State", "expand": "Christopher Replogle"},
-    ).content.decode()
-    assert 'name="new_byline"' in body
-    assert 'name="article" value="a-1"' in body
 
 
 def test_a_replacement_writes_only_the_picked_stories(page):
     _candidate("Christopher Replogle")
     _article("a-keep", "Christopher Replogle")
     _article("a-fix", "Christopher Replogle", host_id="s-2")
-    page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Christopher Replogle",
-            "decision": "replace",
-            "article": ["a-fix"],
-            "new_byline": "Neal A. Johnson",
-        },
+    _submit(
+        page,
+        {"raw": "Christopher Replogle", "edit:a-fix": "Neal A. Johnson"},
     )
     assert Article.objects.get(id="a-fix").author == "Neal A. Johnson"
     assert Article.objects.get(id="a-keep").author == "Christopher Replogle"
-
-
-def test_a_replacement_records_nothing_against_the_byline(page):
-    """The string is right on the stories left alone, so the candidate stays in
-    the queue until somebody decides the string itself."""
-    _candidate("Christopher Replogle")
-    _article("a-fix", "Christopher Replogle")
-    page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Christopher Replogle",
-            "decision": "replace",
-            "article": ["a-fix"],
-            "new_byline": "Neal A. Johnson",
-        },
-    )
-    assert not BylineNormalization.objects.exists()
-    assert BylineReviewCandidate.objects.filter(
-        raw_byline="Christopher Replogle"
-    ).exists()
 
 
 def test_a_replacement_is_audited_and_revertible(page):
@@ -667,23 +490,6 @@ def test_a_replacement_is_audited_and_revertible(page):
     entry = AuditLogEntry.objects.get(action="byline:replace")
     assert entry.before == {"a-fix": {"author": "Christopher Replogle"}}
     assert entry.after == {"author": "Neal A. Johnson"}
-
-
-def test_a_replacement_with_no_name_is_refused(page):
-    _candidate("Christopher Replogle")
-    _article("a-fix", "Christopher Replogle")
-    response = page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Christopher Replogle",
-            "decision": "replace",
-            "article": ["a-fix"],
-            "new_byline": "  ",
-        },
-    )
-    assert response.status_code == 400
-    assert Article.objects.get(id="a-fix").author == "Christopher Replogle"
 
 
 def test_a_replacement_cannot_reach_a_story_with_another_byline(page):
@@ -787,36 +593,17 @@ def test_the_cluster_shows_every_spelling_with_its_own_count(page):
     body = _queue(page).content.decode()
     assert "Angie Hutschreider" in body
     assert "chillicothenews.com" in body
-    assert 'value="cluster"' in body
-
-
-def test_the_leading_spelling_is_preselected(page):
-    """It carries the most stories, so it is the answer a reviewer would give if
-    they agreed — and agreeing should be one click."""
-    _cluster()
-    body = _queue(page).content.decode()
-    # The leading spelling's radio carries `checked`, the minority one does not.
-    # Compared on the rendered attributes rather than on exact whitespace, which
-    # the template is free to change.
-    radios = [
-        body[at : at + 160]
-        for at in range(len(body))
-        if body.startswith('name="canonical"', at)
-    ]
-    assert "Angela Hutschreider" in radios[0] and "checked" in radios[0]
-    assert "Angie Hutschreider" in radios[1] and "checked" not in radios[1]
+    assert 'name="canonical-0"' in body
 
 
 def test_keeping_one_spelling_records_every_spelling(page):
     """The corpus ends up with one name, and the decisions survive a
     re-extraction that writes an old spelling again."""
     _cluster()
-    page.post(
-        reverse("review:bylines"),
+    _submit(
+        page,
         {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Angela Hutschreider",
-            "decision": "cluster",
+            "raw": "Angela Hutschreider",
             "spelling": ["Angela Hutschreider", "Angie Hutschreider"],
             "canonical": "Angela Hutschreider",
         },
@@ -831,12 +618,10 @@ def test_the_minority_spelling_can_be_the_one_kept(page):
     """The count is evidence, not the answer. 12 against 3 needs a look, and the
     reviewer may know the smaller one is right."""
     _cluster()
-    page.post(
-        reverse("review:bylines"),
+    _submit(
+        page,
         {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Angela Hutschreider",
-            "decision": "cluster",
+            "raw": "Angela Hutschreider",
             "spelling": ["Angela Hutschreider", "Angie Hutschreider"],
             "canonical": "Angie Hutschreider",
         },
@@ -850,12 +635,10 @@ def test_different_people_is_a_real_answer(page):
     """A reviewer who can see two people but cannot say so gets the pair offered
     again every night."""
     _cluster()
-    page.post(
-        reverse("review:bylines"),
+    _submit(
+        page,
         {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Angela Hutschreider",
-            "decision": "cluster",
+            "raw": "Angela Hutschreider",
             "spelling": ["Angela Hutschreider", "Angie Hutschreider"],
             "canonical": "__different__",
         },
@@ -868,35 +651,15 @@ def test_different_people_is_a_real_answer(page):
 def test_the_whole_cluster_leaves_the_queue(page):
     _cluster()
     _candidate("Angie Hutschreider", signal="SPELLING_VARIANT", signal_label="x")
-    page.post(
-        reverse("review:bylines"),
+    _submit(
+        page,
         {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Angela Hutschreider",
-            "decision": "cluster",
+            "raw": "Angela Hutschreider",
             "spelling": ["Angela Hutschreider", "Angie Hutschreider"],
             "canonical": "Angela Hutschreider",
         },
     )
     assert not BylineReviewCandidate.objects.exists()
-
-
-def test_a_spelling_not_offered_is_refused(page):
-    """The names being merged are what the answer means, so a canonical that was
-    not one of the spellings shown is refused rather than written."""
-    _cluster()
-    response = page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Angela Hutschreider",
-            "decision": "cluster",
-            "spelling": ["Angela Hutschreider", "Angie Hutschreider"],
-            "canonical": "Someone Else Entirely",
-        },
-    )
-    assert response.status_code == 400
-    assert not BylineNormalization.objects.exists()
 
 
 def test_a_single_name_still_gets_the_ordinary_form(page):
@@ -914,7 +677,7 @@ def test_a_shared_byline_is_named_on_the_row(page):
         sources=["Alyssa Mueller, Marcus Officer", "Marcus Officer, Jonathan Ketz"],
     )
     body = _queue(page).content.decode()
-    assert "shares a byline" in body
+    assert "Shares a byline" in body
     assert "Alyssa Mueller, Marcus Officer" in body
 
 
@@ -939,109 +702,6 @@ def _replogle(**kwargs):
         hosts=["one.example", "two.example"],
         **kwargs,
     )
-
-
-def test_the_outlying_newsroom_is_named_on_the_row(page):
-    _replogle()
-    body = _queue(page).content.decode()
-    assert "Outlying:" in body
-    assert "two.example" in body
-
-
-def test_the_main_newsroom_is_not_called_an_outlier(page):
-    _replogle()
-    from review import bylines
-
-    row = BylineReviewCandidate.objects.get(raw_byline="Christopher Replogle")
-    assert [o["host"] for o in bylines.outlying_hosts(row)] == ["two.example"]
-
-
-def test_equal_counts_make_neither_an_outlier(page):
-    """Somebody filing to both papers, which is the legitimate case this signal
-    cannot tell apart on its own."""
-    _article("a-1", "Jon Smith")
-    _article("a-2", "Jon Smith", host_id="s-2")
-    row = _candidate("Jon Smith", signal="CROSS_OWNER", signal_label="x")
-    from review import bylines
-
-    assert bylines.outlying_hosts(row) == []
-
-
-def test_the_outlying_stories_are_on_the_row_and_ticked(page):
-    """Not in a drawer. This is the question the row asks."""
-    _replogle()
-    body = _queue(page).content.decode()
-    assert 'name="article" value="a-out"' in body
-    assert "Set on the ticked stories" in body
-
-
-def test_the_main_newsrooms_stories_are_not_ticked_on_the_row(page):
-    """Ticking 896 genuine stories by default would be the opposite of the fix."""
-    _replogle()
-    body = _queue(page).content.decode()
-    assert 'value="a-main-0"' not in body.split("Show every story")[0]
-
-
-def test_a_proven_mismatch_is_offered_as_one_click(page):
-    """The page names somebody else, so the name is already known and the
-    reviewer only confirms it."""
-    _replogle(
-        mismatches=[
-            {
-                "article_id": "a-out",
-                "url": "https://two.example/a-out",
-                "title": "Linn R-2 hires Haslag",
-                "host": "two.example",
-                "printed": "Neal A. Johnson",
-            }
-        ]
-    )
-    body = _queue(page).content.decode()
-    assert "Set that story to Neal A. Johnson" in body
-    assert 'name="new_byline" value="Neal A. Johnson"' in body
-
-
-def test_the_one_click_correction_writes_only_that_story(page):
-    _replogle(
-        mismatches=[
-            {
-                "article_id": "a-out",
-                "url": "https://two.example/a-out",
-                "title": "T",
-                "host": "two.example",
-                "printed": "Neal A. Johnson",
-            }
-        ]
-    )
-    page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Christopher Replogle",
-            "decision": "replace",
-            "article": ["a-out"],
-            "new_byline": "Neal A. Johnson",
-        },
-    )
-    assert Article.objects.get(id="a-out").author == "Neal A. Johnson"
-    assert Article.objects.get(id="a-main-0").author == "Christopher Replogle"
-
-
-def test_a_row_with_no_outlier_shows_no_outlier_form(page):
-    """The 19 rows that are not cross-owner, and the cross-owner rows whose
-    counts are even."""
-    _candidate("Jon Smtih")
-    _article("a-1", "Jon Smtih")
-    body = _queue(page).content.decode()
-    assert "Outlying:" not in body
-
-
-def test_a_byline_with_one_newsroom_has_no_outlier(page):
-    _article("a-1", "Jon Smith")
-    row = _candidate("Jon Smith", signal="CROSS_OWNER", signal_label="x")
-    from review import bylines
-
-    assert bylines.outlying_hosts(row) == []
 
 
 # --- one newsroom is the reporter's; the rest republish ----------------------
@@ -1101,39 +761,16 @@ def test_the_newsrooms_are_listed_biggest_first(page):
     ]
 
 
-def test_no_newsroom_is_ticked_to_start(page):
-    """Unticked writes nothing, so a careless submit changes nothing. A form that
-    excluded by default would be a blanket ruling with extra steps."""
-    _syndicated()
-    body = _queue(page).content.decode()
-    ticks = [
-        body[at : at + 140]
-        for at in range(len(body))
-        if body.startswith('name="exclude_host"', at)
-    ]
-    assert len(ticks) == 2, "a tick per newsroom carrying the byline"
-    assert not any("checked" in tick for tick in ticks)
-
-
-def test_wire_is_the_default_for_the_ticked_newsrooms(page):
-    """The case this was built for: syndicated copy republished elsewhere."""
-    _syndicated()
-    body = _queue(page).content.decode()
-    assert '<option value="wire" selected>' in body
-
-
 def test_each_newsroom_is_ruled_on_its_own(page):
     """One republishes, the other has her filing directly. The whole point."""
     _article("a-third", "Steph Quinn, Clara Bates", host_id="s-3")
     _syndicated()
-    page.post(
-        reverse("review:bylines"),
+    _submit(
+        page,
         {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Steph Quinn",
-            "decision": "primary",
-            "exclude_host": ["two.example"],
-            "content_type": "wire",
+            "raw": "Steph Quinn",
+            "host": ["one.example", "two.example", "three.example"],
+            "ruling:two.example": "wire",
         },
     )
     assert Article.objects.get(id="a-away-1").status == "wire"
@@ -1141,37 +778,13 @@ def test_each_newsroom_is_ruled_on_its_own(page):
     assert Article.objects.get(id="a-home-0").status == "enriched"
 
 
-def test_ticking_nothing_is_refused_rather_than_recorded(page):
-    """An empty submit is an accident, not a ruling that every newsroom is
-    theirs -- and recording it would take the row off the queue."""
-    _syndicated()
-    response = page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Steph Quinn",
-            "decision": "primary",
-            "content_type": "wire",
-        },
-    )
-    assert response.status_code == 400
-    assert {a.status for a in Article.objects.all()} == {"enriched"}
-    assert not BylineNormalization.objects.exists()
-
-
 def test_the_byline_is_accepted_not_dropped(page):
     """She is a real reporter with a real name. The ruling is about which stories
     are local reporting, and nothing about the name is wrong."""
     _syndicated()
-    page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Steph Quinn",
-            "decision": "primary",
-            "exclude_host": ["two.example"],
-            "content_type": "wire",
-        },
+    _submit(
+        page,
+        {"raw": "Steph Quinn", "host": ["two.example"], "ruling:two.example": "wire"},
     )
     row = BylineNormalization.objects.get(raw_byline="Steph Quinn")
     assert row.decision == "accept"
@@ -1213,14 +826,12 @@ def test_a_newsroom_that_does_not_carry_the_byline_is_ignored(page):
 
 def test_a_ruling_naming_no_real_newsroom_is_refused(page):
     _syndicated()
-    response = page.post(
-        reverse("review:bylines"),
+    response = _submit(
+        page,
         {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Steph Quinn",
-            "decision": "primary",
-            "exclude_host": ["nowhere.example"],
-            "content_type": "wire",
+            "raw": "Steph Quinn",
+            "host": ["nowhere.example"],
+            "ruling:nowhere.example": "wire",
         },
     )
     assert response.status_code == 400
@@ -1229,22 +840,450 @@ def test_a_ruling_naming_no_real_newsroom_is_refused(page):
 
 def test_a_disposition_that_is_not_one_is_refused(page):
     _syndicated()
-    response = page.post(
-        reverse("review:bylines"),
+    _submit(
+        page,
         {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Steph Quinn",
-            "decision": "primary",
-            "exclude_host": ["two.example"],
-            "content_type": "something-else",
+            "raw": "Steph Quinn",
+            "host": ["two.example"],
+            "ruling:two.example": "something-else",
         },
     )
-    assert response.status_code == 400
     assert Article.objects.get(id="a-away-1").status == "enriched"
+    assert not BylineNormalization.objects.exists()
 
 
-def test_a_byline_on_one_newsroom_is_not_offered_the_ruling(page):
+def test_a_replacement_alone_records_nothing_against_the_byline(page):
+    """`replace_on` is a statement about stories. It says nothing about what the
+    string means, which is the page's call when it settles the row (see
+    `test_a_row_changed_but_not_decided_is_kept_as_it_stands`)."""
+    _candidate("Christopher Replogle")
+    _article("a-fix", "Christopher Replogle")
+    from review import bylines
+
+    bylines.replace_on(
+        "d-mo",
+        "Christopher Replogle",
+        ["a-fix"],
+        "Neal A. Johnson",
+        User.objects.get(username="ed"),
+    )
+    assert not BylineNormalization.objects.exists()
+
+
+def test_nothing_on_a_cluster_is_preselected(page):
+    """The leading spelling used to be, so agreeing was one click. On a page
+    submitted whole that would settle every cluster on it, including the ones
+    nobody read: the only checked radio is "No decision"."""
+    _cluster()
+    body = _queue(page).content.decode()
+    radios = [
+        body[at : at + 200]
+        for at in range(len(body))
+        if body.startswith('name="canonical-0"', at)
+    ]
+    assert len(radios) == 4, "no decision, two spellings, different people"
+    assert [("checked" in radio.split(">")[0]) for radio in radios] == [
+        True,
+        False,
+        False,
+        False,
+    ]
+
+
+def test_a_cluster_left_at_no_decision_is_not_settled(page):
+    _cluster()
+    _submit(
+        page,
+        {
+            "raw": "Angela Hutschreider",
+            "spelling": ["Angela Hutschreider", "Angie Hutschreider"],
+            "canonical": "",
+        },
+    )
+    assert not BylineNormalization.objects.exists()
+    assert BylineReviewCandidate.objects.exists()
+
+
+def test_a_spelling_not_offered_is_refused(page):
+    """The names being merged are what the answer means, so a canonical that was
+    not one of the spellings shown is refused rather than written."""
+    _cluster()
+    _submit(
+        page,
+        {
+            "raw": "Angela Hutschreider",
+            "spelling": ["Angela Hutschreider", "Angie Hutschreider"],
+            "canonical": "Someone Else Entirely",
+        },
+    )
+    assert not BylineNormalization.objects.exists()
+
+
+def test_a_single_name_still_gets_the_ordinary_decision(page):
+    """Clustering changes rows that have several spellings and nothing else."""
+    _candidate("Jon Smtih")
+    body = _queue(page).content.decode()
+    assert 'name="canonical-0"' not in body
+    assert 'name="decision-0"' in body
+
+
+# --- ONE submit for the page --------------------------------------------------
+#
+# The queue used to be decided a control at a time: a decision, a newsroom
+# ruling, an outlier replacement, a cluster -- each its own form, each
+# redirecting back to a page that re-read the whole queue. The page is now
+# worked 25 rows at a time and disposed of once, at the bottom.
+
+
+def _post_form(body):
+    """The page's form and nothing else on it."""
+    start = body.index('<form method="post" id="page-of-bylines"')
+    return body[start : body.index("</form>", start)]
+
+
+def test_the_page_has_one_form_and_one_submit(page):
+    for n in range(3):
+        _candidate(f"Reporter {n}")
+    _syndicated()
+    body = _queue(page).content.decode()
+    content = body[body.index('<section class="card card-wide">') :]
+    assert content.count('<form method="post"') == 1
+    assert _post_form(body).count('type="submit"') == 1
+
+
+def test_the_controls_of_the_old_page_are_gone(page):
+    """Each of these was a submit of its own, in one of three places."""
+    _replogle()
+    body = _queue(page).content.decode()
+    for old in (
+        "Show every story",
+        "Outlying:",
+        'value="primary"',
+        'value="replace"',
+        "Set on the ticked stories",
+        "edit this one",
+        "wrong byline",
+    ):
+        assert old not in body, old
+
+
+def test_a_page_is_twenty_five_rows(page):
+    for n in range(30):
+        _candidate(f"Reporter {n:02d}")
+    body = _queue(page).content.decode()
+    assert body.count('name="row"') == 25
+    second = _queue(page, page=2).content.decode()
+    assert second.count('name="row"') == 5
+
+
+def test_reading_a_page_is_one_query_for_its_stories(page):
+    """Two unindexed `author LIKE '%name%'` scans a row was 50 a page, and a
+    page is re-read after every submit."""
+    from django.db import connections
+    from django.test.utils import CaptureQueriesContext
+
+    for n in range(25):
+        name = f"Reporter Number{n}"
+        _article(f"a-{n}", name)
+        _article(f"b-{n}", f"Other Person, {name}", host_id="s-2")
+        _candidate(name, signal="CROSS_OWNER", signal_label="x", articles=2)
+    with CaptureQueriesContext(connections["crawler"]) as queries:
+        _queue(page)
+    scans = [q for q in queries.captured_queries if "LIKE" in q["sql"].upper()]
+    assert len(scans) == 1
+
+
+def test_a_submit_with_nothing_touched_changes_nothing(page):
+    _syndicated()
+    _candidate("Jon Smtih")
+    _submit(
+        page,
+        {"raw": "Steph Quinn", "decision": "", "host": ["one.example", "two.example"]},
+        {"raw": "Jon Smtih", "decision": "", "names": "Jon Smith"},
+    )
+    assert not BylineNormalization.objects.exists()
+    assert {a.status for a in Article.objects.all()} == {"enriched"}
+    assert BylineReviewCandidate.objects.count() == 2
+
+
+def test_one_submit_disposes_of_every_row_answered(page):
+    _candidate("Jon Smtih")
+    _candidate("Sports Desk", signal="NOT_A_PERSON", signal_label="not a person")
+    _candidate("Left Alone")
+    _submit(
+        page,
+        {"raw": "Jon Smtih", "decision": "fix", "names": "Jon Smith"},
+        {"raw": "Sports Desk", "decision": "drop"},
+        {"raw": "Left Alone", "decision": ""},
+    )
+    decided = {r.raw_byline: r.decision for r in BylineNormalization.objects.all()}
+    assert decided == {"Jon Smtih": "fix", "Sports Desk": "drop"}
+    assert [c.raw_byline for c in BylineReviewCandidate.objects.all()] == ["Left Alone"]
+
+
+def test_one_bad_row_refuses_the_whole_page(page):
+    """Applying 24 and refusing one leaves the reviewer to work out which is
+    which."""
+    _candidate("Jon Smtih")
+    _candidate("Bad Fix")
+    _submit(
+        page,
+        {"raw": "Jon Smtih", "decision": "fix", "names": "Jon Smith"},
+        {"raw": "Bad Fix", "decision": "fix", "names": ""},
+    )
+    assert not BylineNormalization.objects.exists()
+    assert BylineReviewCandidate.objects.count() == 2
+
+
+def test_every_problem_on_the_page_is_reported_at_once(page):
+    from django.contrib.messages import get_messages
+
+    _candidate("One")
+    _candidate("Two")
+    response = _submit(
+        page,
+        {"raw": "One", "decision": "fix", "names": ""},
+        {"raw": "Two", "decision": "exclude", "content_type": ""},
+    )
+    seen = [str(m) for m in get_messages(response.wsgi_request)]
+    assert any("One" in m for m in seen)
+    assert any("Two" in m for m in seen)
+    assert any("Nothing was saved" in m for m in seen)
+
+
+def test_a_page_written_half_way_is_rolled_back(page):
+    """A ruling that fails on row 2 must not leave row 1 decided."""
+    _candidate("Jon Smtih")
+    _syndicated()
+    _submit(
+        page,
+        {"raw": "Jon Smtih", "decision": "fix", "names": "Jon Smith"},
+        {
+            "raw": "Steph Quinn",
+            "host": ["nowhere.example"],
+            "ruling:nowhere.example": "wire",
+        },
+    )
+    assert not BylineNormalization.objects.exists()
+
+
+def test_a_dataset_that_is_not_yours_is_refused_on_the_page_submit(page):
+    response = _submit(page, {"raw": "x", "decision": "drop"}, dataset="Nope")
+    assert response.status_code == 400
+
+
+# --- a drawer of stories under each newsroom ---------------------------------
+
+
+def _rooms(body):
+    """The newsroom blocks of the page, keyed by host."""
+    marker = 'name="host-0" value="'
+    out = {}
+    for block in body.split(marker)[1:]:
+        out[block.split('"', 1)[0]] = block
+    return out
+
+
+def test_each_newsroom_has_a_drawer_of_its_own_stories(page):
+    _syndicated()
+    rooms = _rooms(_queue(page).content.decode())
+    assert set(rooms) == {"one.example", "two.example"}
+    assert 'name="edit-0-a-home-0"' in rooms["one.example"]
+    assert 'name="edit-0-a-away-1"' not in rooms["one.example"]
+    assert 'name="edit-0-a-away-1"' in rooms["two.example"]
+    assert 'name="edit-0-a-home-0"' not in rooms["two.example"]
+
+
+def test_a_drawer_is_a_sample_not_every_story(page):
+    for n in range(8):
+        _article(f"a-{n}", "Jon Smith")
+    _candidate("Jon Smith", signal="CROSS_OWNER", signal_label="x", articles=8)
+    from review import bylines
+
+    body = _queue(page).content.decode()
+    room = _rooms(body)["one.example"]
+    assert room.count('name="edit-0-') == bylines.SAMPLE_PER_HOST
+    assert f"Read {bylines.SAMPLE_PER_HOST} of 8" in room
+
+
+def test_the_drawer_shows_the_newest_stories_first(page):
+    import datetime
+
+    from django.utils import timezone
+
+    for n in range(3):
+        _article(f"a-{n}", "Jon Smith")
+        Article.objects.filter(id=f"a-{n}").update(
+            publish_date=timezone.now() - datetime.timedelta(days=n)
+        )
+    row = _candidate("Jon Smith", signal="CROSS_OWNER", signal_label="x")
+    from review import bylines
+
+    (room,) = bylines.host_choices(row)
+    assert [s["id"] for s in room["samples"]] == ["a-0", "a-1", "a-2"]
+
+
+def test_a_byline_on_one_newsroom_still_gets_its_drawer(page):
+    """Christopher Replogle's 896 stories on ky3.com and one elsewhere: the
+    correction is on the one story, and the row has to offer it."""
     _article("a-1", "Jon Smith")
     _candidate("Jon Smith", signal="CROSS_OWNER", signal_label="x")
     body = _queue(page).content.decode()
-    assert "One newsroom is theirs" not in body
+    assert 'name="edit-0-a-1"' in body
+
+
+def test_a_drawer_links_open_in_their_own_window(page):
+    _syndicated()
+    room = _rooms(_queue(page).content.decode())["one.example"]
+    assert 'target="_blank"' in room
+    assert reverse("explorer:article_detail", args=["a-home-0"]) in room
+
+
+def test_a_printed_name_is_offered_beside_its_story(page):
+    """The page names somebody else, so the name is already known and the
+    reviewer only ticks it. It is NOT filled in for them: on a page submitted
+    whole, a pre-filled name is an answer nobody gave."""
+    _replogle(
+        mismatches=[
+            {
+                "article_id": "a-out",
+                "url": "https://two.example/a-out",
+                "title": "T",
+                "host": "two.example",
+                "printed": "Neal A. Johnson",
+            }
+        ]
+    )
+    rooms = _rooms(_queue(page).content.decode())
+    assert 'name="use-0-a-out" value="Neal A. Johnson"' in rooms["two.example"]
+    assert 'name="use-0-' not in rooms["one.example"]
+    ticked = rooms["two.example"].split('name="use-0-a-out"')[1].split(">")[0]
+    assert "checked" not in ticked
+
+
+def test_ticking_the_printed_name_writes_it_on_that_story_only(page):
+    _replogle()
+    _submit(
+        page,
+        {"raw": "Christopher Replogle", "use:a-out": "Neal A. Johnson"},
+    )
+    assert Article.objects.get(id="a-out").author == "Neal A. Johnson"
+    assert Article.objects.get(id="a-main-0").author == "Christopher Replogle"
+
+
+def test_a_typed_name_wins_over_the_ticked_one(page):
+    _replogle()
+    _submit(
+        page,
+        {
+            "raw": "Christopher Replogle",
+            "edit:a-out": "N. A. Johnson",
+            "use:a-out": "Neal A. Johnson",
+        },
+    )
+    assert Article.objects.get(id="a-out").author == "N. A. Johnson"
+
+
+def test_a_blank_edit_writes_nothing(page):
+    _replogle()
+    _submit(page, {"raw": "Christopher Replogle", "edit:a-out": "   "})
+    assert Article.objects.get(id="a-out").author == "Christopher Replogle"
+    assert not BylineNormalization.objects.exists()
+
+
+def test_a_story_beside_a_co_author_can_be_corrected(page):
+    """ "Rudi Keller, Steph Quinn" is one of hers, and its byline may be wrong."""
+    _syndicated()
+    _submit(page, {"raw": "Steph Quinn", "edit:a-away-1": "Rudi Keller"})
+    assert Article.objects.get(id="a-away-1").author == "Rudi Keller"
+
+
+def test_a_story_that_does_not_name_the_byline_cannot_be_reached(page):
+    _article("a-other", "Jon Smith")
+    _candidate("Christopher Replogle")
+    response = _submit(
+        page, {"raw": "Christopher Replogle", "edit:a-other": "Neal A. Johnson"}
+    )
+    assert response.status_code == 400
+    assert Article.objects.get(id="a-other").author == "Jon Smith"
+
+
+# --- a newsroom's ruling and its reason, and the other answers on the row -----
+
+
+def test_a_newsroom_carries_its_own_reason(page):
+    _syndicated()
+    _submit(
+        page,
+        {
+            "raw": "Steph Quinn",
+            "host": ["one.example", "two.example"],
+            "ruling:two.example": "wire",
+            "why:two.example": "States Newsroom copy, republished",
+            "why:one.example": "she works here",
+        },
+    )
+    from review.models import ReviewDecision
+
+    reasons = set(
+        ReviewDecision.objects.filter(subject_id__startswith="a-away").values_list(
+            "reason", flat=True
+        )
+    )
+    assert reasons == {"States Newsroom copy, republished"}
+    assert not ReviewDecision.objects.filter(subject_id__startswith="a-home").exists()
+
+
+def test_a_row_changed_but_not_decided_is_kept_as_it_stands(page):
+    """The reviewer read the row and acted on it. Leaving it in the queue would
+    make every row worked need a second answer."""
+    _replogle()
+    _submit(page, {"raw": "Christopher Replogle", "edit:a-out": "Neal A. Johnson"})
+    row = BylineNormalization.objects.get(raw_byline="Christopher Replogle")
+    assert row.decision == "accept"
+    assert not BylineReviewCandidate.objects.filter(
+        raw_byline="Christopher Replogle"
+    ).exists()
+
+
+def test_a_ruling_and_a_correction_land_together(page):
+    """One row, both answers: the newsroom that republishes, and the one story
+    on the other whose byline is wrong."""
+    _syndicated()
+    _submit(
+        page,
+        {
+            "raw": "Steph Quinn",
+            "host": ["one.example", "two.example"],
+            "ruling:two.example": "wire",
+            "edit:a-home-0": "Stephanie Quinn",
+        },
+    )
+    assert Article.objects.get(id="a-away-1").status == "wire"
+    assert Article.objects.get(id="a-home-0").author == "Stephanie Quinn"
+    assert Article.objects.get(id="a-home-1").author == "Steph Quinn"
+
+
+def test_an_explicit_decision_wins_over_the_implied_one(page):
+    _replogle()
+    _submit(
+        page,
+        {
+            "raw": "Christopher Replogle",
+            "edit:a-out": "Neal A. Johnson",
+            "decision": "fix",
+            "names": "Christopher Replogle Jr.",
+        },
+    )
+    row = BylineNormalization.objects.get(raw_byline="Christopher Replogle")
+    assert row.decision == "fix"
+    assert row.canonical_names == ["Christopher Replogle Jr."]
+
+
+def test_the_page_says_how_the_submit_went(page):
+    _candidate("Jon Smtih")
+    response = _submit(
+        page, {"raw": "Jon Smtih", "decision": "fix", "names": "Jon Smith"}
+    )
+    body = page.get(response["Location"]).content.decode()
+    assert "1 bylines dealt with" in body or "1 byline" in body

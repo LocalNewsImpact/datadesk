@@ -14,8 +14,12 @@
     reporters on one story, which is normal practice and not a parse error --
     the reports below count it as two people without anybody deciding anything.
     {% endcomment %}
-    <p class="notice">A decision is recorded once per string and applied to
-    every article carrying it, including articles extracted later. <a href="{% url 'review:byline_report' %}?dataset={{ dataset }}">See the reports</a>.</p>
+    <p class="notice">Each byline asks up to three things: <strong>what the
+    string is</strong>, <strong>which newsrooms' stories are not local
+    reporting</strong>, and <strong>whether one story's byline is wrong</strong>.
+    Answer what you can on this page, then submit once at the bottom. A decision
+    is recorded once per string and applied to every article carrying it,
+    including articles extracted later. <a href="{% url 'review:byline_report' %}?dataset={{ dataset }}">See the reports</a>.</p>
   </header>
 
   {% if not crawler_connected %}
@@ -49,397 +53,249 @@
   </form>
 
   {% if rows %}
-  <table class="grid">
-    <thead>
-      <tr>
-        <th>Byline as parsed</th>
-        <th>Reason</th>
-        <th>Where it appears</th>
-        <th class="num">Articles</th>
-        <th>Decision</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in rows %}
-      <tr>
-        <td>
-          <strong>{{ row.raw_byline }}</strong>
-          {% comment %}
-          The strings this NAME was read out of, when it shares a byline. A name
-          beside a co-author is a different question from a name alone -- what an
-          answer does to the co-author depends on it -- so the reviewer is shown
-          which it is.
-          {% endcomment %}
-          {% if row.sources and row.sources|length > 1 %}
-          <p class="hint">shares a byline: {{ row.sources|join:" · " }}</p>
-          {% elif row.sources.0 and row.sources.0 != row.raw_byline %}
-          <p class="hint">read out of: {{ row.sources.0 }}</p>
-          {% endif %}
-          {% if row.variants %}
-          {% comment %}
-          What it looks like a variant OF, with the difference named: two
-          spellings that differ only in an accent or a hyphen are impossible to
-          tell apart by eye in a table, and a reviewer who cannot see the
-          difference cannot decide which one is right.
-          {% endcomment %}
-          <p class="hint">near: {% for v in row.variants %}{{ v }}{% if not forloop.last %}; {% endif %}{% endfor %}
-          {% if row.differs_by %}<em>({{ row.differs_by|join:", " }})</em>{% endif %}</p>
-          {% endif %}
-        </td>
-        <td>{{ row.signal_label }}</td>
-        <td>
-          {% for host in row.hosts %}{{ host }}{% if not forloop.last %}<br>{% endif %}{% endfor %}
-          {% if row.owners %}<p class="hint">{{ row.owners|join:" | " }}</p>{% endif %}
-          {% comment %}
-          The stories themselves, a couple per host. A byline under unrelated
-          owners is legitimate for a stringer and a defect for a wire reporter
-          the parser credited as local, and nothing else on the row tells those
-          apart -- so the reviewer reads two of them. Every link opens in its own
-          window: reading one must not lose a queue page with decisions typed
-          into it.
-          {% endcomment %}
-          {% comment %}
-          EACH NEWSROOM DECIDED ON ITS OWN.
+  {% comment %}
+  ONE FORM, ONE SUBMIT. Every control on this page is a proposal until the
+  reviewer submits at the bottom, which disposes of everything on the page at
+  once. Blank means "leave it alone" on every control, so a row nobody touched
+  stays in the queue and a submit with nothing touched changes nothing.
 
-          Steph Quinn has 112 stories on missouriindependent.com, where she
-          works, and 288 across 41 other domains, because States Newsroom copy is
-          syndicated across Missouri. Her byline is not wrong on any of them --
-          what is wrong is counting the republished ones as that paper's local
-          reporting.
+  Field names carry the row's position on the page (`decision-3`): see
+  `review/bylines.py`, "One submit for the page".
 
-          But those 41 are not 41 instances of one fact: a paper may republish
-          her, and another may have her filing directly. So every newsroom gets
-          its own ruling, and "keep" is the default everywhere -- a form that
-          excluded by default would be a blanket ruling with extra steps, and one
-          careless submit would re-dispose all 42.
+  A CARD PER BYLINE, NOT A TABLE ROW. The first version was a five-column table
+  with the newsrooms squeezed into one cell and the decision into another, and
+  neither could hold what it was asked to: a newsroom is a host, an owner, a
+  count, a ruling and a reason, and a story is a title, a date, a byline and a
+  correction. Each gets its own columns, so each byline gets the page's width.
 
-          Biggest first, which is usually the reporter's own. That is a reading
-          aid, not an answer.
+  Three questions, always in this order, always labelled the same way:
+    1. WHAT IS THIS STRING?          one answer, choices in view
+    2. WHICH NEWSROOMS ARE NOT LOCAL?  one ruling and reason per newsroom
+    3. IS ANY ONE STORY WRONG?       a correction, in that newsroom's stories
+  {% endcomment %}
+  <form method="post" id="page-of-bylines">
+    {% csrf_token %}
+    <input type="hidden" name="dataset" value="{{ dataset }}">
+    <input type="hidden" name="signal" value="{{ signal }}">
+
+    {% for row in rows %}
+    {% with i=forloop.counter0 %}
+    <article class="byline-card">
+      <input type="hidden" name="row" value="{{ i }}">
+      <input type="hidden" name="raw-{{ i }}" value="{{ row.raw_byline }}">
+
+      <header class="byline-head">
+        <h2>{{ row.raw_byline }}</h2>
+        <p class="byline-facts">
+          <span class="byline-signal">{{ row.signal_label }}</span>
+          {{ row.articles }} {{ row.articles|pluralize:"story,stories" }}
+          {% if row.owners %} · {{ row.owners|join:" · " }}{% endif %}
+        </p>
+        {% comment %}
+        The strings this NAME was read out of, when it shares a byline. A name
+        beside a co-author is a different question from a name alone.
+        {% endcomment %}
+        {% if row.sources and row.sources|length > 1 %}
+        <p class="hint">Shares a byline with: {{ row.sources|join:" · " }}</p>
+        {% elif row.sources.0 and row.sources.0 != row.raw_byline %}
+        <p class="hint">Read out of: {{ row.sources.0 }}</p>
+        {% endif %}
+        {% if row.variants %}
+        {% comment %}
+        What it looks like a variant OF, with the difference named: two
+        spellings that differ only in an accent or a hyphen are impossible to
+        tell apart by eye.
+        {% endcomment %}
+        <p class="hint">Near: {% for v in row.variants %}{{ v }}{% if not forloop.last %}; {% endif %}{% endfor %}
+        {% if row.differs_by %}<em>({{ row.differs_by|join:", " }})</em>{% endif %}</p>
+        {% endif %}
+      </header>
+
+      {% comment %}
+      1. WHAT IS THIS STRING? The choices are radio buttons, all in view: a
+      dropdown hid what could be said. Nothing is preselected, so a page is
+      never answered by accident.
+      {% endcomment %}
+      {% if row.group and row.group|length > 1 %}
+      {% comment %}
+      A SPELLING CLUSTER IS ONE QUESTION. "Bruce E Stidham" and "Bruce E.
+      Stidham" were two rows, and a reviewer answered the same person twice and
+      hoped the answers agreed. Each spelling carries its own count and
+      newsrooms, because which is right is judged by comparing those.
+      "Different people" is a real answer and is recorded as such.
+      {% endcomment %}
+      <fieldset class="byline-step">
+        <legend>1 &middot; Which spelling is right?</legend>
+        <table class="grid">
+          <thead><tr><th></th><th>Spelling</th><th class="num">Stories</th><th>Newsrooms</th><th>Differs by</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><input type="radio" id="c{{ i }}-none" name="canonical-{{ i }}" value="" checked></td>
+              <td colspan="4"><label for="c{{ i }}-none">No decision yet</label></td>
+            </tr>
+            {% for spelling in row.group %}
+            <tr>
+              <td>
+                <input type="hidden" name="spelling-{{ i }}" value="{{ spelling.name }}">
+                <input type="radio" id="c{{ i }}-{{ forloop.counter }}" name="canonical-{{ i }}" value="{{ spelling.name }}">
+              </td>
+              <td><label for="c{{ i }}-{{ forloop.counter }}"><strong>{{ spelling.name }}</strong></label></td>
+              <td class="num">{{ spelling.articles }}</td>
+              <td class="hint">{{ spelling.hosts|join:" · " }}</td>
+              <td class="hint">{{ spelling.differs_by }}</td>
+            </tr>
+            {% endfor %}
+            <tr>
+              <td><input type="radio" id="c{{ i }}-diff" name="canonical-{{ i }}" value="__different__"></td>
+              <td colspan="4"><label for="c{{ i }}-diff">These are <strong>different people</strong> &mdash; keep every spelling as it is</label></td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="hint">The spelling you keep is written onto all {{ row.articles }} stories, and every other spelling is recorded as meaning it, so a later extraction writing an old spelling is corrected without anybody deciding again.</p>
+      </fieldset>
+      {% else %}
+      <fieldset class="byline-step">
+        <legend>1 &middot; What is this string?</legend>
+        <div class="byline-choices">
+          <label><input type="radio" name="decision-{{ i }}" value="" checked> No decision yet</label>
+          <label><input type="radio" name="decision-{{ i }}" value="accept"> It is right &mdash; keep it as it is</label>
+          {% comment %}
+          Pre-filled with what the crawler proposes and used only when this
+          choice is selected. Editable: the proposal is a guess about a name.
           {% endcomment %}
-          {% if row.host_choices|length > 1 %}
-          <details class="card-inset">
-            <summary>{{ row.host_choices|length }} newsrooms carry this byline</summary>
-            <form method="post">
-              {% csrf_token %}
-              <input type="hidden" name="dataset" value="{{ dataset }}">
-              <input type="hidden" name="signal" value="{{ signal }}">
-              <input type="hidden" name="raw_byline" value="{{ row.raw_byline }}">
-              <table class="grid grid-inset">
-                <thead><tr><th>Exclude</th><th>Newsroom</th><th class="num">Stories</th><th>Owner</th></tr></thead>
-                <tbody>
-                  {% for choice in row.host_choices %}
-                  <tr>
-                    <td>
-                      {% comment %}
-                      Ticked means "not this newsroom's own reporting". Unticked
-                      is the default and writes nothing, so a submit with nothing
-                      ticked changes nothing.
-                      {% endcomment %}
-                      <label class="sr-only" for="h{{ forloop.parentloop.counter }}-{{ forloop.counter }}">Exclude {{ choice.host }}</label>
-                      <input type="checkbox" id="h{{ forloop.parentloop.counter }}-{{ forloop.counter }}"
-                             name="exclude_host" value="{{ choice.host }}">
-                    </td>
-                    <td>{{ choice.host }}</td>
-                    <td class="num">{{ choice.articles }}</td>
-                    <td class="hint">{{ choice.owner|default:"—" }}</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-              {% comment %}
-              ONE DISPOSITION FOR THE TICKED NEWSROOMS. Ticking the syndicated
-              ones and setting them to Wire in one go is the common case; a
-              byline whose newsrooms are wrong in DIFFERENT ways is two passes,
-              which is rarer than the 41 selects it replaces.
-              {% endcomment %}
-              <label>The ticked newsrooms' stories are
-                <select name="content_type">
+          <label><input type="radio" name="decision-{{ i }}" value="fix"> It should read:</label>
+          <textarea name="names-{{ i }}" rows="2" aria-label="The names it should read, one per line"
+            placeholder="one name per line">{% for name in row.proposed %}{{ name }}
+{% endfor %}</textarea>
+          {% comment %}
+          "Not a real name" rather than "delete": nothing is deleted. The string
+          stays on the article and stops counting as a reporter.
+          {% endcomment %}
+          <label><input type="radio" name="decision-{{ i }}" value="drop"> Not a real name (a desk, an account, an address)</label>
+          {% comment %}
+          Excluding takes the byline out of local reporting AND re-disposes ALL
+          its stories to what they actually are, in the extraction queue's own
+          words.
+          {% endcomment %}
+          <label><input type="radio" name="decision-{{ i }}" value="exclude"> Not local reporting &mdash; all of its stories are:</label>
+          <select name="content_type-{{ i }}" aria-label="What all of its stories are">
+            <option value="">choose&hellip;</option>
+            {% for type in exclusion_types %}
+            <option value="{{ type.value }}">{{ type.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </fieldset>
+      {% endif %}
+
+      {% comment %}
+      2. EACH NEWSROOM RULED ON ITS OWN.
+
+      Steph Quinn has 112 stories on missouriindependent.com, where she works,
+      and 288 across 41 other domains, because States Newsroom copy is
+      syndicated across Missouri. Her byline is not wrong on any of them -- what
+      is wrong is counting the republished ones as that paper's local reporting.
+      But those 41 are not one fact: a paper may republish her, and another may
+      have her filing directly. "Local reporting" is the default everywhere; a
+      form that excluded by default would be a blanket ruling with extra steps.
+
+      Biggest first, which is usually the reporter's own. A reading aid, not an
+      answer.
+
+      3. ONE STORY, in that newsroom's drawer. Christopher Replogle has 896
+      stories on ky3.com and one on unterrifieddemocrat.com whose page reads "By
+      Neal A. Johnson, UD Editor". Excluding throws out 896 genuine stories and
+      fixing the string renames them: the correction belongs to the one story.
+      {% endcomment %}
+      {% if row.newsrooms %}
+      <fieldset class="byline-step">
+        <legend>2 &middot; Are these newsrooms' stories local reporting?</legend>
+        <table class="grid byline-newsrooms">
+          <thead>
+            <tr>
+              <th>Newsroom</th>
+              <th>Owner</th>
+              <th class="num">Stories</th>
+              <th>These stories are</th>
+              <th>Why</th>
+            </tr>
+          </thead>
+          {% for room in row.newsrooms %}
+          <tbody>
+            <tr>
+              <td>
+                <input type="hidden" name="host-{{ i }}" value="{{ room.host }}">
+                <strong>{{ room.host }}</strong>
+              </td>
+              <td class="hint">{{ room.owner|default:"—" }}</td>
+              <td class="num">{{ room.articles }}</td>
+              <td>
+                <select name="ruling-{{ i }}-{{ room.host }}" aria-label="What {{ room.host }}'s stories are">
+                  <option value="">local reporting</option>
                   {% for type in exclusion_types %}
-                  <option value="{{ type.value }}" {% if type.value == "wire" %}selected{% endif %}>{{ type.label }}</option>
+                  <option value="{{ type.value }}">{{ type.label }}</option>
                   {% endfor %}
                 </select>
-              </label>
-              <label>Why
-                <input type="text" name="reason" placeholder="optional">
-              </label>
-              {% comment %}
-              The byline itself is accepted: the name is right, and the ruling is
-              about which stories are local reporting. Stories already carrying
-              the disposition are skipped, so a second pass costs nothing.
-              {% endcomment %}
-              <button type="submit" name="decision" value="primary">Exclude the ticked newsrooms</button>
-            </form>
-          </details>
-          {% endif %}
-
-          {% comment %}
-          THE OUTLYING NEWSROOMS, AND THEIR STORIES, ON THE ROW.
-
-          Not in a drawer: this is the question the row asks, and it was two
-          disclosures deep. A newsroom is outlying when the byline has fewer
-          stories there than on its main one; equal counts make neither an
-          outlier, because that is somebody filing to both papers.
-
-          Where the page prints a byline, it is quoted and offered as a one-click
-          correction. That is the only provable answer and it is rare -- one of
-          138 rows -- so it decorates a story rather than being the affordance.
-          Everywhere else the reviewer types the name, because the body does not
-          print one.
-          {% endcomment %}
-          {% comment %}
-          The provable corrections, one form each: the page names somebody else,
-          so the name is already known and the reviewer only confirms it. Each is
-          its own form because a form cannot nest inside another, and a button
-          that fills a field in a sibling form would need JavaScript.
-          {% endcomment %}
-          {% for story in row.outlying_stories %}
-          {% if story.printed %}
-          <form method="post" class="card-inset proven">
-            {% csrf_token %}
-            <input type="hidden" name="dataset" value="{{ dataset }}">
-            <input type="hidden" name="signal" value="{{ signal }}">
-            <input type="hidden" name="raw_byline" value="{{ row.raw_byline }}">
-            <input type="hidden" name="article" value="{{ story.id }}">
-            <input type="hidden" name="new_byline" value="{{ story.printed }}">
-            <input type="hidden" name="reason" value="the page reads {{ story.printed }}">
-            <p>{{ story.host }} &mdash; the page reads <strong>{{ story.printed }}</strong>, the record says {{ row.raw_byline }}.</p>
-            <button type="submit" name="decision" value="replace">Set that story to {{ story.printed }}</button>
-          </form>
-          {% endif %}
+              </td>
+              <td><input type="text" name="why-{{ i }}-{{ room.host }}" placeholder="optional" aria-label="Why, for {{ room.host }}"></td>
+            </tr>
+            <tr class="byline-stories">
+              <td colspan="5">
+                <details {% if room.articles == 1 or row.newsrooms|length == 1 %}open{% endif %}>
+                  <summary>3 &middot; Read {{ room.samples|length }} of {{ room.articles }} &mdash; correct one story's byline</summary>
+                  <table class="grid grid-inset">
+                    <thead>
+                      <tr><th>Story</th><th>Date</th><th>Byline on the record</th><th>Change this story's byline to</th></tr>
+                    </thead>
+                    <tbody>
+                      {% for story in room.samples %}
+                      <tr>
+                        <td>
+                          <a href="{{ story.url }}" rel="noreferrer noopener" target="_blank">{{ story.title|truncatechars:80 }}&nbsp;↗</a>
+                          <span class="hint"><a href="{% url 'explorer:article_detail' story.id %}" rel="noreferrer noopener" target="_blank">what we captured&nbsp;↗</a></span>
+                        </td>
+                        <td class="hint">{% if story.publish_date %}{{ story.publish_date|date:"M j, Y" }}{% endif %}</td>
+                        <td>{{ story.author }}</td>
+                        <td>
+                          <input type="text" name="edit-{{ i }}-{{ story.id }}" placeholder="leave blank to keep" aria-label="A different byline for {{ story.title|truncatechars:40 }}">
+                          {% if story.printed %}
+                          <label class="receipt-line">
+                            <input type="checkbox" name="use-{{ i }}-{{ story.id }}" value="{{ story.printed }}">
+                            The page reads <strong>{{ story.printed }}</strong> &mdash; use it
+                          </label>
+                          {% endif %}
+                        </td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </details>
+              </td>
+            </tr>
+          </tbody>
           {% endfor %}
+        </table>
+      </fieldset>
+      {% endif %}
 
-          {% if row.outlying_stories %}
-          <form method="post" class="card-inset outliers">
-            {% csrf_token %}
-            <input type="hidden" name="dataset" value="{{ dataset }}">
-            <input type="hidden" name="signal" value="{{ signal }}">
-            <input type="hidden" name="raw_byline" value="{{ row.raw_byline }}">
-            <p class="hint">Outlying:
-              {% for outlier in row.outliers %}<strong>{{ outlier.host }}</strong> ({{ outlier.articles }}){% if not forloop.last %}, {% endif %}{% endfor %}
-            </p>
-            <ul class="plain">
-              {% for story in row.outlying_stories %}
-              <li>
-                <label>
-                  <input type="checkbox" name="article" value="{{ story.id }}" checked>
-                  <a href="{{ story.url }}" rel="noreferrer noopener" target="_blank">{{ story.title|truncatechars:70 }}&nbsp;↗</a>
-                </label>
-                <span class="hint">{{ story.host }} · {{ story.status }}{% if story.publish_date %} · {{ story.publish_date|date:"M j, Y" }}{% endif %}
-                · <a href="{% url 'review:edit_field' story.id 'author' %}" rel="noreferrer noopener" target="_blank">edit this one&nbsp;↗</a></span>
-                {% if story.printed %}
-                <p class="receipt-line">The page reads <strong>{{ story.printed }}</strong> &mdash; see below.</p>
-                {% endif %}
-              </li>
-              {% endfor %}
-            </ul>
-            <label>Set the byline on the ticked stories to
-              <input type="text" name="new_byline" placeholder="the name the page carries">
-            </label>
-            <label>Why
-              <input type="text" name="reason" placeholder="optional">
-            </label>
-            <button type="submit" name="decision" value="replace">Set on the ticked stories</button>
-          </form>
-          {% endif %}
+      <p class="byline-why">
+        <label>Why, for this byline
+          <input type="text" name="reason-{{ i }}" placeholder="optional">
+        </label>
+      </p>
+    </article>
+    {% endwith %}
+    {% endfor %}
 
-          {% if row.samples %}
-          <details class="card-inset" {% if row.expanded %}open{% endif %}>
-            <summary>Read {{ row.samples|length }}</summary>
-            <ul class="plain">
-              {% for sample in row.samples %}
-              <li>
-                <a href="{{ sample.url }}" rel="noreferrer noopener" target="_blank">{{ sample.title|truncatechars:70 }}&nbsp;↗</a>
-                <span class="hint">{{ sample.host }}{% if sample.publish_date %} · {{ sample.publish_date|date:"M j, Y" }}{% endif %}
-                · <a href="{% url 'explorer:article_detail' sample.id %}" rel="noreferrer noopener" target="_blank">what we captured&nbsp;↗</a>
-                {% comment %}
-                ONE ARTICLE'S BYLINE, not the string everywhere.
-
-                Christopher Replogle has 896 stories on ky3.com and one on
-                unterrifieddemocrat.com, whose page reads "By Neal A. Johnson, UD
-                Editor" -- the JSON-LD that story was parsed from carries neither
-                name. Neither decision on this row is right for that: excluding
-                throws out 896 genuine stories, and fixing the string renames
-                them. The correction belongs to the one article, so it is offered
-                on the one article.
-                {% endcomment %}
-                · <a href="{% url 'review:edit_field' sample.id 'author' %}" rel="noreferrer noopener" target="_blank">wrong byline&nbsp;↗</a></span>
-              </li>
-              {% endfor %}
-            </ul>
-            {% comment %}
-            The sample answers "is this one person". It cannot answer "which of
-            these stories are not his", and that is the question a full
-            replacement needs answered -- so every story is available, on
-            request, for the one row being worked.
-            {% endcomment %}
-            {% if not row.expanded %}
-            <p><a href="?{{ base_params.urlencode }}&amp;expand={{ row.raw_byline|urlencode }}">Show every story ({{ row.articles }})&nbsp;↓</a></p>
-            {% endif %}
-          </details>
-
-          {% if row.expanded %}
-          {% comment %}
-          Outlying hosts first, and marked. A host that is not where most of the
-          byline's work is is the candidate for a wrong attribution; the byline's
-          main host is shown too, because a replacement made without seeing what
-          is being left alone is a guess.
-
-          Ties leave both unmarked: two hosts with equal counts is a stringer.
-          {% endcomment %}
-          <form method="post" class="card-inset">
-            {% csrf_token %}
-            <input type="hidden" name="dataset" value="{{ dataset }}">
-            <input type="hidden" name="signal" value="{{ signal }}">
-            <input type="hidden" name="raw_byline" value="{{ row.raw_byline }}">
-            {% for group in row.groups %}
-            <p class="hint">
-              {% if group.outlier %}<strong>{{ group.host }}</strong> — outlying{% else %}{{ group.host }} — the main one{% endif %}
-              {% if group.owner %} · {{ group.owner }}{% endif %} · {{ group.articles|length }}
-            </p>
-            <ul class="plain">
-              {% for article in group.articles %}
-              <li>
-                <label>
-                  <input type="checkbox" name="article" value="{{ article.id }}" {% if group.outlier %}checked{% endif %}>
-                  <a href="{{ article.url }}" rel="noreferrer noopener" target="_blank">{{ article.title|truncatechars:70 }}&nbsp;↗</a>
-                </label>
-                <span class="hint">{{ article.status }}{% if article.publish_date %} · {{ article.publish_date|date:"M j, Y" }}{% endif %}
-                · <a href="{% url 'review:edit_field' article.id 'author' %}" rel="noreferrer noopener" target="_blank">edit this one&nbsp;↗</a></span>
-              </li>
-              {% endfor %}
-            </ul>
-            {% endfor %}
-            {% comment %}
-            The outliers come pre-ticked because they are the answer in the common
-            case, and unticking two is less work than ticking nineteen. Nothing is
-            recorded against the byline: the string is right on the stories left
-            alone, so the candidate stays in the queue until somebody decides it.
-            {% endcomment %}
-            <label>Replace the byline on the ticked stories with
-              <input type="text" name="new_byline" placeholder="Neal A. Johnson">
-            </label>
-            <label>Why
-              <input type="text" name="reason" placeholder="the page reads a different name">
-            </label>
-            <button type="submit" name="decision" value="replace">Replace on the ticked stories</button>
-            <a class="button secondary" href="?{{ base_params.urlencode }}">Close</a>
-          </form>
-          {% endif %}
-          {% endif %}
-        </td>
-        <td class="num">{{ row.articles }}</td>
-        <td>
-          {% comment %}
-          A SPELLING CLUSTER IS ONE QUESTION. "Bruce E Stidham" and "Bruce E.
-          Stidham" were two rows, each naming the other as a variant, and a
-          reviewer answered the same person twice and hoped the answers agreed.
-
-          Every spelling carries its own article count and newsrooms, because
-          which one is right is judged by comparing those: 40 stories against 1
-          is obvious, 12 against 3 needs a look.
-
-          "Two different people" is a real answer and is recorded as such. A
-          reviewer who can see two people but cannot say so gets the pair offered
-          again every night.
-          {% endcomment %}
-          {% if row.group and row.group|length > 1 %}
-          <form method="post" class="cluster-form">
-            {% csrf_token %}
-            <input type="hidden" name="dataset" value="{{ dataset }}">
-            <input type="hidden" name="signal" value="{{ signal }}">
-            <input type="hidden" name="raw_byline" value="{{ row.raw_byline }}">
-            <table class="grid grid-inset">
-              <thead>
-                <tr><th>Keep</th><th>Spelling</th><th class="num">Stories</th><th>Newsrooms</th><th>Differs by</th></tr>
-              </thead>
-              <tbody>
-                {% for spelling in row.group %}
-                <tr>
-                  <td>
-                    <input type="hidden" name="spelling" value="{{ spelling.name }}">
-                    <label class="sr-only" for="c{{ forloop.parentloop.counter }}-{{ forloop.counter }}">Keep {{ spelling.name }}</label>
-                    {% comment %}
-                    The first spelling is pre-selected: it carries the most
-                    stories, so it is the one most likely to be right and the
-                    answer a reviewer would give if they agreed.
-                    {% endcomment %}
-                    <input type="radio" id="c{{ forloop.parentloop.counter }}-{{ forloop.counter }}"
-                           name="canonical" value="{{ spelling.name }}"
-                           {% if forloop.first %}checked{% endif %}>
-                  </td>
-                  <td>{{ spelling.name }}</td>
-                  <td class="num">{{ spelling.articles }}</td>
-                  <td class="hint">{{ spelling.hosts|join:" | " }}</td>
-                  <td class="hint">{{ spelling.differs_by }}</td>
-                </tr>
-                {% endfor %}
-                <tr>
-                  <td>
-                    <label class="sr-only" for="d{{ forloop.counter }}">Not one person</label>
-                    <input type="radio" id="d{{ forloop.counter }}" name="canonical" value="__different__">
-                  </td>
-                  <td colspan="4">These are <strong>different people</strong> — keep every spelling as it is</td>
-                </tr>
-              </tbody>
-            </table>
-            <p class="hint">The spelling you keep is written onto all
-            {{ row.articles }} stories, and every other spelling is recorded as
-            meaning it — so a later extraction writing an old spelling is
-            corrected without anybody deciding again.</p>
-            <label>Why
-              <input type="text" name="reason" placeholder="optional">
-            </label>
-            <button type="submit" name="decision" value="cluster">Save decision</button>
-          </form>
-          {% else %}
-          <form method="post" class="inline-form">
-            {% csrf_token %}
-            <input type="hidden" name="dataset" value="{{ dataset }}">
-            <input type="hidden" name="signal" value="{{ signal }}">
-            <input type="hidden" name="raw_byline" value="{{ row.raw_byline }}">
-            {% comment %}
-            Pre-filled with what the crawler proposes, so the common case is
-            one click: the proposal is the string with the title trimmed or the
-            spelling matched to the one already in the dataset. It is editable
-            because the proposal is a guess about a person's name.
-            {% endcomment %}
-            <label class="sr-only" for="names-{{ forloop.counter }}">Names</label>
-            <textarea id="names-{{ forloop.counter }}" name="names" rows="2"
-              placeholder="one name per line">{% for name in row.proposed %}{{ name }}
-{% endfor %}</textarea>
-            <button type="submit" name="decision" value="fix">Fix</button>
-            <button type="submit" name="decision" value="accept">Keep as is</button>
-            {% comment %}
-            "Not a real name" rather than "delete": nothing is deleted. The
-            string stays on the article and stops counting as a reporter. The
-            label was "Names nobody", which read backwards -- as though the
-            reviewer were naming nobody.
-            {% endcomment %}
-            <button type="submit" name="decision" value="drop" class="secondary">Not a real name</button>
-            {% comment %}
-            Excluding takes the byline out of local reporting AND re-disposes
-            its stories to what they actually are. The list is the extraction
-            queue's own: "these are wire stories" is the same answer that queue
-            takes, and a second list beside it would drift from it.
-
-            The dropdown carries the verb, so a disposition cannot be chosen
-            without being applied and the button cannot fire without one.
-            {% endcomment %}
-            <label class="sr-only" for="excl-{{ forloop.counter }}">Exclude as</label>
-            <select id="excl-{{ forloop.counter }}" name="content_type">
-              <option value="">exclude the reporter and their stories as…</option>
-              {% for type in exclusion_types %}
-              <option value="{{ type.value }}">{{ type.label }}</option>
-              {% endfor %}
-            </select>
-            <button type="submit" name="decision" value="exclude" class="secondary">Exclude</button>
-          </form>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    {% comment %}
+    The one submit. Sticky, so it is never a page's scroll away from the row
+    that was just answered.
+    {% endcomment %}
+    <div class="byline-submit">
+      <button type="submit">Submit this page ({{ rows|length }} bylines)</button>
+      <span class="hint">Anything left at "no decision" with nothing changed stays in the queue. A byline where you ruled a newsroom or corrected a story, without deciding the string, is kept as it stands. If anything on the page is wrong, nothing is saved.</span>
+    </div>
+  </form>
 
   {% if page.paginator.num_pages > 1 %}
   <nav class="pager">
