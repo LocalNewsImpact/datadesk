@@ -1728,15 +1728,19 @@ def _decide_byline(request):
         return HttpResponseBadRequest("Pick a decision")
 
     if decision == bylines.PRIMARY:
-        # One newsroom is the reporter's; the rest republish. The stories
-        # elsewhere are re-disposed and the byline itself is accepted -- the name
-        # is right, the ruling is about which stories are local reporting.
+        # One decision per newsroom, paired by position: the hidden host input
+        # sits beside its select, so the two lists arrive in the same order.
+        # Not a primary and a blanket for the rest -- a byline on 42 domains is
+        # not 42 instances of one fact.
+        hosts = request.POST.getlist("host")
+        dispositions = request.POST.getlist("disposition")
+        if len(hosts) != len(dispositions):
+            return HttpResponseBadRequest("A newsroom is missing its ruling")
         try:
-            result = bylines.set_primary(
+            result = bylines.rule_newsrooms(
                 dataset.id,
                 raw,
-                request.POST.get("primary_host", ""),
-                request.POST.get("content_type", ""),
+                dict(zip(hosts, dispositions, strict=True)),
                 request.user,
                 reason=request.POST.get("reason", ""),
             )
@@ -1744,22 +1748,23 @@ def _decide_byline(request):
             return HttpResponseBadRequest(str(problem))
         AuditLogEntry.objects.create(
             actor=request.user,
-            action="byline:primary",
+            action="byline:newsrooms",
             target_table="articles",
             target_ids=[f"{dataset.slug}:{raw}"],
             after={
-                "primary_host": request.POST.get("primary_host", ""),
-                "content_type": request.POST.get("content_type", ""),
+                "rulings": {
+                    host: value
+                    for host, value in zip(hosts, dispositions, strict=True)
+                    if value
+                },
                 "stories": result["stories"],
             },
-            reason=request.POST.get("reason", "")
-            or f"{raw} writes for {request.POST.get('primary_host', '')}",
+            reason=request.POST.get("reason", "") or f"newsrooms ruled for {raw}",
         )
         messages.success(
             request,
-            f"{raw} writes for {request.POST.get('primary_host', '')}; "
-            f"{result['stories']} stories on {result['hosts']} other newsrooms "
-            f"re-disposed as {request.POST.get('content_type', '')}.",
+            f"{result['stories']} stories on {result['hosts']} newsrooms "
+            f"re-disposed; {result['kept']} newsrooms kept as they are.",
         )
         query = urlencode(
             {

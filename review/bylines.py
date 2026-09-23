@@ -786,16 +786,20 @@ def outlying_stories(candidate, hosts, per_host=6):
 # ---------------------------------------------------------------------------
 
 PRIMARY = "primary"
-DECISION_LABELS[PRIMARY] = "one newsroom is theirs, the rest republish"
+DECISION_LABELS[PRIMARY] = "newsrooms ruled one at a time"
+
+#: What a newsroom's select means when nothing is chosen for it: leave those
+#: stories alone. The default everywhere, because a ruling that excludes by
+#: default is a blanket ruling with extra steps -- one careless submit on a
+#: byline with 42 newsrooms would re-dispose all of them.
+KEEP = ""
 
 
 def host_choices(candidate):
     """`[{host, articles, owner}]` for the newsrooms this byline appears on.
 
-    Biggest first, because the newsroom with the most stories is usually the
-    reporter's own and should be the default -- but only the default. A wire
-    reporter whose copy is republished more than it is originally published
-    would be the other way round, which is why this is a choice and not a rule.
+    Biggest first, which is usually the reporter's own -- but the order is a
+    reading aid, not a ruling. Every newsroom is decided on its own.
     """
     # The owner comes from the same rows as the counts. The candidate's `hosts`
     # and `owners` are two independent lists, so pairing them by position would
@@ -817,70 +821,70 @@ def host_choices(candidate):
     )
 
 
-def set_primary(dataset_id, raw_byline, primary_host, content_type, user, reason=""):
-    """Keep this byline's stories on one newsroom; re-dispose the rest.
+def rule_newsrooms(dataset_id, raw_byline, rulings, user, reason=""):
+    """Decide each newsroom carrying this byline, one at a time.
 
-    The stories on every OTHER newsroom are re-disposed to what the reviewer says
-    they are -- `wire`, in the case this was built for -- through
-    `dispositions.record`, the same call the extraction queue makes. The primary
-    newsroom's stories are not touched: that is the reporting this byline is for.
+    `rulings` maps a host to what its stories are: a disposition from the
+    extraction queue's list, or `KEEP` to leave them alone. NOT a primary and a
+    blanket for the rest -- Steph Quinn's 41 other domains are not all the same
+    thing, and a reviewer who knows the state can say that Sedalia republishes
+    while Columbia has her filing directly.
 
-    THE BYLINE ITSELF IS ACCEPTED, not dropped. Steph Quinn is a real reporter
-    with a real name; the ruling is about which stories are hers to have written
-    locally, and nothing about her name is wrong. Accepting it takes the row off
-    the queue without renaming anybody.
+    THE BYLINE ITSELF IS ACCEPTED, not dropped. She is a real reporter with a
+    real name; the ruling is about which stories are local reporting.
 
     A story already carrying the disposition is skipped rather than written
-    again, so a second ruling on the same byline costs nothing and the count
-    reported is of what actually changed.
+    again, so a second pass over a byline costs nothing and the count reported is
+    of what actually changed.
 
-    Returns `{"stories": n, "hosts": n}`.
+    Returns `{"stories": n, "hosts": n, "kept": n}`.
     """
     from explorer.models import Article
     from review.dispositions import REJECT, TYPE_BECOMES, record, stage_of
 
-    if content_type not in TYPE_BECOMES:
-        raise ValueError("Say what the other newsrooms' stories are")
-    if not primary_host:
-        raise ValueError("Pick the newsroom this byline belongs to")
-
     rows = articles_naming(dataset_id, raw_byline)
-    hosts = {row["candidate_link__source__host"] for row in rows}
-    if primary_host not in hosts:
-        raise ValueError("That newsroom does not carry this byline")
+    carried = {row["candidate_link__source__host"] for row in rows}
+    decided = {
+        host: value for host, value in (rulings or {}).items() if host in carried
+    }
+    for host, value in decided.items():
+        if value != KEEP and value not in TYPE_BECOMES:
+            raise ValueError(f"Not a disposition for {host}: {value!r}")
+    if not decided:
+        raise ValueError("None of those newsrooms carries this byline")
 
-    becomes = TYPE_BECOMES[content_type]
-    elsewhere = [
-        row
-        for row in rows
-        if row["candidate_link__source__host"] != primary_host
-        and row["status"] != becomes
-    ]
+    wanted = []
+    for row in rows:
+        value = decided.get(row["candidate_link__source__host"], KEEP)
+        if value == KEEP or row["status"] == TYPE_BECOMES[value]:
+            continue
+        wanted.append((row, value))
 
     alias = write_alias()
     with transaction.atomic(using=alias):
-        articles = list(
-            Article.objects.using(alias).filter(id__in=[r["id"] for r in elsewhere])
-        )
-        for article in articles:
+        by_id = {
+            str(article.id): article
+            for article in Article.objects.using(alias).filter(
+                id__in=[row["id"] for row, _ in wanted]
+            )
+        }
+        for row, value in wanted:
+            article = by_id.get(str(row["id"]))
+            if article is None:
+                continue
             record(
                 article,
                 decision=REJECT,
                 stage=stage_of(article),
                 user=user,
-                content_type=content_type,
-                reason=reason or f"{raw_byline} writes for {primary_host}",
+                content_type=value,
+                reason=reason
+                or f"{raw_byline} on {row['candidate_link__source__host']}",
                 label=(article.title or "")[:300],
             )
-        decide(
-            dataset_id,
-            raw_byline,
-            ACCEPT,
-            [raw_byline],
-            user,
-            reason=reason or f"writes for {primary_host}",
-        )
+        decide(dataset_id, raw_byline, ACCEPT, [raw_byline], user, reason=reason)
     return {
-        "stories": len(articles),
-        "hosts": len({r["candidate_link__source__host"] for r in elsewhere}),
+        "stories": len(wanted),
+        "hosts": len({host for host, v in decided.items() if v != KEEP}),
+        "kept": len([h for h, v in decided.items() if v == KEEP]),
     }

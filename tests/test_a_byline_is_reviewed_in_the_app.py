@@ -94,6 +94,15 @@ def page(crawler_schema, editor):
         canonical_name="The Two",
         owner="Missourian Publishing",
     )
+    # A third, unrelated newsroom: a byline on several is not several instances
+    # of one fact, and the ruling has to be able to differ between them.
+    Source.objects.create(
+        id="s-3",
+        host="three.example",
+        host_norm="three.example",
+        canonical_name="The Three",
+        owner="Someone Else Entirely",
+    )
     client = Client()
     client.force_login(editor)
     return client
@@ -1079,22 +1088,38 @@ def test_a_substring_of_another_name_is_not_a_match(page):
     assert bylines.host_choices(row) == []
 
 
-def test_the_newsrooms_are_offered_biggest_first(page):
-    """The biggest is usually the reporter's own, so it is the default — but only
-    the default: a wire reporter republished more than published would be the
-    other way round."""
+def test_the_newsrooms_are_listed_biggest_first(page):
+    """Usually the reporter's own comes first. A reading aid, not an answer:
+    every newsroom is decided on its own."""
+    _syndicated()
+    from review import bylines
+
+    row = BylineReviewCandidate.objects.get(raw_byline="Steph Quinn")
+    assert [c["host"] for c in bylines.host_choices(row)] == [
+        "one.example",
+        "two.example",
+    ]
+
+
+def test_keep_is_the_default_for_every_newsroom(page):
+    """A form that excluded by default would be a blanket ruling with extra
+    steps, and one careless submit would re-dispose all 42 of her domains."""
     _syndicated()
     body = _queue(page).content.decode()
-    radios = [
-        body[at : at + 170]
+    selects = [
+        body[at : at + 200]
         for at in range(len(body))
-        if body.startswith('name="primary_host"', at)
+        if body.startswith('name="disposition"', at)
     ]
-    assert "one.example" in radios[0] and "checked" in radios[0]
-    assert "two.example" in radios[1] and "checked" not in radios[1]
+    assert selects, "no per-newsroom ruling offered"
+    for select in selects:
+        assert 'value=""' in select
+        assert "selected" not in select
 
 
-def test_the_other_newsrooms_stories_are_re_disposed(page):
+def test_each_newsroom_is_ruled_on_its_own(page):
+    """One republishes, the other has her filing directly. The whole point."""
+    _article("a-third", "Steph Quinn, Clara Bates", host_id="s-3")
     _syndicated()
     page.post(
         reverse("review:bylines"),
@@ -1102,18 +1127,16 @@ def test_the_other_newsrooms_stories_are_re_disposed(page):
             "dataset": "Mizzou-Missouri-State",
             "raw_byline": "Steph Quinn",
             "decision": "primary",
-            "primary_host": "one.example",
-            "content_type": "wire",
+            "host": ["one.example", "two.example", "three.example"],
+            "disposition": ["", "wire", ""],
         },
     )
-    assert [a.status for a in Article.objects.filter(id__startswith="a-away")] == [
-        "wire",
-        "wire",
-    ]
+    assert Article.objects.get(id="a-away-1").status == "wire"
+    assert Article.objects.get(id="a-third").status == "enriched"
+    assert Article.objects.get(id="a-home-0").status == "enriched"
 
 
-def test_the_primary_newsrooms_stories_are_untouched(page):
-    """That is the reporting this byline is for."""
+def test_a_newsroom_kept_is_not_written(page):
     _syndicated()
     page.post(
         reverse("review:bylines"),
@@ -1121,13 +1144,11 @@ def test_the_primary_newsrooms_stories_are_untouched(page):
             "dataset": "Mizzou-Missouri-State",
             "raw_byline": "Steph Quinn",
             "decision": "primary",
-            "primary_host": "one.example",
-            "content_type": "wire",
+            "host": ["one.example", "two.example"],
+            "disposition": ["", ""],
         },
     )
-    assert {a.status for a in Article.objects.filter(id__startswith="a-home")} == {
-        "enriched"
-    }
+    assert {a.status for a in Article.objects.all()} == {"enriched"}
 
 
 def test_the_byline_is_accepted_not_dropped(page):
@@ -1140,8 +1161,8 @@ def test_the_byline_is_accepted_not_dropped(page):
             "dataset": "Mizzou-Missouri-State",
             "raw_byline": "Steph Quinn",
             "decision": "primary",
-            "primary_host": "one.example",
-            "content_type": "wire",
+            "host": ["one.example", "two.example"],
+            "disposition": ["", "wire"],
         },
     )
     row = BylineNormalization.objects.get(raw_byline="Steph Quinn")
@@ -1151,23 +1172,38 @@ def test_the_byline_is_accepted_not_dropped(page):
 
 
 def test_a_story_already_carrying_the_disposition_is_not_written_again(page):
-    """So a second ruling on the same byline costs nothing and the count reported
-    is of what actually changed."""
+    """So a second pass over a byline costs nothing and the count reported is of
+    what actually changed."""
     _syndicated()
     Article.objects.filter(id="a-away-1").update(status="wire")
     from review import bylines
 
-    result = bylines.set_primary(
+    result = bylines.rule_newsrooms(
         "d-mo",
         "Steph Quinn",
-        "one.example",
-        "wire",
+        {"one.example": "", "two.example": "wire"},
         User.objects.get(username="ed"),
     )
     assert result["stories"] == 1
+    assert result["kept"] == 1
 
 
-def test_a_newsroom_that_does_not_carry_the_byline_is_refused(page):
+def test_a_newsroom_that_does_not_carry_the_byline_is_ignored(page):
+    """A stale form naming a newsroom the byline has left should not fail the
+    ruling on the ones it still has."""
+    _syndicated()
+    from review import bylines
+
+    result = bylines.rule_newsrooms(
+        "d-mo",
+        "Steph Quinn",
+        {"nowhere.example": "wire", "two.example": "wire"},
+        User.objects.get(username="ed"),
+    )
+    assert result["stories"] == 2
+
+
+def test_a_ruling_naming_no_real_newsroom_is_refused(page):
     _syndicated()
     response = page.post(
         reverse("review:bylines"),
@@ -1175,15 +1211,15 @@ def test_a_newsroom_that_does_not_carry_the_byline_is_refused(page):
             "dataset": "Mizzou-Missouri-State",
             "raw_byline": "Steph Quinn",
             "decision": "primary",
-            "primary_host": "nowhere.example",
-            "content_type": "wire",
+            "host": ["nowhere.example"],
+            "disposition": ["wire"],
         },
     )
     assert response.status_code == 400
     assert not BylineNormalization.objects.exists()
 
 
-def test_saying_nothing_about_the_other_stories_is_refused(page):
+def test_a_disposition_that_is_not_one_is_refused(page):
     _syndicated()
     response = page.post(
         reverse("review:bylines"),
@@ -1191,18 +1227,29 @@ def test_saying_nothing_about_the_other_stories_is_refused(page):
             "dataset": "Mizzou-Missouri-State",
             "raw_byline": "Steph Quinn",
             "decision": "primary",
-            "primary_host": "one.example",
-            "content_type": "",
+            "host": ["one.example", "two.example"],
+            "disposition": ["", "something-else"],
         },
     )
     assert response.status_code == 400
+    assert Article.objects.get(id="a-away-1").status == "enriched"
 
 
-def test_wire_is_the_default_disposition(page):
-    """The case this was built for."""
+def test_a_host_without_its_ruling_is_refused(page):
+    """The two lists are paired by position, so a mismatch means the form did not
+    arrive as it was rendered."""
     _syndicated()
-    body = _queue(page).content.decode()
-    assert '<option value="wire" selected>' in body
+    response = page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Steph Quinn",
+            "decision": "primary",
+            "host": ["one.example", "two.example"],
+            "disposition": ["wire"],
+        },
+    )
+    assert response.status_code == 400
 
 
 def test_a_byline_on_one_newsroom_is_not_offered_the_ruling(page):
