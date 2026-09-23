@@ -284,6 +284,15 @@ def test_the_sql_grants_cover_every_writable_field():
     ):
         granted[table] = {c.strip() for c in columns.split(",")}
 
+    # A WHOLE-TABLE update grant covers every column of that table. Wider than
+    # the application, which this test permits and the column form is merely the
+    # narrower way to write; reading only the column form failed
+    # `byline_normalizations`, whose seven writable fields are all granted by one
+    # `GRANT INSERT, UPDATE ON byline_normalizations`.
+    whole_table = set(
+        re.findall(r"GRANT [^;(]*\bUPDATE\b[^;(]*ON (\w+) TO datadesk_rw", sql)
+    )
+
     # Derived from WRITABLE, not listed beside it. A hardcoded map
     # checks the models somebody remembered to add to it: a model gaining
     # a writable field would be granted nothing and pass, which is the
@@ -297,6 +306,8 @@ def test_the_sql_grants_cover_every_writable_field():
         return model._meta.get_field(field).column
 
     for model, table in tables.items():
+        if table in whole_table:
+            continue
         wanted = {column_of(model, f.partition(".")[0]) for f in WRITABLE[model]}
         missing = wanted - granted.get(table, set())
         assert not missing, (

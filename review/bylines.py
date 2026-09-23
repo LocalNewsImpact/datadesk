@@ -17,8 +17,26 @@ CO-AUTHORS ARE NOT A DEFECT and never appear here. A byline naming three
 reporters is three records, which the crawler's `author_records` produces.
 """
 
-from django.db import transaction
+from django.db import router, transaction
 from django.utils import timezone
+
+
+def write_alias():
+    """The alias a crawler write goes through: `crawler_rw` in production.
+
+    `crawler` is the READ-ONLY connection -- it authenticates as `datadesk_ro`,
+    which Postgres refuses every write on. The router already knows this
+    (`explorer/routers.py`), and the suite pops `crawler_rw` so both aliases are
+    one sqlite file locally. So `using("crawler")` on a write passes every test
+    and fails in production only, as "permission denied for table …". That is
+    exactly how it shipped.
+
+    Reads stay on `crawler` -- that is what it is for.
+    """
+    from explorer.models import BylineNormalization
+
+    return router.db_for_write(BylineNormalization)
+
 
 #: The decisions a reviewer can take on a string.
 ACCEPT = "accept"  # the string is already right
@@ -76,7 +94,6 @@ def parse_names(value):
     return parts
 
 
-@transaction.atomic(using="crawler")
 def decide(dataset_id, raw_byline, decision, names, user, reason=""):
     """Record what a string is, and take it off the queue.
 
@@ -89,14 +106,24 @@ def decide(dataset_id, raw_byline, decision, names, user, reason=""):
     (`byline-report apply`), which keeps one writer for the column and keeps a
     review request from updating thousands of rows.
     """
-    from explorer.models import BylineNormalization, BylineReviewCandidate
-
     if decision not in DECISION_LABELS:
         raise ValueError(f"not a decision: {decision!r}")
     canonical = [] if decision == DROP else list(names)
 
+    alias = write_alias()
+    with transaction.atomic(using=alias):
+        return _decide(alias, dataset_id, raw_byline, decision, canonical, user, reason)
+
+
+def _decide(alias, dataset_id, raw_byline, decision, canonical, user, reason):
+    """The body of `decide`, inside its transaction."""
+    from explorer.models import BylineNormalization, BylineReviewCandidate
+
+    # Read on the write alias too, inside the transaction that is about to
+    # update it: reading the row on one connection and updating it on another
+    # is how two reviewers deciding the same string at once lose one answer.
     existing = (
-        BylineNormalization.objects.using("crawler")
+        BylineNormalization.objects.using(alias)
         .filter(dataset_id=dataset_id, raw_byline=raw_byline)
         .first()
     )
@@ -108,12 +135,12 @@ def decide(dataset_id, raw_byline, decision, names, user, reason=""):
         existing.decided_at = timezone.now()
         # Re-decided, so the write to `articles.author` is owed again.
         existing.applied_at = None
-        existing.save(using="crawler")
+        existing.save(using=alias)
         row = existing
     else:
         import uuid
 
-        row = BylineNormalization.objects.using("crawler").create(
+        row = BylineNormalization.objects.using(alias).create(
             id=str(uuid.uuid4()),
             dataset_id=dataset_id,
             raw_byline=raw_byline,
@@ -123,7 +150,7 @@ def decide(dataset_id, raw_byline, decision, names, user, reason=""):
             decided_by=getattr(user, "username", "") or None,
             decided_at=timezone.now(),
         )
-    BylineReviewCandidate.objects.using("crawler").filter(
+    BylineReviewCandidate.objects.using(alias).filter(
         dataset_id=dataset_id, raw_byline=raw_byline
     ).delete()
     return row
@@ -334,11 +361,13 @@ def exclusion_types():
     ]
 
 
+REPLACE = "replace"
+DECISION_LABELS[REPLACE] = "replaced on some of its stories"
+
 EXCLUDE = "exclude"
 DECISION_LABELS[EXCLUDE] = "excluded, with its stories re-disposed"
 
 
-@transaction.atomic(using="crawler")
 def exclude(dataset_id, raw_byline, content_type, user, reason=""):
     """Take the byline out of local reporting, and its stories with it.
 
@@ -360,39 +389,157 @@ def exclude(dataset_id, raw_byline, content_type, user, reason=""):
 
     if content_type not in TYPE_BECOMES:
         raise ValueError(f"not a disposition: {content_type!r}")
+    alias = write_alias()
 
     # Every article carrying the string, whatever its status: a byline being
     # excluded is a statement about the byline, and stopping at the local
     # statuses would leave the same wire stories at `labeled` to be enriched
     # next week and come back.
     articles = list(
-        Article.objects.using("crawler").filter(
-            dataset_id=dataset_id, author=raw_byline
-        )
+        Article.objects.using(alias).filter(dataset_id=dataset_id, author=raw_byline)
     )
-    for article in articles:
-        record(
-            article,
-            decision=REJECT,
-            stage=stage_of(article),
-            user=user,
-            content_type=content_type,
-            reason=reason or f"byline excluded: {raw_byline}",
-            label=(article.title or "")[:300],
-        )
+    # ONE transaction over both writes. They are one answer: articles
+    # re-disposed with no decision recorded would be asked about again, and a
+    # decision recorded over articles that were not re-disposed would be a
+    # ruling the corpus never received.
+    with transaction.atomic(using=alias):
+        for article in articles:
+            record(
+                article,
+                decision=REJECT,
+                stage=stage_of(article),
+                user=user,
+                content_type=content_type,
+                reason=reason or f"byline excluded: {raw_byline}",
+                label=(article.title or "")[:300],
+            )
 
-    row = decide(
-        dataset_id, raw_byline, EXCLUDE, [], user, reason=reason or content_type
+        row = decide(
+            dataset_id, raw_byline, EXCLUDE, [], user, reason=reason or content_type
+        )
+        # STAMPED APPLIED HERE, unlike every other decision.
+        #
+        # The crawler's nightly `apply-byline-decisions` writes a decision's
+        # names onto `articles.author`, and an exclusion names nobody -- so left
+        # unapplied it would blank the byline on every one of these stories. The
+        # byline is not wrong: a wire reporter really wrote the wire story, and
+        # the answer this decision records is about the STORIES, which the loop
+        # above already carried out.
+        row.applied_at = timezone.now()
+        row.articles_updated = len(articles)
+        row.save(using=alias, update_fields=["applied_at", "articles_updated"])
+    return len(articles)
+
+
+# ---------------------------------------------------------------------------
+# The whole spread, and a replacement across the part of it that is wrong.
+#
+# The sample answers "is this one person"; it cannot answer "which of these 19
+# stories are not his". Christopher Replogle has 896 on ky3.com and one on
+# unterrifieddemocrat.com whose page reads "By Neal A. Johnson, UD Editor" --
+# so the fix is a replacement on the outliers, and the reviewer has to see all
+# of them to pick.
+# ---------------------------------------------------------------------------
+
+
+def every_article(dataset_id, raw_byline):
+    """Every story carrying the string, outlying hosts first.
+
+    ALL statuses, not the local ones: a wrong byline is wrong on a story nobody
+    has enriched yet too, and leaving those behind means the same correction
+    comes back the week they are enriched.
+
+    `outlier` marks a host that is not the byline's main one. That is the whole
+    question a cross-owner row asks -- which of these does not belong -- so the
+    grouping answers it rather than leaving the reviewer to count rows.
+    """
+    from explorer.models import Article
+
+    rows = list(
+        Article.objects.using("crawler")
+        .filter(dataset_id=dataset_id, author=raw_byline)
+        .order_by("-publish_date")
+        .values(
+            "id",
+            "url",
+            "title",
+            "status",
+            "publish_date",
+            "candidate_link__source__host",
+            "candidate_link__source__owner",
+        )
     )
-    # STAMPED APPLIED HERE, unlike every other decision.
-    #
-    # The crawler's nightly `apply-byline-decisions` writes a decision's names
-    # onto `articles.author`, and an exclusion names nobody -- so left unapplied
-    # it would blank the byline on every one of these stories. The byline is not
-    # wrong: a wire reporter really wrote the wire story, and the answer this
-    # decision records is about the STORIES, which the loop above already
-    # carried out.
-    row.applied_at = timezone.now()
-    row.articles_updated = len(articles)
-    row.save(using="crawler", update_fields=["applied_at", "articles_updated"])
+    counts: dict[str, int] = {}
+    for row in rows:
+        host = row["candidate_link__source__host"] or ""
+        counts[host] = counts.get(host, 0) + 1
+    # The main host is where most of the byline's work is. Ties leave both
+    # unmarked: two hosts with equal counts is a stringer, not an outlier.
+    biggest = max(counts.values()) if counts else 0
+    main = {host for host, n in counts.items() if n == biggest}
+
+    groups: dict[str, dict] = {}
+    for row in rows:
+        host = row["candidate_link__source__host"] or ""
+        group = groups.setdefault(
+            host,
+            {
+                "host": host,
+                "owner": row["candidate_link__source__owner"] or "",
+                "outlier": host not in main,
+                "articles": [],
+            },
+        )
+        group["articles"].append(
+            {
+                "id": row["id"],
+                "url": row["url"],
+                "title": row["title"] or row["url"],
+                "status": row["status"],
+                "publish_date": row["publish_date"],
+            }
+        )
+    out = sorted(
+        groups.values(),
+        key=lambda g: (not g["outlier"], -len(g["articles"]), g["host"]),
+    )
+    return out
+
+
+def replace_on(dataset_id, raw_byline, article_ids, new_byline, user, reason=""):
+    """Write a different byline onto the stories the reviewer picked.
+
+    NOT a normalization. A normalization says what the string means everywhere,
+    and the case this answers is the opposite: the string is right on 896 stories
+    and wrong on one, so only the one is written and the string keeps its
+    meaning. Nothing is recorded against the byline, and the candidate stays in
+    the queue until somebody decides the string itself.
+
+    Through `audited_update`, the same write the extraction queue's field edit
+    makes, so a byline corrected in bulk here is revertible exactly like one
+    corrected on its own article page.
+    """
+    from explorer.models import Article
+    from review.services import audited_update
+
+    new_byline = " ".join((new_byline or "").split())
+    if not new_byline:
+        raise ValueError("A replacement needs a name")
+
+    # Read on the alias they are about to be written on, so the rows checked
+    # against the byline are the rows updated.
+    articles = list(
+        Article.objects.using(write_alias()).filter(
+            dataset_id=dataset_id, author=raw_byline, id__in=list(article_ids)
+        )
+    )
+    if not articles:
+        raise ValueError("None of those stories carries that byline")
+    audited_update(
+        user,
+        articles,
+        {"author": new_byline},
+        action="byline:replace",
+        reason=reason or f"{raw_byline} was not the byline on these stories",
+    )
     return len(articles)

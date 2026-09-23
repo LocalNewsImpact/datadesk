@@ -161,6 +161,30 @@ GRANT USAGE ON SEQUENCE article_places_manual_id_seq TO datadesk_rw;
 GRANT INSERT ON pipeline_rework TO datadesk_rw;
 GRANT USAGE ON SEQUENCE pipeline_rework_id_seq TO datadesk_rw;
 
+-- Byline review (crawler #660, #661). Two tables, and they are not the same
+-- kind of thing.
+--
+-- `byline_normalizations` is the record: one row per (dataset, byline string)
+-- saying which people it names, which the crawler applies to `articles.author`
+-- every night. INSERT and UPDATE, and UPDATE is the exception to the rule
+-- above -- the unique constraint means there is one row per string, so
+-- re-deciding a string is the same row rather than a second one. No DELETE: a
+-- decision made is not the console's to erase.
+--
+-- `byline_review_candidates` is a cache. The crawler DELETEs and rewrites a
+-- dataset's rows wholesale every night, so the console removing a row it has
+-- just worked is keeping that cache current, not revising a record. DELETE
+-- only -- the console never computes a candidate, it answers one.
+--
+-- Neither takes an id from a sequence, so neither needs a sequence grant: the
+-- ids are uuids the application supplies.
+--
+-- This was missed when the page shipped, and submitting any decision failed as
+-- "permission denied for table byline_normalizations" -- in production only,
+-- because the suite creates its own database and owns every table in it.
+GRANT INSERT, UPDATE ON byline_normalizations TO datadesk_rw;
+GRANT DELETE ON byline_review_candidates TO datadesk_rw;
+
 \echo ''
 \echo 'whole-table grants held by datadesk_rw (expect the two INSERTs):'
 SELECT table_name, privilege_type
