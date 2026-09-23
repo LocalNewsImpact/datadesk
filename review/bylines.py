@@ -306,54 +306,6 @@ def hosts_with_bylines(dataset_id, statuses=LOCAL_STATUSES):
 # couple of the stories -- which means the stories have to be on the page.
 # ---------------------------------------------------------------------------
 
-#: How many stories to offer per host. Two is enough to tell a stringer from a
-#: wire feed, and a row carrying forty links is a row nobody reads.
-PER_HOST = 2
-
-
-def sample_articles(dataset_id, raw_byline, per_host=PER_HOST, statuses=LOCAL_STATUSES):
-    """A few of this byline's stories, spread across the hosts it appears on.
-
-    Spread deliberately: the question a cross-owner row asks is whether the
-    same person really writes for both papers, and a sample that happens to
-    come from one of them cannot answer it.
-    """
-    from explorer.models import Article
-
-    rows = (
-        Article.objects.using("crawler")
-        .filter(dataset_id=dataset_id, author=raw_byline, status__in=statuses)
-        .order_by("-publish_date")
-        .values(
-            "id",
-            "url",
-            "title",
-            "publish_date",
-            "candidate_link__source__host",
-            "candidate_link__source__owner",
-        )[:200]
-    )
-    seen: dict[str, int] = {}
-    out = []
-    for row in rows:
-        host = row["candidate_link__source__host"] or ""
-        if seen.get(host, 0) >= per_host:
-            continue
-        seen[host] = seen.get(host, 0) + 1
-        out.append(
-            {
-                "id": row["id"],
-                "url": row["url"],
-                "title": row["title"] or row["url"],
-                "publish_date": row["publish_date"],
-                "host": host,
-                "owner": row["candidate_link__source__owner"] or "",
-            }
-        )
-    out.sort(key=lambda r: (r["host"], r["publish_date"] or ""))
-    return out
-
-
 #: The excluded byline's stories are RE-DISPOSED, not deleted, and with the
 #: extraction queue's own vocabulary rather than a second list beside it. Those
 #: two lists drifted once before -- extraction offered one word for seventeen
@@ -451,78 +403,14 @@ def exclude(dataset_id, raw_byline, content_type, user, reason=""):
 
 
 # ---------------------------------------------------------------------------
-# The whole spread, and a replacement across the part of it that is wrong.
+# One story's byline, when the string is right on the rest of them.
 #
-# The sample answers "is this one person"; it cannot answer "which of these 19
-# stories are not his". Christopher Replogle has 896 on ky3.com and one on
-# unterrifieddemocrat.com whose page reads "By Neal A. Johnson, UD Editor" --
-# so the fix is a replacement on the outliers, and the reviewer has to see all
-# of them to pick.
+# Christopher Replogle has 896 stories on ky3.com and one on
+# unterrifieddemocrat.com whose page reads "By Neal A. Johnson, UD Editor".
+# Neither decision on the string is right for that: excluding throws out 896
+# genuine stories, and fixing the string renames them. The correction belongs to
+# the one story, so it is made on the one story.
 # ---------------------------------------------------------------------------
-
-
-def every_article(dataset_id, raw_byline):
-    """Every story carrying the string, outlying hosts first.
-
-    ALL statuses, not the local ones: a wrong byline is wrong on a story nobody
-    has enriched yet too, and leaving those behind means the same correction
-    comes back the week they are enriched.
-
-    `outlier` marks a host that is not the byline's main one. That is the whole
-    question a cross-owner row asks -- which of these does not belong -- so the
-    grouping answers it rather than leaving the reviewer to count rows.
-    """
-    from explorer.models import Article
-
-    rows = list(
-        Article.objects.using("crawler")
-        .filter(dataset_id=dataset_id, author=raw_byline)
-        .order_by("-publish_date")
-        .values(
-            "id",
-            "url",
-            "title",
-            "status",
-            "publish_date",
-            "candidate_link__source__host",
-            "candidate_link__source__owner",
-        )
-    )
-    counts: dict[str, int] = {}
-    for row in rows:
-        host = row["candidate_link__source__host"] or ""
-        counts[host] = counts.get(host, 0) + 1
-    # The main host is where most of the byline's work is. Ties leave both
-    # unmarked: two hosts with equal counts is a stringer, not an outlier.
-    biggest = max(counts.values()) if counts else 0
-    main = {host for host, n in counts.items() if n == biggest}
-
-    groups: dict[str, dict] = {}
-    for row in rows:
-        host = row["candidate_link__source__host"] or ""
-        group = groups.setdefault(
-            host,
-            {
-                "host": host,
-                "owner": row["candidate_link__source__owner"] or "",
-                "outlier": host not in main,
-                "articles": [],
-            },
-        )
-        group["articles"].append(
-            {
-                "id": row["id"],
-                "url": row["url"],
-                "title": row["title"] or row["url"],
-                "status": row["status"],
-                "publish_date": row["publish_date"],
-            }
-        )
-    out = sorted(
-        groups.values(),
-        key=lambda g: (not g["outlier"], -len(g["articles"]), g["host"]),
-    )
-    return out
 
 
 def replace_on(dataset_id, raw_byline, article_ids, new_byline, user, reason=""):
@@ -545,11 +433,15 @@ def replace_on(dataset_id, raw_byline, article_ids, new_byline, user, reason="")
     if not new_byline:
         raise ValueError("A replacement needs a name")
 
-    # Read on the alias they are about to be written on, so the rows checked
-    # against the byline are the rows updated.
+    # A story the string names, alone or beside a co-author: "Rudi Keller, Steph
+    # Quinn" is a story of Steph Quinn's whose byline may be wrong. Read on the
+    # alias they are about to be written on, so the rows checked against the
+    # byline are the rows updated.
+    named = {str(row["id"]) for row in articles_naming(dataset_id, raw_byline)}
     articles = list(
         Article.objects.using(write_alias()).filter(
-            dataset_id=dataset_id, author=raw_byline, id__in=list(article_ids)
+            dataset_id=dataset_id,
+            id__in=[i for i in article_ids if str(i) in named],
         )
     )
     if not articles:
@@ -644,127 +536,55 @@ def _decide_cluster(dataset_id, spellings, canonical, user, reason):
 # ---------------------------------------------------------------------------
 
 
-def outlying_hosts(candidate):
-    """The newsrooms that are not where this byline's work is, biggest first.
+def articles_naming_any(dataset_id, names):
+    """`{name: [story, ...]}`: every story whose byline names each person.
 
-    A host is outlying when the byline has fewer stories there than on its main
-    one. Equal counts make neither an outlier: that is somebody filing to both
-    papers, which is the legitimate case this signal cannot tell apart on its
-    own.
-    """
-    counts = _host_counts(candidate)
-    if len(counts) < 2:
-        return []
-    biggest = max(counts.values())
-    return sorted(
-        ({"host": host, "articles": n} for host, n in counts.items() if n < biggest),
-        key=lambda row: (-row["articles"], row["host"]),
-    )
-
-
-def articles_naming(dataset_id, name):
-    """Every story whose byline names this person, co-authored ones included.
+    Co-authored stories included, and read in ONE query for however many names
+    are asked about. The queue page used to ask per name, twice, and an
+    unindexed `author LIKE '%name%'` is a scan of the whole articles table:
+    25 rows was 50 scans, every time a decision redirected back to the page.
 
     A `contains` match is the only way to reach "Rudi Keller, Steph Quinn" from
     "Steph Quinn", and on its own it would also reach "Dan Fox" from "Dan". So
     the parts are checked properly afterwards: the database narrows, Python
     decides.
     """
+    from django.db.models import Q
+
     from explorer.models import Article
 
-    rows = Article.objects.using("crawler").filter(
-        dataset_id=dataset_id, author__contains=name
-    )
-    target = _norm(name)
-    keep = []
-    for row in rows.values(
-        "id",
-        "author",
-        "status",
-        "candidate_link__source__host",
-        "candidate_link__source__owner",
-    ):
-        parts = [_norm(part) for part in _SEPARATORS.split(row["author"] or "")]
-        if target in parts:
-            keep.append(row)
-    return keep
-
-
-def _host_counts(candidate):
-    """`{host: stories}` for one candidate, from the corpus.
-
-    Counted here rather than carried on the candidate because the row's `hosts`
-    is a list of names with no counts, and which host is the outlier is exactly
-    a question about counts.
-
-    Counted over co-authored bylines too: Steph Quinn reaches 41 domains almost
-    entirely inside strings naming three or four reporters, and an exact match
-    would have said she writes for one.
-    """
-    counts: dict[str, int] = {}
-    for row in articles_naming(candidate.dataset_id, candidate.raw_byline):
-        host = row["candidate_link__source__host"]
-        if host:
-            counts[host] = counts.get(host, 0) + 1
-    return counts
-
-
-def outlying_stories(candidate, hosts, per_host=6):
-    """The stories on those newsrooms, which are the ones a reviewer acts on.
-
-    Capped per host: a byline wrongly attributed on one story is the common case,
-    and a row rendering hundreds of checkboxes is a row nobody reads. The full
-    list stays behind "Show every story".
-    """
-    from explorer.models import Article
-
-    if not hosts:
-        return []
-    names = [row["host"] for row in hosts]
-    printed = {
-        story.get("article_id"): story.get("printed")
-        for story in (candidate.mismatches or [])
-        if story.get("article_id")
-    }
+    names = list(dict.fromkeys(name for name in names if name))
+    found: dict[str, list[dict]] = {name: [] for name in names}
+    if not names:
+        return found
+    narrowing = Q()
+    for name in names:
+        narrowing |= Q(author__contains=name)
+    wanted = {_norm(name): name for name in names}
     rows = (
         Article.objects.using("crawler")
-        .filter(
-            dataset_id=candidate.dataset_id,
-            author=candidate.raw_byline,
-            candidate_link__source__host__in=names,
-        )
-        .order_by("candidate_link__source__host", "-publish_date")
+        .filter(narrowing, dataset_id=dataset_id)
         .values(
             "id",
+            "author",
             "url",
             "title",
             "status",
             "publish_date",
             "candidate_link__source__host",
+            "candidate_link__source__owner",
         )
     )
-    seen: dict[str, int] = {}
-    out = []
     for row in rows:
-        host = row["candidate_link__source__host"]
-        if seen.get(host, 0) >= per_host:
-            continue
-        seen[host] = seen.get(host, 0) + 1
-        out.append(
-            {
-                "id": row["id"],
-                "url": row["url"],
-                "title": row["title"] or row["url"],
-                "status": row["status"],
-                "publish_date": row["publish_date"],
-                "host": host,
-                # The name the page prints, where it prints one. This is the
-                # only provable answer, and it is rare -- one of 138 rows -- so
-                # it decorates a story rather than being the affordance.
-                "printed": printed.get(str(row["id"]), ""),
-            }
-        )
-    return out
+        parts = {_norm(part) for part in _SEPARATORS.split(row["author"] or "")}
+        for norm in parts & wanted.keys():
+            found[wanted[norm]].append(row)
+    return found
+
+
+def articles_naming(dataset_id, name):
+    """Every story whose byline names this person, co-authored ones included."""
+    return articles_naming_any(dataset_id, [name])[name]
 
 
 # ---------------------------------------------------------------------------
@@ -795,33 +615,74 @@ DECISION_LABELS[PRIMARY] = "newsrooms ruled one at a time"
 KEEP = ""
 
 
-def host_choices(candidate):
-    """`[{host, articles, owner}]` for the newsrooms this byline appears on.
+#: How many of a newsroom's stories to offer. Enough to read what the
+#: newsroom does with this byline; a drawer of hundreds is one nobody opens.
+SAMPLE_PER_HOST = 5
+
+
+def host_choices(candidate, stories=None, per_host=SAMPLE_PER_HOST):
+    """`[{host, articles, owner, samples}]` for the newsrooms this byline is on.
 
     Biggest first, which is usually the reporter's own -- but the order is a
     reading aid, not a ruling. Every newsroom is decided on its own.
+
+    `samples` are that newsroom's own stories, newest first: the drawer under
+    the newsroom, so the reviewer reads what THIS newsroom published before
+    ruling on it. `printed` is the name the page itself carries where the
+    crawler found one, the only provable answer to "whose story is this".
+
+    `stories` is what `articles_naming_any` already read, so a page of rows is
+    one query and not one per row.
     """
+    if stories is None:
+        stories = articles_naming(candidate.dataset_id, candidate.raw_byline)
+    printed = {
+        str(story.get("article_id")): story.get("printed")
+        for story in (candidate.mismatches or [])
+        if story.get("article_id")
+    }
     # The owner comes from the same rows as the counts. The candidate's `hosts`
     # and `owners` are two independent lists, so pairing them by position would
     # caption a newsroom with somebody else's owner.
-    counts: dict[str, int] = {}
-    owners: dict[str, str] = {}
-    for row in articles_naming(candidate.dataset_id, candidate.raw_byline):
+    hosts: dict[str, dict] = {}
+    dated = sorted(
+        (row for row in stories if row["publish_date"]),
+        key=lambda row: row["publish_date"],
+        reverse=True,
+    )
+    undated = [row for row in stories if not row["publish_date"]]
+    for row in dated + undated:
         host = row["candidate_link__source__host"]
         if not host:
             continue
-        counts[host] = counts.get(host, 0) + 1
-        owners.setdefault(host, row["candidate_link__source__owner"] or "")
-    return sorted(
-        (
-            {"host": host, "articles": n, "owner": owners.get(host, "")}
-            for host, n in counts.items()
-        ),
-        key=lambda row: (-row["articles"], row["host"]),
-    )
+        entry = hosts.setdefault(
+            host,
+            {
+                "host": host,
+                "articles": 0,
+                "owner": row["candidate_link__source__owner"] or "",
+                "samples": [],
+            },
+        )
+        entry["articles"] += 1
+        if len(entry["samples"]) < per_host:
+            entry["samples"].append(
+                {
+                    "id": row["id"],
+                    "url": row["url"],
+                    "title": row["title"] or row["url"],
+                    "status": row["status"],
+                    "publish_date": row["publish_date"],
+                    "author": row["author"],
+                    "printed": printed.get(str(row["id"]), ""),
+                }
+            )
+    return sorted(hosts.values(), key=lambda row: (-row["articles"], row["host"]))
 
 
-def rule_newsrooms(dataset_id, raw_byline, rulings, user, reason=""):
+def rule_newsrooms(
+    dataset_id, raw_byline, rulings, user, reason="", reasons=None, settle=True
+):
     """Decide each newsroom carrying this byline, one at a time.
 
     `rulings` maps a host to what its stories are: a disposition from the
@@ -836,6 +697,12 @@ def rule_newsrooms(dataset_id, raw_byline, rulings, user, reason=""):
     A story already carrying the disposition is skipped rather than written
     again, so a second pass over a byline costs nothing and the count reported is
     of what actually changed.
+
+    `reasons` maps a host to why, and wins over `reason` for that host: each
+    newsroom is its own ruling and carries its own reason.
+
+    `settle=False` leaves the byline undecided, for a caller that is deciding the
+    string itself in the same submit.
 
     Returns `{"stories": n, "hosts": n, "kept": n}`.
     """
@@ -878,13 +745,228 @@ def rule_newsrooms(dataset_id, raw_byline, rulings, user, reason=""):
                 stage=stage_of(article),
                 user=user,
                 content_type=value,
-                reason=reason
+                reason=(reasons or {}).get(row["candidate_link__source__host"])
+                or reason
                 or f"{raw_byline} on {row['candidate_link__source__host']}",
                 label=(article.title or "")[:300],
             )
-        decide(dataset_id, raw_byline, ACCEPT, [raw_byline], user, reason=reason)
+        if settle:
+            decide(dataset_id, raw_byline, ACCEPT, [raw_byline], user, reason=reason)
     return {
         "stories": len(wanted),
         "hosts": len({host for host, v in decided.items() if v != KEEP}),
         "kept": len([h for h, v in decided.items() if v == KEEP]),
     }
+
+
+# ---------------------------------------------------------------------------
+# One submit for the page.
+#
+# The queue is worked 25 rows at a time. Every field on every row is a proposal
+# and nothing is written until the reviewer submits at the bottom, which then
+# disposes of everything on the page at once. The old page had a submit per
+# control -- a decision, a newsroom ruling, an outlier replacement, a cluster --
+# and each one redirected back to a page that re-read the whole queue.
+#
+# Field names carry the row's position on the page (`decision-3`) because a
+# string cannot be a field name and two rows can share a host. What a row holds:
+#
+#   decision-N       "" | accept | fix | drop | exclude (with content_type-N)
+#   names-N          the names, for `fix`
+#   canonical-N      "" | a spelling | DIFFERENT, for a cluster (`spelling-N`)
+#   reason-N         why, for the string
+#   host-N           every newsroom shown; ruling-N-<host> and why-N-<host>
+#   edit-N-<id>      a different byline for that one story
+#   use-N-<id>       the name the page prints, ticked to use it for that story
+#
+# Blank is "leave it alone" everywhere, so a submit with nothing touched changes
+# nothing, and a row nobody touched stays in the queue.
+# ---------------------------------------------------------------------------
+
+
+class PageError(ValueError):
+    """Everything wrong with a submit, at once, so it is fixed in one pass."""
+
+    def __init__(self, problems):
+        super().__init__("; ".join(problems))
+        self.problems = problems
+
+
+def read_page(post):
+    """The submit as one instruction per touched row. Writes nothing.
+
+    Validated in full BEFORE anything is applied: a page with one bad row is
+    refused whole. Applying the other 24 and refusing one would leave the
+    reviewer to work out which is which.
+    """
+    from review.dispositions import TYPE_BECOMES
+
+    instructions, problems = [], []
+    for index in post.getlist("row"):
+        raw = post.get(f"raw-{index}", "")
+        if not raw:
+            continue
+        problem = problems.append
+        decision = post.get(f"decision-{index}", "")
+        content_type = ""
+        if decision == EXCLUDE:
+            content_type = post.get(f"content_type-{index}", "")
+            if content_type not in TYPE_BECOMES:
+                problem(f"{raw}: say what its stories are")
+        elif decision and decision not in (ACCEPT, FIX, DROP):
+            problem(f"{raw}: not a decision")
+
+        names = parse_names(post.get(f"names-{index}", ""))
+        if decision == FIX and not names:
+            # An empty name list is what DROP means: a fix with nothing typed
+            # would silently drop a real reporter.
+            problem(f"{raw}: type the name or names it should be")
+
+        spellings = [s for s in post.getlist(f"spelling-{index}") if s]
+        canonical = post.get(f"canonical-{index}", "")
+        if canonical:
+            if decision:
+                problem(f"{raw}: settle the spellings or decide the string, not both")
+            elif canonical != DIFFERENT and canonical not in spellings:
+                problem(f"{raw}: pick one of the spellings offered")
+            decision = CLUSTER
+
+        rulings, whys = {}, {}
+        for host in post.getlist(f"host-{index}"):
+            ruling = post.get(f"ruling-{index}-{host}", KEEP)
+            if ruling != KEEP and ruling not in TYPE_BECOMES:
+                problem(f"{raw}: {host} is not a disposition: {ruling!r}")
+            elif ruling != KEEP:
+                rulings[host] = ruling
+            why = " ".join(post.get(f"why-{index}-{host}", "").split())
+            if why:
+                whys[host] = why
+
+        edits = {}
+        prefix = f"edit-{index}-"
+        for key in post:
+            if key.startswith(prefix):
+                name = " ".join(post.get(key, "").split())
+                if name:
+                    edits[key[len(prefix) :]] = name
+        # Ticked "use the page's name" is a name typed for you. What was typed
+        # wins where both are given.
+        used = f"use-{index}-"
+        for key in post:
+            if key.startswith(used):
+                name = " ".join(post.get(key, "").split())
+                if name:
+                    edits.setdefault(key[len(used) :], name)
+
+        if not (decision or rulings or edits):
+            continue
+        instructions.append(
+            {
+                "raw": raw,
+                "decision": decision,
+                "content_type": content_type,
+                "names": names,
+                "canonical": canonical,
+                "spellings": spellings,
+                "reason": " ".join(post.get(f"reason-{index}", "").split()),
+                "rulings": rulings,
+                "whys": whys,
+                "edits": edits,
+            }
+        )
+    if problems:
+        raise PageError(problems)
+    return instructions
+
+
+def apply_page(dataset, instructions, user):
+    """Carry out what `read_page` found, in one transaction on the write alias.
+
+    A row's order is: the newsrooms, then the single stories, then the string.
+    A row the reviewer touched without deciding its string is ACCEPTED -- the
+    name is right, the reviewer read the row and acted on it, and leaving it in
+    the queue would make every row worked need a second answer.
+
+    Returns `{"rows", "decisions", "stories", "edited"}`.
+    """
+    from audit.models import AuditLogEntry
+
+    total = {"rows": 0, "decisions": 0, "stories": 0, "edited": 0}
+    with transaction.atomic(using=write_alias()):
+        for row in instructions:
+            raw, reason = row["raw"], row["reason"]
+            acted = False
+
+            if row["rulings"]:
+                result = rule_newsrooms(
+                    dataset.id,
+                    raw,
+                    row["rulings"],
+                    user,
+                    reason=reason,
+                    reasons=row["whys"],
+                    settle=False,
+                )
+                total["stories"] += result["stories"]
+                acted = True
+                AuditLogEntry.objects.create(
+                    actor=user,
+                    action="byline:newsrooms",
+                    target_table="articles",
+                    target_ids=[f"{dataset.slug}:{raw}"],
+                    after={"rulings": row["rulings"], "stories": result["stories"]},
+                    reason=reason or f"newsrooms ruled for {raw}",
+                )
+
+            if row["edits"]:
+                host_of = {
+                    str(story["id"]): story["candidate_link__source__host"]
+                    for story in articles_naming(dataset.id, raw)
+                }
+                grouped: dict[tuple[str, str], list[str]] = {}
+                for article_id, name in row["edits"].items():
+                    why = row["whys"].get(host_of.get(article_id, ""), "") or reason
+                    grouped.setdefault((name, why), []).append(article_id)
+                for (name, why), ids in grouped.items():
+                    total["edited"] += replace_on(
+                        dataset.id, raw, ids, name, user, reason=why
+                    )
+                acted = True
+
+            decision = row["decision"]
+            if not decision and acted:
+                decision, row["names"] = ACCEPT, [raw]
+
+            if decision == CLUSTER:
+                decide_cluster(
+                    dataset.id, row["spellings"], row["canonical"], user, reason
+                )
+            elif decision == EXCLUDE:
+                written = exclude(
+                    dataset.id, raw, row["content_type"], user, reason=reason
+                )
+                total["stories"] += written
+                AuditLogEntry.objects.create(
+                    actor=user,
+                    action="byline:exclude",
+                    target_table="articles",
+                    target_ids=[f"{dataset.slug}:{raw}"],
+                    after={"content_type": row["content_type"], "articles": written},
+                    reason=reason or f"{raw} is not local reporting",
+                )
+            elif decision:
+                # Keep-as-is names the string itself unless names were typed.
+                names = row["names"] or ([raw] if decision == ACCEPT else [])
+                settled = decide(dataset.id, raw, decision, names, user, reason)
+                AuditLogEntry.objects.create(
+                    actor=user,
+                    action="byline:decide",
+                    target_table="byline_normalizations",
+                    target_ids=[f"{dataset.slug}:{raw}"],
+                    after={"decision": decision, "names": settled.canonical_names},
+                    reason=reason or f"{raw} — {decision}",
+                )
+            if decision:
+                total["decisions"] += 1
+            total["rows"] += 1
+    return total

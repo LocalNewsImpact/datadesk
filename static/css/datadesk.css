@@ -2887,3 +2887,28 @@ table.rec-table.queue-rows tbody th .rec-read { overflow-wrap: anywhere; }
 .sheet-item figcaption{ display: flex; align-items: baseline; gap: .5rem;
   font-size: .82rem; }
 .sheet-item figcaption a{ font-weight: 500; }
+
+/* Bylines: a card per byline, one submit for the page. */
+.byline-card { border: 1px solid var(--border-strong); border-radius: 8px;
+  padding: var(--s-4); margin: 0 0 var(--s-4); background: var(--surface); }
+.byline-head h2 { margin: 0; font-size: 1.25rem; }
+.byline-facts { margin: .25rem 0; }
+.byline-signal { display: inline-block; padding: .05rem .5rem; margin-right: .5rem;
+  border-radius: 999px; background: var(--surface-3); font-size: .85rem; }
+.byline-step { border: 0; border-top: 1px solid var(--border);
+  margin: var(--s-4) 0 0; padding: var(--s-3) 0 0; min-width: 0; }
+.byline-step legend { font-weight: 600; padding: 0 var(--s-2) 0 0; }
+.byline-choices { display: grid; grid-template-columns: max-content 1fr;
+  gap: var(--s-2) var(--s-3); align-items: center; }
+.byline-choices label { grid-column: 1 / -1; }
+.byline-choices label + textarea, .byline-choices label + select {
+  grid-column: 1 / -1; margin-left: 1.6rem; max-width: 28rem; }
+.byline-newsrooms tbody + tbody { border-top: 1px solid var(--border); }
+.byline-newsrooms input[type="text"] { width: 100%; }
+.byline-stories > td { padding-top: 0; }
+.byline-stories summary { cursor: pointer; }
+.byline-why { margin: var(--s-3) 0 0; }
+.byline-why input { width: 100%; max-width: 32rem; }
+.byline-submit { position: sticky; bottom: 0; z-index: 3; display: flex;
+  flex-wrap: wrap; gap: var(--s-4); align-items: center; padding: var(--s-3) 0;
+  background: var(--surface); border-top: 1px solid var(--border-strong); }
