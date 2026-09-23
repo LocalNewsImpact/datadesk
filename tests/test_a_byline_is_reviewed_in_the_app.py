@@ -737,3 +737,173 @@ def test_the_decision_is_labelled_not_a_real_name(page):
     assert "Names nobody" not in body
     assert bylines.DECISION_LABELS[bylines.DROP] == "not a real name"
     assert bylines.DROP == "drop"
+
+
+# --- a spelling cluster is one question -------------------------------------
+#
+# "Bruce E Stidham" and "Bruce E. Stidham" were two rows, each naming the other
+# as a variant, and a reviewer answered the same person twice and hoped the two
+# answers agreed. On Mizzou there are 14 such clusters covering 28 spellings.
+
+
+def _cluster(**kwargs):
+    group = [
+        {
+            "name": "Angela Hutschreider",
+            "articles": 40,
+            "hosts": ["linncountyleader.com"],
+            "differs_by": "",
+        },
+        {
+            "name": "Angie Hutschreider",
+            "articles": 1,
+            "hosts": ["chillicothenews.com"],
+            "differs_by": "spelling",
+        },
+    ]
+    return _candidate(
+        "Angela Hutschreider",
+        signal="SPELLING_VARIANT",
+        signal_label="One person, several spellings",
+        group=group,
+        variants=["Angie Hutschreider"],
+        articles=41,
+        **kwargs,
+    )
+
+
+def test_the_cluster_shows_every_spelling_with_its_own_count(page):
+    """Which spelling is right is judged by comparing those: 40 against 1."""
+    _cluster()
+    body = _queue(page).content.decode()
+    assert "Angie Hutschreider" in body
+    assert "chillicothenews.com" in body
+    assert 'value="cluster"' in body
+
+
+def test_the_leading_spelling_is_preselected(page):
+    """It carries the most stories, so it is the answer a reviewer would give if
+    they agreed — and agreeing should be one click."""
+    _cluster()
+    body = _queue(page).content.decode()
+    # The leading spelling's radio carries `checked`, the minority one does not.
+    # Compared on the rendered attributes rather than on exact whitespace, which
+    # the template is free to change.
+    radios = [
+        body[at : at + 160]
+        for at in range(len(body))
+        if body.startswith('name="canonical"', at)
+    ]
+    assert "Angela Hutschreider" in radios[0] and "checked" in radios[0]
+    assert "Angie Hutschreider" in radios[1] and "checked" not in radios[1]
+
+
+def test_keeping_one_spelling_records_every_spelling(page):
+    """The corpus ends up with one name, and the decisions survive a
+    re-extraction that writes an old spelling again."""
+    _cluster()
+    page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Angela Hutschreider",
+            "decision": "cluster",
+            "spelling": ["Angela Hutschreider", "Angie Hutschreider"],
+            "canonical": "Angela Hutschreider",
+        },
+    )
+    rows = {r.raw_byline: r for r in BylineNormalization.objects.all()}
+    assert rows["Angela Hutschreider"].decision == "accept"
+    assert rows["Angie Hutschreider"].decision == "fix"
+    assert rows["Angie Hutschreider"].canonical_names == ["Angela Hutschreider"]
+
+
+def test_the_minority_spelling_can_be_the_one_kept(page):
+    """The count is evidence, not the answer. 12 against 3 needs a look, and the
+    reviewer may know the smaller one is right."""
+    _cluster()
+    page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Angela Hutschreider",
+            "decision": "cluster",
+            "spelling": ["Angela Hutschreider", "Angie Hutschreider"],
+            "canonical": "Angie Hutschreider",
+        },
+    )
+    rows = {r.raw_byline: r for r in BylineNormalization.objects.all()}
+    assert rows["Angela Hutschreider"].canonical_names == ["Angie Hutschreider"]
+    assert rows["Angie Hutschreider"].decision == "accept"
+
+
+def test_different_people_is_a_real_answer(page):
+    """A reviewer who can see two people but cannot say so gets the pair offered
+    again every night."""
+    _cluster()
+    page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Angela Hutschreider",
+            "decision": "cluster",
+            "spelling": ["Angela Hutschreider", "Angie Hutschreider"],
+            "canonical": "__different__",
+        },
+    )
+    rows = {r.raw_byline: r for r in BylineNormalization.objects.all()}
+    assert [r.decision for r in rows.values()] == ["accept", "accept"]
+    assert rows["Angie Hutschreider"].canonical_names == ["Angie Hutschreider"]
+
+
+def test_the_whole_cluster_leaves_the_queue(page):
+    _cluster()
+    _candidate("Angie Hutschreider", signal="SPELLING_VARIANT", signal_label="x")
+    page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Angela Hutschreider",
+            "decision": "cluster",
+            "spelling": ["Angela Hutschreider", "Angie Hutschreider"],
+            "canonical": "Angela Hutschreider",
+        },
+    )
+    assert not BylineReviewCandidate.objects.exists()
+
+
+def test_a_spelling_not_offered_is_refused(page):
+    """The names being merged are what the answer means, so a canonical that was
+    not one of the spellings shown is refused rather than written."""
+    _cluster()
+    response = page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Angela Hutschreider",
+            "decision": "cluster",
+            "spelling": ["Angela Hutschreider", "Angie Hutschreider"],
+            "canonical": "Someone Else Entirely",
+        },
+    )
+    assert response.status_code == 400
+    assert not BylineNormalization.objects.exists()
+
+
+def test_a_single_name_still_gets_the_ordinary_form(page):
+    """Clustering changes rows that have several spellings and nothing else."""
+    _candidate("Jon Smtih")
+    body = _queue(page).content.decode()
+    assert 'value="cluster"' not in body
+    assert 'value="fix"' in body
+
+
+def test_a_shared_byline_is_named_on_the_row(page):
+    """A name beside a co-author is a different question from a name alone."""
+    _candidate(
+        "Marcus Officer",
+        sources=["Alyssa Mueller, Marcus Officer", "Marcus Officer, Jonathan Ketz"],
+    )
+    body = _queue(page).content.decode()
+    assert "shares a byline" in body
+    assert "Alyssa Mueller, Marcus Officer" in body

@@ -366,6 +366,9 @@ def exclusion_types():
     ]
 
 
+CLUSTER = "cluster"
+DECISION_LABELS[CLUSTER] = "settled with its other spellings"
+
 REPLACE = "replace"
 DECISION_LABELS[REPLACE] = "replaced on some of its stories"
 
@@ -548,3 +551,71 @@ def replace_on(dataset_id, raw_byline, article_ids, new_byline, user, reason="")
         reason=reason or f"{raw_byline} was not the byline on these stories",
     )
     return len(articles)
+
+
+# ---------------------------------------------------------------------------
+# A spelling cluster: one question about one person.
+#
+# The crawler groups the spellings of a name and sends them as `group` -- each
+# with its own article count and hosts -- because "Bruce E Stidham" and
+# "Bruce E. Stidham" were two rows, and a reviewer answered the same person
+# twice and hoped the two answers agreed.
+# ---------------------------------------------------------------------------
+
+#: The answer that the spellings are not one person after all.
+DIFFERENT = "__different__"
+
+
+def cluster_spellings(candidate):
+    """The spellings in this row's cluster, or `[]` when it is a single name."""
+    group = getattr(candidate, "group", None) or []
+    names = [entry.get("name") for entry in group if entry.get("name")]
+    return names if len(names) > 1 else []
+
+
+def decide_cluster(dataset_id, spellings, canonical, user, reason=""):
+    """Settle every spelling of one name in one answer.
+
+    `canonical` is the spelling that is right, and every other spelling is
+    recorded as meaning it -- so the corpus ends up with one name and the
+    decisions survive a re-extraction that writes an old spelling again.
+
+    `DIFFERENT` says they are not one person: each spelling is accepted as
+    itself, which takes them all off the queue without renaming anybody. That is
+    a real answer and has to be recordable, or a reviewer who sees two people
+    has no way to say so and the pair is offered again every night.
+
+    Returns how many spellings were decided.
+    """
+    spellings = [name for name in spellings if name]
+    if not spellings:
+        raise ValueError("A cluster needs its spellings")
+
+    # ONE TRANSACTION over every spelling. A cluster half-decided is worse than
+    # one not decided at all: the queue would show the spellings that failed
+    # while the corpus already carried the rename.
+    with transaction.atomic(using=write_alias()):
+        return _decide_cluster(dataset_id, spellings, canonical, user, reason)
+
+
+def _decide_cluster(dataset_id, spellings, canonical, user, reason):
+    """The body of `decide_cluster`, inside its transaction."""
+
+    if canonical == DIFFERENT:
+        for name in spellings:
+            decide(dataset_id, name, ACCEPT, [name], user, reason=reason)
+        return len(spellings)
+
+    if canonical not in spellings:
+        # Not one of the offered spellings: a stale form, or a hand-made
+        # request. Refused rather than written, because the names being merged
+        # are what the answer means.
+        raise ValueError("Pick one of the spellings")
+
+    for name in spellings:
+        if name == canonical:
+            # Right as it stands. Recorded anyway, so the queue stops asking.
+            decide(dataset_id, name, ACCEPT, [name], user, reason=reason)
+        else:
+            decide(dataset_id, name, FIX, [canonical], user, reason=reason)
+    return len(spellings)
