@@ -1287,3 +1287,32 @@ def test_the_page_says_how_the_submit_went(page):
     )
     body = page.get(response["Location"]).content.decode()
     assert "1 bylines dealt with" in body or "1 byline" in body
+
+
+# --- the owner is read from the corpus, not from the candidate's snapshot -----
+#
+# `byline_review_candidates.owners` is written by the crawler when it computes
+# the row. "McClathy" was corrected to "The McClatchy Company" on
+# www.kansascity.com on 2026-09-23 and six candidate rows went on printing the
+# misspelling, because nothing re-reads that column until the next refresh.
+
+
+def test_the_owner_comes_from_the_corpus_not_the_candidate(page):
+    _article("a-1", "Ben Wheeler")
+    _candidate(
+        "Ben Wheeler",
+        signal="CROSS_OWNER",
+        signal_label="Same name, unrelated owners",
+        owners=["McClathy"],
+        hosts=["one.example"],
+    )
+    body = _queue(page).content.decode()
+    assert "Missourian Publishing" in body, "the owner the source table carries"
+    assert "McClathy" not in body, "the snapshot the candidate carries"
+
+
+def test_a_row_with_no_matching_stories_keeps_its_recorded_owner(page):
+    """A byline the page prints and nothing stored has no articles carrying the
+    name, so the corpus can say nothing about its owner."""
+    _candidate("Nobody At All", owners=["Some Owner Ltd"], hosts=["one.example"])
+    assert "Some Owner Ltd" in _queue(page).content.decode()

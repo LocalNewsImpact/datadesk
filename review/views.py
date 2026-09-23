@@ -1656,6 +1656,19 @@ def byline_queue(request):
             )
             for row in shown:
                 row.newsrooms = bylines.host_choices(row, stories[row.raw_byline])
+                # THE OWNERS AS THE CORPUS READS THEM NOW, not as the candidate
+                # recorded them. `candidate.owners` is a snapshot the crawler
+                # wrote when it computed the row, so a correction to
+                # `sources.owner` is invisible here until the next refresh: the
+                # misspelling "McClathy" was fixed on www.kansascity.com on
+                # 2026-09-23 and six candidate rows went on printing it.
+                #
+                # The candidate's own list is the fallback, for a row whose
+                # stories nothing matches -- a byline the page prints and
+                # nothing stored has no articles carrying the name.
+                row.owners_now = sorted(
+                    {room["owner"] for room in row.newsrooms if room["owner"]}
+                ) or list(row.owners or ())
         except DatabaseError:
             connected = False
     params = request.GET.copy()
