@@ -1033,3 +1033,180 @@ def test_a_byline_with_one_newsroom_has_no_outlier(page):
     from review import bylines
 
     assert bylines.outlying_hosts(row) == []
+
+
+# --- one newsroom is the reporter's; the rest republish ----------------------
+#
+# Steph Quinn has 112 stories on missouriindependent.com, where she works, and
+# 288 across 41 other domains, because States Newsroom copy is syndicated across
+# Missouri. Her byline is not wrong on any of them: what is wrong is counting the
+# republished ones as that paper's local reporting. Across the Mizzou queue that
+# is 125 bylines, 12,179 stories elsewhere, 8,031 not yet wire.
+
+
+def _syndicated():
+    """Her shape: the most stories at home, the rest co-authored elsewhere."""
+    for n in range(3):
+        _article(f"a-home-{n}", "Steph Quinn")
+    _article("a-away-1", "Rudi Keller, Steph Quinn", host_id="s-2")
+    _article("a-away-2", "Steph Quinn, Clara Bates", host_id="s-2")
+    return _candidate(
+        "Steph Quinn",
+        signal="CROSS_OWNER",
+        signal_label="Same name, unrelated owners",
+        articles=5,
+        hosts=["one.example", "two.example"],
+    )
+
+
+def test_a_co_authored_byline_counts_towards_its_newsrooms(page):
+    """An exact match would say she writes for one newsroom: 41 of her domains
+    carry her only inside a string naming three or four reporters."""
+    row = _syndicated()
+    from review import bylines
+
+    counts = {c["host"]: c["articles"] for c in bylines.host_choices(row)}
+    assert counts == {"one.example": 3, "two.example": 2}
+
+
+def test_a_substring_of_another_name_is_not_a_match(page):
+    """`contains` reaches "Rudi Keller, Steph Quinn" from "Steph Quinn", and on
+    its own it would reach "Dan Fox" from "Dan"."""
+    _article("a-1", "Dan Fox")
+    row = _candidate("Dan", signal="NOT_A_PERSON", signal_label="x")
+    from review import bylines
+
+    assert bylines.host_choices(row) == []
+
+
+def test_the_newsrooms_are_offered_biggest_first(page):
+    """The biggest is usually the reporter's own, so it is the default — but only
+    the default: a wire reporter republished more than published would be the
+    other way round."""
+    _syndicated()
+    body = _queue(page).content.decode()
+    radios = [
+        body[at : at + 170]
+        for at in range(len(body))
+        if body.startswith('name="primary_host"', at)
+    ]
+    assert "one.example" in radios[0] and "checked" in radios[0]
+    assert "two.example" in radios[1] and "checked" not in radios[1]
+
+
+def test_the_other_newsrooms_stories_are_re_disposed(page):
+    _syndicated()
+    page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Steph Quinn",
+            "decision": "primary",
+            "primary_host": "one.example",
+            "content_type": "wire",
+        },
+    )
+    assert [a.status for a in Article.objects.filter(id__startswith="a-away")] == [
+        "wire",
+        "wire",
+    ]
+
+
+def test_the_primary_newsrooms_stories_are_untouched(page):
+    """That is the reporting this byline is for."""
+    _syndicated()
+    page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Steph Quinn",
+            "decision": "primary",
+            "primary_host": "one.example",
+            "content_type": "wire",
+        },
+    )
+    assert {a.status for a in Article.objects.filter(id__startswith="a-home")} == {
+        "enriched"
+    }
+
+
+def test_the_byline_is_accepted_not_dropped(page):
+    """She is a real reporter with a real name. The ruling is about which stories
+    are local reporting, and nothing about the name is wrong."""
+    _syndicated()
+    page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Steph Quinn",
+            "decision": "primary",
+            "primary_host": "one.example",
+            "content_type": "wire",
+        },
+    )
+    row = BylineNormalization.objects.get(raw_byline="Steph Quinn")
+    assert row.decision == "accept"
+    assert row.canonical_names == ["Steph Quinn"]
+    assert not BylineReviewCandidate.objects.filter(raw_byline="Steph Quinn").exists()
+
+
+def test_a_story_already_carrying_the_disposition_is_not_written_again(page):
+    """So a second ruling on the same byline costs nothing and the count reported
+    is of what actually changed."""
+    _syndicated()
+    Article.objects.filter(id="a-away-1").update(status="wire")
+    from review import bylines
+
+    result = bylines.set_primary(
+        "d-mo",
+        "Steph Quinn",
+        "one.example",
+        "wire",
+        User.objects.get(username="ed"),
+    )
+    assert result["stories"] == 1
+
+
+def test_a_newsroom_that_does_not_carry_the_byline_is_refused(page):
+    _syndicated()
+    response = page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Steph Quinn",
+            "decision": "primary",
+            "primary_host": "nowhere.example",
+            "content_type": "wire",
+        },
+    )
+    assert response.status_code == 400
+    assert not BylineNormalization.objects.exists()
+
+
+def test_saying_nothing_about_the_other_stories_is_refused(page):
+    _syndicated()
+    response = page.post(
+        reverse("review:bylines"),
+        {
+            "dataset": "Mizzou-Missouri-State",
+            "raw_byline": "Steph Quinn",
+            "decision": "primary",
+            "primary_host": "one.example",
+            "content_type": "",
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_wire_is_the_default_disposition(page):
+    """The case this was built for."""
+    _syndicated()
+    body = _queue(page).content.decode()
+    assert '<option value="wire" selected>' in body
+
+
+def test_a_byline_on_one_newsroom_is_not_offered_the_ruling(page):
+    _article("a-1", "Jon Smith")
+    _candidate("Jon Smith", signal="CROSS_OWNER", signal_label="x")
+    body = _queue(page).content.decode()
+    assert "One newsroom is theirs" not in body

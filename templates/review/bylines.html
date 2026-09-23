@@ -99,6 +99,67 @@
           into it.
           {% endcomment %}
           {% comment %}
+          ONE NEWSROOM IS THE REPORTER'S; THE REST REPUBLISH.
+
+          Steph Quinn has 112 stories on missouriindependent.com, where she
+          works, and 288 across 41 other domains, because States Newsroom copy is
+          syndicated across Missouri. Her byline is not wrong on any of them --
+          what is wrong is counting the republished ones as that paper's local
+          reporting.
+
+          Which newsroom is hers is not something the data can settle: one big
+          host and many small ones is a syndicated staff writer AND a stringer who
+          files everywhere. So the reviewer says, and the biggest is only the
+          default.
+          {% endcomment %}
+          {% if row.host_choices|length > 1 %}
+          <details class="card-inset">
+            <summary>One newsroom is theirs ({{ row.host_choices|length }} carry this byline)</summary>
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="dataset" value="{{ dataset }}">
+              <input type="hidden" name="signal" value="{{ signal }}">
+              <input type="hidden" name="raw_byline" value="{{ row.raw_byline }}">
+              <table class="grid grid-inset">
+                <thead><tr><th>Theirs</th><th>Newsroom</th><th class="num">Stories</th><th>Owner</th></tr></thead>
+                <tbody>
+                  {% for choice in row.host_choices %}
+                  <tr>
+                    <td>
+                      <label class="sr-only" for="p{{ forloop.parentloop.counter }}-{{ forloop.counter }}">{{ choice.host }}</label>
+                      <input type="radio" id="p{{ forloop.parentloop.counter }}-{{ forloop.counter }}"
+                             name="primary_host" value="{{ choice.host }}"
+                             {% if forloop.first %}checked{% endif %}>
+                    </td>
+                    <td>{{ choice.host }}</td>
+                    <td class="num">{{ choice.articles }}</td>
+                    <td class="hint">{{ choice.owner|default:"—" }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              <label>Everything on the other newsrooms is
+                <select name="content_type">
+                  {% for type in exclusion_types %}
+                  <option value="{{ type.value }}" {% if type.value == "wire" %}selected{% endif %}>{{ type.label }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>Why
+                <input type="text" name="reason" placeholder="optional">
+              </label>
+              {% comment %}
+              The byline itself is accepted, not dropped: the name is right, and
+              the ruling is about which stories are local reporting. Stories
+              already carrying the disposition are skipped, so a second ruling
+              costs nothing.
+              {% endcomment %}
+              <button type="submit" name="decision" value="primary">Keep that newsroom, re-dispose the rest</button>
+            </form>
+          </details>
+          {% endif %}
+
+          {% comment %}
           THE OUTLYING NEWSROOMS, AND THEIR STORIES, ON THE ROW.
 
           Not in a drawer: this is the question the row asks, and it was two

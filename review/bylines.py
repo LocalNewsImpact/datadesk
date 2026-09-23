@@ -17,8 +17,19 @@ CO-AUTHORS ARE NOT A DEFECT and never appear here. A byline naming three
 reporters is three records, which the crawler's `author_records` produces.
 """
 
+import re
+
 from django.db import router, transaction
 from django.utils import timezone
+
+#: How a byline string separates the people it names. The crawler's
+#: `byline_review._SEPARATORS` in the form this console needs.
+_SEPARATORS = re.compile(r"\s*(?:,|;|\band\b|&|\u2022|\|)\s*")
+
+
+def _norm(value):
+    """A name flattened for comparison: case and spacing only."""
+    return " ".join((value or "").split()).casefold()
 
 
 def write_alias():
@@ -651,28 +662,51 @@ def outlying_hosts(candidate):
     )
 
 
+def articles_naming(dataset_id, name):
+    """Every story whose byline names this person, co-authored ones included.
+
+    A `contains` match is the only way to reach "Rudi Keller, Steph Quinn" from
+    "Steph Quinn", and on its own it would also reach "Dan Fox" from "Dan". So
+    the parts are checked properly afterwards: the database narrows, Python
+    decides.
+    """
+    from explorer.models import Article
+
+    rows = Article.objects.using("crawler").filter(
+        dataset_id=dataset_id, author__contains=name
+    )
+    target = _norm(name)
+    keep = []
+    for row in rows.values(
+        "id",
+        "author",
+        "status",
+        "candidate_link__source__host",
+        "candidate_link__source__owner",
+    ):
+        parts = [_norm(part) for part in _SEPARATORS.split(row["author"] or "")]
+        if target in parts:
+            keep.append(row)
+    return keep
+
+
 def _host_counts(candidate):
     """`{host: stories}` for one candidate, from the corpus.
 
     Counted here rather than carried on the candidate because the row's `hosts`
     is a list of names with no counts, and which host is the outlier is exactly
     a question about counts.
+
+    Counted over co-authored bylines too: Steph Quinn reaches 41 domains almost
+    entirely inside strings naming three or four reporters, and an exact match
+    would have said she writes for one.
     """
-    from django.db.models import Count
-
-    from explorer.models import Article
-
-    rows = (
-        Article.objects.using("crawler")
-        .filter(dataset_id=candidate.dataset_id, author=candidate.raw_byline)
-        .values("candidate_link__source__host")
-        .annotate(n=Count("id"))
-    )
-    return {
-        row["candidate_link__source__host"]: row["n"]
-        for row in rows
-        if row["candidate_link__source__host"]
-    }
+    counts: dict[str, int] = {}
+    for row in articles_naming(candidate.dataset_id, candidate.raw_byline):
+        host = row["candidate_link__source__host"]
+        if host:
+            counts[host] = counts.get(host, 0) + 1
+    return counts
 
 
 def outlying_stories(candidate, hosts, per_host=6):
@@ -731,3 +765,122 @@ def outlying_stories(candidate, hosts, per_host=6):
             }
         )
     return out
+
+
+# ---------------------------------------------------------------------------
+# One newsroom is the reporter's; the rest are republishing.
+#
+# Steph Quinn has 112 stories on missouriindependent.com, where she works, and
+# 288 across 41 other domains -- Sedalia, Jefferson City, Warrensburg, Joplin,
+# public radio, Sinclair -- because States Newsroom copy is syndicated across
+# Missouri. Almost all of those 288 are already `wire`; about ten are not, and
+# two of those reached the local export as her local reporting.
+#
+# Across the queue that is 125 bylines, 12,179 stories on a non-primary host,
+# 8,031 of them not yet wire.
+#
+# The reviewer says which newsroom is hers. That is not something the data can
+# settle: the same shape -- one big host and many small ones -- is a syndicated
+# staff writer AND a stringer who files everywhere, and only somebody who knows
+# the publication can tell them apart.
+# ---------------------------------------------------------------------------
+
+PRIMARY = "primary"
+DECISION_LABELS[PRIMARY] = "one newsroom is theirs, the rest republish"
+
+
+def host_choices(candidate):
+    """`[{host, articles, owner}]` for the newsrooms this byline appears on.
+
+    Biggest first, because the newsroom with the most stories is usually the
+    reporter's own and should be the default -- but only the default. A wire
+    reporter whose copy is republished more than it is originally published
+    would be the other way round, which is why this is a choice and not a rule.
+    """
+    # The owner comes from the same rows as the counts. The candidate's `hosts`
+    # and `owners` are two independent lists, so pairing them by position would
+    # caption a newsroom with somebody else's owner.
+    counts: dict[str, int] = {}
+    owners: dict[str, str] = {}
+    for row in articles_naming(candidate.dataset_id, candidate.raw_byline):
+        host = row["candidate_link__source__host"]
+        if not host:
+            continue
+        counts[host] = counts.get(host, 0) + 1
+        owners.setdefault(host, row["candidate_link__source__owner"] or "")
+    return sorted(
+        (
+            {"host": host, "articles": n, "owner": owners.get(host, "")}
+            for host, n in counts.items()
+        ),
+        key=lambda row: (-row["articles"], row["host"]),
+    )
+
+
+def set_primary(dataset_id, raw_byline, primary_host, content_type, user, reason=""):
+    """Keep this byline's stories on one newsroom; re-dispose the rest.
+
+    The stories on every OTHER newsroom are re-disposed to what the reviewer says
+    they are -- `wire`, in the case this was built for -- through
+    `dispositions.record`, the same call the extraction queue makes. The primary
+    newsroom's stories are not touched: that is the reporting this byline is for.
+
+    THE BYLINE ITSELF IS ACCEPTED, not dropped. Steph Quinn is a real reporter
+    with a real name; the ruling is about which stories are hers to have written
+    locally, and nothing about her name is wrong. Accepting it takes the row off
+    the queue without renaming anybody.
+
+    A story already carrying the disposition is skipped rather than written
+    again, so a second ruling on the same byline costs nothing and the count
+    reported is of what actually changed.
+
+    Returns `{"stories": n, "hosts": n}`.
+    """
+    from explorer.models import Article
+    from review.dispositions import REJECT, TYPE_BECOMES, record, stage_of
+
+    if content_type not in TYPE_BECOMES:
+        raise ValueError("Say what the other newsrooms' stories are")
+    if not primary_host:
+        raise ValueError("Pick the newsroom this byline belongs to")
+
+    rows = articles_naming(dataset_id, raw_byline)
+    hosts = {row["candidate_link__source__host"] for row in rows}
+    if primary_host not in hosts:
+        raise ValueError("That newsroom does not carry this byline")
+
+    becomes = TYPE_BECOMES[content_type]
+    elsewhere = [
+        row
+        for row in rows
+        if row["candidate_link__source__host"] != primary_host
+        and row["status"] != becomes
+    ]
+
+    alias = write_alias()
+    with transaction.atomic(using=alias):
+        articles = list(
+            Article.objects.using(alias).filter(id__in=[r["id"] for r in elsewhere])
+        )
+        for article in articles:
+            record(
+                article,
+                decision=REJECT,
+                stage=stage_of(article),
+                user=user,
+                content_type=content_type,
+                reason=reason or f"{raw_byline} writes for {primary_host}",
+                label=(article.title or "")[:300],
+            )
+        decide(
+            dataset_id,
+            raw_byline,
+            ACCEPT,
+            [raw_byline],
+            user,
+            reason=reason or f"writes for {primary_host}",
+        )
+    return {
+        "stories": len(articles),
+        "hosts": len({r["candidate_link__source__host"] for r in elsewhere}),
+    }

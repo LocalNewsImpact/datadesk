@@ -1661,6 +1661,9 @@ def byline_queue(request):
                 # disclosures deep, and the one outlying story was one
                 # unlabelled row among eight.
                 row.outliers = bylines.outlying_hosts(row)
+                # The newsrooms this byline appears on, with counts, for the
+                # ruling that one of them is the reporter's own.
+                row.host_choices = bylines.host_choices(row)
                 row.outlying_stories = bylines.outlying_stories(row, row.outliers)
                 row.expanded = row.raw_byline == expanded
                 row.groups = (
@@ -1723,6 +1726,52 @@ def _decide_byline(request):
     decision = request.POST.get("decision", "")
     if not raw or decision not in bylines.DECISION_LABELS:
         return HttpResponseBadRequest("Pick a decision")
+
+    if decision == bylines.PRIMARY:
+        # One newsroom is the reporter's; the rest republish. The stories
+        # elsewhere are re-disposed and the byline itself is accepted -- the name
+        # is right, the ruling is about which stories are local reporting.
+        try:
+            result = bylines.set_primary(
+                dataset.id,
+                raw,
+                request.POST.get("primary_host", ""),
+                request.POST.get("content_type", ""),
+                request.user,
+                reason=request.POST.get("reason", ""),
+            )
+        except ValueError as problem:
+            return HttpResponseBadRequest(str(problem))
+        AuditLogEntry.objects.create(
+            actor=request.user,
+            action="byline:primary",
+            target_table="articles",
+            target_ids=[f"{dataset.slug}:{raw}"],
+            after={
+                "primary_host": request.POST.get("primary_host", ""),
+                "content_type": request.POST.get("content_type", ""),
+                "stories": result["stories"],
+            },
+            reason=request.POST.get("reason", "")
+            or f"{raw} writes for {request.POST.get('primary_host', '')}",
+        )
+        messages.success(
+            request,
+            f"{raw} writes for {request.POST.get('primary_host', '')}; "
+            f"{result['stories']} stories on {result['hosts']} other newsrooms "
+            f"re-disposed as {request.POST.get('content_type', '')}.",
+        )
+        query = urlencode(
+            {
+                k: v
+                for k, v in (
+                    ("dataset", slug),
+                    ("signal", request.POST.get("signal", "")),
+                )
+                if v
+            }
+        )
+        return redirect(f"{reverse('review:bylines')}?{query}")
 
     if decision == bylines.CLUSTER:
         # Every spelling of one name, in one answer. The spellings come from the
