@@ -1728,19 +1728,17 @@ def _decide_byline(request):
         return HttpResponseBadRequest("Pick a decision")
 
     if decision == bylines.PRIMARY:
-        # One decision per newsroom, paired by position: the hidden host input
-        # sits beside its select, so the two lists arrive in the same order.
-        # Not a primary and a blanket for the rest -- a byline on 42 domains is
-        # not 42 instances of one fact.
-        hosts = request.POST.getlist("host")
-        dispositions = request.POST.getlist("disposition")
-        if len(hosts) != len(dispositions):
-            return HttpResponseBadRequest("A newsroom is missing its ruling")
+        # The newsrooms TICKED as not their own reporting, and the one thing
+        # they are. Unticked newsrooms are absent and keep their stories, so a
+        # submit with nothing ticked changes nothing and is refused as an
+        # accident rather than recorded as a ruling.
+        chosen = request.POST.getlist("exclude_host")
+        content_type = request.POST.get("content_type", "")
         try:
             result = bylines.rule_newsrooms(
                 dataset.id,
                 raw,
-                dict(zip(hosts, dispositions, strict=True)),
+                dict.fromkeys(chosen, content_type),
                 request.user,
                 reason=request.POST.get("reason", ""),
             )
@@ -1752,11 +1750,8 @@ def _decide_byline(request):
             target_table="articles",
             target_ids=[f"{dataset.slug}:{raw}"],
             after={
-                "rulings": {
-                    host: value
-                    for host, value in zip(hosts, dispositions, strict=True)
-                    if value
-                },
+                "excluded": chosen,
+                "content_type": content_type,
                 "stories": result["stories"],
             },
             reason=request.POST.get("reason", "") or f"newsrooms ruled for {raw}",
@@ -1764,7 +1759,7 @@ def _decide_byline(request):
         messages.success(
             request,
             f"{result['stories']} stories on {result['hosts']} newsrooms "
-            f"re-disposed; {result['kept']} newsrooms kept as they are.",
+            f"re-disposed as {content_type}.",
         )
         query = urlencode(
             {

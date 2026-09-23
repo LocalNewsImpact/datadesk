@@ -1101,20 +1101,25 @@ def test_the_newsrooms_are_listed_biggest_first(page):
     ]
 
 
-def test_keep_is_the_default_for_every_newsroom(page):
-    """A form that excluded by default would be a blanket ruling with extra
-    steps, and one careless submit would re-dispose all 42 of her domains."""
+def test_no_newsroom_is_ticked_to_start(page):
+    """Unticked writes nothing, so a careless submit changes nothing. A form that
+    excluded by default would be a blanket ruling with extra steps."""
     _syndicated()
     body = _queue(page).content.decode()
-    selects = [
-        body[at : at + 200]
+    ticks = [
+        body[at : at + 140]
         for at in range(len(body))
-        if body.startswith('name="disposition"', at)
+        if body.startswith('name="exclude_host"', at)
     ]
-    assert selects, "no per-newsroom ruling offered"
-    for select in selects:
-        assert 'value=""' in select
-        assert "selected" not in select
+    assert len(ticks) == 2, "a tick per newsroom carrying the byline"
+    assert not any("checked" in tick for tick in ticks)
+
+
+def test_wire_is_the_default_for_the_ticked_newsrooms(page):
+    """The case this was built for: syndicated copy republished elsewhere."""
+    _syndicated()
+    body = _queue(page).content.decode()
+    assert '<option value="wire" selected>' in body
 
 
 def test_each_newsroom_is_ruled_on_its_own(page):
@@ -1127,8 +1132,8 @@ def test_each_newsroom_is_ruled_on_its_own(page):
             "dataset": "Mizzou-Missouri-State",
             "raw_byline": "Steph Quinn",
             "decision": "primary",
-            "host": ["one.example", "two.example", "three.example"],
-            "disposition": ["", "wire", ""],
+            "exclude_host": ["two.example"],
+            "content_type": "wire",
         },
     )
     assert Article.objects.get(id="a-away-1").status == "wire"
@@ -1136,19 +1141,22 @@ def test_each_newsroom_is_ruled_on_its_own(page):
     assert Article.objects.get(id="a-home-0").status == "enriched"
 
 
-def test_a_newsroom_kept_is_not_written(page):
+def test_ticking_nothing_is_refused_rather_than_recorded(page):
+    """An empty submit is an accident, not a ruling that every newsroom is
+    theirs -- and recording it would take the row off the queue."""
     _syndicated()
-    page.post(
+    response = page.post(
         reverse("review:bylines"),
         {
             "dataset": "Mizzou-Missouri-State",
             "raw_byline": "Steph Quinn",
             "decision": "primary",
-            "host": ["one.example", "two.example"],
-            "disposition": ["", ""],
+            "content_type": "wire",
         },
     )
+    assert response.status_code == 400
     assert {a.status for a in Article.objects.all()} == {"enriched"}
+    assert not BylineNormalization.objects.exists()
 
 
 def test_the_byline_is_accepted_not_dropped(page):
@@ -1161,8 +1169,8 @@ def test_the_byline_is_accepted_not_dropped(page):
             "dataset": "Mizzou-Missouri-State",
             "raw_byline": "Steph Quinn",
             "decision": "primary",
-            "host": ["one.example", "two.example"],
-            "disposition": ["", "wire"],
+            "exclude_host": ["two.example"],
+            "content_type": "wire",
         },
     )
     row = BylineNormalization.objects.get(raw_byline="Steph Quinn")
@@ -1211,8 +1219,8 @@ def test_a_ruling_naming_no_real_newsroom_is_refused(page):
             "dataset": "Mizzou-Missouri-State",
             "raw_byline": "Steph Quinn",
             "decision": "primary",
-            "host": ["nowhere.example"],
-            "disposition": ["wire"],
+            "exclude_host": ["nowhere.example"],
+            "content_type": "wire",
         },
     )
     assert response.status_code == 400
@@ -1227,29 +1235,12 @@ def test_a_disposition_that_is_not_one_is_refused(page):
             "dataset": "Mizzou-Missouri-State",
             "raw_byline": "Steph Quinn",
             "decision": "primary",
-            "host": ["one.example", "two.example"],
-            "disposition": ["", "something-else"],
+            "exclude_host": ["two.example"],
+            "content_type": "something-else",
         },
     )
     assert response.status_code == 400
     assert Article.objects.get(id="a-away-1").status == "enriched"
-
-
-def test_a_host_without_its_ruling_is_refused(page):
-    """The two lists are paired by position, so a mismatch means the form did not
-    arrive as it was rendered."""
-    _syndicated()
-    response = page.post(
-        reverse("review:bylines"),
-        {
-            "dataset": "Mizzou-Missouri-State",
-            "raw_byline": "Steph Quinn",
-            "decision": "primary",
-            "host": ["one.example", "two.example"],
-            "disposition": ["wire"],
-        },
-    )
-    assert response.status_code == 400
 
 
 def test_a_byline_on_one_newsroom_is_not_offered_the_ruling(page):

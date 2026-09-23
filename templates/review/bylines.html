@@ -125,31 +125,40 @@
               <input type="hidden" name="signal" value="{{ signal }}">
               <input type="hidden" name="raw_byline" value="{{ row.raw_byline }}">
               <table class="grid grid-inset">
-                <thead><tr><th>Newsroom</th><th class="num">Stories</th><th>Owner</th><th>These stories are</th></tr></thead>
+                <thead><tr><th>Exclude</th><th>Newsroom</th><th class="num">Stories</th><th>Owner</th></tr></thead>
                 <tbody>
                   {% for choice in row.host_choices %}
                   <tr>
+                    <td>
+                      {% comment %}
+                      Ticked means "not this newsroom's own reporting". Unticked
+                      is the default and writes nothing, so a submit with nothing
+                      ticked changes nothing.
+                      {% endcomment %}
+                      <label class="sr-only" for="h{{ forloop.parentloop.counter }}-{{ forloop.counter }}">Exclude {{ choice.host }}</label>
+                      <input type="checkbox" id="h{{ forloop.parentloop.counter }}-{{ forloop.counter }}"
+                             name="exclude_host" value="{{ choice.host }}">
+                    </td>
                     <td>{{ choice.host }}</td>
                     <td class="num">{{ choice.articles }}</td>
                     <td class="hint">{{ choice.owner|default:"—" }}</td>
-                    <td>
-                      {% comment %}
-                      The hidden host sits beside its select so the two lists
-                      arrive in the same order and can be paired by position.
-                      {% endcomment %}
-                      <input type="hidden" name="host" value="{{ choice.host }}">
-                      <label class="sr-only" for="h{{ forloop.parentloop.counter }}-{{ forloop.counter }}">{{ choice.host }}</label>
-                      <select id="h{{ forloop.parentloop.counter }}-{{ forloop.counter }}" name="disposition">
-                        <option value="">their own reporting — keep</option>
-                        {% for type in exclusion_types %}
-                        <option value="{{ type.value }}">{{ type.label }}</option>
-                        {% endfor %}
-                      </select>
-                    </td>
                   </tr>
                   {% endfor %}
                 </tbody>
               </table>
+              {% comment %}
+              ONE DISPOSITION FOR THE TICKED NEWSROOMS. Ticking the syndicated
+              ones and setting them to Wire in one go is the common case; a
+              byline whose newsrooms are wrong in DIFFERENT ways is two passes,
+              which is rarer than the 41 selects it replaces.
+              {% endcomment %}
+              <label>The ticked newsrooms' stories are
+                <select name="content_type">
+                  {% for type in exclusion_types %}
+                  <option value="{{ type.value }}" {% if type.value == "wire" %}selected{% endif %}>{{ type.label }}</option>
+                  {% endfor %}
+                </select>
+              </label>
               <label>Why
                 <input type="text" name="reason" placeholder="optional">
               </label>
@@ -158,7 +167,7 @@
               about which stories are local reporting. Stories already carrying
               the disposition are skipped, so a second pass costs nothing.
               {% endcomment %}
-              <button type="submit" name="decision" value="primary">Record these rulings</button>
+              <button type="submit" name="decision" value="primary">Exclude the ticked newsrooms</button>
             </form>
           </details>
           {% endif %}
