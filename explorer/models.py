@@ -458,6 +458,19 @@ class BylineReviewCandidate(CrawlerModel):
     articles = models.IntegerField(default=0)
     hosts = DecodedJSONField(null=True)
     owners = DecodedJSONField(null=True)
+    # The byline STRINGS this name was read out of (crawler 2f8b4c1e6a37).
+    # `raw_byline` is one NAME: "Alyssa Mueller, Marcus Officer" was one row and
+    # unanswerable, because both names are correct and a reviewer cannot accept,
+    # fix or drop two people at once.
+    sources = DecodedJSONField(null=True)
+    # Every spelling of this name, when there is more than one (crawler
+    # 3a9c5e7b2f14): `[{name, articles, hosts, differs_by}]`, the leading
+    # spelling first. The CLUSTER is the question -- "Bruce E Stidham" and
+    # "Bruce E. Stidham" were two rows asking about one person.
+    #
+    # `group` is the column name and a reserved word in SQL, which is why it is
+    # given explicitly rather than derived from the attribute.
+    group = DecodedJSONField(db_column="group", null=True)
     computed_at = models.DateTimeField(null=True)
 
     class Meta(CrawlerModel.Meta):

@@ -64,6 +64,17 @@
       <tr>
         <td>
           <strong>{{ row.raw_byline }}</strong>
+          {% comment %}
+          The strings this NAME was read out of, when it shares a byline. A name
+          beside a co-author is a different question from a name alone -- what an
+          answer does to the co-author depends on it -- so the reviewer is shown
+          which it is.
+          {% endcomment %}
+          {% if row.sources and row.sources|length > 1 %}
+          <p class="hint">shares a byline: {{ row.sources|join:" · " }}</p>
+          {% elif row.sources.0 and row.sources.0 != row.raw_byline %}
+          <p class="hint">read out of: {{ row.sources.0 }}</p>
+          {% endif %}
           {% if row.variants %}
           {% comment %}
           What it looks like a variant OF, with the difference named: two
@@ -174,6 +185,69 @@
         </td>
         <td class="num">{{ row.articles }}</td>
         <td>
+          {% comment %}
+          A SPELLING CLUSTER IS ONE QUESTION. "Bruce E Stidham" and "Bruce E.
+          Stidham" were two rows, each naming the other as a variant, and a
+          reviewer answered the same person twice and hoped the answers agreed.
+
+          Every spelling carries its own article count and newsrooms, because
+          which one is right is judged by comparing those: 40 stories against 1
+          is obvious, 12 against 3 needs a look.
+
+          "Two different people" is a real answer and is recorded as such. A
+          reviewer who can see two people but cannot say so gets the pair offered
+          again every night.
+          {% endcomment %}
+          {% if row.group and row.group|length > 1 %}
+          <form method="post" class="cluster-form">
+            {% csrf_token %}
+            <input type="hidden" name="dataset" value="{{ dataset }}">
+            <input type="hidden" name="signal" value="{{ signal }}">
+            <input type="hidden" name="raw_byline" value="{{ row.raw_byline }}">
+            <table class="grid grid-inset">
+              <thead>
+                <tr><th>Keep</th><th>Spelling</th><th class="num">Stories</th><th>Newsrooms</th><th>Differs by</th></tr>
+              </thead>
+              <tbody>
+                {% for spelling in row.group %}
+                <tr>
+                  <td>
+                    <input type="hidden" name="spelling" value="{{ spelling.name }}">
+                    <label class="sr-only" for="c{{ forloop.parentloop.counter }}-{{ forloop.counter }}">Keep {{ spelling.name }}</label>
+                    {% comment %}
+                    The first spelling is pre-selected: it carries the most
+                    stories, so it is the one most likely to be right and the
+                    answer a reviewer would give if they agreed.
+                    {% endcomment %}
+                    <input type="radio" id="c{{ forloop.parentloop.counter }}-{{ forloop.counter }}"
+                           name="canonical" value="{{ spelling.name }}"
+                           {% if forloop.first %}checked{% endif %}>
+                  </td>
+                  <td>{{ spelling.name }}</td>
+                  <td class="num">{{ spelling.articles }}</td>
+                  <td class="hint">{{ spelling.hosts|join:" | " }}</td>
+                  <td class="hint">{{ spelling.differs_by }}</td>
+                </tr>
+                {% endfor %}
+                <tr>
+                  <td>
+                    <label class="sr-only" for="d{{ forloop.counter }}">Not one person</label>
+                    <input type="radio" id="d{{ forloop.counter }}" name="canonical" value="__different__">
+                  </td>
+                  <td colspan="4">These are <strong>different people</strong> — keep every spelling as it is</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="hint">The spelling you keep is written onto all
+            {{ row.articles }} stories, and every other spelling is recorded as
+            meaning it — so a later extraction writing an old spelling is
+            corrected without anybody deciding again.</p>
+            <label>Why
+              <input type="text" name="reason" placeholder="optional">
+            </label>
+            <button type="submit" name="decision" value="cluster">Save decision</button>
+          </form>
+          {% else %}
           <form method="post" class="inline-form">
             {% csrf_token %}
             <input type="hidden" name="dataset" value="{{ dataset }}">
@@ -192,10 +266,12 @@
             <button type="submit" name="decision" value="fix">Fix</button>
             <button type="submit" name="decision" value="accept">Keep as is</button>
             {% comment %}
-            "Names nobody" rather than "delete": nothing is deleted. The string
-            stays on the article and stops counting as a reporter.
+            "Not a real name" rather than "delete": nothing is deleted. The
+            string stays on the article and stops counting as a reporter. The
+            label was "Names nobody", which read backwards -- as though the
+            reviewer were naming nobody.
             {% endcomment %}
-            <button type="submit" name="decision" value="drop" class="secondary">Names nobody</button>
+            <button type="submit" name="decision" value="drop" class="secondary">Not a real name</button>
             {% comment %}
             Excluding takes the byline out of local reporting AND re-disposes
             its stories to what they actually are. The list is the extraction
@@ -214,6 +290,7 @@
             </select>
             <button type="submit" name="decision" value="exclude" class="secondary">Exclude</button>
           </form>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}

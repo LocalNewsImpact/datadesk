@@ -1717,6 +1717,42 @@ def _decide_byline(request):
     if not raw or decision not in bylines.DECISION_LABELS:
         return HttpResponseBadRequest("Pick a decision")
 
+    if decision == bylines.CLUSTER:
+        # Every spelling of one name, in one answer. The spellings come from the
+        # form rather than being re-read: the reviewer answered the cluster they
+        # were shown, and a refresh between the page and the submit must not
+        # silently widen what they agreed to.
+        try:
+            settled = bylines.decide_cluster(
+                dataset.id,
+                request.POST.getlist("spelling"),
+                request.POST.get("canonical", ""),
+                request.user,
+                reason=request.POST.get("reason", ""),
+            )
+        except ValueError as problem:
+            return HttpResponseBadRequest(str(problem))
+        chosen = request.POST.get("canonical", "")
+        messages.success(
+            request,
+            (
+                f"{settled} spellings kept apart."
+                if chosen == bylines.DIFFERENT
+                else f"{settled} spellings now read {chosen}."
+            ),
+        )
+        query = urlencode(
+            {
+                k: v
+                for k, v in (
+                    ("dataset", slug),
+                    ("signal", request.POST.get("signal", "")),
+                )
+                if v
+            }
+        )
+        return redirect(f"{reverse('review:bylines')}?{query}")
+
     if decision == bylines.REPLACE:
         # A different byline on the stories the reviewer picked, and nothing
         # recorded against the string: it is right on the rest of them.

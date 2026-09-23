@@ -197,7 +197,10 @@ _CRAWLER_TABLES = {
         "(id VARCHAR PRIMARY KEY, dataset_id VARCHAR, raw_byline TEXT, "
         "signal VARCHAR, signal_label TEXT, signals JSON, proposed JSON, "
         "variants JSON, differs_by JSON, articles INTEGER, hosts JSON, "
-        "owners JSON, computed_at TIMESTAMP)"
+        # `sources`: the byline strings a name was read out of. `group`: every
+        # spelling of it, when there is more than one -- quoted, because GROUP
+        # is a reserved word.
+        'owners JSON, sources JSON, "group" JSON, computed_at TIMESTAMP)'
     ),
     "byline_normalizations": (
         "(id VARCHAR PRIMARY KEY, dataset_id VARCHAR, raw_byline TEXT, "

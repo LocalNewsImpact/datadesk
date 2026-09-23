@@ -16,6 +16,17 @@ from django.apps import apps
 from tests.conftest import _CRAWLER_TABLES
 
 
+def _name_of(definition):
+    """The column a definition declares.
+
+    Quotes stripped: a reserved word has to be quoted to be a column at all
+    (`"group" JSON` -- GROUP is reserved in SQL), and `"group"` and `group` are
+    the same column. Without this the guard reported a column as missing that
+    the fixture creates, which is a false alarm about a real check.
+    """
+    return definition.strip().split()[0].strip('"')
+
+
 def _fixture_columns():
     """Column names per table, parsed from the fixture's DDL."""
     tables = {}
@@ -31,12 +42,12 @@ def _fixture_columns():
             elif char == ")":
                 depth -= 1
             if char == "," and depth == 0:
-                names.add("".join(current).strip().split()[0])
+                names.add(_name_of("".join(current)))
                 current = []
             else:
                 current.append(char)
         if current:
-            names.add("".join(current).strip().split()[0])
+            names.add(_name_of("".join(current)))
         tables[table] = names
     return tables
 
