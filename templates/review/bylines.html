@@ -192,10 +192,12 @@
             <button type="submit" name="decision" value="fix">Fix</button>
             <button type="submit" name="decision" value="accept">Keep as is</button>
             {% comment %}
-            "Names nobody" rather than "delete": nothing is deleted. The string
-            stays on the article and stops counting as a reporter.
+            "Not a real name" rather than "delete": nothing is deleted. The
+            string stays on the article and stops counting as a reporter. The
+            label was "Names nobody", which read backwards -- as though the
+            reviewer were naming nobody.
             {% endcomment %}
-            <button type="submit" name="decision" value="drop" class="secondary">Names nobody</button>
+            <button type="submit" name="decision" value="drop" class="secondary">Not a real name</button>
             {% comment %}
             Excluding takes the byline out of local reporting AND re-disposes
             its stories to what they actually are. The list is the extraction

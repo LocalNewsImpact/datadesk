@@ -193,7 +193,8 @@ def test_a_drop_names_nobody(page):
     )
     row = BylineNormalization.objects.get(raw_byline="Sports Desk")
     assert row.decision == "drop"
-    # Even though a name was in the box: dropping means it names nobody, and
+    # Even though a name was in the box: "not a real name" means the string
+    # names no person, and
     # keeping the text would put the desk back into both reports.
     assert row.canonical_names == []
 
@@ -511,7 +512,7 @@ def test_an_excluded_story_carries_the_same_decision_note_as_one_dispositioned(p
 
 def test_an_exclusion_is_born_applied(page):
     """The crawler's nightly apply writes a decision's names onto
-    `articles.author`, and an exclusion names nobody -- so left unapplied it
+    `articles.author`, and an exclusion carries no name -- so left unapplied it
     would blank the byline on every one of these stories. A wire reporter really
     wrote the wire story; the answer is about the stories, and it is already
     carried out."""
@@ -722,3 +723,17 @@ def test_no_byline_write_names_the_read_only_alias():
             f"{name} writes through the read-only alias; it must use "
             "write_alias() so production routes it to crawler_rw"
         )
+
+
+def test_the_decision_is_labelled_not_a_real_name(page):
+    """ "Names nobody" read backwards -- as though the reviewer were naming
+    nobody, rather than saying the string does not name anybody. The stored value
+    is unchanged, so decisions already recorded keep their meaning."""
+    from review import bylines
+
+    _candidate("Admin", signal="NOT_A_PERSON", signal_label="not a person")
+    body = _queue(page).content.decode()
+    assert "Not a real name" in body
+    assert "Names nobody" not in body
+    assert bylines.DECISION_LABELS[bylines.DROP] == "not a real name"
+    assert bylines.DROP == "drop"

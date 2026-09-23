@@ -41,12 +41,17 @@ def write_alias():
 #: The decisions a reviewer can take on a string.
 ACCEPT = "accept"  # the string is already right
 FIX = "fix"  # these are the people it names
-DROP = "drop"  # it names nobody: a desk, a bot, an address
+#: The string is not a real name: a desk, a bot, a contact address, a CMS
+#: account. The stored value stays `drop` because the crawler reads it and a
+#: decision already recorded carries it; only what a reviewer reads changed.
+#: "Names nobody" was the label, and it read backwards -- as though the reviewer
+#: were naming nobody rather than saying the string does not name anybody.
+DROP = "drop"
 
 DECISION_LABELS = {
     ACCEPT: "accepted as it stands",
     FIX: "fixed",
-    DROP: "dropped: names nobody",
+    DROP: "not a real name",
 }
 
 
@@ -203,8 +208,8 @@ def _author_rows(dataset_id, statuses=LOCAL_STATUSES):
 def _resolve(raw, decisions):
     """The people a raw byline names, after what a reviewer decided about it.
 
-    A dropped string names nobody, so it contributes to neither report -- which
-    is what dropping it was for. An undecided string is split on the separators
+    A string that is not a real name contributes to neither report -- which is
+    what saying so was for. An undecided string is split on the separators
     the crawler writes, so co-authors count as the people they are.
     """
     if raw in decisions:
@@ -420,7 +425,7 @@ def exclude(dataset_id, raw_byline, content_type, user, reason=""):
         # STAMPED APPLIED HERE, unlike every other decision.
         #
         # The crawler's nightly `apply-byline-decisions` writes a decision's
-        # names onto `articles.author`, and an exclusion names nobody -- so left
+        # names onto `articles.author`, and an exclusion carries no name -- so left
         # unapplied it would blank the byline on every one of these stories. The
         # byline is not wrong: a wire reporter really wrote the wire story, and
         # the answer this decision records is about the STORIES, which the loop
