@@ -878,14 +878,34 @@
         Plot.geo(outline, { fill: "none", stroke: t.boundary, strokeWidth: 1.2 }),
       ];
       if (config.locator_labels) {
+        // THE LABEL CARRIES ITS OWN GROUND.
+        //
+        // It was `fill: t.ink` inside a 3px `t.surface` stroke -- one fixed ink
+        // for every ground, with a hard white halo doing the work of making it
+        // legible. That is the heaviest mark on a map whose subject is the
+        // shapes, and it still only half-works.
+        //
+        // A county label sits on TWO grounds at once: the highlight it names,
+        // and the basemap wherever the word is wider than the county, which on
+        // a state map is most of them. No single ink reads on both, and a halo
+        // is a way of not choosing. So the label is drawn on a plate of its own
+        // in the highlight colour, with the text inked against THAT by relative
+        // luminance -- the same `inkOn` the donut labels use. One known ground,
+        // so it reads the same over a pale county as over a dark one, and in
+        // either theme, without an outline.
+        //
+        // The plate is measured and inserted after layout, because its width is
+        // the rendered width of the word and nothing knows that until the text
+        // exists.
         marks.push(Plot.text(picked, {
           text: nameOf,
-          fontSize: 10, fill: t.ink, stroke: t.surface, strokeWidth: 3,
-          paintOrder: "stroke",
+          fontSize: 10,
+          fontWeight: 500,
+          fill: inkOn(t.seqHigh),
           x: (f) => d3.geoCentroid(f)[0], y: (f) => d3.geoCentroid(f)[1],
         }));
       }
-      el.replaceChildren(Plot.plot({
+      const figure = Plot.plot({
         width, height,
         projection: {
           type: "albers-usa",
@@ -893,8 +913,45 @@
         },
         marks,
         style: { background: "transparent", color: t.ink },
-      }));
+      });
+      // IN THE DOCUMENT FIRST. `getBBox` on a detached node reports nothing,
+      // so measuring before the figure is mounted silently plates nothing.
+      el.replaceChildren(figure);
+      if (config.locator_labels) plateLabels(figure, new Set(picked.map(nameOf)), t);
     }).catch((err) => { el.textContent = String(err.message || err); });
+  }
+
+  //: The plate behind each locator label: a rounded rect in the highlight
+  //: colour, sized to the word it sits under, inserted behind it.
+  //:
+  //: Measured rather than guessed -- `getBBox` is the only thing that knows how
+  //: wide "Fredericktown" came out in the reader's own font. A locator draws no
+  //: axes, so every `text` in the figure is a label, but they are matched
+  //: against the names anyway rather than assumed.
+  const PLATE_PAD_X = 3.5;
+  const PLATE_PAD_Y = 1.5;
+
+  function plateLabels(figure, names, t) {
+    for (const node of figure.querySelectorAll("text")) {
+      if (!names.has(node.textContent)) continue;
+      let box;
+      try { box = node.getBBox(); } catch { continue; }
+      if (!box || !box.width) continue;
+      const plate = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      // Plot positions each label with its OWN `transform`, so `getBBox` comes
+      // back in that label's local space -- centred on the origin, not on the
+      // county. A sibling rect without the transform lands at the figure's
+      // corner, which is where all thirteen of them stacked up.
+      const placement = node.getAttribute("transform");
+      if (placement) plate.setAttribute("transform", placement);
+      plate.setAttribute("x", box.x - PLATE_PAD_X);
+      plate.setAttribute("y", box.y - PLATE_PAD_Y);
+      plate.setAttribute("width", box.width + PLATE_PAD_X * 2);
+      plate.setAttribute("height", box.height + PLATE_PAD_Y * 2);
+      plate.setAttribute("rx", 2);
+      plate.setAttribute("fill", t.seqHigh);
+      node.parentNode.insertBefore(plate, node);
+    }
   }
 
   function renderMap(el, config, rows, opts, t, width) {
