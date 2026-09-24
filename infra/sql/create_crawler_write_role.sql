@@ -59,8 +59,17 @@ ALTER DEFAULT PRIVILEGES FOR ROLE mizzou_user IN SCHEMA public
 -- at `labeled` where no stage selects it again. The column was added to
 -- the write set without this grant, and every submit that rewound a row
 -- answered 500.
+---
+--- syndicated_from_source_id is the credit side of a wire ruling: which
+--- newsroom a copy came FROM, written when a reviewer marks one newsroom
+--- HOME on the byline page. IT HAPPENED AGAIN, exactly as described just
+--- above -- the column shipped in the write set with no grant, and the
+--- first byline page submitted after the deploy answered 500 with
+--- `permission denied for table articles`. A column-level grant is not
+--- implied by adding a column, by a migration, or by SELECT already being
+--- held on it; the UPDATE list here is the only thing that confers it.
 GRANT UPDATE (author, title, raw, text, status, wire_check_status,
-              metadata, enrichment_attempts)
+              metadata, enrichment_attempts, syndicated_from_source_id)
   ON articles TO datadesk_rw;
 -- scope and scope_confidence are here so a reviewer can correct a
 -- mislabelled scope from the review queue. When a person sets the
