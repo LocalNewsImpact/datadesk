@@ -2905,7 +2905,20 @@ table.rec-table.queue-rows tbody th .rec-read { overflow-wrap: anywhere; }
   grid-column: 1 / -1; margin-left: 1.6rem; max-width: 28rem; }
 .byline-newsrooms tbody + tbody { border-top: 1px solid var(--border); }
 .byline-newsrooms input[type="text"] { width: 100%; }
+/* AN OPEN DRAWER BELONGS TO THE NEWSROOM ABOVE IT.
+   The markup already groups them -- one `tbody` per newsroom holds its row and
+   its drawer -- but nothing drew that, so an open drawer read as a sibling of
+   the NEXT newsroom rather than a child of its own. With five stories showing,
+   the newsroom whose stories they are is off the top of the block.
+   So the whole group lifts to `--surface-2` and takes a rail down its left
+   edge, unbroken from the newsroom row through the last story. Only when open:
+   a closed drawer is one line and needs no help. */
+.byline-newsrooms tbody:has(details[open]) > tr > td { background: var(--surface-2); }
+.byline-newsrooms tbody:has(details[open]) > tr > td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent); }
 .byline-stories > td { padding-top: 0; }
+/* Indented under the rail, so the drawer starts inside its parent's edge. */
+.byline-stories details { padding-left: var(--s-3); }
 .byline-stories summary { cursor: pointer; }
 .byline-why { margin: var(--s-3) 0 0; }
 .byline-why input { width: 100%; max-width: 32rem; }
