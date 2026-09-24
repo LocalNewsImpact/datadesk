@@ -614,6 +614,24 @@ DECISION_LABELS[PRIMARY] = "newsrooms ruled one at a time"
 #: byline with 42 newsrooms would re-dispose all of them.
 KEEP = ""
 
+#: THE REPORTER'S OWN NEWSROOM, chosen from the same select as everything else.
+#:
+#: It leaves that newsroom's stories exactly as `KEEP` does -- they are her
+#: reporting and nothing is re-disposed -- and additionally says that the
+#: stories ruled `wire` in this submission came FROM here. A wire ruling is
+#: otherwise subtractive: the copies leave the export and both reports, and the
+#: newsroom whose work they are is recorded nowhere.
+#:
+#: IT IS CHOSEN, NOT INFERRED. The first attempt read it as "the one newsroom
+#: left at local reporting", which fails on the ordinary case: a reporter with
+#: three newsrooms that genuinely carry her reporting and six that republish it
+#: has no single newsroom left over, so nothing could be credited without also
+#: mislabelling two legitimate ones as wire.
+#:
+#: At most one per byline. Two homes is two answers to "where does she work".
+HOME = "home"
+DECISION_LABELS[HOME] = "her own newsroom, credited with the wire copies"
+
 
 #: How many of a newsroom's stories to offer. Enough to read what the
 #: newsroom does with this byline; a drawer of hundreds is one nobody opens.
@@ -688,7 +706,7 @@ def rule_newsrooms(
     reason="",
     reasons=None,
     settle=True,
-    credit=False,
+    home="",
 ):
     """Decide each newsroom carrying this byline, one at a time.
 
@@ -711,19 +729,16 @@ def rule_newsrooms(
     `settle=False` leaves the byline undecided, for a caller that is deciding the
     string itself in the same submit.
 
-    `credit=True` ALSO RECORDS WHERE THE WIRE COPIES CAME FROM. A wire ruling
-    is otherwise subtractive -- the copies leave the export and both reports,
-    and the newsroom whose work they are gets nothing. With the box ticked,
-    every story ruled `wire` in this submission takes the newsroom left at
-    `local reporting` as its origin.
+    `home` NAMES THE REPORTER'S OWN NEWSROOM, and with it every story ruled
+    `wire` in this submission records where it came from. A wire ruling is
+    otherwise subtractive -- the copies leave the export and both reports, and
+    the newsroom whose work they are gets nothing.
 
-    Only `wire`. An obituary or a section front is not somebody else's
-    reporting; it is not reporting.
+    Only `wire` earns it. An obituary or a section front is not somebody
+    else's reporting; it is not reporting.
 
-    IT NEEDS EXACTLY ONE NEWSROOM LEFT. Two unruled newsrooms is not "a home
-    and some outliers", it is an unfinished judgement -- Sherman Smith has
-    three Missouri newsrooms left and works for none of them -- so the credit
-    is skipped rather than guessed at, and `credited` comes back 0.
+    The home newsroom's own stories are left alone, as `KEEP` leaves them, and
+    are never credited to themselves.
 
     Returns `{"stories": n, "hosts": n, "kept": n, "credited": n}`.
     """
@@ -771,7 +786,7 @@ def rule_newsrooms(
                 or f"{raw_byline} on {row['candidate_link__source__host']}",
                 label=(article.title or "")[:300],
             )
-        credited = _credit_the_home_newsroom(rows, decided, carried, alias, credit)
+        credited = _credit_the_home_newsroom(rows, decided, carried, alias, home)
         if settle:
             decide(dataset_id, raw_byline, ACCEPT, [raw_byline], user, reason=reason)
     return {
@@ -782,49 +797,47 @@ def rule_newsrooms(
     }
 
 
-def _credit_the_home_newsroom(rows, decided, carried, alias, credit):
+def _credit_the_home_newsroom(rows, decided, carried, alias, home):
     """Write the origin onto every copy this submission ruled `wire`.
 
-    The home newsroom is the one carrying this byline that the reviewer LEFT
-    ALONE. It is never named directly -- the form only records the rulings --
-    so it is what is left after the ruled hosts are taken out.
+    `home` is the newsroom the reviewer marked HOME in its own select. It is
+    CHOSEN, not inferred, and that is the whole point: the first attempt read
+    the home newsroom as "the one left at local reporting", which fails on the
+    ordinary case. A reporter with three newsrooms that genuinely carry her
+    reporting and six that republish it has no newsroom left over, so nothing
+    could be credited unless two legitimate ones were mislabelled wire first.
 
-    Exactly one, or nothing happens. Two newsrooms left is an unfinished
-    judgement rather than a home and its outliers, and guessing by article
-    count picks the wrong one: Sherman Smith's largest Missouri footprint is
-    the newsroom that republishes him eighteen times over, not his employer,
-    who is in Kansas and not in this table at all.
+    ONLY `wire`. An obituary or a section front is not somebody else's
+    reporting; it is not reporting.
 
     A NEWSROOM DOES NOT SYNDICATE TO ITSELF. The home host is excluded
-    explicitly, not left to the fact that it was never ruled -- the 16
-    `/repub/` national roundups sitting at `wire` on the Missouri Independent
+    explicitly rather than left to the fact that it was not ruled -- the 16
+    `/repub/` national roundups sitting at `wire` on `missouriindependent.com`
     are precisely the rows that would otherwise be credited to the Independent,
     on the Independent.
     """
-    if not credit:
+    if not home:
         return 0
     from explorer.models import Article, Source
 
-    left = sorted(carried - set(decided))
-    if len(left) != 1:
+    if home not in carried:
         return 0
-    home_host = left[0]
-    home = Source.objects.using(alias).filter(host=home_host).values("id").first()
-    if not home:
+    row = Source.objects.using(alias).filter(host=home).values("id").first()
+    if not row:
         return 0
 
     wired = [
-        row["id"]
-        for row in rows
-        if decided.get(row["candidate_link__source__host"]) == "wire"
-        and row["candidate_link__source__host"] != home_host
+        story["id"]
+        for story in rows
+        if decided.get(story["candidate_link__source__host"]) == "wire"
+        and story["candidate_link__source__host"] != home
     ]
     if not wired:
         return 0
     return (
         Article.objects.using(alias)
         .filter(id__in=wired)
-        .update(syndicated_from_source_id=home["id"])
+        .update(syndicated_from_source_id=row["id"])
     )
 
 
@@ -901,20 +914,23 @@ def read_page(post):
             decision = CLUSTER
 
         rulings, whys = {}, {}
+        home = ""
         for host in post.getlist(f"host-{index}"):
             ruling = post.get(f"ruling-{index}-{host}", KEEP)
-            if ruling != KEEP and ruling not in TYPE_BECOMES:
+            if ruling == HOME:
+                # Not a disposition: her own newsroom's stories are left alone,
+                # exactly as KEEP leaves them. It names where the wire copies
+                # came from.
+                if home:
+                    problem(f"{raw}: two newsrooms marked home, {home} and {host}")
+                home = host
+            elif ruling != KEEP and ruling not in TYPE_BECOMES:
                 problem(f"{raw}: {host} is not a disposition: {ruling!r}")
             elif ruling != KEEP:
                 rulings[host] = ruling
             why = " ".join(post.get(f"why-{index}-{host}", "").split())
             if why:
                 whys[host] = why
-
-        # "Give syndication credit": the wire copies this submission rules are
-        # somebody's reporting, and this says whose. Only meaningful beside a
-        # ruling, so it rides with them rather than as a decision of its own.
-        credit = bool(post.get(f"credit-{index}"))
 
         edits = {}
         prefix = f"edit-{index}-"
@@ -946,7 +962,7 @@ def read_page(post):
                 "rulings": rulings,
                 "whys": whys,
                 "edits": edits,
-                "credit": credit,
+                "home": home,
             }
         )
     if problems:
@@ -981,7 +997,7 @@ def apply_page(dataset, instructions, user):
                     reason=reason,
                     reasons=row["whys"],
                     settle=False,
-                    credit=row["credit"],
+                    home=row["home"],
                 )
                 total["stories"] += result["stories"]
                 total["credited"] += result["credited"]

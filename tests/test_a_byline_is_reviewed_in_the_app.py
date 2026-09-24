@@ -1363,61 +1363,100 @@ class TestAnOpenDrawerBelongsToItsNewsroom:
 # --- the credit side of a wire ruling ----------------------------------------
 
 
-class TestGiveSyndicationCredit:
+class TestAHomeNewsroomIsCreditedWithTheWireCopies:
     """Ruling the outlying newsrooms only ever subtracted.
 
     Their copies go to `wire`, which takes them out of enrichment, out of the
     BigQuery export and out of both byline reports -- and says nothing about
     whose reporting they are. Steph Quinn's 307 wire copies across 36 Missouri
-    domains are the Missouri Independent's work and the corpus could not say
-    so. The checkbox says it.
+    domains are the Missouri Independent's work.
+
+    The home newsroom is CHOSEN, in the same select as every other ruling. It
+    was first inferred as "the one newsroom left at local reporting", which
+    fails on the ordinary case and is what these tests mostly guard.
     """
 
-    def _wire_two_rooms(self, page, credit):
-        """One byline on three newsrooms: two ruled wire, one left alone."""
+    def test_the_wire_copies_name_the_newsroom_marked_home(self, page):
         _article("a-home", "Jon Smith", host_id="s-1")
         _article("a-out", "Jon Smith", host_id="s-2")
         _article("a-out2", "Jon Smith", host_id="s-3")
         _candidate("Jon Smith", hosts=["one.example", "two.example", "three.example"])
-        row = {
-            "raw": "Jon Smith",
-            "host": ["one.example", "two.example", "three.example"],
-            "ruling:two.example": "wire",
-            "ruling:three.example": "wire",
-        }
-        if credit:
-            row["credit"] = "1"
-        return _submit(page, row)
+        _submit(
+            page,
+            {
+                "raw": "Jon Smith",
+                "host": ["one.example", "two.example", "three.example"],
+                "ruling:one.example": "home",
+                "ruling:two.example": "wire",
+                "ruling:three.example": "wire",
+            },
+        )
+        assert Article.objects.get(id="a-out").syndicated_from_source_id == "s-1"
+        assert Article.objects.get(id="a-out2").syndicated_from_source_id == "s-1"
 
-    def test_the_wire_copies_name_the_newsroom_left_alone(self, page):
-        self._wire_two_rooms(page, credit=True)
-        out = Article.objects.get(id="a-out")
-        out2 = Article.objects.get(id="a-out2")
-        assert out.status == "wire"
-        assert out.syndicated_from_source_id == "s-1"
-        assert out2.syndicated_from_source_id == "s-1"
+    def test_the_home_newsrooms_own_stories_are_left_alone(self, page):
+        """HOME is not a disposition. Her stories there are her reporting."""
+        _article("a-home", "Jon Smith", host_id="s-1")
+        _article("a-out", "Jon Smith", host_id="s-2")
+        _candidate("Jon Smith", hosts=["one.example", "two.example"])
+        _submit(
+            page,
+            {
+                "raw": "Jon Smith",
+                "host": ["one.example", "two.example"],
+                "ruling:one.example": "home",
+                "ruling:two.example": "wire",
+            },
+        )
+        home = Article.objects.get(id="a-home")
+        assert home.status == "enriched"
+        assert home.syndicated_from_source_id is None
 
-    def test_the_home_newsroom_is_not_credited_with_its_own_story(self, page):
-        """A newsroom does not syndicate to itself. The 16 `/repub/` roundups
-        sitting at `wire` on missouriindependent.com are exactly the rows a
-        rule without this guard would credit to the Independent, on the
-        Independent."""
-        self._wire_two_rooms(page, credit=True)
-        assert Article.objects.get(id="a-home").syndicated_from_source_id is None
+    def test_other_newsrooms_may_stay_local_without_being_home(self, page):
+        """THE CASE THE FIRST ATTEMPT GOT WRONG. A reporter with several
+        newsrooms that genuinely carry her reporting and several that
+        republish it: the extra local ones are left at "local reporting" and
+        the wire copies are still credited. Inferring home as "the one left
+        over" could not credit anything here without first mislabelling a
+        legitimate newsroom as wire."""
+        _article("a-home", "Jon Smith", host_id="s-1")
+        _article("a-also-local", "Jon Smith", host_id="s-2")
+        _article("a-out", "Jon Smith", host_id="s-3")
+        _candidate("Jon Smith", hosts=["one.example", "two.example", "three.example"])
+        _submit(
+            page,
+            {
+                "raw": "Jon Smith",
+                "host": ["one.example", "two.example", "three.example"],
+                "ruling:one.example": "home",
+                "ruling:three.example": "wire",
+            },
+        )
+        assert Article.objects.get(id="a-also-local").status == "enriched"
+        assert Article.objects.get(id="a-out").syndicated_from_source_id == "s-1"
 
-    def test_nothing_is_credited_unless_the_box_is_ticked(self, page):
+    def test_nothing_is_credited_without_a_home(self, page):
         """The ruling and the credit are two claims. A reviewer may know these
         are not local reporting without knowing whose they are."""
-        self._wire_two_rooms(page, credit=False)
-        assert Article.objects.get(id="a-out").status == "wire"
-        assert Article.objects.get(id="a-out").syndicated_from_source_id is None
+        _article("a-home", "Jon Smith", host_id="s-1")
+        _article("a-out", "Jon Smith", host_id="s-2")
+        _candidate("Jon Smith", hosts=["one.example", "two.example"])
+        _submit(
+            page,
+            {
+                "raw": "Jon Smith",
+                "host": ["one.example", "two.example"],
+                "ruling:two.example": "wire",
+            },
+        )
+        out = Article.objects.get(id="a-out")
+        assert out.status == "wire"
+        assert out.syndicated_from_source_id is None
 
-    def test_two_newsrooms_left_is_not_a_home_and_some_outliers(self, page):
-        """It is an unfinished judgement, so nothing is credited rather than
-        guessed. Sherman Smith has three Missouri newsrooms left and works for
-        none of them -- and picking the largest would choose the newsroom that
-        republishes him eighteen times over, not his employer, who is in
-        Kansas and not in this table at all."""
+    def test_two_newsrooms_cannot_both_be_home(self, page):
+        """Two homes is two answers to where she works. The page saves
+        nothing when anything on it is wrong, so the wire ruling beside it
+        does not land either."""
         _article("a-home", "Jon Smith", host_id="s-1")
         _article("a-also", "Jon Smith", host_id="s-2")
         _article("a-out", "Jon Smith", host_id="s-3")
@@ -1427,11 +1466,12 @@ class TestGiveSyndicationCredit:
             {
                 "raw": "Jon Smith",
                 "host": ["one.example", "two.example", "three.example"],
+                "ruling:one.example": "home",
+                "ruling:two.example": "home",
                 "ruling:three.example": "wire",
-                "credit": "1",
             },
         )
-        assert Article.objects.get(id="a-out").status == "wire"
+        assert Article.objects.get(id="a-out").status == "enriched"
         assert Article.objects.get(id="a-out").syndicated_from_source_id is None
 
     def test_only_wire_earns_credit(self, page):
@@ -1445,24 +1485,33 @@ class TestGiveSyndicationCredit:
             {
                 "raw": "Jon Smith",
                 "host": ["one.example", "two.example"],
+                "ruling:one.example": "home",
                 "ruling:two.example": "obituary",
-                "credit": "1",
             },
         )
         assert Article.objects.get(id="a-obit").syndicated_from_source_id is None
 
     def test_the_audit_records_how_many_were_credited(self, page):
-        """The home newsroom is never in `rulings` -- it is the one left
-        alone -- so without this the log cannot say anybody was credited."""
         from audit.models import AuditLogEntry
 
-        self._wire_two_rooms(page, credit=True)
+        _article("a-home", "Jon Smith", host_id="s-1")
+        _article("a-out", "Jon Smith", host_id="s-2")
+        _candidate("Jon Smith", hosts=["one.example", "two.example"])
+        _submit(
+            page,
+            {
+                "raw": "Jon Smith",
+                "host": ["one.example", "two.example"],
+                "ruling:one.example": "home",
+                "ruling:two.example": "wire",
+            },
+        )
         entry = AuditLogEntry.objects.filter(action="byline:newsrooms").latest("id")
-        assert entry.after["credited"] == 2
+        assert entry.after["credited"] == 1
 
-    def test_the_page_offers_the_checkbox(self, page):
+    def test_the_select_offers_home(self, page):
         _article("a-1", "Jon Smith")
         _candidate("Jon Smith")
         body = _queue(page).content.decode()
-        assert 'name="credit-0"' in body
-        assert "Give syndication credit" in body
+        assert '<option value="home">' in body
+        assert "home newsroom" in body
