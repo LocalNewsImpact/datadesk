@@ -236,6 +236,13 @@
               <td>
                 <select name="ruling-{{ i }}-{{ room.host }}" aria-label="What {{ room.host }}'s stories are">
                   <option value="">local reporting</option>
+                  {% comment %}
+                  HOME is not a disposition. It leaves these stories alone,
+                  exactly as "local reporting" does, and additionally says the
+                  stories ruled Wire on this byline came FROM here. One per
+                  byline; two is two answers to where she works.
+                  {% endcomment %}
+                  <option value="home">home newsroom &mdash; credit it with the Wire copies</option>
                   {% for type in exclusion_types %}
                   <option value="{{ type.value }}">{{ type.label }}</option>
                   {% endfor %}
@@ -279,21 +286,6 @@
           </tbody>
           {% endfor %}
         </table>
-        {% comment %}
-        The credit side of a wire ruling. Ruling the outlying newsrooms only
-        ever subtracts -- their copies leave the export and both reports, and
-        the newsroom whose reporting it is gets nothing. This says whose it is.
-
-        It rides with the rulings rather than standing as its own decision,
-        because it is meaningless without them: it names the newsroom LEFT at
-        "local reporting", which only exists once the others are ruled.
-        {% endcomment %}
-        <p class="byline-credit">
-          <label>
-            <input type="checkbox" name="credit-{{ i }}" value="1">
-            Give syndication credit &mdash; the stories ruled <strong>Wire</strong> above came from the one newsroom left at &ldquo;local reporting&rdquo;
-          </label>
-        </p>
       </fieldset>
       {% endif %}
 
