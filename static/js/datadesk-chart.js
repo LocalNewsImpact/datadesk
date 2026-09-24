@@ -878,21 +878,24 @@
         Plot.geo(outline, { fill: "none", stroke: t.boundary, strokeWidth: 1.2 }),
       ];
       if (config.locator_labels) {
-        // THE LABEL CARRIES ITS OWN GROUND.
-        //
-        // It was `fill: t.ink` inside a 3px `t.surface` stroke -- one fixed ink
-        // for every ground, with a hard white halo doing the work of making it
-        // legible. That is the heaviest mark on a map whose subject is the
-        // shapes, and it still only half-works.
+        // THE LABEL CARRIES ITS OWN GROUND, AND THAT GROUND IS THE PAGE.
         //
         // A county label sits on TWO grounds at once: the highlight it names,
         // and the basemap wherever the word is wider than the county, which on
         // a state map is most of them. No single ink reads on both, and a halo
-        // is a way of not choosing. So the label is drawn on a plate of its own
-        // in the highlight colour, with the text inked against THAT by relative
-        // luminance -- the same `inkOn` the donut labels use. One known ground,
-        // so it reads the same over a pale county as over a dark one, and in
-        // either theme, without an outline.
+        // is a way of not choosing. So the label gets a plate of its own.
+        //
+        // The plate is `t.surface` -- the page ground -- and NOT the highlight
+        // colour. Drawing it in `t.seqHigh` was the first attempt and it is
+        // wrong twice over. Over the county it names it vanishes, so the plate
+        // does no work at all. And wherever the word overhangs the county, a
+        // `seqHigh` rectangle sitting on the basemap READS AS ANOTHER
+        // HIGHLIGHTED AREA: the map appears to highlight more counties than
+        // the data holds, which is the one thing a locator must not do.
+        // Highlight colour means "in the set", and a label is not in the set.
+        //
+        // On the page ground the ink is just `t.ink`, correct in both themes by
+        // construction, with no luminance test to make and no halo.
         //
         // The plate is measured and inserted after layout, because its width is
         // the rendered width of the word and nothing knows that until the text
@@ -901,7 +904,7 @@
           text: nameOf,
           fontSize: 10,
           fontWeight: 500,
-          fill: inkOn(t.seqHigh),
+          fill: t.ink,
           x: (f) => d3.geoCentroid(f)[0], y: (f) => d3.geoCentroid(f)[1],
         }));
       }
@@ -921,8 +924,12 @@
     }).catch((err) => { el.textContent = String(err.message || err); });
   }
 
-  //: The plate behind each locator label: a rounded rect in the highlight
-  //: colour, sized to the word it sits under, inserted behind it.
+  //: The plate behind each locator label: a rounded rect in the PAGE SURFACE,
+  //: sized to the word it sits under, inserted behind it.
+  //:
+  //: Never the highlight colour. A plate in `t.seqHigh` is invisible over the
+  //: county it names, and over the basemap it reads as one more highlighted
+  //: area -- the map then claims counties the data does not.
   //:
   //: Measured rather than guessed -- `getBBox` is the only thing that knows how
   //: wide "Fredericktown" came out in the reader's own font. A locator draws no
@@ -949,7 +956,11 @@
       plate.setAttribute("width", box.width + PLATE_PAD_X * 2);
       plate.setAttribute("height", box.height + PLATE_PAD_Y * 2);
       plate.setAttribute("rx", 2);
-      plate.setAttribute("fill", t.seqHigh);
+      plate.setAttribute("fill", t.surface);
+      // A hairline edge, so the plate separates from the basemap grey without
+      // competing with the county lines it crosses.
+      plate.setAttribute("stroke", t.boundary);
+      plate.setAttribute("stroke-width", 0.5);
       node.parentNode.insertBefore(plate, node);
     }
   }
