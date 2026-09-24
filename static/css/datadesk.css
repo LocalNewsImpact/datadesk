@@ -2920,6 +2920,10 @@ table.rec-table.queue-rows tbody th .rec-read { overflow-wrap: anywhere; }
 /* Indented under the rail, so the drawer starts inside its parent's edge. */
 .byline-stories details { padding-left: var(--s-3); }
 .byline-stories summary { cursor: pointer; }
+/* Sits under the newsrooms table it depends on, indented to read as a
+   consequence of those rulings rather than a separate question. */
+.byline-credit { margin: var(--s-3) 0 0; }
+.byline-credit label { display: flex; gap: var(--s-2); align-items: baseline; }
 .byline-why { margin: var(--s-3) 0 0; }
 .byline-why input { width: 100%; max-width: 32rem; }
 .byline-submit { position: sticky; bottom: 0; z-index: 3; display: flex;

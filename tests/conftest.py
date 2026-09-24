@@ -171,7 +171,10 @@ _CRAWLER_TABLES = {
         "TIMESTAMP, raw TEXT, "
         "text TEXT, text_excerpt VARCHAR(500), raw_gcs_path VARCHAR, "
         "enrichment_attempts SMALLINT, metadata JSON, status VARCHAR, "
-        "wire_check_status VARCHAR, wire JSON, created_at TIMESTAMP, "
+        "wire_check_status VARCHAR, wire JSON, "
+        # The credit side of a wire ruling (crawler d2e3f4a5b6c7): which
+        # newsroom this copy came from, when a reviewer has said so.
+        "syndicated_from_source_id VARCHAR, created_at TIMESTAMP, "
         "primary_label VARCHAR, primary_label_confidence DOUBLE PRECISION, "
         "alternate_label VARCHAR, alternate_label_confidence DOUBLE "
         # The same generated column production has (crawler #539). Generated
