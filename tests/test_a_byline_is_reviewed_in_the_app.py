@@ -15,6 +15,8 @@ Co-authors are deliberately absent from the queue and present in the reports:
 count two people without anybody deciding anything about it.
 """
 
+from pathlib import Path
+
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
@@ -1316,3 +1318,43 @@ def test_a_row_with_no_matching_stories_keeps_its_recorded_owner(page):
     name, so the corpus can say nothing about its owner."""
     _candidate("Nobody At All", owners=["Some Owner Ltd"], hosts=["one.example"])
     assert "Some Owner Ltd" in _queue(page).content.decode()
+
+
+class TestAnOpenDrawerBelongsToItsNewsroom:
+    """The drawer and the newsroom it belongs to are one `tbody` in the
+    markup, and nothing drew that.
+
+    Open, a drawer is five or more story rows deep, so the newsroom whose
+    stories they are scrolls off the top of the block and the drawer reads as
+    a sibling of the NEXT newsroom instead of a child of its own. The grouping
+    was real and invisible; this draws it.
+    """
+
+    STYLES = Path(__file__).resolve().parent.parent / "static/css/datadesk.css"
+    CSS = STYLES.read_text()
+    GROUP = ".byline-newsrooms tbody:has(details[open])"
+
+    def test_the_open_group_is_lifted_off_the_page(self):
+        assert (
+            ".byline-newsrooms tbody:has(details[open]) > tr > td "
+            "{ background: var(--surface-2); }" in self.CSS
+        )
+
+    def test_the_group_takes_one_rail_down_its_left_edge(self):
+        """Unbroken from the newsroom row through the last story -- that
+        continuity is the thing that says "these belong together"."""
+        assert f"{self.GROUP} > tr > td:first-child" in self.CSS
+        assert "box-shadow: inset 3px 0 0 var(--accent);" in self.CSS
+
+    def test_it_applies_only_while_the_drawer_is_open(self):
+        """A closed drawer is a single summary line under its row and needs
+        no help; tinting every newsroom would make the page a field of
+        stripes and say nothing."""
+        assert self.GROUP in self.CSS
+        assert ".byline-newsrooms tbody > tr > td { background:" not in self.CSS
+
+    def test_it_is_drawn_in_theme_tokens(self):
+        """`--surface-2` and `--accent` are both redefined for dark mode, so
+        the group reads in either theme without a second rule."""
+        group = self.CSS[self.CSS.index(self.GROUP) :][:400]
+        assert "#" not in group.split(".byline-stories")[0]
