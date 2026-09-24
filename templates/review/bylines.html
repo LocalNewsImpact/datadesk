@@ -89,7 +89,11 @@
         <p class="byline-facts">
           <span class="byline-signal">{{ row.signal_label }}</span>
           {{ row.articles }} {{ row.articles|pluralize:"story,stories" }}
-          {% if row.owners %} · {{ row.owners|join:" · " }}{% endif %}
+          {% comment %}
+          Read from the corpus, not from the candidate's snapshot: see
+          `owners_now` in the view.
+          {% endcomment %}
+          {% if row.owners_now %} · {{ row.owners_now|join:" · " }}{% endif %}
         </p>
         {% comment %}
         The strings this NAME was read out of, when it shares a byline. A name
