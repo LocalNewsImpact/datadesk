@@ -358,3 +358,85 @@ class TestHoveringNamesThePlace:
         names_built = body.index("const labelBy = new Map();")
         toggle = body.index("config.locator_labels")
         assert names_built < toggle, "labels are still built inside the toggle"
+
+
+# --- the label plate ----------------------------------------------------------
+
+
+class TestALabelPlateIsNotAHighlight:
+    """The plate behind each county label was drawn in the highlight colour,
+    `t.seqHigh`. That is wrong twice over, and the second way is the one that
+    makes the map lie.
+
+    Over the county it names the plate is the same colour as the fill, so it
+    does nothing -- the label has no ground and the whole mechanism is inert.
+    And a county label is almost always WIDER than its county on a state map,
+    so the plate overhangs onto the basemap, where a `seqHigh` rectangle reads
+    as one more highlighted area. A map of 14 newsrooms showed coloured blocks
+    over counties that hold none.
+
+    Highlight colour is the map's one piece of data encoding: it means "in the
+    set". A label is not in the set, so it may not wear that colour. The plate
+    is the page surface, and the ink on it is `t.ink`.
+    """
+
+    def _plate(self):
+        source = CHART_JS.read_text()
+        start = source.index("function plateLabels")
+        return source[start : source.index("function renderMap", start)]
+
+    def _locator(self):
+        source = CHART_JS.read_text()
+        start = source.index("function renderLocator")
+        return source[start : source.index("function renderMap", start)]
+
+    def test_the_plate_is_the_page_surface(self):
+        assert 'plate.setAttribute("fill", t.surface)' in self._plate()
+
+    def test_the_plate_is_never_the_highlight_colour(self):
+        """The regression to guard. `t.seqHigh` anywhere in the plate is the
+        bug coming back."""
+        assert "t.seqHigh" not in self._plate()
+
+    def test_the_plate_has_a_hairline_edge(self):
+        """Surface on basemap grey is a low-contrast pair in light mode; the
+        edge is what keeps the plate a shape rather than a smudge. Hairline,
+        so it does not compete with the county lines it crosses."""
+        plate = self._plate()
+        assert 'plate.setAttribute("stroke", t.boundary)' in plate
+        assert 'plate.setAttribute("stroke-width", 0.5)' in plate
+
+    def test_the_label_ink_is_the_theme_ink(self):
+        """On the page ground there is no luminance test to make: `t.ink` is
+        correct against `t.surface` in both themes by construction. Inking
+        against the highlight instead was what forced `inkOn` here."""
+        assert "fill: t.ink," in self._locator()
+
+    def test_the_label_ink_is_not_measured_against_the_highlight(self):
+        assert "inkOn(t.seqHigh)" not in self._locator()
+
+    def test_the_plate_goes_behind_the_text(self):
+        """`insertBefore` in document order is behind in paint order. A plate
+        appended after the label covers the word it exists to support."""
+        assert "insertBefore(plate, node)" in self._plate()
+
+    def test_the_plate_is_measured_not_guessed(self):
+        """Its width is the rendered width of the word in the reader's own
+        font, which only `getBBox` knows."""
+        assert "node.getBBox()" in self._plate()
+
+    def test_the_plate_carries_the_label_transform(self):
+        """Plot gives each label its own `transform`, so `getBBox` reports a
+        box in that label's local space. A sibling rect without the transform
+        lands at the figure's corner -- which is where every plate stacked up
+        on the first attempt."""
+        plate = self._plate()
+        assert 'node.getAttribute("transform")' in plate
+        assert 'plate.setAttribute("transform", placement)' in plate
+
+    def test_the_figure_is_mounted_before_the_plates_are_measured(self):
+        """`getBBox` on a detached node reports zeroes, and a zero-width box
+        is skipped -- so measuring first plates nothing, silently."""
+        body = self._locator()
+        mounted = body.index("el.replaceChildren(figure)")
+        assert mounted < body.index("plateLabels(figure")
