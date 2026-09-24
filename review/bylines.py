@@ -681,7 +681,14 @@ def host_choices(candidate, stories=None, per_host=SAMPLE_PER_HOST):
 
 
 def rule_newsrooms(
-    dataset_id, raw_byline, rulings, user, reason="", reasons=None, settle=True
+    dataset_id,
+    raw_byline,
+    rulings,
+    user,
+    reason="",
+    reasons=None,
+    settle=True,
+    credit=False,
 ):
     """Decide each newsroom carrying this byline, one at a time.
 
@@ -704,7 +711,21 @@ def rule_newsrooms(
     `settle=False` leaves the byline undecided, for a caller that is deciding the
     string itself in the same submit.
 
-    Returns `{"stories": n, "hosts": n, "kept": n}`.
+    `credit=True` ALSO RECORDS WHERE THE WIRE COPIES CAME FROM. A wire ruling
+    is otherwise subtractive -- the copies leave the export and both reports,
+    and the newsroom whose work they are gets nothing. With the box ticked,
+    every story ruled `wire` in this submission takes the newsroom left at
+    `local reporting` as its origin.
+
+    Only `wire`. An obituary or a section front is not somebody else's
+    reporting; it is not reporting.
+
+    IT NEEDS EXACTLY ONE NEWSROOM LEFT. Two unruled newsrooms is not "a home
+    and some outliers", it is an unfinished judgement -- Sherman Smith has
+    three Missouri newsrooms left and works for none of them -- so the credit
+    is skipped rather than guessed at, and `credited` comes back 0.
+
+    Returns `{"stories": n, "hosts": n, "kept": n, "credited": n}`.
     """
     from explorer.models import Article
     from review.dispositions import REJECT, TYPE_BECOMES, record, stage_of
@@ -750,13 +771,61 @@ def rule_newsrooms(
                 or f"{raw_byline} on {row['candidate_link__source__host']}",
                 label=(article.title or "")[:300],
             )
+        credited = _credit_the_home_newsroom(rows, decided, carried, alias, credit)
         if settle:
             decide(dataset_id, raw_byline, ACCEPT, [raw_byline], user, reason=reason)
     return {
         "stories": len(wanted),
         "hosts": len({host for host, v in decided.items() if v != KEEP}),
         "kept": len([h for h, v in decided.items() if v == KEEP]),
+        "credited": credited,
     }
+
+
+def _credit_the_home_newsroom(rows, decided, carried, alias, credit):
+    """Write the origin onto every copy this submission ruled `wire`.
+
+    The home newsroom is the one carrying this byline that the reviewer LEFT
+    ALONE. It is never named directly -- the form only records the rulings --
+    so it is what is left after the ruled hosts are taken out.
+
+    Exactly one, or nothing happens. Two newsrooms left is an unfinished
+    judgement rather than a home and its outliers, and guessing by article
+    count picks the wrong one: Sherman Smith's largest Missouri footprint is
+    the newsroom that republishes him eighteen times over, not his employer,
+    who is in Kansas and not in this table at all.
+
+    A NEWSROOM DOES NOT SYNDICATE TO ITSELF. The home host is excluded
+    explicitly, not left to the fact that it was never ruled -- the 16
+    `/repub/` national roundups sitting at `wire` on the Missouri Independent
+    are precisely the rows that would otherwise be credited to the Independent,
+    on the Independent.
+    """
+    if not credit:
+        return 0
+    from explorer.models import Article, Source
+
+    left = sorted(carried - set(decided))
+    if len(left) != 1:
+        return 0
+    home_host = left[0]
+    home = Source.objects.using(alias).filter(host=home_host).values("id").first()
+    if not home:
+        return 0
+
+    wired = [
+        row["id"]
+        for row in rows
+        if decided.get(row["candidate_link__source__host"]) == "wire"
+        and row["candidate_link__source__host"] != home_host
+    ]
+    if not wired:
+        return 0
+    return (
+        Article.objects.using(alias)
+        .filter(id__in=wired)
+        .update(syndicated_from_source_id=home["id"])
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -842,6 +911,11 @@ def read_page(post):
             if why:
                 whys[host] = why
 
+        # "Give syndication credit": the wire copies this submission rules are
+        # somebody's reporting, and this says whose. Only meaningful beside a
+        # ruling, so it rides with them rather than as a decision of its own.
+        credit = bool(post.get(f"credit-{index}"))
+
         edits = {}
         prefix = f"edit-{index}-"
         for key in post:
@@ -872,6 +946,7 @@ def read_page(post):
                 "rulings": rulings,
                 "whys": whys,
                 "edits": edits,
+                "credit": credit,
             }
         )
     if problems:
@@ -891,7 +966,7 @@ def apply_page(dataset, instructions, user):
     """
     from audit.models import AuditLogEntry
 
-    total = {"rows": 0, "decisions": 0, "stories": 0, "edited": 0}
+    total = {"rows": 0, "decisions": 0, "stories": 0, "edited": 0, "credited": 0}
     with transaction.atomic(using=write_alias()):
         for row in instructions:
             raw, reason = row["raw"], row["reason"]
@@ -906,15 +981,24 @@ def apply_page(dataset, instructions, user):
                     reason=reason,
                     reasons=row["whys"],
                     settle=False,
+                    credit=row["credit"],
                 )
                 total["stories"] += result["stories"]
+                total["credited"] += result["credited"]
                 acted = True
                 AuditLogEntry.objects.create(
                     actor=user,
                     action="byline:newsrooms",
                     target_table="articles",
                     target_ids=[f"{dataset.slug}:{raw}"],
-                    after={"rulings": row["rulings"], "stories": result["stories"]},
+                    after={
+                        "rulings": row["rulings"],
+                        "stories": result["stories"],
+                        # The home newsroom is never in `rulings` -- it is the
+                        # one left alone -- so without this the audit cannot
+                        # say who was credited, only that somebody was.
+                        "credited": result["credited"],
+                    },
                     reason=reason or f"newsrooms ruled for {raw}",
                 )
 

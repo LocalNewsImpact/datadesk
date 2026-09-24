@@ -1358,3 +1358,111 @@ class TestAnOpenDrawerBelongsToItsNewsroom:
         the group reads in either theme without a second rule."""
         group = self.CSS[self.CSS.index(self.GROUP) :][:400]
         assert "#" not in group.split(".byline-stories")[0]
+
+
+# --- the credit side of a wire ruling ----------------------------------------
+
+
+class TestGiveSyndicationCredit:
+    """Ruling the outlying newsrooms only ever subtracted.
+
+    Their copies go to `wire`, which takes them out of enrichment, out of the
+    BigQuery export and out of both byline reports -- and says nothing about
+    whose reporting they are. Steph Quinn's 307 wire copies across 36 Missouri
+    domains are the Missouri Independent's work and the corpus could not say
+    so. The checkbox says it.
+    """
+
+    def _wire_two_rooms(self, page, credit):
+        """One byline on three newsrooms: two ruled wire, one left alone."""
+        _article("a-home", "Jon Smith", host_id="s-1")
+        _article("a-out", "Jon Smith", host_id="s-2")
+        _article("a-out2", "Jon Smith", host_id="s-3")
+        _candidate("Jon Smith", hosts=["one.example", "two.example", "three.example"])
+        row = {
+            "raw": "Jon Smith",
+            "host": ["one.example", "two.example", "three.example"],
+            "ruling:two.example": "wire",
+            "ruling:three.example": "wire",
+        }
+        if credit:
+            row["credit"] = "1"
+        return _submit(page, row)
+
+    def test_the_wire_copies_name_the_newsroom_left_alone(self, page):
+        self._wire_two_rooms(page, credit=True)
+        out = Article.objects.get(id="a-out")
+        out2 = Article.objects.get(id="a-out2")
+        assert out.status == "wire"
+        assert out.syndicated_from_source_id == "s-1"
+        assert out2.syndicated_from_source_id == "s-1"
+
+    def test_the_home_newsroom_is_not_credited_with_its_own_story(self, page):
+        """A newsroom does not syndicate to itself. The 16 `/repub/` roundups
+        sitting at `wire` on missouriindependent.com are exactly the rows a
+        rule without this guard would credit to the Independent, on the
+        Independent."""
+        self._wire_two_rooms(page, credit=True)
+        assert Article.objects.get(id="a-home").syndicated_from_source_id is None
+
+    def test_nothing_is_credited_unless_the_box_is_ticked(self, page):
+        """The ruling and the credit are two claims. A reviewer may know these
+        are not local reporting without knowing whose they are."""
+        self._wire_two_rooms(page, credit=False)
+        assert Article.objects.get(id="a-out").status == "wire"
+        assert Article.objects.get(id="a-out").syndicated_from_source_id is None
+
+    def test_two_newsrooms_left_is_not_a_home_and_some_outliers(self, page):
+        """It is an unfinished judgement, so nothing is credited rather than
+        guessed. Sherman Smith has three Missouri newsrooms left and works for
+        none of them -- and picking the largest would choose the newsroom that
+        republishes him eighteen times over, not his employer, who is in
+        Kansas and not in this table at all."""
+        _article("a-home", "Jon Smith", host_id="s-1")
+        _article("a-also", "Jon Smith", host_id="s-2")
+        _article("a-out", "Jon Smith", host_id="s-3")
+        _candidate("Jon Smith", hosts=["one.example", "two.example", "three.example"])
+        _submit(
+            page,
+            {
+                "raw": "Jon Smith",
+                "host": ["one.example", "two.example", "three.example"],
+                "ruling:three.example": "wire",
+                "credit": "1",
+            },
+        )
+        assert Article.objects.get(id="a-out").status == "wire"
+        assert Article.objects.get(id="a-out").syndicated_from_source_id is None
+
+    def test_only_wire_earns_credit(self, page):
+        """An obituary or a section front is not somebody else's reporting;
+        it is not reporting."""
+        _article("a-home", "Jon Smith", host_id="s-1")
+        _article("a-obit", "Jon Smith", host_id="s-2")
+        _candidate("Jon Smith", hosts=["one.example", "two.example"])
+        _submit(
+            page,
+            {
+                "raw": "Jon Smith",
+                "host": ["one.example", "two.example"],
+                "ruling:two.example": "obituary",
+                "credit": "1",
+            },
+        )
+        assert Article.objects.get(id="a-obit").syndicated_from_source_id is None
+
+    def test_the_audit_records_how_many_were_credited(self, page):
+        """The home newsroom is never in `rulings` -- it is the one left
+        alone -- so without this the log cannot say anybody was credited."""
+        from audit.models import AuditLogEntry
+
+        self._wire_two_rooms(page, credit=True)
+        entry = AuditLogEntry.objects.filter(action="byline:newsrooms").latest("id")
+        assert entry.after["credited"] == 2
+
+    def test_the_page_offers_the_checkbox(self, page):
+        _article("a-1", "Jon Smith")
+        _candidate("Jon Smith")
+        body = _queue(page).content.decode()
+        assert 'name="credit-0"' in body
+        assert "Give syndication credit" in body

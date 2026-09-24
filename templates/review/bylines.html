@@ -279,6 +279,21 @@
           </tbody>
           {% endfor %}
         </table>
+        {% comment %}
+        The credit side of a wire ruling. Ruling the outlying newsrooms only
+        ever subtracts -- their copies leave the export and both reports, and
+        the newsroom whose reporting it is gets nothing. This says whose it is.
+
+        It rides with the rulings rather than standing as its own decision,
+        because it is meaningless without them: it names the newsroom LEFT at
+        "local reporting", which only exists once the others are ruled.
+        {% endcomment %}
+        <p class="byline-credit">
+          <label>
+            <input type="checkbox" name="credit-{{ i }}" value="1">
+            Give syndication credit &mdash; the stories ruled <strong>Wire</strong> above came from the one newsroom left at &ldquo;local reporting&rdquo;
+          </label>
+        </p>
       </fieldset>
       {% endif %}
 

@@ -320,6 +320,18 @@ class Article(CrawlerModel):
     # The wire check's own findings: a JSON array naming the syndication
     # services detected. Empty or absent on a local story.
     wire = DecodedJSONField(null=True)
+    #: The newsroom a wire copy came FROM, when a reviewer has said so.
+    #:
+    #: `status = 'wire'` says a story is not this newsroom's reporting and
+    #: stops there, so a wire ruling only subtracts. This is the credit side:
+    #: set by the byline review when the reviewer rules the outlying newsrooms
+    #: and ticks "give syndication credit", it names the newsroom left at
+    #: `local reporting`. Null on everything nobody has claimed.
+    #:
+    #: A raw id, not a ForeignKey. `Source` is on the same unmanaged crawler
+    #: alias, and a relation here would have Django emit a join this console
+    #: never needs -- the reports read it as a group-by.
+    syndicated_from_source_id = models.TextField(null=True)
     created_at = models.DateTimeField()
     #: When anything on this row last changed, stamped by the crawler's
     #: `BEFORE INSERT OR UPDATE` trigger (crawler #620) and never written
