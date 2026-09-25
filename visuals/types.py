@@ -531,6 +531,25 @@ CHART_TYPES = (
                     ("fixed", "Fixed: 1–2 / 3–5 / 6–9 / 10+"),
                 ),
             ),
+            # WHAT A SHADE MEANS, which is a different question from how
+            # many shades there are.
+            Option(
+                "band_scale",
+                "Compare shading with other maps",
+                "choice",
+                note=(
+                    "On its own, a map should use the whole ramp: six "
+                    "small counties are not six shades of pale. Beside "
+                    "another map, that misleads — both top out at the "
+                    "same dark blue whether the county holds fifteen "
+                    "stories or two hundred. Absolute shading fixes a "
+                    "shade to a count so two maps can be read together."
+                ),
+                values=(
+                    ("", "Relative — this map's own range"),
+                    ("absolute", "Absolute — the same shade means the same count"),
+                ),
+            ),
         ),
         also=("coverage map",),
         encoding=SHADING,
