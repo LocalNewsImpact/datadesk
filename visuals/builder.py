@@ -99,6 +99,7 @@ _BOOL_KEYS = (
     "stacked",
     "geo_fit",
     "locator_labels",
+    "group_rows",
     "roster_no_search",
     "roster_no_total",
 )

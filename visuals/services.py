@@ -122,7 +122,7 @@ def fetch_source_data(visual):
             "Inline visuals refresh by uploading a new file in the builder."
         )
     if visual.source_kind == CORPUS:
-        from visuals.corpus import CorpusSpecError, run_spec, run_story_map
+        from visuals.corpus import CorpusSpecError, run_story_map, run_values
 
         spec = visual.spec or {}
         try:
@@ -143,7 +143,7 @@ def fetch_source_data(visual):
                 # block-to-place crosswalk is a table, not
                 # something the renderer can derive.
                 return run_story_map(spec, scopes, visual.config or {})
-            rows, _meta = run_spec(spec, scopes)
+            rows, _meta = run_values(spec, scopes)
         except CorpusSpecError as exc:
             raise DataSourceError(str(exc)) from exc
         return rows

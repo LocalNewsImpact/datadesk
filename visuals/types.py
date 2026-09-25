@@ -602,6 +602,22 @@ CHART_TYPES = (
         "Table",
         TABLES,
         "The rows themselves.",
+        options=(
+            # OFF BY DEFAULT. A table saved before this existed is flat, and
+            # one of them has twelve rows; nesting it on deploy would have
+            # redrawn somebody's published table under them. Unticked writes
+            # nothing, so the default has to be the flat one.
+            Option(
+                "group_rows",
+                "Group rows",
+                "toggle",
+                note=(
+                    "Each row nests inside the one above it: Owner, then "
+                    "Newsroom, lists every newsroom under its owner and names "
+                    "the owner once. Sorting keeps a group together."
+                ),
+            ),
+        ),
         encoding=NOT_QUANTITATIVE,
         functions=("Reference tool",),
     ),

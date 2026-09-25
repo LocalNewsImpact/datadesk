@@ -334,7 +334,8 @@
       return;
     }
 
-    if (kind === "table") return renderTable(el, rows, opts && opts.credits);
+    if (kind === "table")
+      return renderTable(el, rows, opts && opts.credits, null, null, config);
     if (kind === "roster")
       return renderRoster(el, config, rows, opts, t);
     if (kind === "choropleth" || kind === "points") {
@@ -675,32 +676,186 @@
       .map(([name, rows]) => ({ name, rows }));
   }
 
-  function oneTable(rows) {
+  // A blank sorts last whichever way the column runs: a newsroom with no
+  // owner recorded is not the smallest owner, and sorting descending should
+  // not bring every gap to the top.
+  function compareCells(x, y, num, dir) {
+    const bx = x == null || x === "", by = y == null || y === "";
+    if (bx || by) return bx === by ? 0 : bx ? 1 : -1;
+    const c = num
+      ? +x - +y
+      : String(x).localeCompare(String(y), undefined, { numeric: true });
+    return c * dir;
+  }
+
+  // Which group a row is in at depth `d`: the values of every outer Row down
+  // to and including that one. Two owners can each have a newsroom called
+  // "News", so a group is its whole path, never its last name alone.
+  function groupPath(row, outer, d) {
+    return JSON.stringify(outer.slice(0, d + 1).map((c) => row[c] ?? ""));
+  }
+
+  // SORTING KEEPS A GROUP TOGETHER. Flat, it is an ordinary sort. Grouped,
+  // each group is placed by its BEST member under the column and direction
+  // chosen -- the largest when descending, the smallest when ascending --
+  // and its members sort inside it. Not by a total: unique bylines do not
+  // add up, since a reporter filing for two of an owner's papers is one at
+  // each and one person overall. The best member never double-counts.
+  //
+  // Sorting by a Row column works the same way, and needs no special case:
+  // every member of a group shares its outer Rows, so its best is its name.
+  function orderRows(rows, col, num, dir, outer) {
+    const leaf = (a, b) => compareCells(a[col], b[col], num, dir);
+    if (!outer.length) return rows.slice().sort(leaf);
+    const best = outer.map(() => new Map());
+    outer.forEach((_, d) => {
+      for (const r of rows) {
+        const key = groupPath(r, outer, d);
+        const v = r[col];
+        if (!best[d].has(key) || compareCells(v, best[d].get(key), num, dir) < 0) {
+          best[d].set(key, v);
+        }
+      }
+    });
+    return rows.slice().sort((a, b) => {
+      for (let d = 0; d < outer.length; d++) {
+        const ka = groupPath(a, outer, d), kb = groupPath(b, outer, d);
+        if (ka === kb) continue;
+        // Two groups tied on their best still may not interleave.
+        return compareCells(best[d].get(ka), best[d].get(kb), num, dir)
+          || ka.localeCompare(kb);
+      }
+      return leaf(a, b);
+    });
+  }
+
+  // SORT AND FILTER ON EVERY TABLE, and nesting when it is asked for.
+  //
+  // `config.rows` names the columns that are Rows, in order, resolved on the
+  // server from the pivot's dimensions; the feed cannot say where Rows end
+  // and Values begin, and guessing from the values fails on a year. With
+  // "Group rows" ticked, every Row but the last is a group: its name is said
+  // once, on the first row of the group, and the rows under it leave it
+  // unsaid. Unsaid rather than removed -- the cell keeps its text for a
+  // screen reader and for somebody copying the table out, and is only
+  // painted out.
+  function oneTable(rows, config) {
     // The first row that is actually an object. A list of bare numbers or
     // strings has no columns to name, and keying off row zero regardless
     // gave `0, 1, 2` as headers.
     const first = rows.find((r) => r && typeof r === "object" && !Array.isArray(r));
-    const cols = first ? Object.keys(first) : null;
     const table = document.createElement("table");
     table.className = "dd-table";
-    if (cols) {
-      table.innerHTML = "<thead><tr>" +
-        cols.map((c) => `<th>${c}</th>`).join("") + "</tr></thead>";
-    }
     const tbody = document.createElement("tbody");
-    for (const row of rows.slice(0, 500)) {
-      const tr = document.createElement("tr");
-      for (const c of cols || [null]) {
-        const value = c === null ? row : row?.[c];
+    if (!first) {
+      for (const row of rows.slice(0, 500)) {
+        const tr = document.createElement("tr");
         const td = document.createElement("td");
-        td.textContent = value ?? "";
-        if (isFiniteNumber(value)) td.className = "num";
+        td.textContent = row ?? "";
+        if (isFiniteNumber(row)) td.className = "num";
         tr.appendChild(td);
+        tbody.appendChild(tr);
       }
-      tbody.appendChild(tr);
+      table.appendChild(tbody);
+      return table;
     }
-    table.appendChild(tbody);
-    return table;
+
+    const cols = Object.keys(first);
+    // A column is a number when every value in it is, so one "n/a" in a
+    // column of counts sorts it as text rather than sorting it wrongly.
+    const numeric = new Set(cols.filter((c) => rows.some(
+      (r) => r?.[c] != null && r[c] !== "") && rows.every(
+      (r) => r?.[c] == null || r[c] === "" || isFiniteNumber(r[c]))));
+    const named = ((config && config.rows) || []).filter((c) => cols.includes(c));
+    const outer = config && config.group_rows ? named.slice(0, -1) : [];
+
+    // Flat opens in the feed's own order, which is the pivot's. Grouped
+    // cannot: the feed is largest-first across every group, which would
+    // scatter an owner's newsrooms down the page. It opens on the first
+    // Value, largest first, which is the same question asked group by group.
+    const firstValue = cols.findIndex((c) => !named.includes(c) && numeric.has(c));
+    let sortAt = outer.length ? (firstValue >= 0 ? firstValue : 0) : -1;
+    let dir = sortAt >= 0 && numeric.has(cols[sortAt]) ? -1 : 1;
+
+    const wrap = document.createElement("div");
+    wrap.className = "dd-tableview";
+    const bar = document.createElement("div");
+    bar.className = "dd-table-bar";
+    const search = document.createElement("input");
+    search.type = "search";
+    search.placeholder = "Filter rows\u2026";
+    search.setAttribute("aria-label", "Filter the rows");
+    const count = document.createElement("span");
+    count.className = "dd-table-count";
+    bar.append(search, count);
+    const scroll = document.createElement("div");
+    scroll.className = "dd-table-scroll";
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    thead.appendChild(headRow);
+    table.append(thead, tbody);
+    scroll.appendChild(table);
+    wrap.append(bar, scroll);
+
+    function paint() {
+      const needle = search.value.trim().toLowerCase();
+      const found = needle
+        ? rows.filter((r) => cols.some(
+          (c) => String(r?.[c] ?? "").toLowerCase().includes(needle)))
+        : rows;
+      const list = sortAt < 0
+        ? found
+        : orderRows(found, cols[sortAt], numeric.has(cols[sortAt]), dir, outer);
+
+      headRow.replaceChildren();
+      cols.forEach((c, k) => {
+        const th = document.createElement("th");
+        if (numeric.has(c)) th.className = "num";
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = c + (k === sortAt ? (dir === 1 ? " \u25B2" : " \u25BC") : "");
+        b.addEventListener("click", () => {
+          if (k === sortAt) dir = -dir;
+          else { sortAt = k; dir = numeric.has(c) ? -1 : 1; }
+          paint();
+        });
+        if (k === sortAt) th.setAttribute("aria-sort", dir === 1 ? "ascending" : "descending");
+        th.appendChild(b);
+        headRow.appendChild(th);
+      });
+
+      tbody.replaceChildren();
+      const shown = list.slice(0, 500);
+      shown.forEach((row, i) => {
+        const tr = document.createElement("tr");
+        // The shallowest group this row opens, or -1 if it opens none.
+        let opens = -1;
+        for (let d = 0; d < outer.length; d++) {
+          if (i === 0 || groupPath(row, outer, d) !== groupPath(shown[i - 1], outer, d)) {
+            opens = d;
+            break;
+          }
+        }
+        if (opens === 0) tr.className = "dd-group-start";
+        for (const c of cols) {
+          const value = row?.[c];
+          const td = document.createElement("td");
+          td.textContent = value ?? "";
+          const depth = outer.indexOf(c);
+          if (depth >= 0 && (opens < 0 || depth < opens)) td.className = "dd-said";
+          else if (numeric.has(c)) td.className = "num";
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      });
+      count.textContent = list.length > shown.length
+        ? `Showing ${shown.length.toLocaleString()} of ${list.length.toLocaleString()}`
+        : needle ? `${list.length.toLocaleString()} of ${rows.length.toLocaleString()}` : "";
+    }
+
+    search.addEventListener("input", paint);
+    paint();
+    return wrap;
   }
 
   // Who to credit and who to ask, shown with the numbers rather than on
@@ -974,7 +1129,7 @@
     return String(name || "").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
   }
 
-  function renderTable(el, data, credits, takeaway, back) {
+  function renderTable(el, data, credits, takeaway, back, config) {
     const groups = tablesIn(data);
     const slug = el.id.replace(/^dd-chart-/, "");
     if (takeaway) takeaway.hidden = false;
@@ -1006,7 +1161,7 @@
       // two buttons doing one thing is worse than either. The copy is
       // still ours: no server file is a clipboard.
       exportBar(el, rows, name ? `${slug}-${name}` : slug, !takeaway);
-      el.appendChild(oneTable(rows));
+      el.appendChild(oneTable(rows, config));
     }
     creditLine(el, credits);
   }
@@ -3510,6 +3665,6 @@
   // hues is a fact about these functions, not about the page.
   global.DatadeskChart = {
     render, mount, renderTable,
-    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph },
+    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows },
   };
 })(window);

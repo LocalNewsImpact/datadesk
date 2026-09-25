@@ -1200,6 +1200,62 @@ def _run_rows(spec, scopes, dim_keys):
     }
 
 
+def measures_of(spec):
+    """The values a spec asks for, in the order they were chosen.
+
+    `measures` is the list; `measure` is its first entry, kept because
+    every other path in this module reads that one key. A spec saved before
+    a table could carry several values has only `measure`, and is a list of
+    one.
+    """
+    listed = [m for m in (spec.get("measures") or []) if m]
+    if listed:
+        return list(dict.fromkeys(listed))
+    return [spec.get("measure") or "articles"]
+
+
+def run_values(spec, scopes):
+    """Run a pivot for SEVERAL values over the same rows, joined into one table.
+
+    A pivot emits one measure per query, and the byline report's newsroom
+    view needs two -- unique bylines and articles beside each newsroom. So
+    the pivot runs once per value with the same dimensions and filters, and
+    the results are joined on the dimension values they share.
+
+    THE FIRST VALUE LEADS. A top-N or a minimum count narrows each run
+    separately, so "top ten newsrooms by articles" and "top ten by bylines"
+    can be two different tens. The first value's rows are the table; the
+    others are looked up for those rows, and a row a later value did not
+    return carries None rather than a number nobody computed. With no
+    narrowing every run groups the same rows and nothing is missing.
+
+    One value is exactly `run_spec`, so nothing that asks for one changes.
+    """
+    wanted = measures_of(spec)
+    rows, meta = run_spec({**spec, "measure": wanted[0]}, scopes)
+    if len(wanted) == 1:
+        return rows, meta
+
+    keys = [d["label"] for d in meta.get("dimensions") or []]
+    labels = [meta["measure"]["label"]]
+    for extra in wanted[1:]:
+        more, more_meta = run_spec({**spec, "measure": extra}, scopes)
+        label = more_meta["measure"]["label"]
+        by_key = {tuple(r.get(k) for k in keys): r.get(label) for r in more}
+        for row in rows:
+            row[label] = by_key.get(tuple(row.get(k) for k in keys))
+        labels.append(label)
+
+    meta = {
+        **meta,
+        "measures": [
+            {"key": key, "label": label}
+            for key, label in zip(wanted, labels, strict=True)
+        ],
+    }
+    return rows, meta
+
+
 def run_spec(spec, scopes):
     """Run a pivot spec and return (rows, meta).
 
