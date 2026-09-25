@@ -47,7 +47,8 @@ class TestTheTypeIsReachable:
         source = BUILDER.read_text()
         for key in ("subject", "item_group", "item_value", "roster_draw"):
             assert f'"{key}",' in source, key
-        assert "roster_search" in source
+        assert "roster_no_search" in source
+        assert "roster_no_total" in source
 
     def test_it_draws_in_plain_dom(self):
         """A roster is a table. Loading Plot and d3 to draw one is the cost
@@ -140,3 +141,87 @@ class TestItDoesNotCountWhatTheChipsAlreadyShow:
         body = _roster()
         block = body[body.index("const cols = [") : body.index("].filter(Boolean);")]
         assert block.count("label:") == 4
+
+
+class TestACheckboxNamesTheException:
+    """The builder stores a checkbox only when it is ticked; unticked writes
+    nothing. A flag meaning "on" therefore can never be turned off -- which
+    is how "Offer a search box" shipped as a control that changed no pixel:
+    it started unticked, stored nothing, and the renderer read nothing as on.
+    """
+
+    def test_an_unticked_box_stores_nothing(self):
+        from django.http import QueryDict
+
+        from visuals.builder import config_from_form
+
+        config = config_from_form(QueryDict("kind=roster&subject=a&item=b"))
+        assert "roster_no_total" not in config
+        assert "roster_no_search" not in config
+
+    def test_a_ticked_box_stores_true(self):
+        from django.http import QueryDict
+
+        from visuals.builder import config_from_form
+
+        config = config_from_form(
+            QueryDict(
+                "kind=roster&subject=a&item=b&roster_no_total=1&roster_no_search=1"
+            )
+        )
+        assert config["roster_no_total"] is True
+        assert config["roster_no_search"] is True
+
+    def test_nothing_stored_means_the_default(self):
+        """So a roster saved before either setting existed -- and one saved
+        with both boxes unticked -- totals and offers search."""
+        body = _roster()
+        assert "config.roster_no_total !== true" in body
+        assert "config.roster_no_search !== true" in body
+
+    def test_no_flag_reads_absence_as_off(self):
+        """The shape that cannot be switched: `!== false` on a key the
+        builder never writes as false."""
+        body = _roster()
+        assert "!== false" not in body
+
+
+class TestTheTotalOnlyWhereNumbersAdd:
+    def test_the_total_column_depends_on_the_setting(self):
+        body = _roster()
+        assert 'value && totals ? { label: "Total"' in body
+
+    def test_without_a_total_the_subject_sorts_first(self):
+        """With no total the first column is the owner, and an owner sorts
+        alphabetically rather than largest-first."""
+        body = _roster()
+        assert "let sortAt = value && totals ? 1 : 0;" in body
+        assert "let dir = value && totals ? -1 : 1;" in body
+
+
+class TestUniqueBylinesIsAMeasure:
+    """The byline report's newsroom view counts unique bylines per
+    publication, and the corpus could count articles and publishers but not
+    that -- so the report could not be rebuilt as a visual at all."""
+
+    def test_it_is_offered(self):
+        from visuals.corpus import MEASURES
+
+        assert MEASURES["bylines"]["label"] == "Unique bylines"
+
+    def test_it_counts_each_byline_once(self):
+        from django.db.models import Count
+
+        from visuals.corpus import MEASURES
+
+        agg = MEASURES["bylines"]["agg"]()
+        assert isinstance(agg, Count)
+        assert agg.distinct is True
+
+    def test_it_is_not_recombined_across_groups(self):
+        """A reporter filing for two papers is one byline at each and one
+        person overall. Summing group counts double-counts them, so the
+        pivot refuses it with a rollup, as it does distinct publishers."""
+        from visuals.corpus import MEASURES
+
+        assert MEASURES["bylines"]["combine"] is None

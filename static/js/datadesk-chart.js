@@ -757,6 +757,14 @@
   function renderRoster(el, config, rows, opts, t) {
     const subject = config.subject, item = config.item;
     const group = config.item_group, value = config.item_value;
+    // THE BOX SAYS THE EXCEPTION. The builder stores a checkbox only when it
+    // is ticked -- unticked writes nothing at all -- so a flag meaning "on"
+    // can never be turned off: unticking it is indistinguishable from never
+    // having seen it. Both of these name the non-default instead. Unticked,
+    // the roster totals and offers search, as every roster did before either
+    // setting existed.
+    const totals = config.roster_no_total !== true;
+    const searchable = config.roster_no_search !== true;
     if (!subject || !item) {
       el.textContent = "Pick the column to make one row per, and the column that repeats under it.";
       return;
@@ -794,13 +802,20 @@
     // three lines faster than it reads the number 3.
     const cols = [
       { label: labelOf(subject), sort: (s) => s.name },
-      value ? { label: "Total", num: true, sort: (s) => s.total } : null,
+      // ONLY WHEN THE NUMBER ADDS UP. Articles do: forty here and ten there
+      // is fifty. Unique bylines do not -- a reporter filing for two papers
+      // is one at each and one person overall, so summing per-publication
+      // counts under an owner double-counts exactly the people the report
+      // is about. The author says which kind of number this is.
+      value && totals ? { label: "Total", num: true, sort: (s) => s.total } : null,
       { label: labelOf(item), pair: "item", sort: (s) => s.items.length },
       group ? { label: labelOf(group), pair: "group", sort: (s) => s.groups } : null,
     ].filter(Boolean);
 
-    let sortAt = value ? 1 : 0;
-    let dir = value ? -1 : 1;
+    // With no total the first column is the subject, and a subject sorts
+    // alphabetically rather than largest-first.
+    let sortAt = value && totals ? 1 : 0;
+    let dir = value && totals ? -1 : 1;
 
     const wrap = document.createElement("div");
     wrap.className = "dd-roster";
@@ -834,7 +849,7 @@
       for (const name of seen) pick.append(new Option(name, name));
       bar.append(pick);
     }
-    if (config.roster_search !== false) bar.insertBefore(search, bar.firstChild);
+    if (searchable) bar.insertBefore(search, bar.firstChild);
     if (bar.childElementCount) wrap.append(bar);
     wrap.append(count, scroll);
     el.replaceChildren(wrap);
