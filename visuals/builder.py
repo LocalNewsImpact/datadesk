@@ -71,6 +71,10 @@ _STRING_KEYS = (
     "focus",
     "focus_name",
     "bands",
+    # Whether a shade means this map's own rank or a fixed count. Read
+    # alone a map should use its whole ramp; read beside another it must
+    # not, or both top out at the same dark blue on different numbers.
+    "band_scale",
     # Whether a story map draws each point where it was coded or counts
     # every point that belongs to a city under that city. A display
     # choice the SERVER has to honour, because the block-to-place

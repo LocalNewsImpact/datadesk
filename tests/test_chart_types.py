@@ -169,8 +169,11 @@ def test_no_type_asks_for_more_than_the_form_offers_today():
     for chart in CHART_TYPES:
         wanted = {r.id for r in chart.roles} | {o.id for o in chart.options}
         missing = wanted - offered
-        # `bands` is the known gap: read by the renderer, offered by nothing.
-        assert missing <= {"bands"}, f"{chart.id} wants {missing}"
+        # NO GAP. `bands` was the known one -- read by the renderer, offered
+        # by nothing, so a story map took ten deciles and could not be told
+        # otherwise. It and `band_scale` now both have controls, and an
+        # option the form does not offer is an option nobody can set.
+        assert missing == set(), f"{chart.id} wants {missing}"
 
 
 # --- what the picker tells somebody choosing ---------------------------------

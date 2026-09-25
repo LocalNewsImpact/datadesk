@@ -274,6 +274,26 @@
                 <option value="city">roll up to city</option>
               </select>
             </label>
+            <!-- HOW MANY SHADES, and what a shade means. Both were read
+                 by the renderer and offered by nothing, so a story map
+                 took the defaults and could not be told otherwise. -->
+            <label data-kinds="storymap">Shading steps
+              <select name="bands">
+                <option value="">10 &mdash; deciles</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+                <option value="12">12 &mdash; the most the ramp can carry</option>
+                <option value="fixed">fixed: 1&ndash;2 / 3&ndash;5 / 6&ndash;9 / 10+</option>
+              </select>
+            </label>
+            <label data-kinds="storymap">Compare shading with other maps
+              <select name="band_scale">
+                <option value="">relative &mdash; this map's own range</option>
+                <option value="absolute">absolute &mdash; the same shade means the same count</option>
+              </select>
+            </label>
           </label>
         </fieldset>
 

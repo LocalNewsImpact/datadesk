@@ -2821,6 +2821,12 @@
   // Both layers are hover-isolating and tappable.
   const PRECISION = { place: 0, block: 1, county: 2, state: 3, tract: 4 };
 
+  //: The fixed ladder absolute banding cuts at, so one shade means one count
+  //: on every map that uses it. Roughly logarithmic because the counts are:
+  //: Missouri counties run 1..969 with a median of 44, and even steps would
+  //: put almost every county in the first band.
+  const ABSOLUTE_BANDS = [1, 2, 5, 10, 20, 50, 100, 200, 500];
+
   function renderStoryMap(el, config, data, opts, t, width) {
     const d3 = global.d3;
     const payload = Array.isArray(data) ? { points: data, areas: [] } : (data || {});
@@ -2926,7 +2932,6 @@
       const steps = config.bands === "fixed"
         ? 4
         : Math.min(12, Math.max(3, parseInt(config.bands, 10) || 10));
-      const ramp = quantizeRamp(t.seqLow, t.seqHigh, steps + 1);
       // BANDED ON WHAT IS DRAWN, not on what the feed carries. The
       // payload holds every county the corpus touched -- 710 of them on
       // the Missouri map -- while the map paints 115. The 595 counties
@@ -2944,14 +2949,40 @@
       // Cuts at i/steps, rising, de-duplicated. A count with many ties
       // can put two quantiles on the same number, which would draw two
       // bands covering the same range with one of them always empty.
-      const cuts = config.bands === "fixed" || values.length < steps * 2
-        ? [2, 5, 9].slice(0, steps - 1)
-        : Array.from({ length: steps - 1 }, (_, i) =>
-            Math.max(1, Math.round(d3.quantile(values, (i + 1) / steps))))
-            .reduce((kept, cut) => {
-              if (!kept.length || cut > kept[kept.length - 1]) kept.push(cut);
-              return kept;
-            }, []);
+      // RELATIVE OR ABSOLUTE, and the difference is what the colour means.
+      //
+      // Relative (the default) cuts at this map's own quantiles, so every
+      // map uses the whole ramp and a county's shade is its RANK among the
+      // counties drawn beside it. Read alone, that is what you want: a map
+      // of six small counties should not be six shades of pale.
+      //
+      // Absolute cuts at a fixed ladder, so a shade means a COUNT and means
+      // the same count on every map. Read next to another map, that is what
+      // you want, and relative shading actively misleads -- two maps top out
+      // at the same dark blue whether the county behind it holds fifteen
+      // stories or two hundred.
+      //
+      // The ladder is roughly logarithmic because the counts are: Missouri
+      // counties run from 1 to 969 and the median is 44, so even steps would
+      // put almost every county in the first band.
+      const cuts = config.band_scale === "absolute"
+        ? ABSOLUTE_BANDS
+        : config.bands === "fixed" || values.length < steps * 2
+          ? [2, 5, 9].slice(0, steps - 1)
+          : Array.from({ length: steps - 1 }, (_, i) =>
+              Math.max(1, Math.round(d3.quantile(values, (i + 1) / steps))))
+              .reduce((kept, cut) => {
+                if (!kept.length || cut > kept[kept.length - 1]) kept.push(cut);
+                return kept;
+              }, []);
+      // SIZED AFTER THE CUTS, not from `steps`. `bandOf` can return at most
+      // `cuts.length + 1`, and de-duplication drops any quantile that ties
+      // with the one below it -- ten deciles over counties holding 1,1,1,2,2,4
+      // survive as three or four distinct cuts. Built from `steps + 1` the
+      // ramp then had shades no band could ever reach, so a map topped out at
+      // a mid-tone and looked lighter than a map of smaller numbers whose
+      // cuts happened to survive. The darkest band is now always `seqHigh`.
+      const ramp = quantizeRamp(t.seqLow, t.seqHigh, cuts.length + 2);
       const bandOf = (n) => {
         if (!n) return 0;
         for (let i = 0; i < cuts.length; i += 1) if (n <= cuts[i]) return i + 1;
