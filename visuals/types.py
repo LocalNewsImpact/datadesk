@@ -629,8 +629,19 @@ CHART_TYPES = (
         ),
         options=(
             Option(
-                "roster_search",
-                "Offer a search box",
+                "roster_no_total",
+                "Do not total the numbers",
+                "toggle",
+                note=(
+                    "Tick it for a count of distinct things. Articles add "
+                    "up; unique bylines do not -- a reporter filing for two "
+                    "papers is one at each and one person overall, so a "
+                    "total across an owner's papers counts them twice."
+                ),
+            ),
+            Option(
+                "roster_no_search",
+                "Hide the search box",
                 "toggle",
                 note=(
                     "Searches the subject, the items and the groups at once. "

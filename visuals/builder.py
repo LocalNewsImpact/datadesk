@@ -94,7 +94,14 @@ _STRING_KEYS = (
     "lon",
     "place",
 )
-_BOOL_KEYS = ("horizontal", "stacked", "geo_fit", "locator_labels", "roster_search")
+_BOOL_KEYS = (
+    "horizontal",
+    "stacked",
+    "geo_fit",
+    "locator_labels",
+    "roster_no_search",
+    "roster_no_total",
+)
 # "stack" is a string ("percent") rather than a flag.
 
 MAX_ROWS = 20_000

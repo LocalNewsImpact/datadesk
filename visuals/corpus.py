@@ -433,6 +433,25 @@ MEASURES = {
         # double-counting, so it is refused alongside a rollup dimension.
         "combine": None,
     },
+    # How many different bylines a group carries. The counterpart of
+    # `publishers`, and the number the byline report's newsroom view is
+    # about: a publication with forty stories by two reporters and one with
+    # forty by forty are not the same newsroom.
+    #
+    # Counted AS PUBLISHED, the way the `author` dimension reads them, so
+    # "Rudi Keller" and "Rudi Keller - MISSOURI INDEPENDENT" are two. That
+    # is the string the corpus holds; the byline review is where two
+    # spellings become one person, and this does not pretend otherwise.
+    "bylines": {
+        # "Unique", not "Distinct" as `publishers` has it: this is the byline
+        # report's own column header, and a visual rebuilding that report
+        # should say what the report says.
+        "label": "Unique bylines",
+        "agg": lambda: Count("author", distinct=True),
+        # Not additive either: a reporter filing for two papers is one
+        # byline at each and still one person, so group totals double-count.
+        "combine": None,
+    },
 }
 
 # --- filters ----------------------------------------------------------------
