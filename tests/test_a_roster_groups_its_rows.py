@@ -110,3 +110,33 @@ class TestTheDrawCap:
 
     def test_it_defaults_to_four_hundred(self):
         assert "parseInt(config.roster_draw, 10) || 400" in _roster()
+
+
+class TestItDoesNotCountWhatTheChipsAlreadyShow:
+    """A first version carried "how many items" and "how many groups" beside
+    the total. On a byline report both read 1 and 1 on almost every row --
+    most reporters file at one newsroom -- so it was two columns of ones,
+    with labels pluralised by machine ("Publisher names").
+
+    The chips say how many there are. The eye counts three lines faster than
+    it reads the number 3.
+    """
+
+    def test_there_is_no_machine_pluralised_label(self):
+        assert 'labelOf(item) + "s"' not in _roster()
+        assert 'labelOf(group) + "s"' not in _roster()
+
+    def test_the_counts_survive_as_the_sort(self):
+        """Sorting the publications column still answers "who appears in the
+        most places" -- the column is gone, the question is not."""
+        body = _roster()
+        items = '{ label: labelOf(item), pair: "item", sort: (s) => s.items.length }'
+        assert items in body
+        assert 'pair: "group", sort: (s) => s.groups }' in body
+
+    def test_four_columns_at_most(self):
+        """Subject, total, items, groups. A roster with no value role or no
+        group drops those and keeps the rest."""
+        body = _roster()
+        block = body[body.index("const cols = [") : body.index("].filter(Boolean);")]
+        assert block.count("label:") == 4
