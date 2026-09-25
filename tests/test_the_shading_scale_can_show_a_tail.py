@@ -127,10 +127,27 @@ class TestTheRendererReadsIt:
         block = self._block()
         assert 'config.bands === "fixed"' in block
 
-    def test_the_ramp_is_built_for_the_chosen_count(self):
-        """A ramp of five colours under ten bands would draw five of them
-        out of range and paint half the map `undefined`."""
-        assert "quantizeRamp(t.seqLow, t.seqHigh, steps + 1)" in CHART.read_text()
+    def test_the_ramp_is_built_for_the_bands_that_exist(self):
+        """A ramp shorter than the band count paints the map `undefined`;
+        a ramp LONGER than it holds shades no band can reach.
+
+        It was `steps + 1`, the count asked for. `bandOf` returns at most
+        `cuts.length + 1`, and quantile cuts de-duplicate -- ten deciles
+        over a tied count survive as six -- so the darkest shades went
+        unpainted and a map of small numbers topped out lighter than a map
+        of large ones. `bandLabels` was already built from `cuts`, so the
+        legend and the ramp disagreed by the same amount."""
+        source = CHART.read_text()
+        assert "quantizeRamp(t.seqLow, t.seqHigh, cuts.length + 2)" in source
+        assert "quantizeRamp(t.seqLow, t.seqHigh, steps + 1)" not in source
+
+    def test_the_ramp_and_the_legend_are_the_same_length(self):
+        """Both are `cuts.length + 2`: a zero band, one per cut, and the
+        tail above the last cut."""
+        source = CHART.read_text()
+        labels = source[source.index("const bandLabels = [") :][:400]
+        assert '["0"].concat(' in labels
+        assert "cuts.map(" in labels
 
 
 class TestTheTopBandSaysWhereItEnds:
