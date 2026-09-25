@@ -1164,11 +1164,18 @@ label.stacked input, label.stacked textarea, label.stacked select {
 .dd-table th.num button { text-align: right; }
 .dd-table th[aria-sort] button { color: var(--text); }
 
-/* A grouped table names a group once. The repeats keep their text -- for a
-   screen reader, and for whoever copies the table out -- and are painted
-   out, and the rule above each outermost group is what the eye follows. */
-.dd-table td.dd-said { color: transparent; }
-.dd-table tr.dd-group-start td { border-top: 1px solid var(--border-strong); }
+/* A grouped table is one row per outermost group, and every column after
+   it a stack of lines, one per record. The lines do not wrap: a wrapped line
+   in one column would push every line below it out of step with its
+   neighbours, and the row stops reading across. The table scrolls instead.
+
+   An inner group is named on its first line. The repeats keep their text --
+   for a screen reader, and for whoever copies the table out -- and are
+   painted out. */
+.dd-table tr.dd-grouped td { vertical-align: top; }
+.dd-stack { display: flex; flex-direction: column; }
+.dd-line { white-space: nowrap; line-height: 1.5; min-height: 1.5em; }
+.dd-table .dd-said { color: transparent; }
 
 .dd-tip {
   position: absolute;
