@@ -605,6 +605,60 @@ CHART_TYPES = (
         encoding=NOT_QUANTITATIVE,
         functions=("Reference tool",),
     ),
+    # A REPORT IS NOT A LIST OF ROWS. The byline report is one row per byline
+    # and several publications under it, and the publications belong to owners
+    # -- six Rust Communications titles are one owner, not six. Flattened into
+    # a plain table that is six rows repeating the byline, or one row with two
+    # chip clouds that never say which owner ran which title.
+    #
+    # So the query returns LONG FORM -- one row per subject, item, group and
+    # value -- and the type nests it. The filters read the same roles: the
+    # dropdown is the distinct groups, the number filter is the value, the
+    # count band is items per subject. Nothing here needs a second
+    # configuration to keep in step with the SQL.
+    ChartType(
+        "roster",
+        "Grouped table",
+        TABLES,
+        "Rows that repeat under a subject, grouped by who owns them.",
+        roles=(
+            Role("subject", "One row per", accepts=(TEXT,)),
+            Role("item", "Repeating under it", accepts=(TEXT,)),
+            Role("item_group", "Which the items group under", accepts=(TEXT,)),
+            Role("item_value", "A number per item", accepts=(NUMBER,)),
+        ),
+        options=(
+            Option(
+                "roster_search",
+                "Offer a search box",
+                "toggle",
+                note=(
+                    "Searches the subject, the items and the groups at once. "
+                    "A reader looking for a reporter and a reader looking for "
+                    "a newsroom both start by typing."
+                ),
+            ),
+            Option(
+                "roster_draw",
+                "Rows to draw",
+                "choice",
+                values=(
+                    ("", "400 — the rest stay in the filter and the export"),
+                    ("100", "100"),
+                    ("1000", "1000"),
+                    ("0", "Every matching row"),
+                ),
+                note=(
+                    "A cap on what is DRAWN, not on what is filtered or "
+                    "exported. Two thousand rows of chips is a slow first "
+                    "paint and nobody reads past a few hundred."
+                ),
+            ),
+        ),
+        also=("report", "grouped table", "roster"),
+        encoding=NOT_QUANTITATIVE,
+        functions=("Reference tool",),
+    ),
 )
 
 BY_ID = {c.id: c for c in CHART_TYPES}

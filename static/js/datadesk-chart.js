@@ -335,6 +335,8 @@
     }
 
     if (kind === "table") return renderTable(el, rows, opts && opts.credits);
+    if (kind === "roster")
+      return renderRoster(el, config, rows, opts, t);
     if (kind === "choropleth" || kind === "points") {
       return renderMap(el, config, rows, opts, t, width);
     }
@@ -739,6 +741,220 @@
   // Both are moved rather than built, because the page made them and
   // knows what they say. Moving is also what keeps them out of
   // `replaceChildren`'s way when the chart draws again.
+  // A REPORT IS NOT A LIST OF ROWS.
+  //
+  // The byline report is one row per byline with several publications under
+  // it, and those publications belong to owners: six Rust Communications
+  // titles under one byline are ONE owner, not six. Flattened into a plain
+  // table it is six rows repeating the byline; rendered as two lists it says
+  // which publications and which owners and never which owner ran which
+  // publication.
+  //
+  // So the query returns long form -- subject, item, group, value -- and this
+  // nests it twice: items group under their owner, groups stack under the
+  // subject, and both cells emit the same groups in the same order so a group
+  // reads across.
+  function renderRoster(el, config, rows, opts, t) {
+    const subject = config.subject, item = config.item;
+    const group = config.item_group, value = config.item_value;
+    if (!subject || !item) {
+      el.textContent = "Pick the column to make one row per, and the column that repeats under it.";
+      return;
+    }
+
+    // Long form in, nested out. Insertion order is the query's order, which
+    // is the author's: a roster sorted by articles arrives that way.
+    const bySubject = new Map();
+    for (const row of rows) {
+      const key = String(row[subject] ?? "");
+      if (!key) continue;
+      if (!bySubject.has(key)) bySubject.set(key, []);
+      bySubject.get(key).push({
+        item: String(row[item] ?? ""),
+        group: group ? String(row[group] ?? "") : "",
+        value: value ? Number(row[value]) || 0 : null,
+      });
+    }
+    const subjects = [...bySubject].map(([name, items]) => ({
+      name,
+      items,
+      total: items.reduce((sum, i) => sum + (i.value || 0), 0),
+      groups: new Set(items.map((i) => i.group)).size,
+    }));
+
+    const draw = config.roster_draw === "0"
+      ? Infinity
+      : Math.max(1, parseInt(config.roster_draw, 10) || 400);
+
+    const cols = [
+      { label: labelOf(subject), sort: (s) => s.name },
+      value ? { label: "Total", num: true, sort: (s) => s.total } : null,
+      { label: labelOf(item) + "s", num: true, sort: (s) => s.items.length },
+      group ? { label: labelOf(group) + "s", num: true, sort: (s) => s.groups } : null,
+      { label: labelOf(item), pair: "item" },
+      group ? { label: labelOf(group), pair: "group" } : null,
+    ].filter(Boolean);
+
+    let sortAt = value ? 1 : 0;
+    let dir = value ? -1 : 1;
+
+    const wrap = document.createElement("div");
+    wrap.className = "dd-roster";
+    const bar = document.createElement("div");
+    bar.className = "dd-roster-bar";
+    const search = document.createElement("input");
+    search.type = "search";
+    search.placeholder = `Search ${labelOf(subject).toLowerCase()}, ${labelOf(item).toLowerCase()}…`;
+    search.setAttribute("aria-label", "Search the roster");
+    const pick = document.createElement("select");
+    pick.setAttribute("aria-label", labelOf(group || item));
+    const count = document.createElement("p");
+    count.className = "dd-roster-count";
+    const scroll = document.createElement("div");
+    scroll.className = "dd-roster-scroll";
+    const table = document.createElement("table");
+    table.className = "dd-roster-table";
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    const tbody = document.createElement("tbody");
+    thead.append(headRow);
+    table.append(thead, tbody);
+    scroll.append(table);
+
+    // THE DROPDOWN IS THE DATA. Its options are the distinct groups the query
+    // returned, so the SQL informs it by what it selects and there is no
+    // second configuration to fall out of step.
+    if (group) {
+      const seen = [...new Set(rows.map((r) => String(r[group] ?? "")).filter(Boolean))].sort();
+      pick.append(new Option(`Any ${labelOf(group).toLowerCase()}`, ""));
+      for (const name of seen) pick.append(new Option(name, name));
+      bar.append(pick);
+    }
+    if (config.roster_search !== false) bar.insertBefore(search, bar.firstChild);
+    if (bar.childElementCount) wrap.append(bar);
+    wrap.append(count, scroll);
+    el.replaceChildren(wrap);
+
+    function matching() {
+      const needle = search.value.trim().toLowerCase();
+      const only = group ? pick.value : "";
+      return subjects.filter((s) => {
+        if (only && !s.items.some((i) => i.group === only)) return false;
+        if (!needle) return true;
+        return (s.name + " " + s.items.map((i) => i.item + " " + i.group).join(" "))
+          .toLowerCase().includes(needle);
+      });
+    }
+
+    function grouped(items) {
+      const order = [];
+      const by = new Map();
+      for (const i of items) {
+        if (!by.has(i.group)) { by.set(i.group, []); order.push(i.group); }
+        by.get(i.group).push(i);
+      }
+      return order.map((name) => ({ name, items: by.get(name) }));
+    }
+
+    function chipsFor(subjectRow, which) {
+      const box = document.createElement("div");
+      box.className = "dd-roster-chips";
+      for (const block of grouped(subjectRow.items)) {
+        const cell = document.createElement("div");
+        cell.className = "dd-roster-grp";
+        // Both columns reserve the block's height, so the group name sits
+        // level with the first item it owns rather than drifting.
+        cell.style.setProperty("--n", block.items.length);
+        if (which === "group") {
+          cell.append(chip(block.name));
+        } else {
+          for (const i of block.items) {
+            const c = chip(i.item);
+            if (i.value !== null) {
+              const n = document.createElement("span");
+              n.className = "dd-roster-n";
+              n.textContent = " " + i.value.toLocaleString();
+              c.append(n);
+            }
+            c.title = block.name ? `${i.item} — ${block.name}` : i.item;
+            cell.append(c);
+          }
+        }
+        box.append(cell);
+      }
+      return box;
+    }
+
+    function chip(text) {
+      const span = document.createElement("span");
+      span.className = "dd-roster-chip";
+      span.textContent = text;
+      return span;
+    }
+
+    function paint() {
+      const found = matching();
+      const order = found.slice().sort((a, b) => {
+        const col = cols[sortAt];
+        const x = col.sort ? col.sort(a) : a.name;
+        const y = col.sort ? col.sort(b) : b.name;
+        const c = typeof x === "number" ? x - y : String(x).localeCompare(String(y));
+        return c * dir;
+      });
+
+      headRow.replaceChildren();
+      cols.forEach((col, k) => {
+        const th = document.createElement("th");
+        if (col.num) th.className = "num";
+        if (col.sort) {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.textContent = col.label + (k === sortAt ? (dir === 1 ? " ▲" : " ▼") : "");
+          b.addEventListener("click", () => {
+            if (k === sortAt) dir = -dir;
+            else { sortAt = k; dir = col.num ? -1 : 1; }
+            paint();
+          });
+          th.append(b);
+          if (k === sortAt) th.setAttribute("aria-sort", dir === 1 ? "ascending" : "descending");
+        } else th.textContent = col.label;
+        headRow.append(th);
+      });
+
+      tbody.replaceChildren();
+      for (const s of order.slice(0, draw)) {
+        const tr = document.createElement("tr");
+        for (const col of cols) {
+          const td = document.createElement("td");
+          if (col.pair) td.append(chipsFor(s, col.pair));
+          else if (col.num) {
+            td.className = "num";
+            td.textContent = col.sort(s).toLocaleString();
+          } else td.textContent = s.name;
+          tr.append(td);
+        }
+        tbody.append(tr);
+      }
+      const shown = Math.min(order.length, draw);
+      count.textContent = order.length > draw
+        ? `Showing ${shown.toLocaleString()} of ${order.length.toLocaleString()} matching · ${subjects.length.toLocaleString()} in all`
+        : `${order.length.toLocaleString()} of ${subjects.length.toLocaleString()}`;
+    }
+
+    search.addEventListener("input", paint);
+    pick.addEventListener("input", paint);
+    paint();
+    // Every matching row, not the drawn ones: the cap is about first paint.
+    exportBar(el, rows, (el.id || "roster").replace(/^dd-chart-/, ""), true);
+    creditLine(el, opts && opts.credits);
+  }
+
+  //: A column's own name, which is what the reader knows it by. The pivot
+  //: emits display labels, so this is usually the label already.
+  function labelOf(name) {
+    return String(name || "").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+  }
+
   function renderTable(el, data, credits, takeaway, back) {
     const groups = tablesIn(data);
     const slug = el.id.replace(/^dd-chart-/, "");
