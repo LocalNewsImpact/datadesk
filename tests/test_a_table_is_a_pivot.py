@@ -7,6 +7,7 @@ needs two values from one table -- and a pivot emits one measure per query.
 """
 
 import datetime as dt
+import json
 from pathlib import Path
 
 import pytest
@@ -270,11 +271,12 @@ NEWSROOMS = [
 ]
 
 
-def _order(col, num, direction, outer, rows=NEWSROOMS):
-    """Run the renderer's own sort, in node, on `rows`."""
-    import json
+def _node(expression):
+    """Evaluate `expression` against the renderer, in node, and return it."""
+    import os
     import shutil
     import subprocess
+    import tempfile
 
     node = shutil.which("node")
     if node is None:
@@ -287,14 +289,9 @@ def _order(col, num, direction, outer, rows=NEWSROOMS):
     }};
     global.matchMedia = () => ({{ matches: false }});
     {CHART.read_text()}
-    const out = DatadeskChart.__test.orderRows(
-      {json.dumps(rows)}, {json.dumps(col)}, {json.dumps(num)},
-      {direction}, {json.dumps(outer)});
-    console.log(JSON.stringify(out.map((r) => r.Newsroom)));
+    const T = DatadeskChart.__test;
+    console.log(JSON.stringify({expression}));
     """
-    import os
-    import tempfile
-
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
         fh.write(harness)
         where = fh.name
@@ -304,6 +301,14 @@ def _order(col, num, direction, outer, rows=NEWSROOMS):
         os.unlink(where)
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout)
+
+
+def _order(col, num, direction, outer, rows=NEWSROOMS):
+    """Run the renderer's own sort on `rows`; the newsrooms, in order."""
+    return _node(
+        f"T.orderRows({json.dumps(rows)}, {json.dumps(col)}, {json.dumps(num)}, "
+        f"{direction}, {json.dumps(outer)}).map((r) => r.Newsroom)"
+    )
 
 
 class TestSortingKeepsAGroupTogether:
@@ -427,3 +432,47 @@ class TestTheRendererIsToldWhichColumnsAreRows:
         passed = "renderTable(el, rows, opts && opts.credits, null, null, config)"
         assert passed in source
         assert "oneTable(rows, config)" in source
+
+
+BYLINES = [
+    {"Byline": "Jason Vance", "Owner": "Rust", "Newsroom": "semo", "Articles": 9},
+    {"Byline": "Jason Vance", "Owner": "Rust", "Newsroom": "sd", "Articles": 4},
+    {"Byline": "Jason Vance", "Owner": "Gray", "Newsroom": "ky3", "Articles": 2},
+    {"Byline": "Sarah Motter", "Owner": "Gray", "Newsroom": "kctv5", "Articles": 97},
+]
+
+
+class TestAGroupIsOneDisplayedRow:
+    """A byline filing for three papers is one row with three lines, not
+    three rows: the reader is counting bylines."""
+
+    def _stack(self, outer):
+        ordered = f"T.orderRows({json.dumps(BYLINES)}, 'Articles', true, -1, " + (
+            f"{json.dumps(outer)})"
+        )
+        return _node(
+            f"T.stackRows({ordered}, {json.dumps(outer)}).map((g) => ({{"
+            "name: g.name, lines: g.lines.map((l) => [l.row.Newsroom, l.opens])}))"
+        )
+
+    def test_one_row_per_byline(self):
+        groups = self._stack(["Byline", "Owner"])
+        assert [g["name"] for g in groups] == ["Sarah Motter", "Jason Vance"]
+
+    def test_every_publication_is_a_line_in_it(self):
+        vance = self._stack(["Byline", "Owner"])[1]
+        assert [line[0] for line in vance["lines"]] == ["semo", "sd", "ky3"]
+
+    def test_an_owner_is_named_on_its_first_line_only(self):
+        """Rust opens on semo and continues on sd; Gray opens on ky3."""
+        vance = self._stack(["Byline", "Owner"])[1]
+        assert [line[1] for line in vance["lines"]] == [1, -1, 1]
+
+    def test_with_one_outer_row_no_line_opens_an_inner_group(self):
+        vance = self._stack(["Byline"])[1]
+        assert [line[1] for line in vance["lines"]] == [-1, -1, -1]
+
+    def test_the_cap_and_the_count_are_of_groups(self):
+        source = CHART.read_text()
+        assert "const shown = groups.slice(0, 500);" in source
+        assert "groups.length.toLocaleString()" in source

@@ -729,16 +729,39 @@
     });
   }
 
+  // Sorted rows into one entry per outermost group, in the order they
+  // arrive. Each line records the shallowest inner group it opens (1 and
+  // deeper), or -1 when it opens none, which is what decides whether an
+  // inner group's name is said on that line.
+  function stackRows(sorted, outer) {
+    const groups = [];
+    let current = null;
+    sorted.forEach((row, i) => {
+      const key = groupPath(row, outer, 0);
+      if (!current || current.key !== key) {
+        current = { key, name: row[outer[0]], lines: [] };
+        groups.push(current);
+      }
+      let opens = -1;
+      for (let d = 1; d < outer.length; d++) {
+        const prev = current.lines.length ? sorted[i - 1] : null;
+        if (!prev || groupPath(row, outer, d) !== groupPath(prev, outer, d)) {
+          opens = d;
+          break;
+        }
+      }
+      current.lines.push({ row, opens });
+    });
+    return groups;
+  }
+
   // SORT AND FILTER ON EVERY TABLE, and nesting when it is asked for.
   //
   // `config.rows` names the columns that are Rows, in order, resolved on the
   // server from the pivot's dimensions; the feed cannot say where Rows end
   // and Values begin, and guessing from the values fails on a year. With
-  // "Group rows" ticked, every Row but the last is a group: its name is said
-  // once, on the first row of the group, and the rows under it leave it
-  // unsaid. Unsaid rather than removed -- the cell keeps its text for a
-  // screen reader and for somebody copying the table out, and is only
-  // painted out.
+  // "Group rows" ticked, every Row but the last is a group, and the first
+  // Row is one displayed row each -- see stackRows.
   function oneTable(rows, config) {
     // The first row that is actually an object. A list of bare numbers or
     // strings has no columns to name, and keying off row zero regardless
@@ -768,6 +791,9 @@
       (r) => r?.[c] == null || r[c] === "" || isFiniteNumber(r[c]))));
     const named = ((config && config.rows) || []).filter((c) => cols.includes(c));
     const outer = config && config.group_rows ? named.slice(0, -1) : [];
+    const allGroups = outer.length
+      ? new Set(rows.map((r) => groupPath(r, outer, 0))).size
+      : rows.length;
 
     // Flat opens in the feed's own order, which is the pivot's. Grouped
     // cannot: the feed is largest-first across every group, which would
@@ -825,32 +851,66 @@
       });
 
       tbody.replaceChildren();
-      const shown = list.slice(0, 500);
-      shown.forEach((row, i) => {
-        const tr = document.createElement("tr");
-        // The shallowest group this row opens, or -1 if it opens none.
-        let opens = -1;
-        for (let d = 0; d < outer.length; d++) {
-          if (i === 0 || groupPath(row, outer, d) !== groupPath(shown[i - 1], outer, d)) {
-            opens = d;
-            break;
+      if (!outer.length) {
+        const shown = list.slice(0, 500);
+        for (const row of shown) {
+          const tr = document.createElement("tr");
+          for (const c of cols) {
+            const value = row?.[c];
+            const td = document.createElement("td");
+            td.textContent = value ?? "";
+            if (numeric.has(c)) td.className = "num";
+            tr.appendChild(td);
           }
+          tbody.appendChild(tr);
         }
-        if (opens === 0) tr.className = "dd-group-start";
+        count.textContent = list.length > shown.length
+          ? `Showing ${shown.length.toLocaleString()} of ${list.length.toLocaleString()}`
+          : needle ? `${list.length.toLocaleString()} of ${rows.length.toLocaleString()}` : "";
+        return;
+      }
+
+      // ONE DISPLAYED ROW PER GROUP. A byline filing for seven papers is one
+      // row with seven lines in it, not seven rows: the reader is counting
+      // bylines, and a byline spread down the page over rows that each look
+      // like a record reads as seven of them. Every column below the first
+      // Row is a stack of lines, one per leaf, aligned across the columns so
+      // a line reads across as one record.
+      const groups = stackRows(list, outer);
+      const shown = groups.slice(0, 500);
+      for (const group of shown) {
+        const tr = document.createElement("tr");
+        tr.className = "dd-grouped";
         for (const c of cols) {
-          const value = row?.[c];
           const td = document.createElement("td");
-          td.textContent = value ?? "";
+          if (c === outer[0]) {
+            td.textContent = group.name ?? "";
+            tr.appendChild(td);
+            continue;
+          }
+          if (numeric.has(c)) td.className = "num";
           const depth = outer.indexOf(c);
-          if (depth >= 0 && (opens < 0 || depth < opens)) td.className = "dd-said";
-          else if (numeric.has(c)) td.className = "num";
+          const stack = document.createElement("div");
+          stack.className = "dd-stack";
+          for (const line of group.lines) {
+            const div = document.createElement("div");
+            div.className = "dd-line";
+            div.textContent = line.row?.[c] ?? "";
+            // An inner group is named on its first line and left unsaid on
+            // the lines after it, as the outermost one is by the row itself.
+            if (depth > 0 && (line.opens < 0 || depth < line.opens)) {
+              div.classList.add("dd-said");
+            }
+            stack.appendChild(div);
+          }
+          td.appendChild(stack);
           tr.appendChild(td);
         }
         tbody.appendChild(tr);
-      });
-      count.textContent = list.length > shown.length
-        ? `Showing ${shown.length.toLocaleString()} of ${list.length.toLocaleString()}`
-        : needle ? `${list.length.toLocaleString()} of ${rows.length.toLocaleString()}` : "";
+      }
+      count.textContent = groups.length > shown.length
+        ? `Showing ${shown.length.toLocaleString()} of ${groups.length.toLocaleString()}`
+        : needle ? `${groups.length.toLocaleString()} of ${allGroups.toLocaleString()}` : "";
     }
 
     search.addEventListener("input", paint);
@@ -3665,6 +3725,6 @@
   // hues is a fact about these functions, not about the page.
   global.DatadeskChart = {
     render, mount, renderTable,
-    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows },
+    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows },
   };
 })(window);
