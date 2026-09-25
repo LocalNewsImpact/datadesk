@@ -180,6 +180,18 @@ class Visual(models.Model):
         config = dict(self.config or {})
         if (self.spec or {}).get("shape") == "story_map":
             config["kind"] = STORY_MAP_KIND
+        # WHICH COLUMNS ARE ROWS. A table's feed is Rows then Values, keyed
+        # by label, and nothing in a row says where one ends. Guessing from
+        # the values fails on the first numeric row -- a year -- so the
+        # renderer is told, by the same labels the pivot writes.
+        if config.get("kind") == "table" and self.source_kind == "corpus":
+            from visuals.corpus import DIMENSIONS
+
+            config["rows"] = [
+                DIMENSIONS[k]["label"]
+                for k in (self.spec or {}).get("dimensions") or []
+                if k in DIMENSIONS
+            ]
         if not config.get("theme") and self.folder_id and self.folder.theme:
             config["theme"] = self.folder.theme
         return config

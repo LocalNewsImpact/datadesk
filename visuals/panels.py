@@ -910,6 +910,22 @@ def _limited_by(chart, spec):
     return None, ""
 
 
+def _ordered_slots(chosen, options):
+    """One select per chosen item, in its order, plus one blank to add more.
+
+    Each carries the whole option list grouped as the other selects group
+    it, with its own choice marked, so a slot can be changed to anything
+    and the blank one can become a new row or value.
+    """
+    slots = []
+    for position, picked in enumerate(list(chosen) + [""], start=1):
+        marked = [dict(v, on=v["id"] == picked) for v in options]
+        slots.append(
+            {"position": position, "chosen": picked, "groups": in_groups(marked)}
+        )
+    return slots
+
+
 def _picks_columns(chart):
     """Whether this kind groups by whatever is ticked.
 
@@ -1115,20 +1131,31 @@ def field_panel(visual, post=None, user=None):
         if chart is None:
             raise ValueError("Pick a chart type first")
         known = {v["id"] for v in variables(visual)}
-        roles, dimensions, measure = {}, [], ""
+        roles, dimensions, measure, measures = {}, [], "", []
         if _picks_columns(chart):
             # A table is the rows themselves, so it groups by whatever
             # somebody ticks rather than by filling slots with meanings a
             # table does not have. The pivot takes a list of dimensions,
             # which is what this is.
             columns = {v["id"] for v in variables(visual) if not v["measure"]}
-            dimensions = [c for c in post.getlist("columns") if c in columns]
-            if not dimensions:
-                raise ValueError("Pick at least one column to group by")
-            measure = post.get("measure", "").strip()
             numbers = {v["id"] for v in variables(visual) if v["measure"]}
-            if measure and measure not in numbers:
-                raise ValueError(f"No such count: {measure}")
+            # ROWS IN THE ORDER CHOSEN. The first row is the outermost group
+            # and each after it nests inside the one before, so the order is
+            # the meaning. Checkboxes post in the order they sit on the page,
+            # which is why Owner could never come before Newsroom; positional
+            # selects post in the order somebody set them. `columns` is still
+            # read, so a form or a caller from before this keeps working.
+            asked = post.getlist("row") or post.getlist("columns")
+            dimensions = list(dict.fromkeys(c for c in asked if c and c in columns))
+            if not dimensions:
+                raise ValueError("Pick at least one row")
+            wanted = post.getlist("value") or [post.get("measure", "")]
+            wanted = [m.strip() for m in wanted if m and m.strip()]
+            for m in wanted:
+                if m not in numbers:
+                    raise ValueError(f"No such value: {m}")
+            measures = list(dict.fromkeys(wanted))
+            measure = measures[0] if measures else ""
         for role in chart.roles:
             picked = post.get(f"role-{role.id}", "").strip()
             if not picked:
@@ -1216,6 +1243,9 @@ def field_panel(visual, post=None, user=None):
                 "roles": roles,
                 "dimensions": dimensions,
                 "measure": measure or "articles",
+                # Every value, in order; `measure` is the first, kept because
+                # every other path reads that one key.
+                "measures": measures or [measure or "articles"],
                 "only": only,
                 "top": top,
             },
@@ -1250,6 +1280,16 @@ def field_panel(visual, post=None, user=None):
                 for v in variables(visual)
                 if v["measure"]
             ],
+            # One select per row, in order, and one blank more to add
+            # another. A select holds its place on the page, so the order
+            # they are set is the order they post.
+            "rows": _ordered_slots(
+                chosen, [v for v in variables(visual) if not v["measure"]]
+            ),
+            "values": _ordered_slots(
+                spec.get("measures") or [spec.get("measure") or "articles"],
+                [v for v in variables(visual) if v["measure"]],
+            ),
         }
     picked = spec.get("roles") or {}
     only = spec.get("only") or {}

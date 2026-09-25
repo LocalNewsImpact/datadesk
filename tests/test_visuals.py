@@ -669,8 +669,8 @@ def test_the_export_carries_every_row_not_the_rendered_ones():
     js = _chart_js()
     drawing = js[js.index("function oneTable(") : js.index("function renderTable(")]
     walking = js[js.index("function renderTable(") :]
-    assert "rows.slice(0, 500)" in drawing
-    assert "rows.slice(0, 500)" not in walking, "the cap must not reach the export"
+    assert "list.slice(0, 500)" in drawing
+    assert ".slice(0, 500)" not in walking, "the cap must not reach the export"
     assert "exportBar(el, rows," in walking
 
 

@@ -1148,6 +1148,28 @@ label.stacked input, label.stacked textarea, label.stacked select {
 
 .dd-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
+/* One row of controls above the table: the filter, and how many rows it
+   left. Every column header is the sort control for its column. */
+.dd-table-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2);
+  margin: 0 0 var(--s-2); }
+.dd-table-bar input[type="search"] { flex: 0 1 18rem; min-width: 0; }
+.dd-table-count { color: var(--text-3); font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums; }
+.dd-table-scroll { overflow-x: auto; max-width: 100%; }
+.dd-table th { position: sticky; top: 0; background: var(--surface-2); padding: 0; }
+.dd-table th button { width: 100%; border: 0; background: none; font: inherit;
+  font-weight: 600; color: var(--text-2); text-align: left; cursor: pointer;
+  padding: 0.3rem var(--s-2); white-space: nowrap; }
+.dd-table th button:hover { color: var(--accent); background: var(--surface-3); }
+.dd-table th.num button { text-align: right; }
+.dd-table th[aria-sort] button { color: var(--text); }
+
+/* A grouped table names a group once. The repeats keep their text -- for a
+   screen reader, and for whoever copies the table out -- and are painted
+   out, and the rule above each outermost group is what the eye follows. */
+.dd-table td.dd-said { color: transparent; }
+.dd-table tr.dd-group-start td { border-top: 1px solid var(--border-strong); }
+
 .dd-tip {
   position: absolute;
   z-index: 20;
@@ -2028,6 +2050,17 @@ tr.prop td { border-bottom: 0; }
   letter-spacing: .02em; text-transform: uppercase; color: var(--text-3); }
 .values-group:first-child{ margin-top: 0; }
 .role .values-list{ max-height: none; }
+
+/* A table's Rows and Values: one select per position, numbered, because
+   the order is the meaning -- row 1 is the outermost group and row 2 nests
+   inside it. The number sits beside the select rather than in its label so
+   the column of numbers reads down the step as 1, 2, 3. */
+.row-slot{ display: flex; align-items: center; gap: .5rem; margin: .25rem 0; }
+.row-slot select{ flex: 1; min-width: 0; }
+.slot-n{ flex: none; width: 1.5rem; height: 1.5rem; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: .75rem; font-weight: 600; font-variant-numeric: tabular-nums;
+  color: var(--text-3); background: var(--surface-3); }
 
 /* A refusal, and the button it refuses. Disabled rather than removed: the
    button is where somebody looks to finish, and a missing one reads as a
