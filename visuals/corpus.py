@@ -16,9 +16,10 @@ itself to county/tract/block codings and says how many rows that drops.
 """
 
 import logging
+import re
 import time
 
-from django.db.models import Avg, Count, F, Min, Q, Sum
+from django.db.models import Avg, CharField, Count, F, Func, Min, Q, Sum, Value
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Substr, TruncMonth, TruncYear
 
@@ -44,6 +45,23 @@ LOG = logging.getLogger(__name__)
 #: A byline with something in it. `author` is NULL on some rows and '' or
 #: whitespace on others, depending on which extractor wrote it.
 HAS_BYLINE = Q(author__regex=r"\S")
+
+#: What separates two people in one `author` string: the byline review's own
+#: `_SEPARATORS`, so the pivot and the review agree on who a string names.
+BYLINE_SEPARATORS = r"\s*(?:,|;|&|\s+and\s+)\s*"
+
+#: One row per NAME. "Nick Gladney, Chris Regnier" is two reporters, and
+#: grouped as one string it was one byline in a table whose rows are bylines
+#: -- 402 of March's 12,119 bylined Mizzou stories name more than one. A set
+#: returning function in the select list: Postgres groups on it, and each
+#: story is counted once under each of its names.
+BYLINE_NAMES = Func(
+    Func(F("author"), function="btrim"),
+    Value(BYLINE_SEPARATORS),
+    Value("i"),
+    function="regexp_split_to_table",
+    output_field=CharField(),
+)
 
 DIMENSIONS = {
     "dataset": {
@@ -117,7 +135,25 @@ DIMENSIONS = {
     },
     "author": {
         "label": "Byline",
-        "expr": F("author"),
+        "expr": BYLINE_NAMES,
+        "splits": True,
+        # Several per story, so counted distinctly: a story with two
+        # reporters is one story under each, not two stories.
+        "multi": True,
+        # A filter cannot name a split value in WHERE, so a ticked byline
+        # narrows to the stories whose string carries it, and run_spec drops
+        # the co-authors that come back beside it.
+        "only": lambda names: Q(
+            author__iregex=(
+                r"(^|"
+                + BYLINE_SEPARATORS
+                + r")("
+                + "|".join(re.escape(n) for n in names)
+                + r")("
+                + BYLINE_SEPARATORS
+                + r"|$)"
+            )
+        ),
         # A story with no byline has no row in a table of bylines. Blank is
         # not a byline, and a row of nothing -- the stories nobody signed,
         # summed -- sat among them as if it were the most prolific reporter.
@@ -457,8 +493,12 @@ MEASURES = {
         # report's own column header, and a visual rebuilding that report
         # should say what the report says.
         "label": "Unique bylines",
-        # Blank is not a byline. NULL was never counted; '' was, as one more.
+        # Distinct NAMES, not distinct strings: "Nick Gladney, Chris Regnier"
+        # is two bylines. An aggregate cannot hold the set-returning split, so
+        # run_spec counts it from a pivot by Byline -- see _run_bylines. This
+        # is the fallback shape only, never reached through run_spec.
         "agg": lambda: Count("author", distinct=True, filter=HAS_BYLINE),
+        "by_name": True,
         # Not additive either: a reporter filing for two papers is one
         # byline at each and still one person, so group totals double-count.
         "combine": None,
@@ -598,6 +638,19 @@ def _fold(rows, dim_keys, extra, rollups, measure_key, measures):
     return out
 
 
+def _present(qs, dim_key, alias):
+    """`qs` without the rows that have no value for the dimension.
+
+    A dimension that splits a column into several values cannot be tested
+    in WHERE -- Postgres refuses a set-returning function there -- so it is
+    narrowed by the column it splits, through its own `requires`.
+    """
+    dimension = DIMENSIONS[dim_key]
+    if dimension.get("splits"):
+        return qs.filter(dimension["requires"])
+    return qs.exclude(**{f"{alias}__isnull": True})
+
+
 def qualifying_values(spec, dim_key, scopes):
     """Values of a dimension that clear the spec's group thresholds.
 
@@ -617,9 +670,11 @@ def qualifying_values(spec, dim_key, scopes):
             "the publisher and article counts cannot be recombined safely."
         )
     qs = (
-        _base_queryset(spec, scopes)
-        .annotate(_dim=dimension["expr"])
-        .exclude(_dim__isnull=True)
+        _present(
+            _base_queryset(spec, scopes).annotate(_dim=dimension["expr"]),
+            dim_key,
+            "_dim",
+        )
         .values("_dim")
         .annotate(
             _articles=Count("id", distinct=True),
@@ -781,6 +836,9 @@ def _base_queryset(spec, scopes):
             continue
         dimension = DIMENSIONS[key]
         if explodes(key):
+            continue
+        if dimension.get("only"):
+            qs = qs.filter(dimension["only"](list(values)))
             continue
         qs = qs.annotate(**{f"{ONLY_PREFIX}{key}": dimension["expr"]}).filter(
             **{f"{ONLY_PREFIX}{key}__in": list(values)}
@@ -1270,6 +1328,72 @@ def run_values(spec, scopes):
 def run_spec(spec, scopes):
     """Run a pivot spec and return (rows, meta).
 
+    Bylines are counted and listed by name. Unique bylines is counted from a
+    pivot by Byline; a Byline column drops the blank pieces a split leaves
+    ("A, " is "A" and nothing) and, under a filter, the co-authors of the
+    names that were ticked.
+    """
+    dim_keys = [k for k in (spec.get("dimensions") or []) if k]
+    measure_key = spec.get("measure", "articles")
+    if MEASURES.get(measure_key, {}).get("by_name") and not any(
+        DIMENSIONS.get(k, {}).get("row_level") for k in dim_keys
+    ):
+        return _run_bylines(spec, scopes)
+    rows, meta = _run_spec(spec, scopes)
+    if "author" in dim_keys:
+        label = DIMENSIONS["author"]["label"]
+        ticked = set((spec.get("only") or {}).get("author") or [])
+        rows = [
+            r
+            for r in rows
+            if str(r.get(label) or "").strip()
+            and (not ticked or r.get(label) in ticked)
+        ]
+        meta = {**meta, "groups": len(rows)}
+    return rows, meta
+
+
+def _run_bylines(spec, scopes):
+    """Unique bylines: distinct names per group, from a pivot by Byline.
+
+    The top-N applies to the groups counted, not to the names underneath
+    them, so it is lifted off the inner pivot and applied here.
+    """
+    dim_keys = list(dict.fromkeys(k for k in (spec.get("dimensions") or []) if k))
+    inner = dim_keys if "author" in dim_keys else dim_keys + ["author"]
+    rows, meta = run_spec(
+        {**spec, "dimensions": inner, "measure": "articles", "top": 0}, scopes
+    )
+    labels = [DIMENSIONS[k]["label"] for k in dim_keys]
+    byline = DIMENSIONS["author"]["label"]
+    names: dict[tuple, set] = {}
+    for row in rows:
+        names.setdefault(tuple(row.get(k) for k in labels), set()).add(row[byline])
+    measure_label = measure_label_for("bylines")
+    out = [
+        {**dict(zip(labels, key, strict=True)), measure_label: len(found)}
+        for key, found in names.items()
+    ]
+    out.sort(key=lambda r: -r[measure_label])
+    wanted = _top_wanted(spec, len({r[labels[0]] for r in out}))
+    if wanted:
+        keep = []
+        for row in out:
+            if row[labels[0]] not in keep:
+                keep.append(row[labels[0]])
+        keep = set(keep[:wanted])
+        out = [r for r in out if r[labels[0]] in keep]
+    return out, {
+        **meta,
+        "dimensions": [d for d in meta.get("dimensions") or [] if d["key"] in dim_keys],
+        "measure": {"key": "bylines", "label": measure_label},
+        "groups": len(out),
+    }
+
+
+def _run_spec(spec, scopes):
+    """Run a pivot spec and return (rows, meta).
+
     One dimension gives a category table (bar, donut, map); two give the
     cross-tab that chord and arc diagrams read as from/to/value; a table
     takes as many columns as somebody ticks.
@@ -1414,7 +1538,7 @@ def run_spec(spec, scopes):
     # bucket in a chart reads as a category, which it is not.
     if not spec.get("keep_null"):
         for key in dim_keys:
-            qs = qs.exclude(**{f"{alias[key]}__isnull": True})
+            qs = _present(qs, key, alias[key])
 
     measure_label = MEASURES[measure_key]["label"]
     aggregates = {measure_key: MEASURES[measure_key]["agg"]()}
@@ -2320,11 +2444,11 @@ def values_of(dim_key, spec, scopes, limit=200):
     alias = f"{DIM_PREFIX}{dim_key}"
     qs = _base_queryset(spec, scopes).annotate(**{alias: DIMENSIONS[dim_key]["expr"]})
     rows = (
-        qs.exclude(**{f"{alias}__isnull": True})
+        _present(qs, dim_key, alias)
         .values(alias)
         .annotate(n=Count("id"))
         .order_by("-n")[:limit]
     )
-    out = [(str(r[alias]), r["n"]) for r in rows]
+    out = [(str(r[alias]), r["n"]) for r in rows if str(r[alias] or "").strip()]
     cache.set(key, out, CORPUS_CACHE_SECONDS)
     return out
