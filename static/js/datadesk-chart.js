@@ -786,13 +786,17 @@
       ? Infinity
       : Math.max(1, parseInt(config.roster_draw, 10) || 400);
 
+    // NO COUNT COLUMNS. A first version carried "how many items" and "how
+    // many groups" beside the total, and on a byline report both read 1 and 1
+    // on almost every row -- most reporters file at one newsroom. Two columns
+    // of ones, and their labels came out pluralised by machine ("Publisher
+    // names"). The chips themselves say how many there are, and the eye counts
+    // three lines faster than it reads the number 3.
     const cols = [
       { label: labelOf(subject), sort: (s) => s.name },
       value ? { label: "Total", num: true, sort: (s) => s.total } : null,
-      { label: labelOf(item) + "s", num: true, sort: (s) => s.items.length },
-      group ? { label: labelOf(group) + "s", num: true, sort: (s) => s.groups } : null,
-      { label: labelOf(item), pair: "item" },
-      group ? { label: labelOf(group), pair: "group" } : null,
+      { label: labelOf(item), pair: "item", sort: (s) => s.items.length },
+      group ? { label: labelOf(group), pair: "group", sort: (s) => s.groups } : null,
     ].filter(Boolean);
 
     let sortAt = value ? 1 : 0;
