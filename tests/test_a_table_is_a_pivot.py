@@ -476,3 +476,63 @@ class TestAGroupIsOneDisplayedRow:
         source = CHART.read_text()
         assert "const shown = groups.slice(0, 500);" in source
         assert "groups.length.toLocaleString()" in source
+
+
+# --- a blank is not a byline -------------------------------------------------
+
+
+@pytest.fixture
+def unsigned(report):
+    """Three stories nobody signed on KCTV5: NULL, '' and whitespace, which
+    are the three ways the extractors have written no byline."""
+    source = Source.objects.get(host="kctv5.example")
+    for i, author in enumerate([None, "", "  "], start=10):
+        link = CandidateLink.objects.create(
+            id=f"cl{i}",
+            url=f"https://kctv5.example/{i}",
+            source=source,
+            dataset_id="d1",
+        )
+        Article.objects.create(
+            id=f"a{i}",
+            candidate_link=link,
+            dataset_id="d1",
+            url=link.url,
+            author=author,
+            status="enriched",
+            publish_date=dt.datetime(2026, 3, 10, tzinfo=dt.UTC),
+            created_at=dt.datetime(2026, 3, 10, tzinfo=dt.UTC),
+        )
+    return report
+
+
+class TestABlankIsNotAByline:
+    def test_a_table_of_bylines_has_no_blank_row(self, unsigned):
+        from visuals.corpus import run_values
+
+        rows, _ = run_values(
+            {"dimensions": ["author", "publisher_name"], "measures": ["articles"]},
+            ALL_SCOPES,
+        )
+        assert all((r["Byline"] or "").strip() for r in rows)
+        assert {r["Byline"] for r in rows} == {
+            "Sarah Motter",
+            "Greg Dailey",
+            "Christopher Replogle",
+            "Aaron Horrell",
+        }
+
+    def test_unique_bylines_does_not_count_a_blank(self, unsigned):
+        from visuals.corpus import run_values
+
+        rows, _ = run_values(_spec(), ALL_SCOPES)
+        kctv5 = next(r for r in rows if r["Publisher name"] == "KCTV5")
+        assert kctv5["Unique bylines"] == 2
+
+    def test_a_table_without_bylines_still_counts_unsigned_stories(self, unsigned):
+        """Only a table whose Rows include the byline drops them."""
+        from visuals.corpus import run_values
+
+        rows, _ = run_values(_spec(), ALL_SCOPES)
+        kctv5 = next(r for r in rows if r["Publisher name"] == "KCTV5")
+        assert kctv5["Articles"] == 6

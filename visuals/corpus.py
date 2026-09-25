@@ -41,6 +41,10 @@ LOG = logging.getLogger(__name__)
 # expr: an ORM expression grouped on. requires: an optional filter that
 # keeps only rows where the grouping is meaningful. note: shown in the UI.
 
+#: A byline with something in it. `author` is NULL on some rows and '' or
+#: whitespace on others, depending on which extractor wrote it.
+HAS_BYLINE = Q(author__regex=r"\S")
+
 DIMENSIONS = {
     "dataset": {
         "label": "Dataset",
@@ -114,6 +118,12 @@ DIMENSIONS = {
     "author": {
         "label": "Byline",
         "expr": F("author"),
+        # A story with no byline has no row in a table of bylines. Blank is
+        # not a byline, and a row of nothing -- the stories nobody signed,
+        # summed -- sat among them as if it were the most prolific reporter.
+        # Only where this is a Row: a chart of stories by county still
+        # counts the unsigned ones.
+        "requires": HAS_BYLINE,
         "note": (
             "As published, so 'By Jane Doe' and 'Jane Doe' are two "
             "bylines. Thousands of values: narrow it to the largest few."
@@ -447,7 +457,8 @@ MEASURES = {
         # report's own column header, and a visual rebuilding that report
         # should say what the report says.
         "label": "Unique bylines",
-        "agg": lambda: Count("author", distinct=True),
+        # Blank is not a byline. NULL was never counted; '' was, as one more.
+        "agg": lambda: Count("author", distinct=True, filter=HAS_BYLINE),
         # Not additive either: a reporter filing for two papers is one
         # byline at each and still one person, so group totals double-count.
         "combine": None,
