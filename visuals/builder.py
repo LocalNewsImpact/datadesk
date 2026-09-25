@@ -10,6 +10,7 @@ import io
 
 CHART_KINDS = (
     "table",
+    "roster",
     "bar",
     "line",
     "area",
@@ -75,6 +76,15 @@ _STRING_KEYS = (
     # alone a map should use its whole ramp; read beside another it must
     # not, or both top out at the same dark blue on different numbers.
     "band_scale",
+    # The grouped table reads long-form rows and nests them: one row per
+    # subject, the items repeating under it, the group the items belong to,
+    # and a number per item. The filters derive from these, so there is no
+    # second configuration to fall out of step with the query.
+    "subject",
+    "item",
+    "item_group",
+    "item_value",
+    "roster_draw",
     # Whether a story map draws each point where it was coded or counts
     # every point that belongs to a city under that city. A display
     # choice the SERVER has to honour, because the block-to-place
@@ -84,7 +94,7 @@ _STRING_KEYS = (
     "lon",
     "place",
 )
-_BOOL_KEYS = ("horizontal", "stacked", "geo_fit", "locator_labels")
+_BOOL_KEYS = ("horizontal", "stacked", "geo_fit", "locator_labels", "roster_search")
 # "stack" is a string ("percent") rather than a flag.
 
 MAX_ROWS = 20_000
@@ -200,6 +210,7 @@ def parse_upload(uploaded_file):
 # this table should render slowly, not fail to render.
 CHART_LIBS = {
     "table": (),
+    "roster": (),
     "donut": ("d3",),
     "chord": ("d3",),
     "arc": ("d3",),

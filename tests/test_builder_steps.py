@@ -1912,6 +1912,16 @@ NEEDS_TWO_MEASURES = {
 FIELDS_FOR = {
     "storymap": {},
     "table": {"columns": ["cin_primary", "month"], "measure": "articles"},
+    # The grouped table reads long form: a subject, the items repeating
+    # under it, the group those items belong to, and a number per item.
+    # `owner` is the group because that is the case it was built for --
+    # six Rust Communications titles under one byline are one owner.
+    "roster": {
+        "role-subject": "cin_primary",
+        "role-item": "publisher_name",
+        "role-item_group": "owner",
+        "role-item_value": "articles",
+    },
     "bar": {"role-x": "cin_primary", "role-y": "articles"},
     "donut": {"role-x": "cin_primary", "role-y": "articles"},
     "chord": {

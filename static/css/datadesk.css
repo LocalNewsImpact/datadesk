@@ -2888,6 +2888,46 @@ table.rec-table.queue-rows tbody th .rec-read { overflow-wrap: anywhere; }
   font-size: .82rem; }
 .sheet-item figcaption a{ font-weight: 500; }
 
+/* The grouped table. Long-form rows nested twice: items under their group,
+   groups under the subject. */
+.dd-roster-bar { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 10px; }
+.dd-roster-bar input[type="search"] { flex: 1 1 15rem; min-width: 0; }
+.dd-roster-count { margin: 0 0 8px; color: var(--text-3); font-size: .85rem; }
+/* The table is the one thing allowed wider than the panel, and it scrolls in
+   its own box so the page never does. */
+.dd-roster-scroll { overflow-x: auto; max-width: 100%;
+  border: 1px solid var(--border); border-radius: var(--r-sm); }
+.dd-roster-table { border-collapse: collapse; width: 100%; min-width: 640px; }
+.dd-roster-table th { position: sticky; top: 0; z-index: 1; background: var(--surface-2);
+  text-align: left; border-bottom: 1px solid var(--border-strong); padding: 0;
+  white-space: nowrap; font-size: .78rem; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--text-3); }
+.dd-roster-table th button { width: 100%; border: 0; background: none; padding: 8px 11px;
+  font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit;
+  text-align: inherit; cursor: pointer; }
+.dd-roster-table th button:hover { color: var(--accent); background: var(--surface-3); }
+.dd-roster-table th.num, .dd-roster-table td.num { text-align: right; }
+.dd-roster-table th.num button { text-align: right; }
+.dd-roster-table td { padding: 8px 11px; border-bottom: 1px solid var(--border);
+  vertical-align: top; font-size: .88rem; }
+.dd-roster-table td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dd-roster-table tbody tr:hover td { background: var(--surface-2); }
+/* A group reserves its own height in BOTH columns, so the group name sits
+   level with the first item it owns instead of drifting down the block. */
+.dd-roster-chips { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.dd-roster-grp {
+  /* How many items this group holds, set per element by the renderer. A
+     local custom property, not a theme token: it carries a count, not a
+     colour, and defaults to one so a group with nothing set still has the
+     height of its single row. */
+  --n: 1;
+  display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
+  min-height: calc(var(--n) * 22px + (var(--n) - 1) * 4px); }
+.dd-roster-chip { font-size: .76rem; line-height: 18px; padding: 1px 7px; border-radius: 999px;
+  background: var(--surface-3); color: var(--text-3); white-space: nowrap;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.dd-roster-n { color: var(--text); font-variant-numeric: tabular-nums; opacity: .75; }
+
 /* Bylines: a card per byline, one submit for the page. */
 .byline-card { border: 1px solid var(--border-strong); border-radius: 8px;
   padding: var(--s-4); margin: 0 0 var(--s-4); background: var(--surface); }

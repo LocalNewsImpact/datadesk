@@ -288,6 +288,19 @@
                 <option value="fixed">fixed: 1&ndash;2 / 3&ndash;5 / 6&ndash;9 / 10+</option>
               </select>
             </label>
+            <label data-kinds="roster">One row per <select name="subject" data-columns data-optional></select></label>
+            <label data-kinds="roster">Repeating under it <select name="item" data-columns data-optional></select></label>
+            <label data-kinds="roster">Which the items group under <select name="item_group" data-columns data-optional></select></label>
+            <label data-kinds="roster">A number per item <select name="item_value" data-columns data-optional></select></label>
+            <label class="inline" data-kinds="roster"><input type="checkbox" name="roster_search" value="1"> Offer a search box</label>
+            <label data-kinds="roster">Rows to draw
+              <select name="roster_draw">
+                <option value="">400 &mdash; the rest stay in the filter and the export</option>
+                <option value="100">100</option>
+                <option value="1000">1000</option>
+                <option value="0">every matching row</option>
+              </select>
+            </label>
             <label data-kinds="storymap">Compare shading with other maps
               <select name="band_scale">
                 <option value="">relative &mdash; this map's own range</option>
