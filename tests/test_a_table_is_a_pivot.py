@@ -620,3 +620,16 @@ class TestABlankIsNotAByline:
         rows, _ = run_values(_spec(), ALL_SCOPES)
         kctv5 = next(r for r in rows if r["Publisher name"] == "KCTV5")
         assert kctv5["Articles"] == 6
+
+
+class TestEachCountSaysWhatItCounts:
+    """ "1,983 rows" beside "Showing 500 of 1,728": both true, one counting
+    the rows of the data and the other the bylines drawn, and neither said
+    so."""
+
+    def test_the_export_counts_rows_to_export(self):
+        assert '" rows to export"' in CHART.read_text()
+
+    def test_a_grouped_table_names_what_a_row_is(self):
+        source = CHART.read_text()
+        assert "one row per ${outer[0]}" in source
