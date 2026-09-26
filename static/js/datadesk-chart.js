@@ -656,7 +656,11 @@
 
     const note = document.createElement("span");
     note.className = "dd-export-note";
-    note.textContent = rows.length.toLocaleString() + " rows";
+    // What the buttons take, which is every row of the data. A grouped
+    // table draws fewer -- one per byline, not one per byline and newsroom
+    // -- so "1,983 rows" beside "Showing 500 of 1,728" read as a
+    // contradiction until each number said what it counted.
+    note.textContent = rows.length.toLocaleString() + " rows to export";
 
     if (csv) bar.append(csv);
     bar.append(copy, note);
@@ -908,9 +912,14 @@
         }
         tbody.appendChild(tr);
       }
+      // Named by the column it counts, and not pluralised by machine:
+      // "Publisher names" is how that went last time.
+      const unit = `, one row per ${outer[0]}`;
       count.textContent = groups.length > shown.length
-        ? `Showing ${shown.length.toLocaleString()} of ${groups.length.toLocaleString()}`
-        : needle ? `${groups.length.toLocaleString()} of ${allGroups.toLocaleString()}` : "";
+        ? `Showing ${shown.length.toLocaleString()} of ${groups.length.toLocaleString()}${unit}`
+        : needle
+          ? `${groups.length.toLocaleString()} of ${allGroups.toLocaleString()}${unit}`
+          : `${groups.length.toLocaleString()}${unit}`;
     }
 
     search.addEventListener("input", paint);
