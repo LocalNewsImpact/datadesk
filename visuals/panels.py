@@ -933,7 +933,7 @@ def _column_order(spec):
     return list(spec.get("dimensions") or []) + list(measures)
 
 
-def _ordered_slots(chosen, options):
+def _ordered_slots(chosen, options, only=None):
     """One select per chosen item, in its order, plus one blank to add more.
 
     Each carries the whole option list grouped as the other selects group
@@ -941,10 +941,19 @@ def _ordered_slots(chosen, options):
     and the blank one can become a new row or value.
     """
     slots = []
+    numbers = {v["id"] for v in options if v.get("measure")}
     for position, picked in enumerate(list(chosen) + [""], start=1):
         marked = [dict(v, on=v["id"] == picked) for v in options]
         slots.append(
-            {"position": position, "chosen": picked, "groups": in_groups(marked)}
+            {
+                "position": position,
+                "chosen": picked,
+                "groups": in_groups(marked),
+                # A Row can be narrowed to some of its values -- one Source
+                # and everybody who republished it. A count cannot.
+                "filters": bool(picked) and picked not in numbers,
+                "kept": (only or {}).get(picked) or [],
+            }
         )
     return slots
 
@@ -1325,7 +1334,9 @@ def field_panel(visual, post=None, user=None):
             # One select per row, in order, and one blank more to add
             # another. A select holds its place on the page, so the order
             # they are set is the order they post.
-            "slots": _ordered_slots(_column_order(spec), variables(visual)),
+            "slots": _ordered_slots(
+                _column_order(spec), variables(visual), spec.get("only")
+            ),
         }
     picked = spec.get("roles") or {}
     only = spec.get("only") or {}

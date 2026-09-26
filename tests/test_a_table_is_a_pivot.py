@@ -651,3 +651,41 @@ class TestEveryRowCanBeReached:
         body = source[start : source.index("function creditLine(", start)]
         assert body.count("page = 0;") >= 1
         assert 'search.addEventListener("input", () => { page = 0; paint(); });' in body
+
+
+class TestAColumnCanBeNarrowed:
+    """One Source and everybody who republished it: a table keeps some values
+    of a Row the way a chart role does."""
+
+    def test_a_row_offers_its_values(self, client, table):
+        table.spec = {"dimensions": ["owner"], "measures": ["articles"]}
+        table.save()
+        body = _fields(client, table).content.decode()
+        assert 'data-dim="owner"' in body
+
+    def test_a_count_does_not(self, client, table):
+        table.spec = {"dimensions": ["owner"], "measures": ["articles"]}
+        table.save()
+        body = _fields(client, table).content.decode()
+        assert 'data-dim="articles"' not in body
+
+    def test_what_is_kept_is_shown_ticked(self, client, table):
+        table.spec = {
+            "dimensions": ["owner"],
+            "measures": ["articles"],
+            "only": {"owner": ["Gray Television"]},
+        }
+        table.save()
+        body = _fields(client, table).content.decode()
+        assert 'name="only-owner" value="Gray Television" checked' in body
+
+    def test_a_kept_value_is_saved(self, client, table, report):
+        """Stored only when it keeps fewer than there are: two owners, one
+        kept."""
+        _fields(
+            client,
+            table,
+            {"column": ["owner", "articles"], "only-owner": ["Gray Television"]},
+        )
+        table.refresh_from_db()
+        assert table.spec["only"] == {"owner": ["Gray Television"]}

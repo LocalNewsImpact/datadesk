@@ -42,6 +42,24 @@ to 65 seconds.
         {% endfor %}
       </select>
     </label>
+    {% if slot.filters %}
+    {% comment %}
+    The same facet a chart role has: counted, loaded when opened, and a save
+    posts back whatever is ticked. Keeping one Source is how a table shows one
+    newsroom and everybody who republished it.
+    {% endcomment %}
+    <details class="values slot-values" data-dim="{{ slot.chosen }}"{% if slot.kept %} open{% endif %}>
+      <summary>{% if slot.kept %}{{ slot.kept|length }} kept{% else %}Filter the values{% endif %}</summary>
+      <div class="values-list" data-for="{{ slot.chosen }}">
+        {% for v in slot.kept %}
+        <label class="row">
+          <input type="checkbox" name="only-{{ slot.chosen }}" value="{{ v }}" checked>
+          <span class="label">{{ v }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
     {% endfor %}
   </div>
   <div class="action-bar">
