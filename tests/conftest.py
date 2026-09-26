@@ -210,7 +210,7 @@ _CRAWLER_TABLES = {
         "(id VARCHAR PRIMARY KEY, dataset_id VARCHAR, raw_byline TEXT, "
         "canonical_names JSON, decision VARCHAR, reason TEXT, decided_by "
         "VARCHAR, decided_at TIMESTAMP, applied_at TIMESTAMP, "
-        "articles_updated INTEGER)"
+        "articles_updated INTEGER, stale_at TIMESTAMP, stale_reason TEXT)"
     ),
     "article_places_manual": (
         "(id SERIAL PRIMARY KEY, article_id TEXT NOT NULL, full_name TEXT, "

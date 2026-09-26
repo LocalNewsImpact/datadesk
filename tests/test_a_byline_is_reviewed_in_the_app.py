@@ -1515,3 +1515,25 @@ class TestAHomeNewsroomIsCreditedWithTheWireCopies:
         body = _queue(page).content.decode()
         assert '<option value="home">' in body
         assert "home newsroom" in body
+
+
+def test_answering_a_stale_decision_again_settles_it(page):
+    """Stale means the answer predates a change in the facts; answering again
+    is the answer to the changed facts. Left stale, the crawler read it as no
+    decision and put the string back on every refresh -- fourteen cross-owner
+    bylines re-decided on 2026-09-25 were back the next morning."""
+    import datetime as dt
+
+    from explorer.models import BylineNormalization
+    from review import bylines
+
+    bylines.decide("d-mo", "Jon Smith", bylines.ACCEPT, ["Jon Smith"], None)
+    BylineNormalization.objects.filter(raw_byline="Jon Smith").update(
+        stale_at=dt.datetime(2026, 9, 25, 4, 47), stale_reason="ownership corrected"
+    )
+
+    bylines.decide("d-mo", "Jon Smith", bylines.ACCEPT, ["Jon Smith"], None)
+
+    row = BylineNormalization.objects.get(raw_byline="Jon Smith")
+    assert row.stale_at is None
+    assert row.stale_reason is None
