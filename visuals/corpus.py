@@ -92,16 +92,19 @@ DIMENSIONS = {
         # a domain; "KOMU 8" is the newsroom.
         "expr": F("candidate_link__source__canonical_name"),
     },
-    "home_newsroom": {
-        "label": "Home newsroom",
-        # Whose reporting a wire copy is, as the byline review credits it:
-        # Rudi Keller's copies in the Sedalia Democrat are the Missouri
-        # Independent's. Beside Publisher name it is the syndication table --
-        # each home newsroom, who carried its work, and how often.
-        #
-        # A text column holding a source id, not a foreign key, so the name
-        # is looked up. Only credited copies have one; everything else is
-        # left out rather than grouped under a blank.
+    # REPUBLISHING, as the byline review records it: a copy of the Missouri
+    # Independent's reporting in the Sedalia Democrat has the Independent as
+    # its Source and the Democrat as its Republisher. Together they are the
+    # republishing table -- each source, who carried its work, and how often
+    # -- and with a filter on Source, one newsroom and everybody who ran it.
+    #
+    # Both cover republished copies only. The Republisher is the same
+    # newsroom Publisher name gives, restricted to copies with a Source, so
+    # the table cannot be read as ordinary publishing.
+    "syndication_source": {
+        "label": "Source",
+        # A text column holding a source id, not a foreign key, so the
+        # name is looked up.
         "expr": Subquery(
             Source.objects.filter(id=OuterRef("syndicated_from_source_id")).values(
                 "canonical_name"
@@ -109,9 +112,15 @@ DIMENSIONS = {
         ),
         "requires": Q(syndicated_from_source_id__isnull=False),
         "note": (
-            "The newsroom a wire copy was credited to in the byline review. "
-            "Only credited copies have one."
+            "The newsroom whose reporting a republished copy is, as set in the "
+            "byline review. Only republished copies have one."
         ),
+    },
+    "republisher": {
+        "label": "Republisher",
+        "expr": F("candidate_link__source__canonical_name"),
+        "requires": Q(syndicated_from_source_id__isnull=False),
+        "note": "The newsroom that ran a republished copy.",
     },
     "owner": {
         "label": "Owner",
@@ -1088,7 +1097,8 @@ GROUP_OF = {
     "dataset": "publisher",
     "publisher": "publisher",
     "publisher_name": "publisher",
-    "home_newsroom": "publisher",
+    "syndication_source": "publisher",
+    "republisher": "publisher",
     "owner": "publisher",
     "publisher_city": "publisher",
     "publisher_county": "publisher",
