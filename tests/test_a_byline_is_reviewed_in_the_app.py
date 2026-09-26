@@ -1537,3 +1537,18 @@ def test_answering_a_stale_decision_again_settles_it(page):
     row = BylineNormalization.objects.get(raw_byline="Jon Smith")
     assert row.stale_at is None
     assert row.stale_reason is None
+
+
+def test_a_queue_with_thousands_of_fields_is_accepted(page):
+    """Rudi Keller's drawer alone carried hundreds of story boxes, and the
+    whole form was refused with a bare 400 at Django's default of 1,000
+    fields before any of it was read."""
+    from explorer.models import BylineNormalization
+
+    _candidate("Jon Smtih")
+    blanks = {f"edit:story-{n}": "" for n in range(3000)}
+    response = _submit(
+        page, {"raw": "Jon Smtih", "decision": "fix", "names": "Jon Smith", **blanks}
+    )
+    assert response.status_code != 400
+    assert BylineNormalization.objects.filter(raw_byline="Jon Smtih").exists()

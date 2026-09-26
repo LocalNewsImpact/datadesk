@@ -86,6 +86,15 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 
+# THE BYLINE QUEUE IS ONE FORM. Every row posts its decision, a ruling and a
+# reason per newsroom, and a byline box per story in its drawer -- and a
+# reporter whose work is carried widely (Rudi Keller) has hundreds of stories
+# on his own. Django's default of 1,000 fields refused the whole submission
+# with a bare 400 before any of it was read, on 2026-09-26. Every page that
+# takes a large form is behind sign-in and a grant; the default guards an
+# anonymous form, which none of these is.
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 50_000
+
 # Tracebacks reach the log.
 #
 # Django's default configuration sends `django.request` errors to
