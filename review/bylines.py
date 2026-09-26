@@ -151,6 +151,14 @@ def _decide(alias, dataset_id, raw_byline, decision, canonical, user, reason):
         existing.decided_at = timezone.now()
         # Re-decided, so the write to `articles.author` is owed again.
         existing.applied_at = None
+        # AND IT IS NO LONGER STALE. `stale_at` says the answer predates a
+        # change in the facts; answering again is the answer to the changed
+        # facts. Left set, the crawler went on reading the decision as no
+        # decision and put the string back on every refresh: fourteen
+        # cross-owner bylines were re-decided on 2026-09-25 and were back in
+        # the queue the next morning.
+        existing.stale_at = None
+        existing.stale_reason = None
         existing.save(using=alias)
         row = existing
     else:

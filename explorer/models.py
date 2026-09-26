@@ -515,6 +515,11 @@ class BylineNormalization(CrawlerModel):
     decided_at = models.DateTimeField(null=True)
     applied_at = models.DateTimeField(null=True)
     articles_updated = models.IntegerField(null=True)
+    #: Set by the crawler when the facts the answer rested on have changed
+    #: (ownership, or the string itself); a stale decision is asked again.
+    #: Cleared by answering it again.
+    stale_at = models.DateTimeField(null=True)
+    stale_reason = models.TextField(null=True)
 
     class Meta(CrawlerModel.Meta):
         db_table = "byline_normalizations"
