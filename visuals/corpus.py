@@ -2503,6 +2503,17 @@ def values_of(dim_key, spec, scopes, limit=200):
     if dim_key not in DIMENSIONS:
         raise CorpusSpecError(f"Unknown dimension: {dim_key}")
 
+    # NOT NARROWED BY ITS OWN FILTER. Every other filter in the spec says
+    # which values are present in the author's slice; this dimension's own
+    # says which of them were ticked, and applying it offered back only the
+    # ticked ones. Keep one Source and the others were gone from the list,
+    # with no way to choose a different one -- and the save, which compares
+    # what is ticked against how many there are, then counted one of one
+    # and read a new single choice as "every value", storing no filter.
+    only = (spec or {}).get("only") or {}
+    if dim_key in only:
+        spec = {**spec, "only": {k: v for k, v in only.items() if k != dim_key}}
+
     # Counting these took the fields step to 65 seconds: one aggregate over
     # the whole article corpus per role a chart declares, three for a chord,
     # each joined through candidate_links to sources. The columns are
