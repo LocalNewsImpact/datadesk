@@ -208,7 +208,11 @@ class TestTheFieldsStep:
         assert table.spec["dimensions"] == ["owner"]
         assert table.spec["measures"] == ["articles"]
 
-    def test_the_step_shows_each_row_in_its_slot_and_one_empty(self, client, table):
+    def _slot(self, body, n):
+        start = body.index(f'aria-label="Column {n}"')
+        return body[start : body.index("</select>", start)]
+
+    def test_the_step_shows_each_column_in_its_slot_and_one_empty(self, client, table):
         table.spec = {
             "dimensions": ["owner", "publisher_name"],
             "measures": ["bylines", "articles"],
@@ -216,21 +220,101 @@ class TestTheFieldsStep:
         }
         table.save()
         body = _fields(client, table).content.decode()
-        assert body.count('name="row"') == 3, "two chosen, one to add"
-        assert body.count('name="value"') == 3
-        assert 'aria-label="Row 1"' in body and 'aria-label="Row 3"' in body
-        first = body.index('aria-label="Row 1"')
-        second = body.index('aria-label="Row 2"')
-        assert body.index('value="owner" selected', first) < second
-        assert "Add a row" in body and "Remove this row" in body
+        assert body.count('name="column"') == 5, "four chosen, one to add"
+        # Saved before columns had an order: Rows, then Values.
+        assert 'value="owner" selected' in self._slot(body, 1)
+        assert 'value="publisher_name" selected' in self._slot(body, 2)
+        assert 'value="bylines" selected' in self._slot(body, 3)
+        assert 'value="articles" selected' in self._slot(body, 4)
+        assert "Add a column" in body and "Remove this column" in body
+
+    def test_every_slot_offers_rows_and_values_alike(self, client, table):
+        table.spec = {"dimensions": ["owner"], "measures": ["articles"]}
+        table.save()
+        slot = self._slot(_fields(client, table).content.decode(), 1)
+        assert 'value="publisher_name"' in slot and 'value="bylines"' in slot
 
     def test_a_table_saved_before_values_shows_its_one_measure(self, client, table):
         table.spec = {"dimensions": ["owner"], "measure": "bylines"}
         table.save()
         body = _fields(client, table).content.decode()
-        start = body.index('aria-label="Value 1"')
-        end = body.index("</select>", start)
-        assert 'value="bylines" selected' in body[start:end]
+        assert 'value="bylines" selected' in self._slot(body, 2)
+
+
+class TestAValueGoesAnywhere:
+    """Owner, Unique bylines, Newsroom, Articles: a count is a column like
+    any other and sits where it is put."""
+
+    def test_the_order_is_saved_as_set(self, client, table):
+        _fields(
+            client,
+            table,
+            {"column": ["owner", "bylines", "publisher_name", "articles", ""]},
+        )
+        table.refresh_from_db()
+        assert table.spec["columns"] == [
+            "owner",
+            "bylines",
+            "publisher_name",
+            "articles",
+        ]
+        # The Rows still nest in the order they appear; the Values are the
+        # numbers, in theirs.
+        assert table.spec["dimensions"] == ["owner", "publisher_name"]
+        assert table.spec["measures"] == ["bylines", "articles"]
+        assert table.spec["measure"] == "bylines"
+
+    def test_the_step_shows_the_saved_order(self, client, table):
+        table.spec = {
+            "dimensions": ["owner", "publisher_name"],
+            "measures": ["bylines"],
+            "columns": ["owner", "bylines", "publisher_name"],
+        }
+        table.save()
+        body = _fields(client, table).content.decode()
+        start = body.index('aria-label="Column 2"')
+        slot = body[start : body.index("</select>", start)]
+        assert 'value="bylines" selected' in slot
+
+    def test_no_count_gets_articles_at_the_end(self, client, table):
+        _fields(client, table, {"column": ["owner", "publisher_name"]})
+        table.refresh_from_db()
+        assert table.spec["columns"] == ["owner", "publisher_name", "articles"]
+
+    def test_a_count_alone_is_not_a_table(self, client, table):
+        _fields(client, table, {"column": ["articles"]})
+        table.refresh_from_db()
+        assert not table.spec.get("dimensions")
+
+    def test_an_unknown_column_is_refused(self, client, table):
+        _fields(client, table, {"column": ["owner", "nonsense"]})
+        table.refresh_from_db()
+        assert not table.spec.get("dimensions")
+
+    def test_the_rows_come_back_in_that_order(self, report):
+        from visuals.corpus import run_values
+
+        rows, _ = run_values(
+            _spec(columns=["owner", "bylines", "publisher_name", "articles"]),
+            ALL_SCOPES,
+        )
+        assert list(rows[0]) == [
+            "Owner",
+            "Unique bylines",
+            "Publisher name",
+            "Articles",
+        ]
+
+    def test_without_an_order_rows_come_first(self, report):
+        from visuals.corpus import run_values
+
+        rows, _ = run_values(_spec(), ALL_SCOPES)
+        assert list(rows[0]) == [
+            "Owner",
+            "Publisher name",
+            "Unique bylines",
+            "Articles",
+        ]
 
 
 # --- the renderer ------------------------------------------------------------

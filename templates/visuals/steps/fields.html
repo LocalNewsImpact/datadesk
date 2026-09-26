@@ -16,44 +16,29 @@ to 65 seconds.
 <form method="post" id="step-form">
   {% csrf_token %}
   {% comment %}
-  A PIVOT TABLE, in the two lists everyone already knows. Rows run in the
-  order they are set: the first is the outermost group and each after it
-  nests inside the one before, so "Owner, then Newsroom" lists newsrooms
-  under their owner. Values are the numbers beside them, as many as are
-  wanted -- the byline report's newsroom view is two.
+  A PIVOT TABLE, as one numbered list of columns. A column is either a
+  field to group by or a count. The fields nest in the order they appear:
+  the first is the outermost group and each after it nests inside the one
+  before, so "Owner, then Newsroom" lists newsrooms under their owner. A
+  count sits wherever it is put -- Owner, Unique bylines, Newsroom,
+  Articles -- and there can be as many as are wanted.
 
   Selects rather than checkboxes because checkboxes post in page order, and
   here the order is the meaning.
   {% endcomment %}
   <div class="role">
-    <h4>Rows <span class="accepts">&mdash; in order; each nests inside the one above</span></h4>
-    {% for slot in rows %}
+    <h4>Columns <span class="accepts">&mdash; in the order shown. Rows nest in the order they appear; a count sits wherever it is placed</span></h4>
+    {% for slot in slots %}
     <label class="row-slot">
       <span class="slot-n">{{ slot.position }}</span>
-      <select class="var" name="row" aria-label="Row {{ slot.position }}">
-        <option value="">{% if forloop.last %}Add a row{% else %}Remove this row{% endif %}</option>
+      <select class="var" name="column" aria-label="Column {{ slot.position }}">
+        <option value="">{% if forloop.last %}Add a column{% else %}Remove this column{% endif %}</option>
         {% for group in slot.groups %}
         <optgroup label="{{ group.label }}">
           {% for v in group.options %}
           <option value="{{ v.id }}" {% if v.on %}selected{% endif %}>{{ v.label }}</option>
           {% endfor %}
         </optgroup>
-        {% endfor %}
-      </select>
-    </label>
-    {% endfor %}
-  </div>
-  <div class="role">
-    <h4>Values <span class="accepts">&mdash; the numbers beside each row</span></h4>
-    {% for slot in values %}
-    <label class="row-slot">
-      <span class="slot-n">{{ slot.position }}</span>
-      <select class="var" name="value" aria-label="Value {{ slot.position }}">
-        <option value="">{% if forloop.last %}Add a value{% else %}Remove this value{% endif %}</option>
-        {% for group in slot.groups %}
-        {% for v in group.options %}
-        <option value="{{ v.id }}" {% if v.on %}selected{% endif %}>{{ v.label }}</option>
-        {% endfor %}
         {% endfor %}
       </select>
     </label>
