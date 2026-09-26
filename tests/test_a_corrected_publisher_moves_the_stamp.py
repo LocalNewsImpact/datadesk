@@ -83,6 +83,40 @@ class TestAPublisherEditMovesIt:
         assert _version() != before
 
 
+class TestEveryFieldTheBuilderShowsMovesIt:
+    """County and name were covered; the state, city, owner and operator were
+    not, and a state set on sixteen sources left fifteen counties under "NA
+    State" in the newsroom picker."""
+
+    def test_giving_a_source_its_state_changes_it(self, crawler_schema):
+        from explorer.models import Source
+
+        _a_source(crawler_schema, "s-state", "Carroll")
+        before = _version()
+        Source.objects.using("crawler").filter(id="s-state").update(
+            meta={"state": "MO"}
+        )
+        assert _version() != before
+
+    def test_correcting_an_owner_changes_it(self, crawler_schema):
+        from explorer.models import Source
+
+        _a_source(crawler_schema, "s-owner", "Pettis")
+        before = _version()
+        Source.objects.using("crawler").filter(id="s-owner").update(
+            owner="Paxton Media Group LLC"
+        )
+        assert _version() != before
+
+    def test_moving_a_city_changes_it(self, crawler_schema):
+        from explorer.models import Source
+
+        _a_source(crawler_schema, "s-city", "Boone")
+        before = _version()
+        Source.objects.using("crawler").filter(id="s-city").update(city="Ashland")
+        assert _version() != before
+
+
 class TestItIsStableOtherwise:
     def test_asking_twice_gives_the_same_answer(self, crawler_schema):
         """A stamp that moved on its own would throw away every cached
