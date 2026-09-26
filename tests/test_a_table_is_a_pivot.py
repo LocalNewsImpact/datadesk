@@ -689,3 +689,23 @@ class TestAColumnCanBeNarrowed:
         )
         table.refresh_from_db()
         assert table.spec["only"] == {"owner": ["Gray Television"]}
+
+    def test_a_different_single_value_replaces_the_one_kept(
+        self, client, table, report
+    ):
+        """One of two owners kept, then the other chosen: counted under its
+        own filter there was one owner in all, so the new choice read as
+        "every value" and no filter was stored."""
+        table.spec = {
+            "dimensions": ["owner"],
+            "measures": ["articles"],
+            "only": {"owner": ["Gray Television"]},
+        }
+        table.save()
+        _fields(
+            client,
+            table,
+            {"column": ["owner", "articles"], "only-owner": ["Rust Communications"]},
+        )
+        table.refresh_from_db()
+        assert table.spec["only"] == {"owner": ["Rust Communications"]}

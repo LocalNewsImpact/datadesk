@@ -133,3 +133,24 @@ def test_neither_is_called_home_or_credited():
     for key in ("syndication_source", "republisher"):
         words = (DIMENSIONS[key]["label"] + DIMENSIONS[key]["note"]).lower()
         assert "home" not in words and "credit" not in words
+
+
+def test_keeping_one_source_still_offers_the_others(syndication):
+    """Keep the Missouri Independent and the list offered only it: the
+    column's values were counted under its own filter."""
+    from visuals.corpus import values_of
+
+    spec = {
+        "subset": "complete",
+        "only": {"syndication_source": ["Missouri Independent"]},
+    }
+    offered = {value for value, _ in values_of("syndication_source", spec, ALL_SCOPES)}
+    assert offered == {"Missouri Independent", "The Kansas City Star"}
+
+
+def test_another_columns_filter_still_narrows_the_list(syndication):
+    from visuals.corpus import values_of
+
+    spec = {"subset": "complete", "only": {"republisher": ["Fulton Sun"]}}
+    offered = {value for value, _ in values_of("syndication_source", spec, ALL_SCOPES)}
+    assert offered == {"Missouri Independent"}
