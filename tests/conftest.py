@@ -104,7 +104,7 @@ _CRAWLER_TABLES = {
         "requires_login BOOLEAN DEFAULT FALSE, auth_type VARCHAR(32), "
         "auth_secret_name VARCHAR(128), auth_config JSON, has_paywall "
         "BOOLEAN DEFAULT FALSE, subscription_cost NUMERIC(10, 2), "
-        "subscription_period VARCHAR(16), login_url TEXT)"
+        "subscription_period VARCHAR(16), login_url TEXT, operator VARCHAR)"
     ),
     "gazetteer": (
         "(id VARCHAR PRIMARY KEY, dataset_id VARCHAR, source_id VARCHAR, "

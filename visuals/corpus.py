@@ -2259,6 +2259,15 @@ def _publisher_fingerprint():
 
     Failure is not fatal: a version that cannot be derived should degrade
     to "recompute", never to a 500 on every cached page.
+
+    EVERY FIELD THE BUILDER SHOWS, not the two the first incident needed.
+    County and name were covered; the state, city, owner and operator were
+    not. On 2026-09-26 sixteen Mizzou sources were given the state they
+    lacked and the newsroom picker went on grouping them under "NA State"
+    -- fifteen counties of it -- because nothing in the stamp moved, and
+    with extraction paused nothing else would move it for the full seven
+    days. The owner corrections of the day before were invisible to every
+    owner-grouped visual the same way.
     """
     from django.db import connections
 
@@ -2267,7 +2276,11 @@ def _publisher_fingerprint():
             cur.execute("""
                 SELECT md5(string_agg(
                     id || ':' || coalesce(county, '')
-                       || ':' || coalesce(canonical_name, ''),
+                       || ':' || coalesce(canonical_name, '')
+                       || ':' || coalesce(city, '')
+                       || ':' || coalesce(owner, '')
+                       || ':' || coalesce(operator, '')
+                       || ':' || coalesce(metadata::jsonb ->> 'state', ''),
                     '|' ORDER BY id))
                 FROM sources
                 """)
