@@ -34,7 +34,7 @@
       chosen in the Look step, and links to the contact that dataset
       publishes.
       {% endcomment %}
-      {% if credit_name %}<a href="{% if credit_email %}mailto:{{ credit_email }}{% else %}#{% endif %}">{{ credit_name }}</a>{% else %}<a href="https://localnewsimpact.org">Local News Impact Consortium</a>{% endif %}
+      {% if credit_name %}{% if credit_href %}<a href="{{ credit_href }}">{{ credit_name }}</a>{% else %}{{ credit_name }}{% endif %}{% else %}<a href="https://localnewsimpact.org">Local News Impact Consortium</a>{% endif %}
       {% comment %}
       Under the name: which answer this is and what it is an answer
       about. Filled from the payload, because the version is a property

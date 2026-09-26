@@ -10,6 +10,8 @@ The sentence across the top is assembled from the same state, so what a
 panel writes and what the page says can never drift.
 """
 
+import re
+
 from datasets.geo import state_name
 from visuals.types import BY_ID, FAMILIES, column_types, gallery
 
@@ -304,7 +306,18 @@ def theme_panel(visual, post=None):
         # else's data credits them instead, because crediting ourselves
         # for it would be taking their work. The name then links to the
         # contact that dataset publishes.
+        #
+        # A line somebody writes wins over both: "LNIC analysis of Mizzou
+        # newsroom stories", linked if there is a link. Its own keys, not
+        # the old free-text `source` -- "LNIC research corpus", a database
+        # name -- which would otherwise come back on charts nobody touched.
         config["credit"] = "dataset" if post.get("credit") == "dataset" else ""
+        text = post.get("source_text", "").strip()
+        url = post.get("source_url", "").strip()
+        if url and not re.match(r"^https?://", url, re.I):
+            raise ValueError("A source link starts with http:// or https://")
+        config["source_text"] = text[:300]
+        config["source_url"] = url[:500]
         # An ordered series is not a set of unrelated things. "None, Very
         # little, Some, Quite a bit, A lot" drawn in five unrelated hues
         # says those are five categories; one hue light to dark says it
@@ -397,6 +410,8 @@ def theme_panel(visual, post=None):
         "title": config.get("title", "") or visual.title,
         "subtitle": config.get("subtitle", ""),
         "credit": config.get("credit", ""),
+        "source_text": config.get("source_text", ""),
+        "source_url": config.get("source_url", ""),
         "series_scale": config.get("series_scale", ""),
         # Only where there is a series to colour. Offering "these are a
         # scale" for a chart that draws one colour is offering a decision

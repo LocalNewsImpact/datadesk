@@ -211,21 +211,25 @@ def _question_stamp(visual, live):
 
 
 def _credit_line(visual):
-    """Whose name sits on the chart, and where a reader writes to.
+    """Whose name sits on the chart, and where it links: (name, href).
 
     The consortium publishes what is built here, so that is the default
-    and needs no configuration. `credit: "dataset"` names the dataset
-    instead -- for a chart built on somebody else's data, where crediting
-    the consortium would be taking their work -- and then the name links
-    to the contact that dataset publishes.
+    and needs no configuration -- (None, None). `credit: "dataset"` names
+    the dataset instead, for a chart built on somebody else's data, and
+    links to the contact that dataset publishes. A line written in the Look
+    step wins over both, linked if a link was given.
     """
-    if (visual.config or {}).get("credit") != "dataset":
+    config = visual.config or {}
+    if config.get("source_text"):
+        return config["source_text"], config.get("source_url") or None
+    if config.get("credit") != "dataset":
         return None, None
     rows = _attribution(visual)
     if not rows:
         return None, None
     first = rows[0]
-    return first["owner"] or first["dataset"], first["contact"]
+    contact = first["contact"]
+    return first["owner"] or first["dataset"], f"mailto:{contact}" if contact else None
 
 
 def _feed_url(visual, by_uuid, version=None, live=False, stamp=""):
@@ -605,7 +609,7 @@ def page(request, slug):
             "stamp": _question_stamp(visual, may_act_on(request.user, visual)),
             "libs": libs_for(visual.render_config.get("kind")),
             "credit_name": _credit_line(visual)[0],
-            "credit_email": _credit_line(visual)[1],
+            "credit_href": _credit_line(visual)[1],
         },
     )
 
@@ -674,7 +678,7 @@ def public_page(request, slug=None, uuid=None):
             "attribution": _attribution(visual),
             "libs": libs_for(visual.render_config.get("kind")),
             "credit_name": _credit_line(visual)[0],
-            "credit_email": _credit_line(visual)[1],
+            "credit_href": _credit_line(visual)[1],
             # What the reader is looking at, whether they pinned it or
             # took the current one.
             "shown": shown or visual.pinned_snapshot,
@@ -712,7 +716,7 @@ def embed(request, slug=None, uuid=None):
             "geo_preload": _geo_preload(visual),
             "libs": libs_for(visual.render_config.get("kind")),
             "credit_name": _credit_line(visual)[0],
-            "credit_email": _credit_line(visual)[1],
+            "credit_href": _credit_line(visual)[1],
         },
     )
     response["Content-Security-Policy"] = f"frame-ancestors {visual.frame_ancestors}"
@@ -1941,7 +1945,7 @@ def builder_step(request, slug, step):
             "stamp": stamp,
             "libs": libs_for(visual.render_config.get("kind")),
             "credit_name": _credit_line(visual)[0],
-            "credit_email": _credit_line(visual)[1],
+            "credit_href": _credit_line(visual)[1],
             # What the preview is still waiting for, so it can say so
             # rather than drawing an empty chart that looks like a
             # finished one.

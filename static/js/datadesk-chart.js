@@ -766,6 +766,9 @@
   // and Values begin, and guessing from the values fails on a year. With
   // "Group rows" ticked, every Row but the last is a group, and the first
   // Row is one displayed row each -- see stackRows.
+  //: Rows a table draws at once. The rest are a page away, not gone.
+  const PAGE = 100;
+
   function oneTable(rows, config) {
     // The first row that is actually an object. A list of bare numbers or
     // strings has no columns to name, and keying off row zero regardless
@@ -825,7 +828,41 @@
     thead.appendChild(headRow);
     table.append(thead, tbody);
     scroll.appendChild(table);
-    wrap.append(bar, scroll);
+    // PAGES, NOT A CAP. The table drew its first 500 rows and stopped, and
+    // nothing on the page said the rest could not be reached: a byline
+    // table of 1,728 showed 500 with no way to the other 1,228 but the
+    // filter. A hundred a page, with the way forward under the rows where
+    // somebody arrives after reading them.
+    let page = 0;
+    const pager = document.createElement("div");
+    pager.className = "dd-pager";
+    const prev = document.createElement("button");
+    prev.type = "button";
+    prev.textContent = "\u2039 Previous";
+    const where = document.createElement("span");
+    where.className = "dd-pager-at";
+    const next = document.createElement("button");
+    next.type = "button";
+    next.textContent = "Next \u203A";
+    pager.append(prev, where, next);
+    prev.addEventListener("click", () => { page -= 1; paint(); });
+    next.addEventListener("click", () => { page += 1; paint(); });
+    wrap.append(bar, scroll, pager);
+
+    // One page of `items`, with the pager set for it. Sorting and
+    // filtering go back to the first page: the tenth page of a different
+    // order is not a place anybody meant to be.
+    function onePage(items) {
+      const pages = Math.max(1, Math.ceil(items.length / PAGE));
+      page = Math.min(Math.max(page, 0), pages - 1);
+      const from = page * PAGE;
+      const slice = items.slice(from, from + PAGE);
+      pager.hidden = pages === 1;
+      prev.disabled = page === 0;
+      next.disabled = page === pages - 1;
+      where.textContent = `${(from + 1).toLocaleString()}\u2013${(from + slice.length).toLocaleString()} of ${items.length.toLocaleString()}`;
+      return slice;
+    }
 
     function paint() {
       const needle = search.value.trim().toLowerCase();
@@ -847,6 +884,7 @@
         b.addEventListener("click", () => {
           if (k === sortAt) dir = -dir;
           else { sortAt = k; dir = numeric.has(c) ? -1 : 1; }
+          page = 0;
           paint();
         });
         if (k === sortAt) th.setAttribute("aria-sort", dir === 1 ? "ascending" : "descending");
@@ -856,7 +894,7 @@
 
       tbody.replaceChildren();
       if (!outer.length) {
-        const shown = list.slice(0, 500);
+        const shown = onePage(list);
         for (const row of shown) {
           const tr = document.createElement("tr");
           for (const c of cols) {
@@ -868,9 +906,9 @@
           }
           tbody.appendChild(tr);
         }
-        count.textContent = list.length > shown.length
-          ? `Showing ${shown.length.toLocaleString()} of ${list.length.toLocaleString()}`
-          : needle ? `${list.length.toLocaleString()} of ${rows.length.toLocaleString()}` : "";
+        count.textContent = needle
+          ? `${list.length.toLocaleString()} of ${rows.length.toLocaleString()}`
+          : "";
         return;
       }
 
@@ -881,7 +919,7 @@
       // Row is a stack of lines, one per leaf, aligned across the columns so
       // a line reads across as one record.
       const groups = stackRows(list, outer);
-      const shown = groups.slice(0, 500);
+      const shown = onePage(groups);
       for (const group of shown) {
         const tr = document.createElement("tr");
         tr.className = "dd-grouped";
@@ -915,14 +953,12 @@
       // Named by the column it counts, and not pluralised by machine:
       // "Publisher names" is how that went last time.
       const unit = `, one row per ${outer[0]}`;
-      count.textContent = groups.length > shown.length
-        ? `Showing ${shown.length.toLocaleString()} of ${groups.length.toLocaleString()}${unit}`
-        : needle
-          ? `${groups.length.toLocaleString()} of ${allGroups.toLocaleString()}${unit}`
-          : `${groups.length.toLocaleString()}${unit}`;
+      count.textContent = needle
+        ? `${groups.length.toLocaleString()} of ${allGroups.toLocaleString()}${unit}`
+        : `${groups.length.toLocaleString()}${unit}`;
     }
 
-    search.addEventListener("input", paint);
+    search.addEventListener("input", () => { page = 0; paint(); });
     paint();
     return wrap;
   }

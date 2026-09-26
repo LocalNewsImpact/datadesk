@@ -669,8 +669,8 @@ def test_the_export_carries_every_row_not_the_rendered_ones():
     js = _chart_js()
     drawing = js[js.index("function oneTable(") : js.index("function renderTable(")]
     walking = js[js.index("function renderTable(") :]
-    assert "list.slice(0, 500)" in drawing
-    assert ".slice(0, 500)" not in walking, "the cap must not reach the export"
+    assert "onePage(list)" in drawing, "a table draws a page at a time"
+    assert "onePage(" not in walking, "paging must not reach the export"
     assert "exportBar(el, rows," in walking
 
 
@@ -1416,7 +1416,7 @@ def test_naming_the_dataset_credits_it_and_links_its_contact(
     visual.save(update_fields=["config"])
     assert _credit_line(visual) == (
         "Missouri School of Journalism",
-        "lnic@example.org",
+        "mailto:lnic@example.org",
     )
 
 

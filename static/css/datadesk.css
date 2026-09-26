@@ -1173,6 +1173,12 @@ label.stacked input, label.stacked textarea, label.stacked select {
    for a screen reader, and for whoever copies the table out -- and are
    painted out. */
 .dd-table tr.dd-grouped td { vertical-align: top; }
+
+/* Under the rows, where somebody arrives after reading a page of them. */
+.dd-pager { display: flex; align-items: center; gap: var(--s-2);
+  margin: var(--s-2) 0 0; }
+.dd-pager-at { color: var(--text-3); font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums; }
 .dd-stack { display: flex; flex-direction: column; }
 .dd-line { white-space: nowrap; line-height: 1.5; min-height: 1.5em; }
 .dd-table .dd-said { color: transparent; }
