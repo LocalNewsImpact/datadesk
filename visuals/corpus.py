@@ -19,7 +19,19 @@ import logging
 import re
 import time
 
-from django.db.models import Avg, CharField, Count, F, Func, Min, Q, Sum, Value
+from django.db.models import (
+    Avg,
+    CharField,
+    Count,
+    F,
+    Func,
+    Min,
+    OuterRef,
+    Q,
+    Subquery,
+    Sum,
+    Value,
+)
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Substr, TruncMonth, TruncYear
 
@@ -33,7 +45,7 @@ from datasets.publishers import (  # noqa: F401  (re-exported)
     fold_value,
     group_of,
 )
-from explorer.models import Article, ArticlePlaceManual, DatasetSource
+from explorer.models import Article, ArticlePlaceManual, DatasetSource, Source
 
 LOG = logging.getLogger(__name__)
 
@@ -79,6 +91,27 @@ DIMENSIONS = {
         # publishes from. A flow from an owner to "komu.com" is a flow to
         # a domain; "KOMU 8" is the newsroom.
         "expr": F("candidate_link__source__canonical_name"),
+    },
+    "home_newsroom": {
+        "label": "Home newsroom",
+        # Whose reporting a wire copy is, as the byline review credits it:
+        # Rudi Keller's copies in the Sedalia Democrat are the Missouri
+        # Independent's. Beside Publisher name it is the syndication table --
+        # each home newsroom, who carried its work, and how often.
+        #
+        # A text column holding a source id, not a foreign key, so the name
+        # is looked up. Only credited copies have one; everything else is
+        # left out rather than grouped under a blank.
+        "expr": Subquery(
+            Source.objects.filter(id=OuterRef("syndicated_from_source_id")).values(
+                "canonical_name"
+            )[:1]
+        ),
+        "requires": Q(syndicated_from_source_id__isnull=False),
+        "note": (
+            "The newsroom a wire copy was credited to in the byline review. "
+            "Only credited copies have one."
+        ),
     },
     "owner": {
         "label": "Owner",
@@ -1055,6 +1088,7 @@ GROUP_OF = {
     "dataset": "publisher",
     "publisher": "publisher",
     "publisher_name": "publisher",
+    "home_newsroom": "publisher",
     "owner": "publisher",
     "publisher_city": "publisher",
     "publisher_county": "publisher",
