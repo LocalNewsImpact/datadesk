@@ -178,9 +178,17 @@
   owner is recorded there is nobody to credit, so the choice is not
   offered at all.
   {% endcomment %}
-  {% if owners %}
   <fieldset class="theme-pick">
     <legend>Source</legend>
+    <label class="stacked">Source line
+      <input type="text" name="source_text" value="{{ source_text }}" maxlength="300"
+        placeholder="LNIC analysis of Missouri newsroom stories, March 2026"></label>
+    <label class="stacked">Link <span class="hint">&mdash; optional</span>
+      <input type="url" name="source_url" value="{{ source_url }}" maxlength="500"
+        placeholder="https://"></label>
+    <p class="hint">Left blank, the chart credits
+      {% if owners %}the choice below{% else %}the Local News Impact Consortium{% endif %}.</p>
+    {% if owners %}
     <label><input type="radio" name="credit" value=""
       {% if credit != "dataset" %}checked{% endif %}>
       Local News Impact Consortium</label>
@@ -188,8 +196,8 @@
       {% if credit == "dataset" %}checked{% endif %}>
       {% for owner in owners %}{% if not forloop.first %}, {% endif %}{{ owner }}{% endfor %}
       — whoever the data belongs to</label>
+    {% endif %}
   </fieldset>
-  {% endif %}
 
   <div class="action-bar">
     <button type="submit" class="primary">Next</button>

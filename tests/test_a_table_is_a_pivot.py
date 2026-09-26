@@ -556,9 +556,9 @@ class TestAGroupIsOneDisplayedRow:
         vance = self._stack(["Byline"])[1]
         assert [line[1] for line in vance["lines"]] == [-1, -1, -1]
 
-    def test_the_cap_and_the_count_are_of_groups(self):
+    def test_the_pages_and_the_count_are_of_groups(self):
         source = CHART.read_text()
-        assert "const shown = groups.slice(0, 500);" in source
+        assert "const shown = onePage(groups);" in source
         assert "groups.length.toLocaleString()" in source
 
 
@@ -633,3 +633,21 @@ class TestEachCountSaysWhatItCounts:
     def test_a_grouped_table_names_what_a_row_is(self):
         source = CHART.read_text()
         assert "one row per ${outer[0]}" in source
+
+
+class TestEveryRowCanBeReached:
+    """A byline table of 1,728 drew 500 and nothing reached the other 1,228
+    but the filter."""
+
+    def test_a_table_pages_rather_than_stopping(self):
+        source = CHART.read_text()
+        assert "const PAGE = 100;" in source
+        assert "function onePage(items)" in source
+        assert 'next.textContent = "Next \\u203A"' in source
+
+    def test_sorting_and_filtering_go_back_to_the_first_page(self):
+        source = CHART.read_text()
+        start = source.index("function oneTable(")
+        body = source[start : source.index("function creditLine(", start)]
+        assert body.count("page = 0;") >= 1
+        assert 'search.addEventListener("input", () => { page = 0; paint(); });' in body

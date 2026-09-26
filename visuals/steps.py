@@ -54,6 +54,8 @@ STEPS = (
             "config:theme_mode",
             "config:taxonomy",
             "config:credit",
+            "config:source_text",
+            "config:source_url",
             "config:series_scale",
         ),
     ),
