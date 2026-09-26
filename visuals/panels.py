@@ -910,6 +910,14 @@ def _limited_by(chart, spec):
     return None, ""
 
 
+def _column_order(spec):
+    """A table's columns in the order shown: saved, or Rows then Values."""
+    if spec.get("columns"):
+        return list(spec["columns"])
+    measures = spec.get("measures") or [spec.get("measure") or "articles"]
+    return list(spec.get("dimensions") or []) + list(measures)
+
+
 def _ordered_slots(chosen, options):
     """One select per chosen item, in its order, plus one blank to add more.
 
@@ -1131,7 +1139,7 @@ def field_panel(visual, post=None, user=None):
         if chart is None:
             raise ValueError("Pick a chart type first")
         known = {v["id"] for v in variables(visual)}
-        roles, dimensions, measure, measures = {}, [], "", []
+        roles, dimensions, measure, measures, order = {}, [], "", [], []
         if _picks_columns(chart):
             # A table is the rows themselves, so it groups by whatever
             # somebody ticks rather than by filling slots with meanings a
@@ -1145,17 +1153,33 @@ def field_panel(visual, post=None, user=None):
             # which is why Owner could never come before Newsroom; positional
             # selects post in the order somebody set them. `columns` is still
             # read, so a form or a caller from before this keeps working.
-            asked = post.getlist("row") or post.getlist("columns")
-            dimensions = list(dict.fromkeys(c for c in asked if c and c in columns))
+            #
+            # ONE LIST, IN COLUMN ORDER. A value is a column like any other and
+            # sits where it is put -- Owner, Unique bylines, Newsroom, Articles
+            # -- so the numbered selects offer both kinds. The Rows among them
+            # still nest in the order they appear; the Values go where they
+            # were placed. A form from before this posts `row` and `value`
+            # separately, and reads as Rows then Values, which is what it drew.
+            if post.getlist("column"):
+                asked = [c.strip() for c in post.getlist("column") if c.strip()]
+                for c in asked:
+                    if c not in columns and c not in numbers:
+                        raise ValueError(f"No such column: {c}")
+            else:
+                rows_asked = post.getlist("row") or post.getlist("columns")
+                wanted = post.getlist("value") or [post.get("measure", "")]
+                wanted = [m.strip() for m in wanted if m and m.strip()]
+                for m in wanted:
+                    if m not in numbers:
+                        raise ValueError(f"No such value: {m}")
+                asked = [c for c in rows_asked if c and c in columns] + wanted
+            asked = list(dict.fromkeys(asked))
+            dimensions = [c for c in asked if c in columns]
             if not dimensions:
                 raise ValueError("Pick at least one row")
-            wanted = post.getlist("value") or [post.get("measure", "")]
-            wanted = [m.strip() for m in wanted if m and m.strip()]
-            for m in wanted:
-                if m not in numbers:
-                    raise ValueError(f"No such value: {m}")
-            measures = list(dict.fromkeys(wanted))
+            measures = [c for c in asked if c in numbers]
             measure = measures[0] if measures else ""
+            order = asked if measures else asked + ["articles"]
         for role in chart.roles:
             picked = post.get(f"role-{role.id}", "").strip()
             if not picked:
@@ -1246,6 +1270,9 @@ def field_panel(visual, post=None, user=None):
                 # Every value, in order; `measure` is the first, kept because
                 # every other path reads that one key.
                 "measures": measures or [measure or "articles"],
+                # The table's columns, Rows and Values together, in the order
+                # they are shown. Absent for a chart, whose roles place things.
+                "columns": order,
                 "only": only,
                 "top": top,
             },
@@ -1283,13 +1310,7 @@ def field_panel(visual, post=None, user=None):
             # One select per row, in order, and one blank more to add
             # another. A select holds its place on the page, so the order
             # they are set is the order they post.
-            "rows": _ordered_slots(
-                chosen, [v for v in variables(visual) if not v["measure"]]
-            ),
-            "values": _ordered_slots(
-                spec.get("measures") or [spec.get("measure") or "articles"],
-                [v for v in variables(visual) if v["measure"]],
-            ),
+            "slots": _ordered_slots(_column_order(spec), variables(visual)),
         }
     picked = spec.get("roles") or {}
     only = spec.get("only") or {}

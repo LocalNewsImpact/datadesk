@@ -1300,6 +1300,39 @@ def run_values(spec, scopes):
 
     One value is exactly `run_spec`, so nothing that asks for one changes.
     """
+    rows, meta = _run_values(spec, scopes)
+    return in_column_order(rows, spec), meta
+
+
+def in_column_order(rows, spec):
+    """Rows with their fields in the order the table's columns were set.
+
+    A pivot writes its dimensions and then its measure, which put every
+    value after every row: "Owner, Unique bylines, Newsroom, Articles" came
+    out with both numbers at the end. Ordered here, in the rows themselves,
+    so the table, the CSV and the snapshot all read the same way. A field
+    the order does not name -- a centroid on a place row -- keeps its place
+    after the rest.
+    """
+    order = spec.get("columns") or []
+    if not order or not rows:
+        return rows
+    labels = [
+        DIMENSIONS[c]["label"] if c in DIMENSIONS else measure_label_for(c)
+        for c in order
+        if c in DIMENSIONS or c in MEASURES
+    ]
+    return [
+        {
+            **{k: row[k] for k in labels if k in row},
+            **{k: v for k, v in row.items() if k not in labels},
+        }
+        for row in rows
+    ]
+
+
+def _run_values(spec, scopes):
+    """The rows for every value, joined; see run_values."""
     wanted = measures_of(spec)
     rows, meta = run_spec({**spec, "measure": wanted[0]}, scopes)
     if len(wanted) == 1:
