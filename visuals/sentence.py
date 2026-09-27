@@ -88,6 +88,24 @@ def parts_for(visual, step=""):
 
     out.append(("", chart.label.lower(), "said") if chart else gap("", "chart", "type"))
 
+    # AN OUTLET MAP HAS NO DATES AND NO DATASETS: it draws the registry,
+    # whole. Asked about them it could never finish its sentence, so it
+    # could never draw -- "A outlet map from any date in every dataset".
+    # What it has is which kinds, and where.
+    if chart and chart.id == "outletmap":
+        kinds = [
+            k.strip() for k in str(config.get("categories_drawn") or "").split(",")
+        ]
+        kinds = [k for k in kinds if k]
+        out.append(
+            ("of", f"{', '.join(kinds)} outlets", "said")
+            if kinds
+            else ("of", "every outlet in the registry", "said")
+        )
+        place = config.get("focus_name") or ""
+        out.append(("in", place, "said") if place else gap("in", "a place", "theme"))
+        return out
+
     if chart and chart.roles:
         named = _named(visual, spec, chart)
         if not named:
@@ -132,6 +150,13 @@ def parts_for(visual, step=""):
     subset = spec.get("subset") or COMPLETE
     out.append(("", SUBSETS[subset][0].lower(), "said"))
     return out
+
+
+def article(parts):
+    """ "A" or "An", for the word the sentence starts with: "An outlet map",
+    not "A outlet map"."""
+    first = next((text for _, text, _ in parts if text), "")
+    return "An" if first[:1].lower() in "aeiou" and first else "A"
 
 
 def is_complete(visual):

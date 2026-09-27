@@ -1814,7 +1814,7 @@ def builder_step(request, slug, step):
     (ROADMAP item 20).
     """
     from visuals import panels
-    from visuals.sentence import is_complete, parts_for
+    from visuals.sentence import article, is_complete, parts_for
     from visuals.steps import BY_SLUG, next_after, reached, steps_for
 
     if step not in BY_SLUG:
@@ -1931,6 +1931,7 @@ def builder_step(request, slug, step):
                 for s in walk
             ],
             "sentence": parts_for(visual, step),
+            "article": article(parts_for(visual, step)),
             "complete": is_complete(visual),
             "renderer": f"visuals/renderers/{visual.template}.html",
             # The preview is a renderer like any other and needs what one

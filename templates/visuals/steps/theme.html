@@ -87,6 +87,36 @@
   chose is a control with nothing to act on, so this section stays empty
   until a chart has been given something to draw.
   {% endcomment %}
+  {% if frames_on_look %}
+  {% comment %}
+  Where an outlet map is framed. A story map sets this on its newsrooms
+  step; an outlet map has none, so it is asked here. Empty frames the
+  registry's own state, whole.
+  {% endcomment %}
+  <div class="group">
+    <h4>Where</h4>
+    <div class="range">
+      <input type="text" name="focus" value="{{ focus }}"
+             placeholder="Missouri — or Boone, MO, or 29019" aria-label="Centre on">
+      <select name="focus_level" aria-label="What kind of place">
+        <option value="" {% if not focus_level %}selected{% endif %}>work it out</option>
+        <option value="city" {% if focus_level == "city" %}selected{% endif %}>a city</option>
+        <option value="county" {% if focus_level == "county" %}selected{% endif %}>a county</option>
+        <option value="state" {% if focus_level == "state" %}selected{% endif %}>a state</option>
+      </select>
+    </div>
+    <label class="stacked">Show
+      <select name="extent">
+        <option value="state" {% if extent == "state" %}selected{% endif %}>its whole state</option>
+        <option value="county" {% if extent == "county" %}selected{% endif %}>its whole county</option>
+        <option value="selected" {% if extent == "selected" %}selected{% endif %}>only what is centred on</option>
+        <option value="auto" {% if extent == "auto" %}selected{% endif %}>wherever the outlets are</option>
+      </select>
+    </label>
+    <p class="hint">Leave the place empty for the whole of Missouri. Outlets
+    outside the frame are counted under the map, not drawn.</p>
+  </div>
+  {% endif %}
   {% if options %}
   <div class="group">
     <h4>How it draws</h4>

@@ -196,6 +196,23 @@ def _palette_of(visual):
     return list(by_id.get(chosen) or by_id["datadesk"])
 
 
+def _registry_state():
+    """The state most of the outlet registry is in: where an outlet map is
+    about unless somebody says otherwise."""
+    from django.db.models import Count
+
+    from visuals.models import Outlet
+
+    top = (
+        Outlet.objects.exclude(state="")
+        .values("state")
+        .annotate(n=Count("outlet_id"))
+        .order_by("-n")
+        .first()
+    )
+    return top["state"] if top else "MO"
+
+
 def _column_values(visual):
     """A table's columns as choice values, "None" first: the columns the
     latest capture carries, which is what the table draws."""
@@ -295,6 +312,30 @@ def theme_panel(visual, post=None):
         #
         # `steps.py` states the contract this broke: "Every step writes
         # its own keys and none clears another's."
+        # AN OUTLET MAP FRAMES HERE. It has no newsrooms step, which is where
+        # a story map is framed, so the same controls sit on this one. Left
+        # empty it frames the registry's own state, whole -- not the
+        # renderer's guess, which drew every county of every neighbouring
+        # state that holds a single outlet.
+        from visuals.services import OUTLET_MAP_KIND
+
+        if (visual.config or {}).get("kind") == OUTLET_MAP_KIND:
+            home = _registry_state()
+            typed = (post.get("focus") or "").strip()
+            config.update(
+                _focus_from(post, [], default_state=home)
+                if typed
+                else _focus_from(
+                    {"focus": home, "focus_level": "state", "extent": "state"},
+                    [],
+                    default_state=home,
+                )
+            )
+            if not typed:
+                # Named as a reader says it: "Missouri", not "MO".
+                from datasets.geo import state_label
+
+                config["focus_name"] = state_label(config["focus"]) or home
         frames_here = any(option.id == "frame_on" for option in _chart_options(visual))
         if frames_here and config.get("frame_on"):
             from visuals.geofocus import AUTO, FocusError, frame, resolve
@@ -464,6 +505,11 @@ def theme_panel(visual, post=None):
         # The palette a colour option chooses from: the visual's own theme,
         # else its folder's, else the house default -- what it will draw in.
         "palette": _palette_of(visual),
+        # An outlet map's frame, set on this step (see the save above).
+        "frames_on_look": config.get("kind") == "outletmap",
+        "focus": config.get("focus_name") or "",
+        "focus_level": config.get("focus_level", ""),
+        "extent": config.get("extent", "") or "state",
         "theme_mode": config.get("theme_mode", ""),
         # Falls back to the record's name, so a new visual arrives with a
         # sensible title in the box rather than an empty one.
@@ -525,7 +571,7 @@ def _subset_of(spec):
 _MAP_KINDS = ("storymap", "choropleth", "points")
 
 
-def _focus_from(post, datasets):
+def _focus_from(post, datasets, default_state=None):
     """The place a map is centred on, resolved from what somebody typed.
 
     "Boone" is a name; the renderer needs 29019, because that is what the
@@ -550,7 +596,8 @@ def _focus_from(post, datasets):
             "frame": [],
         }
 
-    default_state = state_of(datasets)
+    if default_state is None:
+        default_state = state_of(datasets)
     try:
         geoid, level = resolve(typed, post.get("focus_level", ""), default_state)
         extent = post.get("extent", AUTO) or AUTO

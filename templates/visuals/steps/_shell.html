@@ -13,7 +13,7 @@ carries the word that joins it to the one before, because which connective
 belongs where is not something a loop counter can work out.
 {% endcomment %}
 <p class="sentence">
-  A{% for lead, text, kind in sentence %}{% if lead %} {{ lead }}{% endif %}
+  {{ article|default:"A" }}{% for lead, text, kind in sentence %}{% if lead %} {{ lead }}{% endif %}
     {% if kind == "said" %}<b>{{ text }}</b>{% else %}<span class="gap{% if kind == 'here' %} here{% endif %}">{{ text }}</span>{% endif %}
   {% endfor %}{% if complete %}.{% else %}…{% endif %}
 </p>
