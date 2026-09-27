@@ -298,6 +298,8 @@ class TestThePages:
         client.force_login(editor)
         page = client.get("/outlets/o-weston/").content.decode()
         assert "Megan Jantos" in page and "Record an event" in page
+        # American dates: "by 09-01-2026", not 2026-09-01 or Sep 1, 2026.
+        assert "by 09-01-2026" in " ".join(page.split())
 
     def test_an_editor_records_from_the_page(self, editor):
         _outlet()

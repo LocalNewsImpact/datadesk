@@ -10,7 +10,7 @@
       <td data-label="When">
         {% if e.effective_date %}
           {% if e.date_precision == "by" %}by {% endif %}
-          {% if e.date_precision == "year" %}{{ e.effective_date|date:"Y" }}{% elif e.date_precision == "month" %}{{ e.effective_date|date:"F Y" }}{% else %}{{ e.effective_date|date:"M j, Y" }}{% endif %}
+          {% if e.date_precision == "year" %}{{ e.effective_date|date:"Y" }}{% elif e.date_precision == "month" %}{{ e.effective_date|date:"m-Y" }}{% else %}{{ e.effective_date|date:"m-d-Y" }}{% endif %}
         {% else %}date unknown{% endif %}
       </td>
       {% if show_outlet %}<td data-label="Outlet">{% if e.outlet_id %}<a href="{% url 'visuals:outlet_detail' e.outlet_id %}">{{ e.outlet_name }}</a>{% else %}{{ e.outlet_name }}{% endif %}</td>{% endif %}
@@ -24,9 +24,9 @@
         {% if e.note %}<div class="hint">{{ e.note }}</div>{% endif %}
       </td>
       <td data-label="Source">{% if e.evidence_url %}<a href="{{ e.evidence_url }}" target="_blank" rel="noopener">link</a>{% else %}—{% endif %}</td>
-      <td data-label="Recorded"><span class="hint">{{ e.recorded_at|date:"M j, Y" }} · {{ e.recorded_by.email }}{% if e.sets_current %} · current{% endif %}</span></td>
+      <td data-label="Recorded"><span class="hint">{{ e.recorded_at|date:"m-d-Y" }} · {{ e.recorded_by.email }}{% if e.sets_current %} · current{% endif %}</span></td>
       {% if retractable %}
-      <td>
+      <td data-label="Retract">
         {% if e.event != "retraction" and not e.retracted_by.all %}
         <details><summary>Retract</summary>
           <form method="post">{% csrf_token %}
