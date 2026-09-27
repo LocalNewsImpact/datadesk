@@ -352,3 +352,55 @@ class VisualSnapshot(models.Model):
 
     def __str__(self):
         return f"{self.visual.slug} v{self.version}"
+
+
+class Outlet(models.Model):
+    """One news outlet in the registry: where it is, what it is, and whether
+    we collect from it.
+
+    The registry is built in the crawler repo (scripts/build_mo_outlet_registry.py)
+    from our sources and the state's directories -- MPA, the Blue Book, LNI --
+    with a reviewer's statuses, and imported here by `import_outlet_registry`.
+    It is a directory of newsrooms, not crawl data, which is why it lives in
+    datadesk's own database: a review page that replaces the spreadsheet round
+    trip edits this table.
+
+    `outlet_id` is the registry's UUID: an outlet we crawl carries its
+    `sources.id`, one we do not a UUID of its own.
+    """
+
+    outlet_id = models.CharField(max_length=36, primary_key=True)
+    source_id = models.CharField(max_length=36, blank=True, default="")
+    name = models.CharField(max_length=300)
+    state = models.CharField(max_length=2, default="MO")
+    city = models.CharField(max_length=120, blank=True, default="")
+    county = models.CharField(max_length=120, blank=True, default="")
+    county_fips = models.CharField(max_length=5, blank=True, default="", db_index=True)
+    address = models.TextField(blank=True, default="")
+    lat = models.FloatField(null=True, blank=True)
+    lon = models.FloatField(null=True, blank=True)
+    location_basis = models.CharField(max_length=40, blank=True, default="")
+    host = models.CharField(max_length=300, blank=True, default="")
+    owner = models.CharField(max_length=300, blank=True, default="")
+    status = models.CharField(max_length=40, blank=True, default="")
+    status_basis = models.TextField(blank=True, default="")
+    merged_into = models.CharField(max_length=300, blank=True, default="")
+    aka = models.TextField(blank=True, default="")
+    #: One point per surviving outlet; merged, closed, legal and the like
+    #: are not drawn.
+    on_map = models.BooleanField(default=False)
+    #: collected, not collected, print, replica, social -- or, off the map,
+    #: the reason (legal, shopper, business, magazine).
+    category = models.CharField(max_length=40, blank=True, default="")
+    march_articles = models.PositiveIntegerField(default=0)
+    #: Every column of the registry row as imported, so nothing it carries
+    #: is lost to the columns above.
+    row = models.JSONField(default=dict)
+    imported_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "outlet_registry"
+        ordering = ["state", "county", "name"]
+
+    def __str__(self):
+        return f"{self.name} ({self.city})"

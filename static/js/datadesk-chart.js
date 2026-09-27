@@ -3314,6 +3314,40 @@
   //   dots at each story central, sized by story count, coloured by the
   //   precision the model actually claimed — place / block / county.
   // Both layers are hover-isolating and tappable.
+  //: A newsroom map's dot colours, in legend order: what we collect first,
+  //: then what we could, then what only exists on paper, as a page image, or
+  //: on social media. Fixed, so a colour always means the same thing.
+  const NEWSROOM_CATEGORIES = ["collected", "not collected", "print", "replica", "social"];
+
+  //: The hue each category reaches for: collected green, not collected
+  //: orange, print purple, replica yellow, social pink.
+  const NEWSROOM_HUES = { "collected": 155, "not collected": 20, "print": 250,
+    "replica": 42, "social": 335 };
+
+  // Each category's colour, from the theme's own palette. NOT the first five
+  // in order: the datadesk theme's first colour is the blue of its county
+  // ramp, so "collected" dots vanished into the darkest counties. A colour
+  // within 30 degrees of the ramp's hue is passed over, and each category
+  // takes the nearest remaining colour to its hue, none twice. Thirty, not
+  // more: at forty the datadesk theme lost its purple to the navy ramp and
+  // "social" fell to a red beside "not collected"'s orange.
+  function newsroomColours(t) {
+    const hueOf = (c) => { const h = d3.hsl(c).h; return Number.isNaN(h) ? 0 : h; };
+    const gap = (a, b) => { const d = Math.abs(a - b) % 360; return Math.min(d, 360 - d); };
+    const ramp = hueOf(t.seqHigh || t.series[0]);
+    const free = t.series.filter((c) => gap(hueOf(c), ramp) >= 30);
+    const pool = free.length >= NEWSROOM_CATEGORIES.length ? free.slice() : t.series.slice();
+    const out = {};
+    for (const c of NEWSROOM_CATEGORIES) {
+      let best = 0;
+      pool.forEach((colour, i) => {
+        if (gap(hueOf(colour), NEWSROOM_HUES[c]) < gap(hueOf(pool[best]), NEWSROOM_HUES[c])) best = i;
+      });
+      out[c] = pool.splice(best, 1)[0] || t.series[0];
+    }
+    return out;
+  }
+
   const PRECISION = { place: 0, block: 1, county: 2, state: 3, tract: 4 };
 
   //: The fixed ladder absolute banding cuts at, so one shade means one count
@@ -3327,6 +3361,17 @@
     const payload = Array.isArray(data) ? { points: data, areas: [] } : (data || {});
     const points = payload.points || [];
     const areas = payload.areas || [];
+    // WHAT THE NUMBERS COUNT. A story map of stories counts stories; one of
+    // the outlet registry counts newsrooms, and says so in its key and its
+    // tooltips. The shading reads whichever count the layer carries.
+    const unit = (payload.meta || {}).unit || "stories";
+    const valueOf = (a) => Number(a.stories ?? a.newsrooms ?? 0);
+    // A newsroom dot is coloured by what the outlet is, not sized by a count:
+    // every outlet is one outlet.
+    const byCategory = points.some((p) => p.category);
+    const categories = (payload.meta || {}).categories || NEWSROOM_CATEGORIES;
+    const palette = byCategory ? newsroomColours(t) : {};
+    const colourOf = (c) => palette[c] || t.missing;
     if (!points.length && !areas.length) {
       // "No mapped stories" is true and useless: it does not say whether
       // the slice is empty, whether the newsrooms chosen published
@@ -3370,11 +3415,11 @@
         const weight = new Map();
         for (const a of areas) {
           const st = String(a.geoid).slice(0, 2);
-          weight.set(st, (weight.get(st) || 0) + a.stories);
+          weight.set(st, (weight.get(st) || 0) + valueOf(a));
         }
         for (const p of points) {
           const st = String(p.geoid || "").slice(0, 2);
-          if (st) weight.set(st, (weight.get(st) || 0) + p.stories);
+          if (st) weight.set(st, (weight.get(st) || 0) + (p.stories || 1));
         }
         const total = [...weight.values()].reduce((a, b) => a + b, 0);
         const keep = new Set(
@@ -3395,13 +3440,13 @@
       // It follows the frame wherever that came from: an explicit
       // `config.frame`, a focus, or the auto weighting above.
       const painted = new Set(shown.map((f) => String(f.id)));
-      const byCounty = new Map(areas.map((a) => [String(a.geoid), a.stories]));
+      const byCounty = new Map(areas.map((a) => [String(a.geoid), valueOf(a)]));
       // Whether there is anything to put a scale on. Read off the
       // painted counties for the same reason the cuts are: a frame with
       // no stories in it must not draw a key for somebody else's.
       const max = d3.max(
         areas.filter((a) => painted.has(String(a.geoid))),
-        (a) => a.stories
+        valueOf
       ) || 0;
       // Bands are equal-count groups of the counties that actually have
       // stories, so the map stays informative whether it is a 500-article
@@ -3438,7 +3483,7 @@
       //
       const values = areas
         .filter((a) => painted.has(String(a.geoid)))
-        .map((a) => a.stories)
+        .map(valueOf)
         .filter((n) => n > 0)
         .sort(d3.ascending);
       // Cuts at i/steps, rising, de-duplicated. A count with many ties
@@ -3528,7 +3573,7 @@
         .attr("stroke", t.boundary).attr("stroke-width", 0.6);
 
       const r = d3.scaleSqrt()
-        .domain([0, d3.max(points, (p) => p.stories) || 1])
+        .domain([0, d3.max(points, (p) => p.stories || 1) || 1])
         .range([2.5, Math.max(9, width / 45)]);
       // Centrals outside the frame are counted, not drawn floating in
       // whitespace (the artifact listed them as "beyond the frame").
@@ -3540,8 +3585,8 @@
         (p) => p.lon != null && p.lat != null && projection([p.lon, p.lat]));
       const dots = frame.append("g").selectAll("circle").data(placed).join("circle")
         .attr("transform", (p) => `translate(${projection([p.lon, p.lat])})`)
-        .attr("r", (p) => r(p.stories))
-        .attr("fill", (p) =>
+        .attr("r", (p) => (byCategory ? Math.max(3.5, width / 150) : r(p.stories)))
+        .attr("fill", (p) => byCategory ? colourOf(p.category) :
           (t.points || t.series)[PRECISION[p.level] ?? 0] ||
           t.series[PRECISION[p.level] ?? 0])
         .attr("fill-opacity", 0.85)
@@ -3556,9 +3601,16 @@
           // Every story that mentions a place in this county. The label
           // used to name the scope the shading was filtered to; there is
           // no filter now, so it says what it counts.
-          tipRow("stories mentioning it", n || 0);
+          tipRow(unit === "stories" ? "stories mentioning it" : `${unit} located here`, n || 0);
       }, { group: counties, related: (target, other) => target === other });
-      interactive(dots, tip, (p) =>
+      interactive(dots, tip, (p) => byCategory ?
+        `<strong>${p.name}</strong>` +
+        tipRow("kind", p.category) +
+        tipRow("place", p.place) +
+        tipRow("county", p.county) +
+        tipRow("owner", p.owner) +
+        tipRow("website", p.website) +
+        tipRow("articles in March 2026", p["articles in March 2026"]) :
         `<strong>${p.place || p.geoid}</strong>` +
         tipRow("FIPS", p.geoid) +
         tipRow("precision", p.level) +
@@ -3569,7 +3621,18 @@
       // Two legends: the dot precisions and the shading thresholds.
       const legend = document.createElement("div");
       legend.className = "dd-legend";
-      for (const level of ["place", "block", "county"]) {
+      if (byCategory) {
+        for (const c of categories) {
+          if (!placed.some((p) => p.category === c)) continue;
+          const item = document.createElement("span");
+          const dot = document.createElement("span");
+          dot.className = "dd-swatch round";
+          dot.style.background = colourOf(c);
+          item.append(dot, c);
+          legend.appendChild(item);
+        }
+      }
+      for (const level of byCategory ? [] : ["place", "block", "county"]) {
         if (!placed.some((p) => p.level === level)) continue;
         const item = document.createElement("span");
         const dot = document.createElement("span");
@@ -3592,7 +3655,8 @@
         const scale = document.createElement("span");
         scale.className = "dd-ramp";
         scale.append(document.createTextNode(
-          "stories mentioning each county:"));
+          unit === "stories" ? "stories mentioning each county:"
+            : `${unit} located in each county:`));
 
         // `0` is not a step of the ramp -- it is the absence of data --
         // so it keeps its own chip and its own word.
@@ -3620,7 +3684,7 @@
           const sw = document.createElement("span");
           sw.className = "dd-ramp-block";
           sw.style.background = ramp[i + 1];
-          sw.title = `${label} stories`;
+          sw.title = `${label} ${unit}`;
           blocks.appendChild(sw);
         });
 
@@ -3735,7 +3799,9 @@
         const note = document.createElement("span");
         note.className = "dd-beyond";
         note.textContent =
-          `${beyond.toLocaleString()} central${beyond === 1 ? "" : "s"} beyond the frame`;
+          byCategory
+            ? `${beyond.toLocaleString()} newsroom${beyond === 1 ? "" : "s"} beyond the frame`
+            : `${beyond.toLocaleString()} central${beyond === 1 ? "" : "s"} beyond the frame`;
         legend.appendChild(note);
       }
       el.prepend(legend);
@@ -3770,6 +3836,6 @@
   // hues is a fact about these functions, not about the page.
   global.DatadeskChart = {
     render, mount, renderTable,
-    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows },
+    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours },
   };
 })(window);

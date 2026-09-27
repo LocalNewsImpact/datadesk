@@ -2358,7 +2358,7 @@ def test_a_shaded_county_is_named_not_coded():
     # And the renderer reads the key that now carries the code, or the
     # shading silently stops matching any boundary.
     js = (root / "static/js/datadesk-chart.js").read_text()
-    assert "[String(a.geoid), a.stories]" in js
+    assert "[String(a.geoid), valueOf(a)]" in js
     assert "a.county" not in js
 
     from datasets.geo import county_label
