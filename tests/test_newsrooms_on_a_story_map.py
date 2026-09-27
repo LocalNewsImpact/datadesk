@@ -212,41 +212,124 @@ def _visual(author, kind):
     )
 
 
-class TestTheDataStep:
-    def test_a_story_map_asks_what_to_map(self, client, author, crawler_schema):
-        visual = _visual(author, "storymap")
-        body = client.get(f"/visuals/builder/{visual.slug}/step/data/").content.decode()
-        assert 'name="layer" value="newsrooms"' in body
+class TestTheOutletMapType:
+    """The registry is its own chart type, drawn by the story map's renderer:
+    a newsroom layer inside the story map could not be styled from the
+    builder, so it looked like nothing else there."""
 
-    def test_another_chart_is_not_asked(self, client, author, crawler_schema):
-        visual = _visual(author, "bar")
+    def test_it_is_offered(self):
+        from visuals.builder import CHART_KINDS, CHART_LIBS
+        from visuals.types import BY_ID
+
+        assert "outletmap" in CHART_KINDS
+        assert CHART_LIBS["outletmap"] == CHART_LIBS["storymap"]
+        assert BY_ID["outletmap"].family == BY_ID["storymap"].family
+
+    def test_its_walk_is_type_look_publish(self, author):
+        from visuals.steps import steps_for
+
+        visual = _visual(author, "outletmap")
+        assert [s.slug for s in steps_for(visual)] == ["type", "theme", "publish"]
+
+    def test_a_story_map_no_longer_asks_what_to_map(
+        self, client, author, crawler_schema
+    ):
+        visual = _visual(author, "storymap")
         body = client.get(f"/visuals/builder/{visual.slug}/step/data/").content.decode()
         assert 'name="layer"' not in body
 
-    def test_newsrooms_is_saved(self, client, author, crawler_schema):
-        visual = _visual(author, "storymap")
+    def test_the_look_step_offers_its_colours(self, client, author, crawler_schema):
+        visual = _visual(author, "outletmap")
+        url = f"/visuals/builder/{visual.slug}/step/theme/"
+        body = client.get(url).content.decode()
+        assert 'name="opt-colour_collected"' in body
+        assert 'name="opt-categories_drawn" value="social"' in body
+        assert 'name="opt-shade_by"' in body
+
+    def test_a_colour_is_a_palette_slot(self, client, author, crawler_schema):
+        visual = _visual(author, "outletmap")
         client.post(
-            f"/visuals/builder/{visual.slug}/step/data/",
-            {"layer": "newsrooms", "subset": "complete"},
+            f"/visuals/builder/{visual.slug}/step/theme/",
+            {
+                "opt-colour_collected": "3",
+                "opt-colour_print": "#ff0000",
+                "opt-categories_drawn": ["collected", "print"],
+                "opt-outline": "none",
+            },
         )
         visual.refresh_from_db()
-        assert visual.spec["layer"] == "newsrooms"
+        assert visual.config["colour_collected"] == "3"
+        # Not a slot: refused rather than stored.
+        assert visual.config["colour_print"] == ""
+        assert visual.config["categories_drawn"] == "collected, print"
+        assert visual.config["outline"] == "none"
+
+
+class TestTheWalk:
+    def test_to_a_working_embed(self, client, author, tmp_path, crawler_schema):
+        """Made on the new-visual form, typed, styled, published, and read by
+        somebody with no session -- the walk every chart type must survive."""
+        from django.test import Client
+
+        from visuals.outlets import import_registry
+
+        import_registry(_registry(tmp_path, ROWS))
+        client.post(
+            "/visuals/builder/new/",
+            {"title": "Missouri outlets", "source_kind": "corpus"},
+        )
+        visual = Visual.objects.get(slug="missouri-outlets")
+
+        def press(name, **fields):
+            got = client.post(
+                f"/visuals/builder/{visual.slug}/step/{name}/", dict(fields, stay="1")
+            )
+            assert got.status_code in (200, 302), f"{name}: {got.status_code}"
+            visual.refresh_from_db()
+
+        press("type", kind="outletmap")
+        press("theme", theme="datadesk", **{"opt-colour_collected": "2"})
+        press("publish", do="publish")
+        assert visual.status == Visual.PUBLISHED
+        assert len(visual.pinned_snapshot.data["points"]) == 2
+        page = Client().get(f"/embed/{visual.slug}/")
+        assert page.status_code == 200
+        assert '"kind": "outletmap"' in page.content.decode()
 
 
 class TestTheFeed:
-    def test_a_newsroom_story_map_draws_the_registry(
-        self, tmp_path, author, crawler_schema
-    ):
+    def test_an_outlet_map_draws_the_registry(self, tmp_path, author, crawler_schema):
         from visuals.outlets import import_registry
         from visuals.services import fetch_source_data
 
         import_registry(_registry(tmp_path, ROWS))
-        visual = _visual(author, "storymap")
-        visual.spec = {"layer": "newsrooms"}
-        visual.save()
-        payload = fetch_source_data(visual)
+        payload = fetch_source_data(_visual(author, "outletmap"))
         assert payload["meta"]["unit"] == "newsrooms"
         assert len(payload["points"]) == 2
+
+    def test_only_the_kinds_drawn(self, tmp_path):
+        from visuals.outlets import import_registry, run_outlet_map
+
+        import_registry(_registry(tmp_path, ROWS))
+        payload = run_outlet_map({"categories_drawn": "replica"})
+        assert {p["category"] for p in payload["points"]} == {"replica"}
+        # Shaded by what is drawn, so the county counts the replica alone.
+        assert sum(a["newsrooms"] for a in payload["areas"]) == 1
+
+    def test_shaded_by_what_we_collect(self, tmp_path):
+        from visuals.outlets import import_registry, run_outlet_map
+
+        import_registry(_registry(tmp_path, ROWS))
+        payload = run_outlet_map({"shade_by": "collected"})
+        assert len(payload["points"]) == 2
+        assert sum(a["newsrooms"] for a in payload["areas"]) == 1
+        assert payload["meta"]["unit"] == "outlets we collect from"
+
+    def test_no_shading(self, tmp_path):
+        from visuals.outlets import import_registry, run_outlet_map
+
+        import_registry(_registry(tmp_path, ROWS))
+        assert run_outlet_map({"shade_by": "none"})["areas"] == []
 
 
 class TestTheRenderer:
@@ -275,8 +358,10 @@ class TestTheRenderer:
         js = (root / "static/js/datadesk-chart.js").read_text()
         assert "? { stroke: t.surface, width: 1, inked: false }" in js
         assert ": { stroke: t.ink, width: 1.5, inked: true };" in js
-        assert 'return category === "collected"' in js
+        assert 'return category === "collected" || outline === "none"' in js
         stroke = '.attr("stroke", (p) => (byCategory ? ringOf(p).stroke : t.surface))'
         assert stroke in js
+        # The author's colour, a slot of the theme's own palette.
+        assert 'config[`colour_${c.replace(/ /g, "_")}`]' in js
         assert "if (ring.inked) dot.style.boxShadow" in js
         assert '(a.category === "collected") - (b.category === "collected")' in js

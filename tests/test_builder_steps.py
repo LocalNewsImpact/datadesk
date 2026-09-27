@@ -1909,6 +1909,13 @@ NEEDS_TWO_MEASURES = {
 #: What each kind needs at the fields step, in the words the form posts.
 #: A story map and a table declare no roles: their shape comes out of the
 #: data whole rather than from columns somebody picks.
+#: Kinds whose walk is not this one, and where theirs is. An outlet map draws
+#: the registry whole: type, Look, publish, with no data, newsrooms or fields
+#: step to press.
+WALKED_ELSEWHERE = {
+    "outletmap": "tests/test_newsrooms_on_a_story_map.py::TestTheWalk",
+}
+
 FIELDS_FOR = {
     "storymap": {},
     "table": {"columns": ["cin_primary", "month"], "measure": "articles"},
@@ -2115,7 +2122,9 @@ def test_every_chart_kind_is_walked():
     """
     from visuals.types import CHART_TYPES
 
-    missing = sorted({c.id for c in CHART_TYPES} - set(FIELDS_FOR))
+    missing = sorted(
+        {c.id for c in CHART_TYPES} - set(FIELDS_FOR) - set(WALKED_ELSEWHERE)
+    )
     assert not missing, f"these kinds are never walked: {missing}"
     # And a kind excused the walk says why, so the excused list is a
     # statement about the pivot rather than a place to put failures.

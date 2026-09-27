@@ -23,6 +23,7 @@ CHART_KINDS = (
     "points",
     "locator",
     "storymap",
+    "outletmap",
     "flowmap",
 )
 
@@ -76,6 +77,15 @@ _STRING_KEYS = (
     # alone a map should use its whole ramp; read beside another it must
     # not, or both top out at the same dark blue on different numbers.
     "band_scale",
+    # The outlet map's own options (types.ChartType("outletmap")).
+    "categories_drawn",
+    "outline",
+    "shade_by",
+    "colour_collected",
+    "colour_not_collected",
+    "colour_print",
+    "colour_replica",
+    "colour_social",
     # The grouped table reads long-form rows and nests them: one row per
     # subject, the items repeating under it, the group the items belong to,
     # and a number per item. The filters derive from these, so there is no
@@ -227,6 +237,8 @@ CHART_LIBS = {
     # and only a sankey needs it.
     "sankey": ("d3", "sankey"),
     "storymap": ("d3", "topojson"),
+    # The story map's renderer, so the story map's libraries.
+    "outletmap": ("d3", "topojson"),
     "bar": ("d3", "plot"),
     "line": ("d3", "plot"),
     "area": ("d3", "plot"),

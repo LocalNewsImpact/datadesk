@@ -329,7 +329,7 @@
     const kind = config.kind || "table";
     // The story map's payload is an object of layers, not a row array;
     // every other form takes rows and needs at least one.
-    if (kind !== "storymap" && (!rows || !rows.length)) {
+    if (kind !== "storymap" && kind !== "outletmap" && (!rows || !rows.length)) {
       el.textContent = "No data.";
       return;
     }
@@ -344,7 +344,10 @@
     if (kind === "locator") {
       return renderLocator(el, config, rows, opts, t, width);
     }
-    if (kind === "storymap") return renderStoryMap(el, config, rows, opts, t, width);
+    // An outlet map is a story map of the registry: the same renderer and
+    // the same style rules, its own colours and rings (docs/OUTLET_MAP.md).
+    if (kind === "storymap" || kind === "outletmap")
+      return renderStoryMap(el, config, rows, opts, t, width);
     if (kind === "donut") return renderDonut(el, config, rows, t, width);
     if (kind === "chord") return renderChord(el, config, rows, t, width);
     if (kind === "sankey") return renderSankey(el, config, rows, t, width);
@@ -3407,8 +3410,10 @@
   // ringed in ink; a collected one keeps the surface-coloured ring that
   // separates overlapping dots. Two encodings, so it also holds for a reader
   // who cannot tell the hues apart.
-  function newsroomRing(t, category) {
-    return category === "collected"
+  function newsroomRing(t, category, outline) {
+    // The author may turn the rings off; a collected dot's surface ring
+    // stays either way, because it is what separates overlapping dots.
+    return category === "collected" || outline === "none"
       ? { stroke: t.surface, width: 1, inked: false }
       : { stroke: t.ink, width: 1.5, inked: true };
   }
@@ -3435,7 +3440,13 @@
     // every outlet is one outlet.
     const byCategory = points.some((p) => p.category);
     const categories = (payload.meta || {}).categories || NEWSROOM_CATEGORIES;
+    // The renderer's choice first -- clear of the shading ramp -- then the
+    // author's, a slot in the same palette so it follows the theme.
     const palette = byCategory ? newsroomColours(t) : {};
+    for (const c of NEWSROOM_CATEGORIES) {
+      const slot = parseInt(config[`colour_${c.replace(/ /g, "_")}`], 10);
+      if (slot >= 1 && t.series[slot - 1]) palette[c] = t.series[slot - 1];
+    }
     const colourOf = (c) => palette[c] || t.missing;
     if (!points.length && !areas.length) {
       // "No mapped stories" is true and useless: it does not say whether
@@ -3652,7 +3663,7 @@
       // did not collect.
       if (byCategory) placed.sort((a, b) =>
         (a.category === "collected") - (b.category === "collected"));
-      const ringOf = (p) => newsroomRing(t, p.category);
+      const ringOf = (p) => newsroomRing(t, p.category, config.outline);
       const dots = frame.append("g").selectAll("circle").data(placed).join("circle")
         .attr("transform", (p) => `translate(${projection([p.lon, p.lat])})`)
         .attr("r", (p) => (byCategory ? Math.max(3.5, width / 150) : r(p.stories)))
@@ -3700,7 +3711,7 @@
           dot.className = "dd-swatch round";
           dot.style.background = colourOf(c);
           // The key shows the ring the dot wears.
-          const ring = newsroomRing(t, c);
+          const ring = newsroomRing(t, c, config.outline);
           if (ring.inked) dot.style.boxShadow = `inset 0 0 0 ${ring.width}px ${ring.stroke}`;
           item.append(dot, c);
           legend.appendChild(item);

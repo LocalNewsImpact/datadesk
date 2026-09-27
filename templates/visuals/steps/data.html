@@ -96,24 +96,6 @@ snapshot, so a corrected file is the next answer to the same question and
       <p class="notice" id="dataset-none" hidden>Nothing matches that.</p>
     </details>
   </div>
-  {% if layers %}
-  {% comment %}
-  A story map draws stories or the newsrooms themselves. Asked first,
-  because the rest of this step narrows stories and a newsroom map is the
-  whole registry.
-  {% endcomment %}
-  <div class="group">
-    <h4>What to map</h4>
-    <div class="pick">
-      {% for l in layers %}
-      <label>
-        <input type="radio" name="layer" value="{{ l.id }}" {% if l.on %}checked{% endif %}>
-        <span><strong>{{ l.label }}</strong><em>{{ l.note }}</em></span>
-      </label>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
   {% comment %}
   How much of what those newsrooms published. Nothing in flight is offered
   at all -- an article the pipeline has not finished with would change under

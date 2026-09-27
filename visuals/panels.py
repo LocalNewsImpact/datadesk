@@ -187,6 +187,15 @@ def _chart_options(visual):
     return tuple(o for o in offered if o.id != "taxonomy")
 
 
+def _palette_of(visual):
+    """The colours this visual draws in, in slot order."""
+    chosen = (visual.config or {}).get("theme") or (
+        visual.folder.theme if visual.folder_id and visual.folder else ""
+    )
+    by_id = {i: colours for i, _label, colours in THEMES}
+    return list(by_id.get(chosen) or by_id["datadesk"])
+
+
 def theme_panel(visual, post=None):
     if post is not None:
         # BLANK MEANS THE FOLDER'S, and it has to be expressible or the
@@ -236,7 +245,7 @@ def theme_panel(visual, post=None):
                     else [v for v in str(posted or "").split(",") if v.strip()]
                 )
                 config[option.id] = ", ".join(v.strip() for v in ticked if v.strip())
-            elif option.kind == "choice":
+            elif option.kind in ("choice", "colour"):
                 # The offered values, which for a framing choice are the
                 # states the rows are in rather than anything declared.
                 # Validating against the static tuple alone rejected
@@ -380,7 +389,10 @@ def theme_panel(visual, post=None):
                     # than declared, so its values come from the rows.
                     [
                         {"value": v, "label": v, "on": v in _chosen(config, o.id)}
-                        for v in flow_places(visual)
+                        # Declared by the chart where it knows its own
+                        # values -- an outlet map's kinds of outlet --
+                        # otherwise the places in the rows.
+                        for v in ([v for v, _ in o.values] or flow_places(visual))
                     ]
                     if o.kind == "checks"
                     # A framing choice is the states the rows are in,
@@ -396,7 +408,18 @@ def theme_panel(visual, post=None):
                         ]
                         if o.id == "frame_on"
                         else [
-                            {"value": v, "label": lab, "on": config.get(o.id, "") == v}
+                            {
+                                "value": v,
+                                "label": lab,
+                                "on": config.get(o.id, "") == v,
+                                # A colour option shows the colour, not
+                                # "Colour 3": the slot in this palette.
+                                "swatch": (
+                                    _palette_of(visual)[int(v) - 1]
+                                    if o.kind == "colour" and v.isdigit()
+                                    else ""
+                                ),
+                            }
                             for v, lab in o.values
                         ]
                     )
@@ -404,6 +427,9 @@ def theme_panel(visual, post=None):
             }
             for o in _chart_options(visual)
         ],
+        # The palette a colour option chooses from: the visual's own theme,
+        # else its folder's, else the house default -- what it will draw in.
+        "palette": _palette_of(visual),
         "theme_mode": config.get("theme_mode", ""),
         # Falls back to the record's name, so a new visual arrives with a
         # sensible title in the box rather than an empty one.
@@ -556,14 +582,6 @@ def data_panel(visual, post=None, choices=(), files=None, actor=None):
                 "to": as_iso(post.get("to", ""), "end"),
             }
         }
-        # WHAT A STORY MAP DRAWS: stories, or the newsrooms themselves --
-        # each outlet a dot coloured by what it is, each county shaded by
-        # how many are located there. Only a story map is asked.
-        if (visual.config or {}).get("kind") == "storymap":
-            layer = post.get("layer", "stories")
-            if layer not in LAYERS:
-                raise ValueError("No such map layer")
-            written["spec"]["layer"] = layer
         return written
     spec = visual.spec or {}
     picked = spec.get("datasets") or ([spec["dataset"]] if spec.get("dataset") else [])
@@ -581,32 +599,7 @@ def data_panel(visual, post=None, choices=(), files=None, actor=None):
         ],
         "date_from": spec.get("from", ""),
         "date_to": spec.get("to", ""),
-        "layers": (
-            [
-                {
-                    "id": i,
-                    "label": label,
-                    "note": note,
-                    "on": spec.get("layer", "stories") == i,
-                }
-                for i, (label, note) in LAYERS.items()
-            ]
-            if (visual.config or {}).get("kind") == "storymap"
-            else []
-        ),
     }
-
-
-#: What a story map can draw. Stories are the corpus; newsrooms are the
-#: outlet registry (visuals.outlets).
-LAYERS = {
-    "stories": ("Stories", "Where the stories are set and what they mention."),
-    "newsrooms": (
-        "Newsrooms",
-        "Every newsroom in the outlet registry, coloured by whether we collect "
-        "from it, and each county shaded by how many are located there.",
-    ),
-}
 
 
 # --- step 4: the newsrooms ---------------------------------------------------
@@ -1015,9 +1008,9 @@ def _picks_columns(chart):
     way to say so at all, which meant the pivot refused it for having no
     dimensions and a table could not be built.
     """
-    from visuals.services import STORY_MAP_KIND
+    from visuals.services import OUTLET_MAP_KIND, STORY_MAP_KIND
 
-    return not chart.roles and chart.id != STORY_MAP_KIND
+    return not chart.roles and chart.id not in (STORY_MAP_KIND, OUTLET_MAP_KIND)
 
 
 def _variables():

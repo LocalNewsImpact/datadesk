@@ -114,19 +114,34 @@ def import_registry(where=DEFAULT_URL):
     }
 
 
-def run_outlet_map(spec=None):
-    """{points, areas, meta} for a story map of newsrooms.
+def run_outlet_map(config=None):
+    """{points, areas, meta} for an outlet map (docs/OUTLET_MAP.md).
 
     A point per outlet on the map, coloured by `category`. A county is shaded
-    by how many of those outlets are located in it -- every kind, collected or
-    not: the question is where newsrooms are.
+    by how many of the drawn outlets are located in it -- every kind drawn,
+    collected or not, since the question is where newsrooms are -- or, when
+    the author asks, by how many we collect from, or not at all.
+
+    The author's options are applied here rather than in the browser: an
+    outlet with no coordinates is counted in its county but has no dot, so
+    the browser cannot recount the shading from the dots it has.
     """
     from visuals.models import Outlet
 
+    config = config or {}
+    wanted = {
+        c.strip() for c in str(config.get("categories_drawn") or "").split(",")
+    } & set(CATEGORIES)
+    shade_by = config.get("shade_by") or ""
     drawn = Outlet.objects.filter(on_map=True).order_by("name")
+    if wanted:
+        drawn = drawn.filter(category__in=wanted)
     points, by_county = [], {}
     for o in drawn:
-        if o.county_fips:
+        counted = shade_by == "" or (
+            shade_by == "collected" and o.category == "collected"
+        )
+        if o.county_fips and counted:
             by_county[o.county_fips] = by_county.get(o.county_fips, 0) + 1
         if o.lat is None or o.lon is None:
             continue
@@ -151,7 +166,7 @@ def run_outlet_map(spec=None):
         for fips, n in sorted(by_county.items(), key=lambda kv: -kv[1])
     ]
     meta = {
-        "unit": "newsrooms",
+        "unit": "outlets we collect from" if shade_by == "collected" else "newsrooms",
         "categories": [
             c for c in CATEGORIES if any(p["category"] == c for p in points)
         ],

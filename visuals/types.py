@@ -79,6 +79,17 @@ class Option:
     values: tuple = ()
 
 
+#: What an outlet map's dot can be, in legend order (visuals.outlets).
+OUTLET_CATEGORIES = ("collected", "not collected", "print", "replica", "social")
+
+#: A colour option's values: the palette's own slots, so a chosen colour
+#: follows the theme -- slot 3 is the third colour of whichever palette the
+#: visual uses, light or dark -- rather than a hex that fits one of them.
+OUTLET_COLOUR_SLOTS = (("", "Automatic"),) + tuple(
+    (str(i), f"Colour {i}") for i in range(1, 7)
+)
+
+
 @dataclass(frozen=True)
 class ChartType:
     """A chart type, and what it needs to be drawn.
@@ -552,6 +563,73 @@ CHART_TYPES = (
             ),
         ),
         also=("coverage map",),
+        encoding=SHADING,
+        functions=("Location", "Distribution"),
+    ),
+    ChartType(
+        "outletmap",
+        "Outlet map",
+        SPATIAL,
+        "Every news outlet in the registry: a dot for each, coloured by "
+        "whether we collect from it, each county shaded by how many.",
+        # Drawn by the story map's renderer and styled by the same rules;
+        # what differs is what a dot is (an outlet, not a story) and what
+        # an author needs to say about it -- which kinds to draw, in which
+        # colours, and what the shading counts. docs/OUTLET_MAP.md.
+        roles=(),
+        options=(
+            Option(
+                "categories_drawn",
+                "Draw",
+                "checks",
+                note="Every kind is drawn unless some are ticked.",
+                values=tuple((c, c) for c in OUTLET_CATEGORIES),
+            ),
+            *(
+                Option(
+                    f"colour_{c.replace(' ', '_')}",
+                    f"Colour: {c}",
+                    "colour",
+                    values=OUTLET_COLOUR_SLOTS,
+                )
+                for c in OUTLET_CATEGORIES
+            ),
+            Option(
+                "outline",
+                "Outlines",
+                "choice",
+                note=(
+                    "Hue alone does not separate collected from not at dot "
+                    "size; an ink ring on everything we do not collect does, "
+                    "and holds for a reader who cannot tell the hues apart."
+                ),
+                values=(
+                    ("", "Ring everything we do not collect in ink"),
+                    ("none", "No rings"),
+                ),
+            ),
+            Option(
+                "shade_by",
+                "Shade counties by",
+                "choice",
+                values=(
+                    ("", "How many of the drawn outlets are located there"),
+                    ("collected", "How many we collect from"),
+                    ("none", "No shading"),
+                ),
+            ),
+            Option(
+                "bands",
+                "Shading steps",
+                "choice",
+                values=(
+                    ("", "10 — deciles"),
+                    ("5", "5"),
+                    ("fixed", "Fixed: 1–2 / 3–5 / 6–9 / 10+"),
+                ),
+            ),
+        ),
+        also=("newsroom map", "registry map", "news desert map"),
         encoding=SHADING,
         functions=("Location", "Distribution"),
     ),
