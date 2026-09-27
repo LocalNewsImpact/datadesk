@@ -688,7 +688,8 @@
     if (bx || by) return bx === by ? 0 : bx ? 1 : -1;
     const c = num
       ? +x - +y
-      : String(x).localeCompare(String(y), undefined, { numeric: true });
+      // A link sorts by its text: `[Weston ...](...)` is filed under W.
+      : String(cellText(x)).localeCompare(String(cellText(y)), undefined, { numeric: true });
     return c * dir;
   }
 
@@ -769,6 +770,54 @@
   //: Rows a table draws at once. The rest are a page away, not gone.
   const PAGE = 100;
 
+  // A LINK IN A CELL is written the way Datawrapper and every Markdown
+  // reader write one: `[headline](https://...)`. An uploaded list of
+  // stories otherwise had to carry its URLs as a column of their own --
+  // a column of addresses nobody reads, beside a headline nobody can
+  // click. Only http and https: a cell is data from a file, and a
+  // `javascript:` link in it would run in the reader's page.
+  const CELL_LINK = /^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/;
+
+  function cellLink(value) {
+    const m = typeof value === "string" ? CELL_LINK.exec(value.trim()) : null;
+    return m ? { text: m[1], href: m[2] } : null;
+  }
+
+  // What a reader sees in a cell, which is what they filter and sort on:
+  // a link's text, not the Markdown around it or the address inside it.
+  function cellText(value) {
+    const link = cellLink(value);
+    return link ? link.text : (value ?? "");
+  }
+
+  function fillCell(node, value) {
+    const link = cellLink(value);
+    if (!link) {
+      node.textContent = value ?? "";
+      return;
+    }
+    const a = document.createElement("a");
+    a.href = link.href;
+    a.textContent = link.text;
+    a.target = "_blank";
+    a.rel = "noopener";
+    node.replaceChildren(a);
+  }
+
+  //: A text column whose values average more than this many characters
+  //: is prose -- a paragraph, a quotation -- and is given the width to be
+  //: read at, rather than squeezed to whatever the short columns left.
+  const PROSE_CHARS = 80;
+
+  function proseColumns(rows, cols, numeric) {
+    return new Set(cols.filter((c) => {
+      if (numeric.has(c)) return false;
+      const lengths = rows.map((r) => String(cellText(r?.[c])).length).filter((n) => n);
+      return lengths.length > 0 &&
+        lengths.reduce((a, b) => a + b, 0) / lengths.length > PROSE_CHARS;
+    }));
+  }
+
   function oneTable(rows, config) {
     // The first row that is actually an object. A list of bare numbers or
     // strings has no columns to name, and keying off row zero regardless
@@ -798,6 +847,7 @@
       (r) => r?.[c] == null || r[c] === "" || isFiniteNumber(r[c]))));
     const named = ((config && config.rows) || []).filter((c) => cols.includes(c));
     const outer = config && config.group_rows ? named.slice(0, -1) : [];
+    const prose = proseColumns(rows, cols, numeric);
     const allGroups = outer.length
       ? new Set(rows.map((r) => groupPath(r, outer, 0))).size
       : rows.length;
@@ -868,7 +918,7 @@
       const needle = search.value.trim().toLowerCase();
       const found = needle
         ? rows.filter((r) => cols.some(
-          (c) => String(r?.[c] ?? "").toLowerCase().includes(needle)))
+          (c) => String(cellText(r?.[c])).toLowerCase().includes(needle)))
         : rows;
       const list = sortAt < 0
         ? found
@@ -878,6 +928,7 @@
       cols.forEach((c, k) => {
         const th = document.createElement("th");
         if (numeric.has(c)) th.className = "num";
+        if (prose.has(c)) th.className = "prose";
         const b = document.createElement("button");
         b.type = "button";
         b.textContent = c + (k === sortAt ? (dir === 1 ? " \u25B2" : " \u25BC") : "");
@@ -900,8 +951,9 @@
           for (const c of cols) {
             const value = row?.[c];
             const td = document.createElement("td");
-            td.textContent = value ?? "";
+            fillCell(td, value);
             if (numeric.has(c)) td.className = "num";
+            if (prose.has(c)) td.className = "prose";
             tr.appendChild(td);
           }
           tbody.appendChild(tr);
@@ -926,7 +978,7 @@
         for (const c of cols) {
           const td = document.createElement("td");
           if (c === outer[0]) {
-            td.textContent = group.name ?? "";
+            fillCell(td, group.name);
             tr.appendChild(td);
             continue;
           }
@@ -937,7 +989,7 @@
           for (const line of group.lines) {
             const div = document.createElement("div");
             div.className = "dd-line";
-            div.textContent = line.row?.[c] ?? "";
+            fillCell(div, line.row?.[c]);
             // An inner group is named on its first line and left unsaid on
             // the lines after it, as the outermost one is by the row itself.
             if (depth > 0 && (line.opens < 0 || depth < line.opens)) {
@@ -3858,6 +3910,6 @@
   // hues is a fact about these functions, not about the page.
   global.DatadeskChart = {
     render, mount, renderTable,
-    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing },
+    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, cellLink, cellText, proseColumns },
   };
 })(window);
