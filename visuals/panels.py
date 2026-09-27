@@ -199,7 +199,11 @@ def _palette_of(visual):
 def _column_values(visual):
     """A table's columns as choice values, "None" first: the columns the
     latest capture carries, which is what the table draws."""
-    latest = visual.snapshots.order_by("-version").first() if visual.pk else None
+    # A visual not yet saved -- or a stand-in a panel is driven with -- has
+    # no captures, so no columns to offer.
+    if not getattr(visual, "pk", None):
+        return [("", "None")]
+    latest = visual.snapshots.order_by("-version").first()
     rows = latest.data if latest else None
     first = rows[0] if isinstance(rows, list) and rows else None
     columns = list(first) if isinstance(first, dict) else []
