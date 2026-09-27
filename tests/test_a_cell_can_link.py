@@ -77,8 +77,11 @@ class TestTheTableUsesThem:
         from tests.test_a_table_is_a_pivot import CHART
 
         js = CHART.read_text()
-        assert "fillCell(td, value);" in js
-        assert "fillCell(div, line.row?.[c]);" in js
+        assert "drawCell(td, c, value, key, needle);" in js
+        # Lists and dates first, then fillCell for everything else.
+        assert "drawCell(div, c, line.row?.[c], rows.indexOf(line.row), needle);" in js
+        assert "if (!lists.has(c)) { fillCell(node, value); return; }" in js
         assert "fillCell(td, group.name);" in js
-        assert 'if (prose.has(c)) td.className = "prose";' in js
-        assert "String(cellText(r?.[c])).toLowerCase().includes(needle)" in js
+        assert 'if (prose.has(c) && !detail.length) td.className = "prose";' in js
+        # The filter reads what a reader sees: a link's text, a date as shown.
+        assert "shownText(c, r?.[c]).toLowerCase().includes(needle)" in js

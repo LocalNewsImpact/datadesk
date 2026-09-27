@@ -23,6 +23,9 @@ when the visual has no opinion and wrong when it has one.
            font-family: var(--font-sans); }
     .wrap { max-width: 56rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem;
             display: flex; flex-direction: column; gap: 1.5rem; }
+    /* A table is read across: a headline, the outlets it names, who owns
+       them. At a chart's 56rem the headline wrapped to three lines. */
+    .wrap.wide { max-width: 80rem; }
     /* Inside the data panel, above the tables: its own block rather
        than loose notes, so what is about the data reads as one thing. */
     .takeaway { display: flex; flex-direction: column; gap: 0.4rem; }
@@ -64,7 +67,7 @@ when the visual has no opinion and wrong when it has one.
   somebody has gone looking for exactly that. Under the chart it was a
   footer on a figure that does not have one.
   {% endcomment %}
-  <div class="wrap">
+  <div class="wrap{% if visual.render_config.kind == "table" or visual.render_config.kind == "roster" %} wide{% endif %}">
     <div class="figure">{% include renderer %}</div>
 
     <div id="dd-takeaway" class="takeaway" hidden>

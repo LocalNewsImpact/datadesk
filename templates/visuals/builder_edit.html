@@ -289,6 +289,23 @@
               </select>
             </label>
             <label class="inline" data-kinds="table"><input type="checkbox" name="group_rows" value="1"> Group rows <span class="hint">&mdash; each row nests inside the one above it</span></label>
+            <!-- A record on two lines; the Look step offers the same as
+                 checkboxes and a list of the table's own columns. -->
+            <label data-kinds="table">Detail line
+              <input type="text" name="detail_columns" placeholder="Paragraph">
+            </label>
+            <label data-kinds="table">Filter chips <select name="filter_column" data-columns data-optional></select></label>
+            <label data-kinds="table">Hide
+              <input type="text" name="hidden_columns" placeholder="Source, Type">
+            </label>
+            <label data-kinds="table">Lists: show the first
+              <select name="list_limit">
+                <option value="">all of them</option>
+                <option value="3">3</option>
+                <option value="5">5</option>
+                <option value="10">10</option>
+              </select>
+            </label>
             <label data-kinds="roster">One row per <select name="subject" data-columns data-optional></select></label>
             <label data-kinds="roster">Repeating under it <select name="item" data-columns data-optional></select></label>
             <label data-kinds="roster">Which the items group under <select name="item_group" data-columns data-optional></select></label>

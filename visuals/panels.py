@@ -196,6 +196,16 @@ def _palette_of(visual):
     return list(by_id.get(chosen) or by_id["datadesk"])
 
 
+def _column_values(visual):
+    """A table's columns as choice values, "None" first: the columns the
+    latest capture carries, which is what the table draws."""
+    latest = visual.snapshots.order_by("-version").first() if visual.pk else None
+    rows = latest.data if latest else None
+    first = rows[0] if isinstance(rows, list) and rows else None
+    columns = list(first) if isinstance(first, dict) else []
+    return [("", "None")] + [(c, c) for c in columns]
+
+
 def theme_panel(visual, post=None):
     if post is not None:
         # BLANK MEANS THE FOLDER'S, and it has to be expressible or the
@@ -251,7 +261,11 @@ def theme_panel(visual, post=None):
                 # Validating against the static tuple alone rejected
                 # every state the picker had just shown.
                 offered = (
-                    flow_frames(visual) if option.id == "frame_on" else option.values
+                    flow_frames(visual)
+                    if option.id == "frame_on"
+                    else (
+                        _column_values(visual) if option.from_columns else option.values
+                    )
                 )
                 allowed = {value for value, _ in offered}
                 config[option.id] = posted if posted in allowed else ""
@@ -390,9 +404,14 @@ def theme_panel(visual, post=None):
                     [
                         {"value": v, "label": v, "on": v in _chosen(config, o.id)}
                         # Declared by the chart where it knows its own
-                        # values -- an outlet map's kinds of outlet --
-                        # otherwise the places in the rows.
-                        for v in ([v for v, _ in o.values] or flow_places(visual))
+                        # values -- an outlet map's kinds of outlet; a
+                        # table's layout from its own columns; otherwise
+                        # the places in the rows.
+                        for v in (
+                            [v for v, _ in _column_values(visual)[1:]]
+                            if o.from_columns
+                            else [v for v, _ in o.values] or flow_places(visual)
+                        )
                     ]
                     if o.kind == "checks"
                     # A framing choice is the states the rows are in,
@@ -407,21 +426,32 @@ def theme_panel(visual, post=None):
                             for code, name in flow_frames(visual)
                         ]
                         if o.id == "frame_on"
-                        else [
-                            {
-                                "value": v,
-                                "label": lab,
-                                "on": config.get(o.id, "") == v,
-                                # A colour option shows the colour, not
-                                # "Colour 3": the slot in this palette.
-                                "swatch": (
-                                    _palette_of(visual)[int(v) - 1]
-                                    if o.kind == "colour" and v.isdigit()
-                                    else ""
-                                ),
-                            }
-                            for v, lab in o.values
-                        ]
+                        else (
+                            [
+                                {
+                                    "value": v,
+                                    "label": lab,
+                                    "on": config.get(o.id, "") == v,
+                                }
+                                for v, lab in _column_values(visual)
+                            ]
+                            if o.from_columns
+                            else [
+                                {
+                                    "value": v,
+                                    "label": lab,
+                                    "on": config.get(o.id, "") == v,
+                                    # A colour option shows the colour, not
+                                    # "Colour 3": the slot in this palette.
+                                    "swatch": (
+                                        _palette_of(visual)[int(v) - 1]
+                                        if o.kind == "colour" and v.isdigit()
+                                        else ""
+                                    ),
+                                }
+                                for v, lab in o.values
+                            ]
+                        )
                     )
                 ),
             }

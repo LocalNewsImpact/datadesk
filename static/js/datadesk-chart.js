@@ -821,6 +821,34 @@
     }));
   }
 
+  // AMERICAN DATES. A column of ISO dates is shown MM-DD-YYYY and still
+  // sorts on the ISO value underneath, which orders by itself where
+  // MM-DD-YYYY would file every January first.
+  const ISO_DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
+  function usDate(value) {
+    const m = ISO_DAY.exec(String(value ?? ""));
+    return m ? `${m[2]}-${m[3]}-${m[1]}` : value;
+  }
+  function dateColumns(rows, cols) {
+    return new Set(cols.filter((c) => {
+      const vals = rows.map((r) => r?.[c]).filter((v) => v != null && v !== "");
+      return vals.length > 0 && vals.every((v) => ISO_DAY.test(String(v)));
+    }));
+  }
+
+  // A LIST IN A CELL is names separated by semicolons -- the outlets a story
+  // names. Long ones show their first few and "+N more"; the filter always
+  // searches the whole list, and a match behind the limit opens the cell,
+  // or a row would stay in the table with no visible reason why.
+  function listItems(value) {
+    return String(value ?? "").split(/;\s*/).map((s) => s.trim()).filter(Boolean);
+  }
+  function listColumns(rows, cols, numeric) {
+    return new Set(cols.filter((c) => !numeric.has(c) &&
+      rows.some((r) => listItems(r?.[c]).length > 1)));
+  }
+  const csvOf = (s) => String(s || "").split(",").map((x) => x.trim()).filter(Boolean);
+
   function oneTable(rows, config) {
     // The first row that is actually an object. A list of bare numbers or
     // strings has no columns to name, and keying off row zero regardless
@@ -842,7 +870,15 @@
       return table;
     }
 
-    const cols = Object.keys(first);
+    // THE LAYOUT an author chose on the Look step: columns shown as a
+    // detail line under each row, one shown as chips above the table,
+    // columns hidden. With none of it the table is every column, as ever.
+    const every = Object.keys(first);
+    const detail = csvOf(config && config.detail_columns).filter((c) => every.includes(c));
+    const chipCol = config && every.includes(config.filter_column) ? config.filter_column : "";
+    const hidden = new Set(csvOf(config && config.hidden_columns));
+    const cols = every.filter((c) => !hidden.has(c) && !detail.includes(c) && c !== chipCol);
+    const limit = parseInt((config && config.list_limit) || "0", 10) || 0;
     // A column is a number when every value in it is, so one "n/a" in a
     // column of counts sorts it as text rather than sorting it wrongly.
     const numeric = new Set(cols.filter((c) => rows.some(
@@ -851,6 +887,15 @@
     const named = ((config && config.rows) || []).filter((c) => cols.includes(c));
     const outer = config && config.group_rows ? named.slice(0, -1) : [];
     const prose = proseColumns(rows, cols, numeric);
+    const dates = dateColumns(rows, every);
+    const lists = limit ? listColumns(rows, [...cols, ...detail], numeric) : new Set();
+    const opened = new Set();   // "row index|column" a reader expanded
+    let chip = "";
+    // What a reader sees in a cell -- and so what the filter searches.
+    const shownText = (c, v) => {
+      const t = String(cellText(v));
+      return dates.has(c) ? `${usDate(v)} ${t}` : t;
+    };
     const allGroups = outer.length
       ? new Set(rows.map((r) => groupPath(r, outer, 0))).size
       : rows.length;
@@ -873,7 +918,23 @@
     search.setAttribute("aria-label", "Filter the rows");
     const count = document.createElement("span");
     count.className = "dd-table-count";
-    bar.append(search, count);
+    const chips = document.createElement("div");
+    chips.className = "dd-chips";
+    chips.setAttribute("role", "group");
+    if (chipCol) {
+      chips.setAttribute("aria-label", chipCol);
+      const values = [...new Set(rows.map((r) => r?.[chipCol]).filter((v) => v != null && v !== ""))];
+      for (const v of ["", ...values]) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "dd-chip";
+        b.textContent = v === "" ? "All" : String(v);
+        b.addEventListener("click", () => { chip = v; page = 0; paint(); });
+        b.dataset.value = v;
+        chips.appendChild(b);
+      }
+    }
+    bar.append(search, ...(chipCol ? [chips] : []), count);
     const scroll = document.createElement("div");
     scroll.className = "dd-table-scroll";
     const thead = document.createElement("thead");
@@ -917,12 +978,50 @@
       return slice;
     }
 
+    // One cell: a date shown American, a list cut to its limit, otherwise
+    // text or a link.
+    function drawCell(node, c, value, key, needle) {
+      if (dates.has(c)) { node.textContent = usDate(value) ?? ""; return; }
+      if (!lists.has(c)) { fillCell(node, value); return; }
+      const items = listItems(value);
+      const id = `${key}|${c}`;
+      const behind = items.slice(limit);
+      const hit = needle && behind.some((i) => i.toLowerCase().includes(needle));
+      const all = items.length <= limit || opened.has(id) || hit;
+      node.replaceChildren();
+      const wrapItems = document.createElement("span");
+      wrapItems.className = "dd-items";
+      for (const item of all ? items : items.slice(0, limit)) {
+        const span = document.createElement("span");
+        span.className = "dd-item";
+        span.textContent = item;
+        wrapItems.appendChild(span);
+      }
+      node.appendChild(wrapItems);
+      if (items.length <= limit) return;
+      if (!all || opened.has(id)) {
+        const more = document.createElement("button");
+        more.type = "button";
+        more.className = "dd-more";
+        more.textContent = all ? "show less" : `+${behind.length} more`;
+        more.addEventListener("click", () => {
+          if (opened.has(id)) opened.delete(id); else opened.add(id);
+          paint();
+        });
+        node.appendChild(more);
+      }
+    }
+
     function paint() {
       const needle = search.value.trim().toLowerCase();
-      const found = needle
-        ? rows.filter((r) => cols.some(
-          (c) => String(cellText(r?.[c])).toLowerCase().includes(needle)))
-        : rows;
+      const searched = [...cols, ...detail, ...(chipCol ? [chipCol] : [])];
+      const found = rows.filter((r) =>
+        (!chip || String(r?.[chipCol]) === String(chip)) &&
+        (!needle || searched.some(
+          (c) => shownText(c, r?.[c]).toLowerCase().includes(needle))));
+      for (const b of chips.children) {
+        b.setAttribute("aria-pressed", String(b.dataset.value === String(chip)));
+      }
       const list = sortAt < 0
         ? found
         : orderRows(found, cols[sortAt], numeric.has(cols[sortAt]), dir, outer);
@@ -947,21 +1046,45 @@
       });
 
       tbody.replaceChildren();
+      table.querySelectorAll("tbody.dd-record").forEach((t) => t.remove());
       if (!outer.length) {
         const shown = onePage(list);
         for (const row of shown) {
+          const key = rows.indexOf(row);
+          // A record with a detail line is its own <tbody>: its two lines
+          // hover, page and read as one.
+          const body = detail.length ? document.createElement("tbody") : tbody;
+          if (detail.length) body.className = "dd-record";
           const tr = document.createElement("tr");
           for (const c of cols) {
             const value = row?.[c];
             const td = document.createElement("td");
-            fillCell(td, value);
+            drawCell(td, c, value, key, needle);
             if (numeric.has(c)) td.className = "num";
-            if (prose.has(c)) td.className = "prose";
+            if (prose.has(c) && !detail.length) td.className = "prose";
+            if (dates.has(c)) td.className = "dd-date";
+            if (detail.length && cellLink(value)) td.classList.add("dd-lead");
             tr.appendChild(td);
           }
-          tbody.appendChild(tr);
+          body.appendChild(tr);
+          for (const c of detail) {
+            const value = row?.[c];
+            if (value == null || value === "") continue;
+            const line = document.createElement("tr");
+            line.className = "dd-detail";
+            const td = document.createElement("td");
+            td.colSpan = cols.length;
+            td.dataset.label = c;
+            const block = document.createElement("div");
+            block.className = "dd-detail-text";
+            drawCell(block, c, value, key, needle);
+            td.appendChild(block);
+            line.appendChild(td);
+            body.appendChild(line);
+          }
+          if (detail.length) table.appendChild(body);
         }
-        count.textContent = needle
+        count.textContent = needle || chip
           ? `${list.length.toLocaleString()} of ${rows.length.toLocaleString()}`
           : "";
         return;
@@ -992,7 +1115,7 @@
           for (const line of group.lines) {
             const div = document.createElement("div");
             div.className = "dd-line";
-            fillCell(div, line.row?.[c]);
+            drawCell(div, c, line.row?.[c], rows.indexOf(line.row), needle);
             // An inner group is named on its first line and left unsaid on
             // the lines after it, as the outermost one is by the row itself.
             if (depth > 0 && (line.opens < 0 || depth < line.opens)) {
@@ -3921,6 +4044,6 @@
   // hues is a fact about these functions, not about the page.
   global.DatadeskChart = {
     render, mount, renderTable,
-    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, cellLink, cellText, proseColumns },
+    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns },
   };
 })(window);
