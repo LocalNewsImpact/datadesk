@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Outlet events — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card">
+  <p class="breadcrumb"><a href="{% url 'visuals:outlets' %}">← Outlets</a></p>
+  <h1>Outlet events</h1>
+  <p class="notice">Every sale, merger, closure and launch recorded, oldest
+  first, by when it happened.</p>
+  <form method="get" class="action-bar">
+    <label>Kind
+      <select name="event">
+        <option value="">all</option>
+        {% for key, label in kinds %}<option value="{{ key }}" {% if kind == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">Show</button>
+    <a class="button" href="?format=csv{% if kind %}&amp;event={{ kind }}{% endif %}">Download CSV</a>
+    {% if may_record %}<a class="button" href="{% url 'visuals:outlet_event_new' %}">Record an event for an outlet not listed</a>{% endif %}
+  </form>
+  {% include "visuals/outlets/_timeline.html" with events=events show_outlet=True retractable=False %}
+</section>
+{% endblock %}

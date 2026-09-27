@@ -99,11 +99,18 @@ def import_registry(where=DEFAULT_URL):
             created += made
             updated += not made
         removed, _ = Outlet.objects.exclude(outlet_id__in=seen).delete()
+        # The file says what the crawler knew when it was built; an event
+        # recorded here since says what happened after. Laid on top, or
+        # every import would undo the sales entered between rebuilds.
+        from visuals.outlet_events import apply_current
+
+        current = apply_current()
     return {
         "rows": len(rows),
         "created": created,
         "updated": updated,
         "removed": removed,
+        "events_applied": current,
     }
 
 

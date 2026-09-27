@@ -21,5 +21,7 @@ class Command(BaseCommand):
         counts = import_registry(options["where"])
         self.stdout.write(
             "outlet registry: {rows} rows, {created} created, {updated} updated, "
-            "{removed} removed".format(**counts)
+            "{removed} removed, {events_applied} changed by recorded events".format(
+                **counts
+            )
         )

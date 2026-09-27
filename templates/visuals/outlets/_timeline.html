@@ -1,0 +1,46 @@
+<table class="rec-table event-timeline">
+  <thead>
+    <tr><th scope="col">When</th>{% if show_outlet %}<th scope="col">Outlet</th>{% endif %}
+        <th scope="col">What happened</th><th scope="col">Source</th><th scope="col">Recorded</th>
+        {% if retractable %}<th scope="col"></th>{% endif %}</tr>
+  </thead>
+  <tbody>
+  {% for e in events %}
+    <tr{% if e.retracted_by.all %} class="retracted"{% endif %}>
+      <td data-label="When">
+        {% if e.effective_date %}
+          {% if e.date_precision == "by" %}by {% endif %}
+          {% if e.date_precision == "year" %}{{ e.effective_date|date:"Y" }}{% elif e.date_precision == "month" %}{{ e.effective_date|date:"F Y" }}{% else %}{{ e.effective_date|date:"M j, Y" }}{% endif %}
+        {% else %}date unknown{% endif %}
+      </td>
+      {% if show_outlet %}<td data-label="Outlet">{% if e.outlet_id %}<a href="{% url 'visuals:outlet_detail' e.outlet_id %}">{{ e.outlet_name }}</a>{% else %}{{ e.outlet_name }}{% endif %}</td>{% endif %}
+      <td data-label="What happened">
+        <strong>{{ e.get_event_display }}</strong>
+        {% if e.from_owner or e.to_owner %} — {{ e.from_owner|default:"?" }} → {{ e.to_owner|default:"?" }}{% endif %}
+        {% if e.merged_into %} — into {{ e.merged_into }}{% endif %}
+        {% if e.new_name %} — now {{ e.new_name }}{% endif %}
+        {% if e.retracts %} — withdraws “{{ e.retracts }}”{% endif %}
+        {% if e.retracted_by.all %} <em>(retracted)</em>{% endif %}
+        {% if e.note %}<div class="hint">{{ e.note }}</div>{% endif %}
+      </td>
+      <td data-label="Source">{% if e.evidence_url %}<a href="{{ e.evidence_url }}" target="_blank" rel="noopener">link</a>{% else %}—{% endif %}</td>
+      <td data-label="Recorded"><span class="hint">{{ e.recorded_at|date:"M j, Y" }} · {{ e.recorded_by.email }}{% if e.sets_current %} · current{% endif %}</span></td>
+      {% if retractable %}
+      <td>
+        {% if e.event != "retraction" and not e.retracted_by.all %}
+        <details><summary>Retract</summary>
+          <form method="post">{% csrf_token %}
+            <input type="hidden" name="retract" value="{{ e.pk }}">
+            <label class="stacked">Why <input type="text" name="note" required></label>
+            <button type="submit">Retract this event</button>
+          </form>
+        </details>
+        {% endif %}
+      </td>
+      {% endif %}
+    </tr>
+  {% empty %}
+    <tr><td colspan="6">Nothing recorded yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>

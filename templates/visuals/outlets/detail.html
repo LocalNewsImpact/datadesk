@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ outlet.name }} — Outlets — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card">
+  <p class="breadcrumb"><a href="{% url 'visuals:outlets' %}">← Outlets</a></p>
+  <h1>{{ outlet.name }}</h1>
+  <dl class="facts">
+    <dt>Owner</dt><dd>{{ outlet.owner|default:"—" }}</dd>
+    <dt>Status</dt><dd>{{ outlet.status|default:"—" }}{% if outlet.merged_into %} into {{ outlet.merged_into }}{% endif %}</dd>
+    <dt>Town</dt><dd>{{ outlet.city|default:"—" }}, {{ outlet.county|default:"—" }} County</dd>
+    <dt>Website</dt><dd>{{ outlet.host|default:"—" }}</dd>
+    <dt>On the map</dt><dd>{% if outlet.on_map %}yes, {{ outlet.category }}{% else %}no{% if outlet.category %} ({{ outlet.category }}){% endif %}{% endif %}</dd>
+  </dl>
+
+  <h2>History</h2>
+  {% include "visuals/outlets/_timeline.html" with events=events show_outlet=False retractable=may_record %}
+
+  {% if may_record %}
+  <h2>Record an event</h2>
+  <p class="notice">An event is written once and kept. A wrong one is
+  retracted, not edited, so the record shows what was believed and when.</p>
+  {% include "visuals/outlets/_event_form.html" %}
+  {% endif %}
+</section>
+{% endblock %}

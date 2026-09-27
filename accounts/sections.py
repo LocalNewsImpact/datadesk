@@ -86,6 +86,17 @@ SECTION_GROUPS = (
                 "label": "Visuals",
                 "note": "Published charts and maps, their embeds and pinned snapshots.",
             },
+            {
+                # Every Missouri outlet, collected or not, and what happened
+                # to each: the registry is what an outlet is now, the events
+                # are how it got there (docs/OUTLET_EVENTS.md).
+                "url": "visuals:outlets",
+                "label": "Outlets",
+                "note": (
+                    "Every outlet in the registry and its history of sales, "
+                    "mergers, closures and launches."
+                ),
+            },
         ),
     },
     {

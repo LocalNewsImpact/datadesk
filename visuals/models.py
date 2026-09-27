@@ -404,3 +404,96 @@ class Outlet(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.city})"
+
+
+class OutletEvent(models.Model):
+    """One thing that happened to an outlet: a sale, a merger, a closure.
+
+    The registry says what an outlet is now and overwrites itself to say it;
+    this is the history it does not keep (docs/OUTLET_EVENTS.md). Written
+    once: a wrong event is withdrawn by a `retraction` naming it, never
+    edited or deleted, because what we believed and when is part of the
+    record.
+    """
+
+    SOLD = "sold"
+    MERGED = "merged"
+    CLOSED = "closed"
+    LAUNCHED = "launched"
+    RELAUNCHED = "relaunched"
+    RENAMED = "renamed"
+    OWNER_CHANGED = "owner_changed"
+    CORRECTION = "correction"
+    RETRACTION = "retraction"
+    EVENTS = [
+        (SOLD, "Sold"),
+        (MERGED, "Merged"),
+        (CLOSED, "Closed"),
+        (LAUNCHED, "Launched"),
+        (RELAUNCHED, "Relaunched"),
+        (RENAMED, "Renamed"),
+        (OWNER_CHANGED, "Owner changed"),
+        (CORRECTION, "Correction"),
+        (RETRACTION, "Retraction"),
+    ]
+
+    DAY, MONTH, YEAR, BY = "day", "month", "year", "by"
+    PRECISIONS = [
+        (DAY, "on this day"),
+        (MONTH, "in this month"),
+        (YEAR, "in this year"),
+        (BY, "on or before"),
+    ]
+
+    #: The registry id; blank for an outlet the registry does not hold.
+    outlet_id = models.CharField(max_length=36, blank=True, default="", db_index=True)
+    #: The outlet as it was named when this was recorded.
+    outlet_name = models.CharField(max_length=300)
+    event = models.CharField(max_length=20, choices=EVENTS)
+    #: When it happened in the world, not when it was typed in.
+    effective_date = models.DateField(null=True, blank=True)
+    date_precision = models.CharField(
+        max_length=5, choices=PRECISIONS, blank=True, default=""
+    )
+    from_owner = models.CharField(max_length=300, blank=True, default="")
+    to_owner = models.CharField(max_length=300, blank=True, default="")
+    merged_into = models.CharField(max_length=300, blank=True, default="")
+    new_name = models.CharField(max_length=300, blank=True, default="")
+    evidence_url = models.URLField(max_length=500, blank=True, default="")
+    note = models.TextField(blank=True, default="")
+    #: Whether this also describes the outlet as it is now, and so is laid
+    #: over the registry row (visuals.outlet_events.apply_current).
+    sets_current = models.BooleanField(default=False)
+    retracts = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="retracted_by",
+    )
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    recorded_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    #: How it was entered: "form", "source edit", "backfill".
+    origin = models.CharField(max_length=40, blank=True, default="")
+
+    class Meta:
+        db_table = "outlet_event"
+        ordering = ["effective_date", "recorded_at", "id"]
+
+    def __str__(self):
+        when = self.effective_date or "date unknown"
+        return f"{self.outlet_name}: {self.get_event_display()} ({when})"
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValidationError(
+                "An outlet event is not edited. Record a retraction and a new event."
+            )
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError(
+            "An outlet event is not deleted. Record a retraction that names it."
+        )

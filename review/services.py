@@ -175,8 +175,13 @@ def _write(obj, field, value):
     setattr(obj, column, blob)
 
 
-def audited_update(actor, instances, changes, action, reason=""):
+def audited_update(actor, instances, changes, action, reason="", events=True):
     """Apply `changes` to each instance and record one audit entry.
+
+    An owner written to a source is also an outlet event
+    (visuals.outlet_events.record_owner_edits), so no page can overwrite an
+    owner without leaving its history. `events=False` is for the one caller
+    that is itself recording an event and writing it through.
 
     `instances` are rows of one crawler model; `changes` maps field →
     new value, all within the write boundary. Returns the audit entry.
@@ -221,6 +226,10 @@ def audited_update(actor, instances, changes, action, reason=""):
             after=dict(changes),
             reason=reason,
         )
+    if events and model is Source:
+        from visuals.outlet_events import record_owner_edits
+
+        record_owner_edits(actor, before, changes, entry)
     return entry
 
 
@@ -274,6 +283,14 @@ def revert(actor, entry, reason=""):
             reason=note,
             reverts=entry,
         )
+    if model is Source and any("owner" in v for v in applied.values()):
+        from visuals.outlet_events import record_owner_edits
+
+        for pk, values in applied.items():
+            if "owner" in values:
+                record_owner_edits(
+                    actor, {pk: before[pk]}, {"owner": values["owner"]}, compensating
+                )
     return compensating
 
 

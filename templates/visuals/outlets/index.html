@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Outlets — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h1>Outlets</h1>
+  <p class="notice">Every news outlet in the Missouri registry, collected or
+  not, as it stands now. Each one's page is its history: sales, mergers,
+  closures and launches, with where each came from.
+  <a href="{% url 'visuals:outlet_events' %}">All events</a>{% if unlisted %}, including {{ unlisted }} for outlets
+  the registry does not hold{% endif %}.</p>
+
+  <form method="get" class="action-bar">
+    <label>Search <input type="text" name="q" value="{{ q }}" placeholder="name, owner, town, county"></label>
+    <label>Status
+      <select name="status">
+        <option value="">any</option>
+        {% for s in statuses %}<option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">Search</button>
+    {% if may_record %}<a class="button" href="{% url 'visuals:outlet_event_new' %}">Record an event for an outlet not listed</a>{% endif %}
+  </form>
+
+  {% if total > outlets|length %}
+  <p class="hint">{{ total }} match; showing the first {{ outlets|length }}.</p>
+  {% endif %}
+
+  <table class="rec-table">
+    <thead>
+      <tr><th scope="col">Outlet</th><th scope="col">Owner</th><th scope="col">Town</th>
+          <th scope="col">County</th><th scope="col">Status</th><th scope="col">Events</th></tr>
+    </thead>
+    <tbody>
+    {% for o in outlets %}
+      <tr>
+        <th scope="row"><a href="{% url 'visuals:outlet_detail' o.outlet_id %}">{{ o.name }}</a></th>
+        <td data-label="Owner">{{ o.owner|default:"—" }}</td>
+        <td data-label="Town">{{ o.city|default:"—" }}</td>
+        <td data-label="County">{{ o.county|default:"—" }}</td>
+        <td data-label="Status">{{ o.status|default:"—" }}</td>
+        <td data-label="Events">{{ o.event_count|default:"" }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="6">No outlets match.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
