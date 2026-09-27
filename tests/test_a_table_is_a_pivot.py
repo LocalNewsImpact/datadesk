@@ -298,23 +298,27 @@ class TestAValueGoesAnywhere:
             _spec(columns=["owner", "bylines", "publisher_name", "articles"]),
             ALL_SCOPES,
         )
-        assert list(rows[0]) == [
+        # The columns, then the group's unique bylines, which is about the
+        # rows rather than a column of them (visuals.corpus.GROUP_BYLINES).
+        assert [k for k in rows[0] if not k.startswith("__")] == [
             "Owner",
             "Unique bylines",
             "Publisher name",
             "Articles",
         ]
+        assert list(rows[0])[-1] == "__group_bylines"
 
     def test_without_an_order_rows_come_first(self, report):
         from visuals.corpus import run_values
 
         rows, _ = run_values(_spec(), ALL_SCOPES)
-        assert list(rows[0]) == [
+        assert [k for k in rows[0] if not k.startswith("__")] == [
             "Owner",
             "Publisher name",
             "Unique bylines",
             "Articles",
         ]
+        assert list(rows[0])[-1] == "__group_bylines"
 
 
 # --- the renderer ------------------------------------------------------------

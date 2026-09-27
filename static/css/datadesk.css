@@ -3087,3 +3087,6 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
   cursor: pointer; }
 .dd-chip[aria-pressed="true"] { border-color: var(--accent); color: var(--text);
   background: var(--surface-2); }
+
+/* A group's own count in its name: "Gray Television (42)". */
+.dd-group-total { color: var(--text-2); font-weight: 400; font-variant-numeric: tabular-nums; }
