@@ -99,7 +99,11 @@ def test_a_types_roles_are_what_its_renderer_reads(chart_id, fn):
 def test_the_story_map_declares_what_its_renderer_reads():
     """Including `bands`, which the renderer reads and no control offers --
     the reverse of a dead control, and just as invisible."""
-    declared = {o.id for o in BY_ID["storymap"].options}
+    # The outlet map is drawn by the same function, so between them the two
+    # types must declare everything it reads.
+    declared = {o.id for o in BY_ID["storymap"].options} | {
+        o.id for o in BY_ID["outletmap"].options
+    }
     assert _reads("renderStoryMap") <= declared | {"frame"}
     assert "bands" in declared
 

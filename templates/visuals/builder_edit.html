@@ -277,7 +277,7 @@
             <!-- HOW MANY SHADES, and what a shade means. Both were read
                  by the renderer and offered by nothing, so a story map
                  took the defaults and could not be told otherwise. -->
-            <label data-kinds="storymap">Shading steps
+            <label data-kinds="storymap outletmap">Shading steps
               <select name="bands">
                 <option value="">10 &mdash; deciles</option>
                 <option value="5">5</option>
@@ -301,6 +301,40 @@
                 <option value="100">100</option>
                 <option value="1000">1000</option>
                 <option value="0">every matching row</option>
+              </select>
+            </label>
+            <!-- The outlet map's own settings; the Look step offers the same
+                 with the palette's colours as chips (docs/OUTLET_MAP.md). -->
+            <label data-kinds="outletmap">Draw
+              <input type="text" name="categories_drawn"
+                     placeholder="collected, not collected, print, replica, social">
+            </label>
+            <label data-kinds="outletmap">Colour: collected
+              <select name="colour_collected"><option value="">automatic</option><option value="1">colour 1</option><option value="2">colour 2</option><option value="3">colour 3</option><option value="4">colour 4</option><option value="5">colour 5</option><option value="6">colour 6</option></select>
+            </label>
+            <label data-kinds="outletmap">Colour: not collected
+              <select name="colour_not_collected"><option value="">automatic</option><option value="1">colour 1</option><option value="2">colour 2</option><option value="3">colour 3</option><option value="4">colour 4</option><option value="5">colour 5</option><option value="6">colour 6</option></select>
+            </label>
+            <label data-kinds="outletmap">Colour: print
+              <select name="colour_print"><option value="">automatic</option><option value="1">colour 1</option><option value="2">colour 2</option><option value="3">colour 3</option><option value="4">colour 4</option><option value="5">colour 5</option><option value="6">colour 6</option></select>
+            </label>
+            <label data-kinds="outletmap">Colour: replica
+              <select name="colour_replica"><option value="">automatic</option><option value="1">colour 1</option><option value="2">colour 2</option><option value="3">colour 3</option><option value="4">colour 4</option><option value="5">colour 5</option><option value="6">colour 6</option></select>
+            </label>
+            <label data-kinds="outletmap">Colour: social
+              <select name="colour_social"><option value="">automatic</option><option value="1">colour 1</option><option value="2">colour 2</option><option value="3">colour 3</option><option value="4">colour 4</option><option value="5">colour 5</option><option value="6">colour 6</option></select>
+            </label>
+            <label data-kinds="outletmap">Outlines
+              <select name="outline">
+                <option value="">ring everything we do not collect in ink</option>
+                <option value="none">no rings</option>
+              </select>
+            </label>
+            <label data-kinds="outletmap">Shade counties by
+              <select name="shade_by">
+                <option value="">how many of the drawn outlets are located there</option>
+                <option value="collected">how many we collect from</option>
+                <option value="none">no shading</option>
               </select>
             </label>
             <label data-kinds="storymap">Compare shading with other maps
