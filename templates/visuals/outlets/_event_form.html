@@ -1,0 +1,57 @@
+{% comment %}
+One event. Shared by an outlet's own page and the page for an outlet the
+registry does not hold; `outlet` is absent on the second.
+{% endcomment %}
+{% for error in errors %}<p class="error">{{ error }}</p>{% endfor %}
+<form method="post" class="event-form">
+  {% csrf_token %}
+  {% if not outlet %}
+  <label class="stacked">Outlet
+    <input type="text" name="outlet_name" required value="{{ values.outlet_name|default:'' }}"
+           placeholder="Oregon Times Observer"></label>
+  {% endif %}
+  <div class="action-bar">
+    <label>What happened
+      <select name="event" required>
+        <option value="">—</option>
+        {% for key, label in kinds %}
+        <option value="{{ key }}" {% if values.event == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>When <input type="date" name="effective_date" value="{{ values.effective_date|default:'' }}"></label>
+    <label>Date is
+      <select name="date_precision">
+        {% for key, label in precisions %}
+        <option value="{{ key }}" {% if values.date_precision == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+  <p class="hint">When it happened, not today. Leave the date empty if nobody knows;
+  "on or before" is for a story reporting it as already done.</p>
+  <div class="action-bar">
+    <label>From owner <input type="text" name="from_owner" value="{{ values.from_owner|default:'' }}"></label>
+    <label>To owner <input type="text" name="to_owner" value="{{ values.to_owner|default:'' }}"></label>
+  </div>
+  <div class="action-bar">
+    <label>Merged into <input type="text" name="merged_into" value="{{ values.merged_into|default:'' }}"
+           placeholder="the outlet or site that absorbed it"></label>
+    <label>New name <input type="text" name="new_name" value="{{ values.new_name|default:'' }}"></label>
+  </div>
+  <label class="stacked">Source
+    <input type="url" name="evidence_url" value="{{ values.evidence_url|default:'' }}"
+           placeholder="https://mopress.com/stories/…"></label>
+  <label class="stacked">Note
+    <textarea name="note" rows="3">{{ values.note|default:'' }}</textarea></label>
+  {% if outlet %}
+  <label class="checkbox"><input type="checkbox" name="sets_current" value="1"
+         {% if values.sets_current %}checked{% endif %}>
+    This is how the outlet stands now — update its owner, status or name here
+    {% if outlet.source_id %}and in the crawler's publisher record{% endif %}.</label>
+  <p class="hint">Leave it off for history: a sale in 2018 that the record already reflects.</p>
+  {% endif %}
+  <div class="action-bar">
+    <button type="submit" class="primary">Record</button>
+  </div>
+</form>

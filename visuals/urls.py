@@ -3,12 +3,16 @@ SCOPE.md §2.7; everything else under /visuals/."""
 
 from django.urls import path
 
-from visuals import views
+from visuals import outlet_views, views
 
 app_name = "visuals"
 
 urlpatterns = [
     path("visuals/", views.index, name="index"),
+    path("outlets/", outlet_views.outlet_index, name="outlets"),
+    path("outlets/events/", outlet_views.event_list, name="outlet_events"),
+    path("outlets/events/new/", outlet_views.event_new, name="outlet_event_new"),
+    path("outlets/<str:outlet_id>/", outlet_views.outlet_detail, name="outlet_detail"),
     path("visuals/folders/new/", views.folder_create, name="folder_create"),
     path(
         "visuals/folders/<int:pk>/rename/",

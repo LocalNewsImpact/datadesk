@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Record an event — Outlets — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card">
+  <p class="breadcrumb"><a href="{% url 'visuals:outlets' %}">← Outlets</a></p>
+  <h1>Record an event for an outlet not listed</h1>
+  <p class="notice">For a paper the registry does not hold — one that closed
+  before it was built, or a new one not yet added. An outlet in the registry
+  is recorded from its own page.</p>
+  {% if may_record %}
+  {% include "visuals/outlets/_event_form.html" %}
+  {% else %}
+  <p>Recording an event needs write access.</p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -114,7 +114,13 @@ class TestTheImport:
         from visuals.outlets import import_registry
 
         counts = import_registry(_registry(tmp_path, ROWS))
-        assert counts == {"rows": 5, "created": 5, "updated": 0, "removed": 0}
+        assert counts == {
+            "rows": 5,
+            "created": 5,
+            "updated": 0,
+            "removed": 0,
+            "events_applied": 0,
+        }
         m = Outlet.objects.get(outlet_id="a1")
         assert (m.name, m.county_fips, m.on_map, m.category, m.march_articles) == (
             "Columbia Missourian",
@@ -131,7 +137,13 @@ class TestTheImport:
 
         import_registry(_registry(tmp_path, ROWS))
         counts = import_registry(_registry(tmp_path, ROWS[:2]))
-        assert counts == {"rows": 2, "created": 0, "updated": 2, "removed": 3}
+        assert counts == {
+            "rows": 2,
+            "created": 0,
+            "updated": 2,
+            "removed": 3,
+            "events_applied": 0,
+        }
         assert set(Outlet.objects.values_list("outlet_id", flat=True)) == {"a1", "a2"}
 
     def test_a_repeated_id_is_refused_and_nothing_changes(self, tmp_path):
