@@ -32,7 +32,7 @@ from visuals.builder import (
     parse_upload,
 )
 from visuals.embed import snippet as embed_snippet
-from visuals.models import BIGQUERY, CORPUS, GCS, INLINE, Visual
+from visuals.models import BIGQUERY, CORPUS, GCS, INLINE, STORIES, Visual
 from visuals.services import (
     DataSourceError,
     NotPublishable,
@@ -1057,7 +1057,7 @@ def builder_new(request):
         kind = request.POST.get("source_kind", "")
         if not title:
             error = "A title is required."
-        elif kind not in (CORPUS, INLINE, BIGQUERY, GCS):
+        elif kind not in (CORPUS, INLINE, BIGQUERY, GCS, STORIES):
             error = "Pick a data source."
         else:
             slug = base = slugify(title)[:40] or "visual"

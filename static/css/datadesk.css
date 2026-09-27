@@ -3032,3 +3032,6 @@ dl.facts dd { margin: 0; }
    the record. */
 .event-timeline tr.retracted td { color: var(--text-3); text-decoration: line-through; }
 .event-timeline tr.retracted td .hint, .event-timeline tr.retracted td em { text-decoration: none; }
+.story-form .name-pick { margin-top: calc(var(--s-1) * -1); }
+.story-form .name-pick input { flex: 0 1 22rem; min-width: 0; }
+button.danger { color: var(--tone-bad); border-color: var(--tone-bad); margin-left: auto; }

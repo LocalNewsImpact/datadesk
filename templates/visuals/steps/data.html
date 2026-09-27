@@ -1,7 +1,25 @@
 {% extends "visuals/steps/_shell.html" %}
 {% load static %}
 {% block panel %}
-{% if uploaded %}
+{% if stories %}
+{% comment %}
+The stories list is kept on its own pages, a story at a time. This step
+re-reads it, so a story added since this visual was last opened is in it.
+{% endcomment %}
+<div class="group">
+  <h4>The outlet stories list</h4>
+  <p class="notice">{{ rows }} stor{{ rows|pluralize:"y,ies" }}{% if taken %}, read
+    {{ taken|date:"m-d-Y H:i" }}{% endif %}. Stories are added and edited on
+    <a href="{% url 'visuals:outlet_stories' %}">Outlets → Stories</a>; a published
+    visual of the list updates when a story is saved.</p>
+</div>
+<form method="post" id="step-form">
+  {% csrf_token %}
+  <div class="action-bar">
+    <button type="submit" class="primary">Re-read the list and continue</button>
+  </div>
+</form>
+{% elif uploaded %}
 {% comment %}
 An upload's data step is the file. Whoever made the file decided its
 slice, so there is nothing here to narrow -- what this step answers is

@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}{% if story %}Edit a story{% else %}Add a story{% endif %} — Outlets — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card">
+  <p class="breadcrumb"><a href="{% url 'visuals:outlet_stories' %}">← Stories</a></p>
+  <h1>{% if story %}Edit a story{% else %}Add a story{% endif %}</h1>
+  {% for error in errors %}<p class="error">{{ error }}</p>{% endfor %}
+
+  <form method="post" class="story-form">
+    {% csrf_token %}
+    <div class="action-bar">
+      <label>Date <input type="date" name="published" required value="{{ values.published|default:'' }}"></label>
+      <label>Source
+        <input type="text" name="source" list="story-sources" required value="{{ values.source|default:'' }}"></label>
+      <datalist id="story-sources">{% for s in sources %}<option value="{{ s }}">{% endfor %}</datalist>
+      <label>Type
+        <select name="type">
+          {% for key, label in types %}<option value="{{ key }}" {% if values.type == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+    <label class="stacked">Headline
+      <input type="text" name="headline" required maxlength="400" value="{{ values.headline|default:'' }}"></label>
+    <label class="stacked">Link
+      <input type="url" name="url" required maxlength="500" value="{{ values.url|default:'' }}"
+             placeholder="https://mopress.com/stories/…"></label>
+
+    <label class="stacked">Publications mentioned
+      <textarea name="publications" rows="3" data-names>{{ values.publications|default:'' }}</textarea></label>
+    <div class="action-bar name-pick">
+      <input type="text" list="outlet-names" placeholder="Find an outlet in the registry" aria-label="Find an outlet">
+      <button type="button" data-add="publications">Add</button>
+    </div>
+    <datalist id="outlet-names">{% for n in outlet_names %}<option value="{{ n }}">{% endfor %}</datalist>
+    <label class="stacked">Owners mentioned
+      <textarea name="owners" rows="2">{{ values.owners|default:'' }}</textarea></label>
+    <p class="hint">One per line, or separated by semicolons.</p>
+
+    <label class="stacked">Relevant text
+      <textarea name="text" rows="6" maxlength="{{ limit }}" data-count>{{ values.text|default:'' }}</textarea></label>
+    <p class="hint"><span data-left></span> The paragraph that makes the story
+      relevant, not the story: readers follow the headline for the rest.</p>
+
+    <div class="action-bar">
+      <button type="submit" class="primary">{% if story %}Save{% else %}Add the story{% endif %}</button>
+      <a class="button" href="{% url 'visuals:outlet_stories' %}">Cancel</a>
+      {% if story %}<button type="submit" name="delete" value="1" class="danger"
+        onclick="return confirmDelete(this)">Remove this story</button>{% endif %}
+    </div>
+  </form>
+</section>
+<script>
+  // Pick a registry outlet and add it to the list, rather than typing a
+  // name the table then fails to match.
+  document.querySelectorAll("[data-add]").forEach((b) => b.addEventListener("click", () => {
+    const pick = b.parentNode.querySelector("input");
+    const box = document.querySelector(`textarea[name="${b.dataset.add}"]`);
+    const name = pick.value.trim();
+    if (!name) return;
+    box.value = box.value.trim() ? `${box.value.trim()}\n${name}` : name;
+    pick.value = "";
+  }));
+  const text = document.querySelector("[data-count]");
+  const left = document.querySelector("[data-left]");
+  const count = () => { left.textContent = `${text.value.length} of ${text.maxLength} characters.`; };
+  text.addEventListener("input", count); count();
+  // A second press, not a dialog: a browser dialog can be switched off.
+  function confirmDelete(b) {
+    if (b.dataset.armed) return true;
+    b.dataset.armed = "1";
+    b.textContent = "Press again to remove it";
+    return false;
+  }
+</script>
+{% endblock %}

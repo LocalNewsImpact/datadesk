@@ -221,3 +221,80 @@ def event_list(request):
             "may_record": _may_record(request.user),
         },
     )
+
+
+# --- the stories list --------------------------------------------------------
+
+
+@requires(READ)
+def story_list(request):
+    """The stories list, newest first, with the way to add one."""
+    from visuals.models import OutletStory
+
+    q = (request.GET.get("q") or "").strip()
+    stories = OutletStory.objects.all()
+    if q:
+        stories = stories.filter(
+            Q(headline__icontains=q)
+            | Q(publications__icontains=q)
+            | Q(owners__icontains=q)
+            | Q(text__icontains=q)
+            | Q(source__icontains=q)
+        )
+    return render(
+        request,
+        "visuals/outlets/stories.html",
+        {"stories": stories, "q": q, "may_record": _may_record(request.user)},
+    )
+
+
+@requires(READ)
+def story_edit(request, pk=None):
+    """Add a story, or change or remove one. One form, every field on it."""
+    from visuals.models import OutletStory
+    from visuals.outlet_stories import SOURCES, TEXT_LIMIT, StoryError, delete, save
+
+    story = None
+    if pk is not None:
+        story = OutletStory.objects.filter(pk=pk).first()
+        if story is None:
+            raise Http404("No such story")
+    if not _may_record(request.user):
+        raise PermissionDenied("Adding a story needs write access")
+    values = (
+        {
+            "published": story.published.isoformat(),
+            "source": story.source,
+            "headline": story.headline,
+            "url": story.url,
+            "type": story.type,
+            "publications": story.publications,
+            "owners": story.owners,
+            "text": story.text,
+        }
+        if story
+        else {"source": SOURCES[0], "type": OutletStory.OWNERSHIP}
+    )
+    context = {
+        "story": story,
+        "values": values,
+        "errors": [],
+        "sources": SOURCES,
+        "types": OutletStory.TYPES,
+        "limit": TEXT_LIMIT,
+        "outlet_names": Outlet.objects.order_by("name").values_list("name", flat=True),
+    }
+    if request.method == "POST":
+        if story is not None and request.POST.get("delete"):
+            delete(request.user, story)
+            return redirect(reverse("visuals:outlet_stories"))
+        try:
+            save(request.user, request.POST, story)
+        except StoryError as e:
+            context["errors"] = e.errors
+            context["values"] = request.POST
+            return render(
+                request, "visuals/outlets/story_form.html", context, status=400
+            )
+        return redirect(reverse("visuals:outlet_stories"))
+    return render(request, "visuals/outlets/story_form.html", context)

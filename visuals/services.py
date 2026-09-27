@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from audit.models import AuditLogEntry
 from visuals.dispatch import notify_published
-from visuals.models import CORPUS, GCS, INLINE, Visual, VisualSnapshot
+from visuals.models import CORPUS, GCS, INLINE, STORIES, Visual, VisualSnapshot
 
 
 class DataSourceError(Exception):
@@ -121,6 +121,10 @@ def fetch_source_data(visual):
         raise DataSourceError(
             "Inline visuals refresh by uploading a new file in the builder."
         )
+    if visual.source_kind == STORIES:
+        from visuals.outlet_stories import rows
+
+        return rows()
     if visual.source_kind == CORPUS:
         from visuals.corpus import CorpusSpecError, run_story_map, run_values
 
