@@ -77,6 +77,9 @@ class Option:
     #: choice without these has nothing to offer, which is one reason none
     #: of this reached the page.
     values: tuple = ()
+    #: Offer the chart's own columns as the values -- a table's layout is
+    #: chosen from what the table has, which only its data knows.
+    from_columns: bool = False
 
 
 #: What an outlet map's dot can be, in legend order (visuals.outlets).
@@ -694,6 +697,45 @@ CHART_TYPES = (
                     "Newsroom, lists every newsroom under its owner and names "
                     "the owner once. Sorting keeps a group together."
                 ),
+            ),
+            # A RECORD ON TWO LINES. A list of stories is a date, a headline
+            # and who it names -- read across -- and a paragraph, read down.
+            # As one more column the paragraph was squeezed to three words a
+            # line or pushed the others off the page. A detail column is
+            # drawn under its row, across every column above it.
+            Option(
+                "detail_columns",
+                "Detail line",
+                "checks",
+                from_columns=True,
+                note=(
+                    "Drawn under each row, spanning the columns above it, "
+                    "and searched by the filter. Not a heading."
+                ),
+            ),
+            Option(
+                "filter_column",
+                "Filter chips",
+                "choice",
+                from_columns=True,
+                note="A column shown as chips above the table instead of in it.",
+            ),
+            Option(
+                "hidden_columns",
+                "Hide",
+                "checks",
+                from_columns=True,
+                note="Kept in the data and the CSV download; not shown.",
+            ),
+            Option(
+                "list_limit",
+                "Lists: show the first",
+                "choice",
+                note=(
+                    "For a column of names separated by semicolons. The rest "
+                    "sit behind '+N more'; the filter always searches them all."
+                ),
+                values=(("", "All of them"), ("3", "3"), ("5", "5"), ("10", "10")),
             ),
         ),
         encoding=NOT_QUANTITATIVE,

@@ -86,6 +86,11 @@ _STRING_KEYS = (
     "colour_print",
     "colour_replica",
     "colour_social",
+    # A table's layout (types.ChartType("table")).
+    "detail_columns",
+    "filter_column",
+    "hidden_columns",
+    "list_limit",
     # The grouped table reads long-form rows and nests them: one row per
     # subject, the items repeating under it, the group the items belong to,
     # and a number per item. The filters derive from these, so there is no

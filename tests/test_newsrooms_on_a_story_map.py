@@ -297,6 +297,61 @@ class TestTheWalk:
         assert '"kind": "outletmap"' in page.content.decode()
 
 
+class TestItsSentenceAndFrame:
+    """It could not finish its sentence -- "A outlet map from any date in
+    every dataset" -- because it has no dates or datasets, and with no
+    newsrooms step it had no frame, so every neighbouring state's counties
+    were drawn."""
+
+    def test_the_look_step_completes_it(self, client, author, crawler_schema):
+        from visuals.sentence import article, is_complete, parts_for
+
+        visual = _visual(author, "outletmap")
+        assert not is_complete(visual)
+        client.post(f"/visuals/builder/{visual.slug}/step/theme/", {"theme": ""})
+        visual.refresh_from_db()
+        parts = parts_for(visual)
+        text = " ".join(p for lead, t, _ in parts for p in (lead, t) if p)
+        assert text == "outlet map of every outlet in the registry in Missouri"
+        assert article(parts) == "An"
+        assert is_complete(visual)
+
+    def test_it_frames_its_state_whole_by_default(self, client, author, crawler_schema):
+        visual = _visual(author, "outletmap")
+        client.post(f"/visuals/builder/{visual.slug}/step/theme/", {"theme": ""})
+        visual.refresh_from_db()
+        assert visual.config["focus"] == "29"
+        assert visual.config["extent"] == "state"
+        assert len(visual.config["frame"]) == 115
+        assert all(c.startswith("29") for c in visual.config["frame"])
+
+    def test_a_place_can_be_typed(self, client, author, crawler_schema):
+        visual = _visual(author, "outletmap")
+        client.post(
+            f"/visuals/builder/{visual.slug}/step/theme/",
+            {"focus": "Boone", "focus_level": "", "extent": "selected"},
+        )
+        visual.refresh_from_db()
+        assert visual.config["focus"] == "29019"
+        assert visual.config["frame"] == ["29019"]
+
+    def test_the_kinds_drawn_are_said(self, client, author, crawler_schema):
+        from visuals.sentence import parts_for
+
+        visual = _visual(author, "outletmap")
+        client.post(
+            f"/visuals/builder/{visual.slug}/step/theme/",
+            {"opt-categories_drawn": ["print", "replica"]},
+        )
+        visual.refresh_from_db()
+        assert ("of", "print, replica outlets", "said") in parts_for(visual)
+
+    def test_a_story_map_still_starts_with_a(self, author):
+        from visuals.sentence import article, parts_for
+
+        assert article(parts_for(_visual(author, "storymap"))) == "A"
+
+
 class TestTheFeed:
     def test_an_outlet_map_draws_the_registry(self, tmp_path, author, crawler_schema):
         from visuals.outlets import import_registry
