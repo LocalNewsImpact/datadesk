@@ -3090,3 +3090,11 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
 
 /* A group's own count in its name: "Gray Television (42)". */
 .dd-group-total { color: var(--text-2); font-weight: 400; font-variant-numeric: tabular-nums; }
+
+/* A chart's colour key: a grid, so every swatch sits in the same place
+   in its column and every label starts a fixed gap after it. */
+.dd-key { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 0.35rem 1.25rem; margin: 0 0 var(--s-3); font-size: var(--fs-xs); }
+.dd-key-item { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+.dd-key-swatch { flex: none; width: 0.75rem; height: 0.75rem; border-radius: 3px; }
+.dd-key-label { color: var(--text-2); line-height: 1.25; overflow-wrap: anywhere; }

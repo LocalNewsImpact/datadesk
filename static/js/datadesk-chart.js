@@ -132,10 +132,16 @@
   // whole point is that the reader can compare the same ten needs across
   // every column.
   //
-  // The CIN palette is ten slots, ordered warm/cool alternating so no two
-  // neighbouring segments of a stack share a hue family. Validated with
-  // the dataviz palette validator on the adjacent pairlist, both modes,
-  // 2026-08-22 — rerun it before changing any value.
+  // The CIN palette is Tableau's Color Blind 10 (Maureen Stone): two hue
+  // families, blues and oranges, and greys, so ten needs read as one set
+  // rather than ten unrelated colours -- the full-chroma palette before it
+  // read as neon beside the maps (2026-09-27).
+  //
+  // Light is the palette as published, in its own order: adjacent CVD
+  // Delta E 19.5, normal vision 23.8. Dark is the same families with two
+  // greys where the published set has four, re-ordered for neighbours
+  // (20.7 / 22.0): on the dark surface its four pale greys and grey-blues
+  // blurred together. Rerun the dataviz validator before changing a value.
   const TAXONOMIES = {
     cin: {
       order: [
@@ -150,10 +156,10 @@
         "Civic information",
         "Sports",
       ],
-      light: ["#256abf", "#eb6834", "#1baf7a", "#a35a00", "#4a3aa7",
-              "#eda100", "#e87ba4", "#008300", "#9a4dbf", "#8f8fdc"],
-      dark: ["#3987e5", "#d95926", "#199e70", "#a35a00", "#9085e9",
-             "#c98500", "#d55181", "#008300", "#cf5fa8", "#6d8fdd"],
+      light: ["#1170aa", "#a3acb9", "#c85200", "#a3cce9", "#57606c",
+              "#fc7d0b", "#c8d0d9", "#7b848f", "#ffbc79", "#5fa2ce"],
+      dark: ["#1170aa", "#c85200", "#5fa2ce", "#8a3800", "#a3cce9",
+             "#7b848f", "#ffbc79", "#0b3d66", "#fc7d0b", "#57606c"],
     },
   };
 
@@ -401,9 +407,20 @@
       // stacked, which moves the category to a facet axis and every
       // decision about scales below with it.
       const grouped = !!series && config.stacked === false;
+      // A STACK'S DIVIDER is a hairline, not a gap. The half-pixel gap
+      // showed the page through it -- white in light mode and a black rule
+      // between every segment in dark, where touching colours read as one
+      // blob. Light keeps a fine seam in the surface colour; dark takes a
+      // neutral grey hairline, which separates without drawing a black cut.
+      const stacked = !!series && config.stacked !== false;
+      const divider = !stacked
+        ? { inset: 0.5 }
+        : t.surface === LIGHT.surface
+          ? { inset: 0, stroke: t.surface, strokeWidth: 0.5 }
+          : { inset: 0, stroke: "#5c5c58", strokeWidth: 1 };
       const enc = horizontal
-        ? { y: x, x: y, fill: series || stroke1, inset: 0.5 }
-        : { x, y, fill: series || stroke1, sort, inset: 0.5 };
+        ? { y: x, x: y, fill: series || stroke1, ...divider }
+        : { x, y, fill: series || stroke1, sort, ...divider };
       // Plot stacks each column in that column's own row order, so the
       // segments would sit in a different sequence per category. Pinning
       // the order to the colour domain makes the stack readable across
@@ -554,6 +571,12 @@
       }
     }
 
+    // OUR LEGEND, NOT PLOT'S. Plot's swatches sat flush against their
+    // labels and wrapped wherever a label ended, so ten needs read as a
+    // jumble. Ours is a grid: every swatch in the same column position, a
+    // gap before each label, labels in the text colour. Plot is told not to
+    // draw one.
+    const keyed = color && color.legend && color.domain && color.domain.length > 1;
     const plot = Plot.plot({
       width,
       height,
@@ -562,7 +585,7 @@
       marginBottom,
       style: { background: "transparent", color: t.ink,
                fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif' },
-      color,
+      color: color ? { ...color, legend: false } : color,
       // The value axis carries the percent formatting: x when the bars
       // run horizontally, y when they stand up.
       x: { ...xScale, ...(percentStack && horizontal ? { percent: true } : {}) },
@@ -584,6 +607,26 @@
       marks,
     });
     el.appendChild(plot);
+    if (keyed) el.prepend(swatchLegend(color.domain, color.range));
+  }
+
+  // A key of colour swatches: one per category, in the chart's own order.
+  function swatchLegend(domain, range) {
+    const key = document.createElement("div");
+    key.className = "dd-legend dd-key";
+    domain.forEach((name, i) => {
+      const item = document.createElement("span");
+      item.className = "dd-key-item";
+      const chip = document.createElement("span");
+      chip.className = "dd-key-swatch";
+      chip.style.background = range[i % range.length];
+      const label = document.createElement("span");
+      label.className = "dd-key-label";
+      label.textContent = name;
+      item.append(chip, label);
+      key.appendChild(item);
+    });
+    return key;
   }
 
   // --- taking the data somewhere else --------------------------------------
@@ -4060,6 +4103,6 @@
   // hues is a fact about these functions, not about the page.
   global.DatadeskChart = {
     render, mount, renderTable,
-    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf },
+    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf, swatchLegend },
   };
 })(window);
