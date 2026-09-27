@@ -1387,11 +1387,19 @@ def _run_values(spec, scopes):
     for extra in wanted[1:]:
         more, more_meta = run_spec({**spec, "measure": extra}, scopes)
         label = more_meta["measure"]["label"]
-        by_key = {tuple(r.get(k) for k in keys): r.get(label) for r in more}
+        by_key = {tuple(r.get(k) for k in keys): r for r in more}
         for row in rows:
-            row[label] = by_key.get(tuple(row.get(k) for k in keys))
+            found = by_key.get(tuple(row.get(k) for k in keys)) or {}
+            row[label] = found.get(label)
+            # A group's unique bylines travel with the value that counted them.
+            if GROUP_BYLINES in found:
+                row[GROUP_BYLINES] = found[GROUP_BYLINES]
         labels.append(label)
 
+    # About the rows, not a column of them, so after every column.
+    for row in rows:
+        if GROUP_BYLINES in row:
+            row[GROUP_BYLINES] = row.pop(GROUP_BYLINES)
     meta = {
         **meta,
         "measures": [
@@ -1430,6 +1438,15 @@ def run_spec(spec, scopes):
     return rows, meta
 
 
+#: A field on each row of a unique-bylines pivot grouped by more than one
+#: dimension: for each outer dimension, the distinct names across the whole
+#: group -- {"Owner": 42}. A group's rows cannot be summed for it: a reporter
+#: filing for three Gray stations is one byline in Gray, not three. The
+#: renderer names the group with it and draws no column for it; "__" marks a
+#: field that is about the rows rather than a column of them.
+GROUP_BYLINES = "__group_bylines"
+
+
 def _run_bylines(spec, scopes):
     """Unique bylines: distinct names per group, from a pivot by Byline.
 
@@ -1460,6 +1477,19 @@ def _run_bylines(spec, scopes):
                 keep.append(row[labels[0]])
         keep = set(keep[:wanted])
         out = [r for r in out if r[labels[0]] in keep]
+    # Each group's own count, over the rows kept -- the same dates, filters
+    # and newsrooms the table shows, and nothing the top-N dropped.
+    if len(labels) > 1:
+        kept = [tuple(r.get(k) for k in labels) for r in out]
+        for row, key in zip(out, kept, strict=True):
+            row[GROUP_BYLINES] = {
+                labels[depth]: len(
+                    set().union(
+                        *(names[k] for k in kept if k[: depth + 1] == key[: depth + 1])
+                    )
+                )
+                for depth in range(len(labels) - 1)
+            }
     return out, {
         **meta,
         "dimensions": [d for d in meta.get("dimensions") or [] if d["key"] in dim_keys],

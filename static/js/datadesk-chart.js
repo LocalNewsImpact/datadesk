@@ -593,8 +593,13 @@
   // two different ways: Flourish uploads a file, Datawrapper pastes into a
   // box, and its box reads tab-separated the way a spreadsheet copies.
 
+  // A field named "__..." is about the rows, not a column of them -- a
+  // group's unique bylines, which the table puts in the group's name. It is
+  // neither drawn as a column nor exported.
+  const columnsOf = (row) => Object.keys(row || {}).filter((k) => !k.startsWith("__"));
+
   function asDelimited(rows, sep) {
-    const cols = Object.keys(rows[0]);
+    const cols = columnsOf(rows[0]);
     const cell = (v) => {
       const s = v === null || v === undefined ? "" : String(v);
       // A comma or a quote or a newline inside a value breaks the row it
@@ -873,7 +878,7 @@
     // THE LAYOUT an author chose on the Look step: columns shown as a
     // detail line under each row, one shown as chips above the table,
     // columns hidden. With none of it the table is every column, as ever.
-    const every = Object.keys(first);
+    const every = columnsOf(first);
     const detail = csvOf(config && config.detail_columns).filter((c) => every.includes(c));
     const chipCol = config && every.includes(config.filter_column) ? config.filter_column : "";
     const hidden = new Set(csvOf(config && config.hidden_columns));
@@ -1105,6 +1110,17 @@
           const td = document.createElement("td");
           if (c === outer[0]) {
             fillCell(td, group.name);
+            // The group's own unique bylines, counted across its rows by the
+            // server: "Gray Television (42)". The rows cannot be summed for
+            // it -- one reporter at three stations is one byline.
+            const total = group.lines[0]?.row?.__group_bylines?.[c];
+            if (total != null) {
+              const n = document.createElement("span");
+              n.className = "dd-group-total";
+              n.textContent = ` (${Number(total).toLocaleString()})`;
+              n.title = `${Number(total).toLocaleString()} unique bylines across its rows`;
+              td.appendChild(n);
+            }
             tr.appendChild(td);
             continue;
           }
@@ -4044,6 +4060,6 @@
   // hues is a fact about these functions, not about the page.
   global.DatadeskChart = {
     render, mount, renderTable,
-    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns },
+    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf },
   };
 })(window);
