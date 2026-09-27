@@ -64,7 +64,7 @@ STEPS = (
         "Data",
         "Which articles?",
         "The slice of the corpus. Which fields to draw comes later.",
-        ("spec:dataset", "spec:datasets", "spec:from", "spec:to"),
+        ("spec:dataset", "spec:datasets", "spec:from", "spec:to", "spec:layer"),
     ),
     Step(
         "newsrooms",

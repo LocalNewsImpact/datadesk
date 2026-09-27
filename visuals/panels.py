@@ -556,6 +556,14 @@ def data_panel(visual, post=None, choices=(), files=None, actor=None):
                 "to": as_iso(post.get("to", ""), "end"),
             }
         }
+        # WHAT A STORY MAP DRAWS: stories, or the newsrooms themselves --
+        # each outlet a dot coloured by what it is, each county shaded by
+        # how many are located there. Only a story map is asked.
+        if (visual.config or {}).get("kind") == "storymap":
+            layer = post.get("layer", "stories")
+            if layer not in LAYERS:
+                raise ValueError("No such map layer")
+            written["spec"]["layer"] = layer
         return written
     spec = visual.spec or {}
     picked = spec.get("datasets") or ([spec["dataset"]] if spec.get("dataset") else [])
@@ -573,7 +581,32 @@ def data_panel(visual, post=None, choices=(), files=None, actor=None):
         ],
         "date_from": spec.get("from", ""),
         "date_to": spec.get("to", ""),
+        "layers": (
+            [
+                {
+                    "id": i,
+                    "label": label,
+                    "note": note,
+                    "on": spec.get("layer", "stories") == i,
+                }
+                for i, (label, note) in LAYERS.items()
+            ]
+            if (visual.config or {}).get("kind") == "storymap"
+            else []
+        ),
     }
+
+
+#: What a story map can draw. Stories are the corpus; newsrooms are the
+#: outlet registry (visuals.outlets).
+LAYERS = {
+    "stories": ("Stories", "Where the stories are set and what they mention."),
+    "newsrooms": (
+        "Newsrooms",
+        "Every newsroom in the outlet registry, coloured by whether we collect "
+        "from it, and each county shaded by how many are located there.",
+    ),
+}
 
 
 # --- step 4: the newsrooms ---------------------------------------------------
