@@ -12,6 +12,11 @@ urlpatterns = [
     path("outlets/", outlet_views.outlet_index, name="outlets"),
     path("outlets/events/", outlet_views.event_list, name="outlet_events"),
     path("outlets/events/new/", outlet_views.event_new, name="outlet_event_new"),
+    path("outlets/stories/", outlet_views.story_list, name="outlet_stories"),
+    path("outlets/stories/new/", outlet_views.story_edit, name="outlet_story_new"),
+    path(
+        "outlets/stories/<int:pk>/", outlet_views.story_edit, name="outlet_story_edit"
+    ),
     path("outlets/<str:outlet_id>/", outlet_views.outlet_detail, name="outlet_detail"),
     path("visuals/folders/new/", views.folder_create, name="folder_create"),
     path(

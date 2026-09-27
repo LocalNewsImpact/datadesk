@@ -889,7 +889,22 @@ def _uploaded_data_panel(visual, post=None, files=None, actor=None):
     and `?v=` keeps serving the one somebody has already cited.
     """
     from visuals.builder import BuilderError, parse_upload
-    from visuals.services import record_snapshot
+    from visuals.models import STORIES
+    from visuals.services import record_snapshot, refresh_snapshot
+
+    if visual.source_kind == STORIES:
+        # The list is edited on its own pages; here it is only re-read,
+        # so a story added since the last visit is in the table.
+        if post is not None:
+            refresh_snapshot(visual, actor)
+            return {}
+        latest = visual.snapshots.order_by("-version").first()
+        return {
+            "stories": True,
+            "rows": len(latest.data) if latest and isinstance(latest.data, list) else 0,
+            "taken": latest.created_at if latest else None,
+            "columns": variables(visual),
+        }
 
     if post is not None:
         upload = (files or {}).get("file")
@@ -1092,9 +1107,9 @@ def variables(visual=None):
     visual, which is why it is worked out once. An upload has no pivot:
     what it draws are the columns of the file, which are its own.
     """
-    from visuals.models import INLINE
+    from visuals.models import INLINE, STORIES
 
-    if visual is not None and visual.source_kind == INLINE:
+    if visual is not None and visual.source_kind in (INLINE, STORIES):
         return _uploaded_columns(visual)
     global VARIABLES
     if VARIABLES is None:

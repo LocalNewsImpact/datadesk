@@ -25,6 +25,8 @@ BIGQUERY = "bigquery"
 GCS = "gcs"
 INLINE = "inline"
 CORPUS = "corpus"
+#: The outlet stories list kept on the Outlets pages (visuals.outlet_stories).
+STORIES = "stories"
 
 
 def _validate_renderer(name):
@@ -88,6 +90,7 @@ class Visual(models.Model):
         (GCS, "bucket object"),
         (INLINE, "uploaded data"),
         (CORPUS, "the research corpus"),
+        (STORIES, "the outlet stories list"),
     ]
 
     # What a published URL is built from, and the only identifier that can
@@ -497,3 +500,43 @@ class OutletEvent(models.Model):
         raise ValidationError(
             "An outlet event is not deleted. Record a retraction that names it."
         )
+
+
+class OutletStory(models.Model):
+    """A news story about an outlet: a sale, a closure, a change in how it
+    is run -- or a mention worth keeping.
+
+    Kept by hand on the Outlets pages, one form per story, and drawn by any
+    visual whose source is the stories list. The MPA stories scanned in
+    September 2026 are the first of them; LNI's and anybody else's are
+    added the same way.
+    """
+
+    OWNERSHIP = "Ownership or closure"
+    HISTORICAL = "Historical"
+    MENTION = "Mention only"
+    TYPES = [(t, t) for t in (OWNERSHIP, HISTORICAL, MENTION)]
+
+    published = models.DateField()
+    source = models.CharField(max_length=120)
+    headline = models.CharField(max_length=400)
+    url = models.URLField(max_length=500)
+    type = models.CharField(max_length=40, choices=TYPES, default=OWNERSHIP)
+    #: Outlets and owners the story names, separated by "; " -- how the
+    #: table draws and filters a list.
+    publications = models.TextField(blank=True, default="")
+    owners = models.TextField(blank=True, default="")
+    #: The paragraph (or paragraphs) that make the story relevant.
+    text = models.TextField(blank=True, default="")
+    added_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    added_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "outlet_story"
+        ordering = ["-published", "headline"]
+
+    def __str__(self):
+        return f"{self.published}: {self.headline}"

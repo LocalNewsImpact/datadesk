@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Stories — Outlets — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card">
+  <p class="breadcrumb"><a href="{% url 'visuals:outlets' %}">← Outlets</a></p>
+  <h1>Stories</h1>
+  <p class="notice">News of sales, closures, new owners and launches — from
+  the Missouri Press Association, the Local News Initiative, or anywhere else.
+  Any visual whose source is this list shows it as it stands: a published one
+  updates when a story is saved.</p>
+
+  <form method="get" class="action-bar">
+    <label>Search <input type="text" name="q" value="{{ q }}" placeholder="headline, outlet, owner, text"></label>
+    <button type="submit">Search</button>
+    {% if may_record %}<a class="button primary" href="{% url 'visuals:outlet_story_new' %}">Add a story</a>{% endif %}
+  </form>
+
+  <table class="rec-table">
+    <thead>
+      <tr><th scope="col">Date</th><th scope="col">Headline</th><th scope="col">Source</th>
+          <th scope="col">Type</th><th scope="col">Publications</th><th scope="col">Owners</th>
+          {% if may_record %}<th scope="col"></th>{% endif %}</tr>
+    </thead>
+    <tbody>
+    {% for s in stories %}
+      <tr>
+        <td data-label="Date">{{ s.published|date:"m-d-Y" }}</td>
+        <th scope="row"><a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.headline }}</a></th>
+        <td data-label="Source">{{ s.source }}</td>
+        <td data-label="Type">{{ s.type }}</td>
+        <td data-label="Publications">{{ s.publications|default:"—"|truncatechars:120 }}</td>
+        <td data-label="Owners">{{ s.owners|default:"—"|truncatechars:80 }}</td>
+        {% if may_record %}<td data-label="Edit"><a href="{% url 'visuals:outlet_story_edit' s.pk %}">Edit</a></td>{% endif %}
+      </tr>
+    {% empty %}
+      <tr><td colspan="7">No stories{% if q %} match{% endif %}.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

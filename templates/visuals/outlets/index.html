@@ -8,7 +8,8 @@
   not, as it stands now. Each one's page is its history: sales, mergers,
   closures and launches, with where each came from.
   <a href="{% url 'visuals:outlet_events' %}">All events</a>{% if unlisted %}, including {{ unlisted }} for outlets
-  the registry does not hold{% endif %}.</p>
+  the registry does not hold{% endif %}. <a href="{% url 'visuals:outlet_stories' %}">Stories</a>
+  is the list of news about them.</p>
 
   <form method="get" class="action-bar">
     <label>Search <input type="text" name="q" value="{{ q }}" placeholder="name, owner, town, county"></label>
