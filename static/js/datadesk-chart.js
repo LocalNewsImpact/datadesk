@@ -3348,6 +3348,19 @@
     return out;
   }
 
+  // Collected against not is the distinction the map exists to show, and a
+  // hue alone did not carry it: green beside orange at 4px on a shaded
+  // county reads as one dot. Every newsroom we did NOT collect -- a website
+  // we could have, a print edition, a page replica, a social feed -- is
+  // ringed in ink; a collected one keeps the surface-coloured ring that
+  // separates overlapping dots. Two encodings, so it also holds for a reader
+  // who cannot tell the hues apart.
+  function newsroomRing(t, category) {
+    return category === "collected"
+      ? { stroke: t.surface, width: 1, inked: false }
+      : { stroke: t.ink, width: 1.5, inked: true };
+  }
+
   const PRECISION = { place: 0, block: 1, county: 2, state: 3, tract: 4 };
 
   //: The fixed ladder absolute banding cuts at, so one shade means one count
@@ -3583,14 +3596,20 @@
       const beyond = points.length - visible.length;
       const placed = visible.filter(
         (p) => p.lon != null && p.lat != null && projection([p.lon, p.lat]));
+      // Collected last, so a collected dot is never hidden under one we
+      // did not collect.
+      if (byCategory) placed.sort((a, b) =>
+        (a.category === "collected") - (b.category === "collected"));
+      const ringOf = (p) => newsroomRing(t, p.category);
       const dots = frame.append("g").selectAll("circle").data(placed).join("circle")
         .attr("transform", (p) => `translate(${projection([p.lon, p.lat])})`)
         .attr("r", (p) => (byCategory ? Math.max(3.5, width / 150) : r(p.stories)))
         .attr("fill", (p) => byCategory ? colourOf(p.category) :
           (t.points || t.series)[PRECISION[p.level] ?? 0] ||
           t.series[PRECISION[p.level] ?? 0])
-        .attr("fill-opacity", 0.85)
-        .attr("stroke", t.surface).attr("stroke-width", 1);
+        .attr("fill-opacity", (p) => (byCategory && p.category === "collected" ? 1 : 0.85))
+        .attr("stroke", (p) => (byCategory ? ringOf(p).stroke : t.surface))
+        .attr("stroke-width", (p) => (byCategory ? ringOf(p).width : 1));
 
       el.replaceChildren(svg.node());
       const tip = tooltip(el);
@@ -3628,6 +3647,9 @@
           const dot = document.createElement("span");
           dot.className = "dd-swatch round";
           dot.style.background = colourOf(c);
+          // The key shows the ring the dot wears.
+          const ring = newsroomRing(t, c);
+          if (ring.inked) dot.style.boxShadow = `inset 0 0 0 ${ring.width}px ${ring.stroke}`;
           item.append(dot, c);
           legend.appendChild(item);
         }
@@ -3836,6 +3858,6 @@
   // hues is a fact about these functions, not about the page.
   global.DatadeskChart = {
     render, mount, renderTable,
-    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours },
+    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing },
   };
 })(window);

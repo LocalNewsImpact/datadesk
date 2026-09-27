@@ -252,3 +252,19 @@ class TestTheRenderer:
         assert "gap(hueOf(c), ramp) >= 30" in js
         assert "newsroom${beyond === 1" in js
         assert "`${unit} located in each county:`" in js
+
+    def test_every_newsroom_we_did_not_collect_is_ringed_in_ink(self):
+        """Hue alone did not separate collected from not at dot size. Every
+        kind we did not collect wears an ink ring, in the key as on the map;
+        collected keeps the surface ring and is drawn on top."""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        js = (root / "static/js/datadesk-chart.js").read_text()
+        assert "? { stroke: t.surface, width: 1, inked: false }" in js
+        assert ": { stroke: t.ink, width: 1.5, inked: true };" in js
+        assert 'return category === "collected"' in js
+        stroke = '.attr("stroke", (p) => (byCategory ? ringOf(p).stroke : t.surface))'
+        assert stroke in js
+        assert "if (ring.inked) dot.style.boxShadow" in js
+        assert '(a.category === "collected") - (b.category === "collected")' in js
