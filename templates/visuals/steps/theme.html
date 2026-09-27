@@ -120,6 +120,22 @@
              placeholder="Comma-separated">
       {% endif %}
     </fieldset>
+    {% elif o.kind == "colour" %}
+    {% comment %}
+    The palette's own colours, so a chosen colour follows the theme: slot
+    three is the third colour of whichever palette the visual uses.
+    Automatic keeps the renderer's choice, which avoids the shading ramp.
+    {% endcomment %}
+    <fieldset class="swatches">
+      <legend>{{ o.label }}</legend>
+      {% for v in o.values %}
+      <label class="swatch-pick" title="{{ v.label }}">
+        <input type="radio" name="opt-{{ o.id }}" value="{{ v.value }}" {% if v.on %}checked{% endif %}>
+        {% if v.swatch %}<span class="swatch-chip" style="background: {{ v.swatch }}"></span>
+        {% else %}<span class="swatch-chip auto">auto</span>{% endif %}
+      </label>
+      {% endfor %}
+    </fieldset>
     {% elif o.kind == "choice" %}
     <label class="stacked">{{ o.label }}
       <select name="opt-{{ o.id }}">

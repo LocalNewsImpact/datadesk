@@ -3035,3 +3035,17 @@ dl.facts dd { margin: 0; }
 .story-form .name-pick { margin-top: calc(var(--s-1) * -1); }
 .story-form .name-pick input { flex: 0 1 22rem; min-width: 0; }
 button.danger { color: var(--tone-bad); border-color: var(--tone-bad); margin-left: auto; }
+
+/* A colour option: the palette as a row of chips, one chosen. */
+fieldset.swatches { border: 0; padding: 0; margin: 0 0 var(--s-2); display: flex; flex-wrap: wrap;
+  gap: var(--s-1); align-items: center; }
+fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin-bottom: var(--s-1);
+  width: 100%; }
+.swatch-pick { position: relative; cursor: pointer; }
+.swatch-pick input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.swatch-chip { display: inline-flex; align-items: center; justify-content: center; width: 1.75rem;
+  height: 1.75rem; border-radius: 50%; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border); }
+.swatch-chip.auto { width: auto; padding: 0 var(--s-2); border-radius: 999px; font-size: var(--fs-xs);
+  color: var(--text-2); background: var(--surface-2); }
+.swatch-pick input:checked + .swatch-chip { box-shadow: 0 0 0 2px var(--accent); }
+.swatch-pick input:focus-visible + .swatch-chip { outline: 2px solid var(--accent); outline-offset: 2px; }

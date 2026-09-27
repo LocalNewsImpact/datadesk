@@ -113,6 +113,9 @@ def scopes_of(visual):
 #: two layers come out of the enrichment whole, so it declares no fields
 #: and there is nothing for the pivot to group.
 STORY_MAP_KIND = "storymap"
+#: The outlet registry as a map: the story map's renderer and style rules,
+#: its own data and options (docs/OUTLET_MAP.md).
+OUTLET_MAP_KIND = "outletmap"
 
 
 def fetch_source_data(visual):
@@ -140,10 +143,10 @@ def fetch_source_data(visual):
             # the one way to choose one; the older key is still read so
             # that visuals carrying it keep drawing.
             kind = (visual.config or {}).get("kind")
-            if kind == STORY_MAP_KIND and spec.get("layer") == "newsrooms":
+            if kind == OUTLET_MAP_KIND:
                 from visuals.outlets import run_outlet_map
 
-                return run_outlet_map(spec)
+                return run_outlet_map(visual.config or {})
             if kind == STORY_MAP_KIND or spec.get("shape") == "story_map":
                 # The config too, because rolling points up to a
                 # city is a display choice made on the Look step

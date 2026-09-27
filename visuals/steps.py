@@ -64,7 +64,7 @@ STEPS = (
         "Data",
         "Which articles?",
         "The slice of the corpus. Which fields to draw comes later.",
-        ("spec:dataset", "spec:datasets", "spec:from", "spec:to", "spec:layer"),
+        ("spec:dataset", "spec:datasets", "spec:from", "spec:to"),
     ),
     Step(
         "newsrooms",
@@ -143,7 +143,14 @@ def steps_for(visual):
     on the way whose only content is that it is not for you.
     """
     from visuals.models import CORPUS
+    from visuals.services import OUTLET_MAP_KIND
 
+    # AN OUTLET MAP DRAWS THE REGISTRY WHOLE. It has no slice of the corpus
+    # to choose, no newsrooms to narrow to and no fields to fill: what an
+    # author decides about it is on the Look step, with every other chart's
+    # title, palette and source.
+    if (visual.config or {}).get("kind") == OUTLET_MAP_KIND:
+        return tuple(s for s in STEPS if s.slug in ("type", "theme", "publish"))
     if visual.source_kind == CORPUS:
         return STEPS
     return tuple(s for s in STEPS if s.slug not in _CORPUS_ONLY)
