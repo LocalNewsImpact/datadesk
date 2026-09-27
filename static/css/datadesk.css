@@ -1148,6 +1148,13 @@ label.stacked input, label.stacked textarea, label.stacked select {
 
 .dd-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
+/* Prose -- a paragraph quoted from a story -- at a width it can be read at.
+   The table scrolls sideways before a paragraph is squeezed to a column of
+   three words a line. */
+.dd-table td.prose, .dd-table th.prose { min-width: 32rem; max-width: 48rem; }
+.dd-table td.prose { line-height: 1.45; }
+.dd-table td a { color: var(--accent); }
+
 /* One row of controls above the table: the filter, and how many rows it
    left. Every column header is the sort control for its column. */
 .dd-table-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2);
