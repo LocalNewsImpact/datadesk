@@ -2268,6 +2268,52 @@ def _cache_key(prefix, *parts):
 #: the shape of the problem, not a ten-minute guess at it.
 CORPUS_CACHE_SECONDS = 7 * 24 * 3600
 
+#: How long a computation may hold the right to answer before another
+#: request stops waiting and asks for itself. Longer than the slowest story
+#: map measured (34s alone, 207s under four copies of itself).
+ANSWER_LOCK_SECONDS = 300
+
+
+def answer_once(prefix, parts, compute):
+    """`compute()`, kept under the corpus version and asked once at a time.
+
+    A story map of a month of Missouri stories takes about half a minute of
+    queries. The builder asked for it four times at once -- preview, a
+    redraw, the publish step's capture -- and each request ran the queries
+    again, so four copies competed and each took two to three and a half
+    minutes (2026-09-27). The answer depends only on the question and the
+    corpus, so it is named by both (`_cache_key`, which carries
+    `corpus_version()`) and kept: nothing can go stale, because a moved
+    corpus is a different key.
+
+    Only one request computes. The others wait for its answer rather than
+    starting the same queries beside it. If the one computing dies, its
+    claim expires and the next request computes.
+    """
+    from django.core.cache import cache
+
+    key = _cache_key(prefix, parts)
+    hit = cache.get(key)
+    if hit is not None:
+        return hit
+    claim = f"{key}.running"
+    if not cache.add(claim, 1, ANSWER_LOCK_SECONDS):
+        deadline = time.monotonic() + ANSWER_LOCK_SECONDS
+        while time.monotonic() < deadline:
+            time.sleep(1)
+            hit = cache.get(key)
+            if hit is not None:
+                return hit
+            if cache.get(claim) is None:
+                break
+    try:
+        answer = compute()
+        cache.set(key, answer, CORPUS_CACHE_SECONDS)
+        return answer
+    finally:
+        cache.delete(claim)
+
+
 #: How often the *version* is re-derived. This is the only query that runs
 #: on a schedule rather than on a change, so it is the one that has to be
 #: cheap: a max over an unindexed column and a count of a small table.
