@@ -3593,9 +3593,14 @@
   // separates overlapping dots. Two encodings, so it also holds for a reader
   // who cannot tell the hues apart.
   function newsroomRing(t, category, outline) {
-    // The author may turn the rings off; a collected dot's surface ring
-    // stays either way, because it is what separates overlapping dots.
-    return category === "collected" || outline === "none"
+    // "No rings" is no ring. It used to swap the ink ring for one in the
+    // surface colour, so a map set to draw none drew white rings on a light
+    // page and dark ones on a dark page (2026-09-28).
+    if (outline === "none") return { stroke: "none", width: 0, inked: false };
+    // Otherwise a collected dot keeps the surface-coloured ring that
+    // separates overlapping dots, and every kind we do not collect is ringed
+    // in ink.
+    return category === "collected"
       ? { stroke: t.surface, width: 1, inked: false }
       : { stroke: t.ink, width: 1.5, inked: true };
   }
