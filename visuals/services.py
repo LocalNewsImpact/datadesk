@@ -118,6 +118,16 @@ STORY_MAP_KIND = "storymap"
 OUTLET_MAP_KIND = "outletmap"
 
 
+def _scope_key(scopes):
+    """The scopes as part of a cache key: every scope, or the slugs in order.
+
+    Part of the key so one author's answer is never served to somebody who
+    may see different datasets."""
+    from accounts.access import ALL_SCOPES
+
+    return "all" if scopes == ALL_SCOPES else sorted(scopes or [])
+
+
 def fetch_source_data(visual):
     """Run the visual's data source and return JSON-compatible rows."""
     if visual.source_kind == INLINE:
@@ -129,7 +139,12 @@ def fetch_source_data(visual):
 
         return rows()
     if visual.source_kind == CORPUS:
-        from visuals.corpus import CorpusSpecError, run_story_map, run_values
+        from visuals.corpus import (
+            CorpusSpecError,
+            answer_once,
+            run_story_map,
+            run_values,
+        )
 
         spec = visual.spec or {}
         try:
@@ -153,8 +168,20 @@ def fetch_source_data(visual):
                 # that only the server can honour -- the
                 # block-to-place crosswalk is a table, not
                 # something the renderer can derive.
-                return run_story_map(spec, scopes, visual.config or {})
-            rows, _meta = run_values(spec, scopes)
+                # Named by the question and the corpus: asked once, kept,
+                # and shared by the preview, its redraws and the publish
+                # step's capture (corpus.answer_once).
+                roll_up = (visual.config or {}).get("roll_up", "")
+                return answer_once(
+                    "visuals.storymap",
+                    [spec, _scope_key(scopes), roll_up],
+                    lambda: run_story_map(spec, scopes, visual.config or {}),
+                )
+            rows = answer_once(
+                "visuals.values",
+                [spec, _scope_key(scopes)],
+                lambda: run_values(spec, scopes)[0],
+            )
         except CorpusSpecError as exc:
             raise DataSourceError(str(exc)) from exc
         return rows
