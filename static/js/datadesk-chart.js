@@ -3787,6 +3787,12 @@
         return cuts.length + 1;
       };
       const shadeFor = (n) => (n ? ramp[bandOf(n)] : t.missing);
+      const lightMode = t.surface === LIGHT.surface;
+      const countyEdge = (n) => {
+        if (!n) return t.boundary;
+        const c = d3.hsl(shadeFor(n));
+        return (lightMode ? c.brighter(0.35) : c.darker(0.35)).formatHex();
+      };
       // NOT `top`: that is a global in a browser (`window.top`), and
       // this only gets away with the name because it sits inside a
       // function. Hoisted to module scope it would throw
@@ -3828,7 +3834,16 @@
       const counties = frame.append("g").selectAll("path").data(shown).join("path")
         .attr("d", path)
         .attr("fill", (f) => shadeFor(byCounty.get(String(f.id))))
-        .attr("stroke", t.boundary).attr("stroke-width", 0.6);
+        // A SHADED COUNTY IS OUTLINED IN ITS OWN COLOUR, SHIFTED. The
+        // boundary grey sits close to the ramp's pale end, so neighbouring
+        // counties in the same band -- 63 of 115 on the outlet map -- merged
+        // into one shape. A white hairline separated them and overwhelmed
+        // the map (2026-09-28); the county's own fill, a step lighter in
+        // light mode and a step darker in dark, marks the edge and keeps the
+        // colours. A county with nothing keeps the grey, which reads
+        // against its fill.
+        .attr("stroke", (f) => countyEdge(byCounty.get(String(f.id))))
+        .attr("stroke-width", 0.6);
 
       const r = d3.scaleSqrt()
         .domain([0, d3.max(points, (p) => p.stories || 1) || 1])
