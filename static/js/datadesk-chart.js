@@ -3600,12 +3600,13 @@
     // A thin near-black ring on every dot, whatever it is: a crisp edge
     // against the shading in either mode. Not the theme's ink, which is
     // white in dark mode.
-    if (outline === "thin") return { stroke: "#161616", width: 0.6, inked: true };
-    // Otherwise a collected dot keeps the surface-coloured ring that
-    // separates overlapping dots, and every kind we do not collect is ringed
-    // in ink.
+    if (outline === "thin") return { stroke: "#161616", width: 0.5, inked: true };
+    // Otherwise a collected dot keeps a surface-coloured HAIRLINE that
+    // separates overlapping dots -- a separator, not a colour; at 1px it
+    // read as a white ring -- and every kind we do not collect is ringed in
+    // ink, which is the encoding.
     return category === "collected"
-      ? { stroke: t.surface, width: 1, inked: false }
+      ? { stroke: t.surface, width: 0.5, inked: false }
       : { stroke: t.ink, width: 1.5, inked: true };
   }
 
