@@ -3601,13 +3601,13 @@
     // against the shading in either mode. Not the theme's ink, which is
     // white in dark mode.
     if (outline === "thin") return { stroke: "#161616", width: 0.5, inked: true };
-    // Otherwise a collected dot keeps a surface-coloured HAIRLINE that
-    // separates overlapping dots -- a separator, not a colour; at 1px it
-    // read as a white ring -- and every kind we do not collect is ringed in
-    // ink, which is the encoding.
+    // Otherwise a collected dot keeps a surface-coloured hairline that
+    // separates overlapping dots, and every kind we do not collect is ringed
+    // in ink. Both are hairlines: a ring separates, it is not a colour, and
+    // at 1-1.5px it read as one.
     return category === "collected"
       ? { stroke: t.surface, width: 0.5, inked: false }
-      : { stroke: t.ink, width: 1.5, inked: true };
+      : { stroke: t.ink, width: 0.5, inked: true };
   }
 
   const PRECISION = { place: 0, block: 1, county: 2, state: 3, tract: 4 };

@@ -412,7 +412,7 @@ class TestTheRenderer:
         root = Path(__file__).resolve().parent.parent
         js = (root / "static/js/datadesk-chart.js").read_text()
         assert "? { stroke: t.surface, width: 0.5, inked: false }" in js
-        assert ": { stroke: t.ink, width: 1.5, inked: true };" in js
+        assert ": { stroke: t.ink, width: 0.5, inked: true };" in js
         assert 'return category === "collected"' in js
         # A thin dark ring on every dot, on or off.
         thin = '{ stroke: "#161616", width: 0.5, inked: true }'
