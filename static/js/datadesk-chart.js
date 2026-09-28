@@ -3597,6 +3597,10 @@
     // surface colour, so a map set to draw none drew white rings on a light
     // page and dark ones on a dark page (2026-09-28).
     if (outline === "none") return { stroke: "none", width: 0, inked: false };
+    // A thin near-black ring on every dot, whatever it is: a crisp edge
+    // against the shading in either mode. Not the theme's ink, which is
+    // white in dark mode.
+    if (outline === "thin") return { stroke: "#161616", width: 0.6, inked: true };
     // Otherwise a collected dot keeps the surface-coloured ring that
     // separates overlapping dots, and every kind we do not collect is ringed
     // in ink.

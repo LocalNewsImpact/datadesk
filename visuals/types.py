@@ -608,6 +608,7 @@ CHART_TYPES = (
                 ),
                 values=(
                     ("", "Ring everything we do not collect in ink"),
+                    ("thin", "A thin dark ring around every dot"),
                     ("none", "No rings"),
                 ),
             ),

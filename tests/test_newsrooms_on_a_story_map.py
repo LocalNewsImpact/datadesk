@@ -414,6 +414,9 @@ class TestTheRenderer:
         assert "? { stroke: t.surface, width: 1, inked: false }" in js
         assert ": { stroke: t.ink, width: 1.5, inked: true };" in js
         assert 'return category === "collected"' in js
+        # A thin dark ring on every dot, on or off.
+        thin = '{ stroke: "#161616", width: 0.6, inked: true }'
+        assert f'if (outline === "thin") return {thin};' in js
         # "No rings" draws no ring, not a surface-coloured one.
         assert (
             'if (outline === "none") return { stroke: "none", width: 0, inked: false };'
