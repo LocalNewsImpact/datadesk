@@ -413,7 +413,12 @@ class TestTheRenderer:
         js = (root / "static/js/datadesk-chart.js").read_text()
         assert "? { stroke: t.surface, width: 1, inked: false }" in js
         assert ": { stroke: t.ink, width: 1.5, inked: true };" in js
-        assert 'return category === "collected" || outline === "none"' in js
+        assert 'return category === "collected"' in js
+        # "No rings" draws no ring, not a surface-coloured one.
+        assert (
+            'if (outline === "none") return { stroke: "none", width: 0, inked: false };'
+            in js
+        )
         stroke = '.attr("stroke", (p) => (byCategory ? ringOf(p).stroke : t.surface))'
         assert stroke in js
         # The author's colour, a slot of the theme's own palette.
