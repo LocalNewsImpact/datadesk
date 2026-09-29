@@ -2172,6 +2172,20 @@ def run_story_map(spec, scopes, config=None):
         ]
 
     points.sort(key=lambda r: -r["stories"])
+
+    # A map about chosen counties draws the stories centred in them. A story
+    # centred in Kansas City that names Columbia is about Boone and shades
+    # it, but its dot belongs in Jackson, and on a map of Boone it was a
+    # central location outside every county asked for.
+    about = {c for c in (spec.get("about_counties") or []) if c}
+    elsewhere = 0
+    if about:
+        inside = [p for p in points if to_county(str(p["geoid"]), p["level"]) in about]
+        elsewhere = sum(p["stories"] for p in points) - sum(
+            p["stories"] for p in inside
+        )
+        points = inside
+
     del points[MAX_GROUPS:]
 
     # The shaded layer is every mention, from every story.
@@ -2240,7 +2254,6 @@ def run_story_map(spec, scopes, config=None):
     # stories about them name their neighbours too, and a whole-state frame
     # shaded every county one of them happened to mention -- a map of where
     # Boone's coverage reaches, when it was asked for Boone.
-    about = {c for c in (spec.get("about_counties") or []) if c}
     areas = [
         {
             "geoid": county,
@@ -2258,6 +2271,8 @@ def run_story_map(spec, scopes, config=None):
         "area_stories": considered,
         "unresolved_places": len(unresolved),
     }
+    if about:
+        meta["centred_elsewhere"] = elsewhere
     if not points and not areas:
         meta["empty_because"] = _why_nothing_mapped(spec, scopes)
     return {"points": points, "areas": areas, "meta": meta}

@@ -4862,3 +4862,30 @@ def test_only_the_chosen_counties_are_shaded(corpus):
     boone = run_story_map({"about_counties": ["29019"]}, ALL_SCOPES)
     assert [a["geoid"] for a in boone["areas"]] == ["29019"]
     assert boone["meta"]["areas"] == 1
+
+
+def test_only_stories_centred_in_the_chosen_counties_are_dots(corpus):
+    """A story centred in Kansas City that names Columbia is about Boone and
+    shades it; its dot is in Jackson, outside the map that was asked for."""
+    import json
+
+    from accounts.access import ALL_SCOPES
+    from explorer.models import ArticleEnrichment
+    from visuals.corpus import run_story_map
+
+    _mention("a2", "2915670", "place")  # Columbia, in Boone
+    enrichment = ArticleEnrichment.objects.get(article_id="a2")
+    enrichment.geoids = json.dumps(["2915670"])
+    enrichment.save(update_fields=["geoids"])
+
+    boone = run_story_map({"about_counties": ["29019"]}, ALL_SCOPES)
+    assert {p["geoid"] for p in boone["points"]} == {"29019"}
+    assert boone["meta"]["centred_elsewhere"] == 1
+    assert [a["geoid"] for a in boone["areas"]] == ["29019"]
+
+
+def test_a_frame_given_as_a_list_draws_only_that_frame():
+    """The whole-state frame the places step writes is a list with no focus
+    code; read as auto it drew every county loaded for dots elsewhere."""
+    source = (ROOT / "static/js/datadesk-chart.js").read_text()
+    assert "const focused = chosen.length > 0 || /^\\d{2,5}$/.test(focus);" in source
