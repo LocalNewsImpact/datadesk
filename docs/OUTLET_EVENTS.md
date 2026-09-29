@@ -1,7 +1,11 @@
 # Outlet events
 
 The outlet registry (`outlet_registry`, imported from the crawler's
-`mo_outlet_registry.csv`) says what each outlet is **now**. It keeps no
+`mo_outlet_registry.csv`) says what each outlet is **now**. The crawler's
+builder computes it from `sources` and the directory lists and publishes each
+rebuild to `gs://mizzou-news-maps-data/registry/mo_outlet_registry.csv`;
+`manage.py import_outlet_registry` reads it from there. No rebuild goes
+through a pull request. It keeps no
 history: an owner is overwritten when a paper is sold, a status when it
 closes. `outlet_event` is the history -- one row per thing that happened to an
 outlet, never overwritten -- so that ownership, mergers, closures and launches
@@ -13,11 +17,12 @@ can be drawn over time.
 |---|---|
 | `outlet_id` | The registry id. An outlet we crawl carries its `sources.id`. Blank for an outlet not in the registry (a paper that closed before the registry was built). |
 | `outlet_name` | The outlet as it was named when the event was recorded. |
-| `event` | `sold`, `merged`, `closed`, `launched`, `relaunched`, `renamed`, `owner_changed`, `correction`, `retraction`. |
+| `event` | `sold`, `merged`, `closed`, `launched`, `relaunched`, `renamed`, `owner_changed`, `correction`, `status`, `retraction`. |
 | `effective_date`, `date_precision` | When it happened in the world, not when it was typed in. Precision is `day`, `month`, `year`, or `by` (on or before that date -- a story reporting it as done). Blank when nobody knows. |
 | `from_owner`, `to_owner` | The ownership change, where there is one. |
 | `merged_into` | What absorbed a merged outlet: an outlet id or the site it now appears at. |
 | `new_name` | A renamed outlet's new name. |
+| `new_status` | What a `status` event says the outlet is: `active`, `replica`, `print`, `social`, `duplicate`, `merged`, `closed`, `legal`, `business`, `shopper`, `magazine`. |
 | `evidence_url`, `note` | Where it came from. |
 | `sets_current` | Whether the event also describes the outlet as it is now. See below. |
 | `retracts` | The event this one withdraws. |
@@ -52,6 +57,16 @@ without waiting for a registry rebuild:
 | `closed` | `status` closed, off the map |
 | `relaunched` | `status` active |
 | `renamed` | `name` |
+| `status` | `status`, its basis (the note), `merged_into` for a merged or duplicate outlet, and where it is drawn: `active` by what we collect, `replica` / `print` / `social` in their own colour, the rest off the map |
+
+### A reviewed status is an event
+
+What an outlet *is* -- a replica edition, print only, a duplicate of another
+row, a legal-notice sheet -- is a reviewer's word, and it is recorded as a
+`status` event on the outlet's page, not written into the registry file. With
+"how the outlet stands now" ticked it replaces the status the file gives the
+outlet, and every later import lays it back on top. A wrong one is retracted
+like any other event, and the outlet returns to what the file says.
 
 For an outlet we crawl, an owner change is also written to `sources.owner`
 through `audited_update`, so the crawler's own record and the registry rebuilt

@@ -25,6 +25,7 @@ REQUIRED = {
     E.OWNER_CHANGED: ("to_owner",),
     E.MERGED: ("merged_into",),
     E.RENAMED: ("new_name",),
+    E.STATUS: ("new_status",),
 }
 
 #: Fields an event is compared on when a backfill asks whether it is already
@@ -38,6 +39,7 @@ IDENTITY = (
     "to_owner",
     "merged_into",
     "new_name",
+    "new_status",
     "evidence_url",
 )
 
@@ -51,6 +53,7 @@ FIELDS = (
     "to_owner",
     "merged_into",
     "new_name",
+    "new_status",
     "evidence_url",
     "note",
     "sets_current",
@@ -80,6 +83,17 @@ def clean(data):
     for field in REQUIRED.get(text["event"], ()):
         if not text[field]:
             errors.append(f"A {kinds[text['event']].lower()} event needs {field}.")
+    statuses = dict(E.STATUSES)
+    if text["event"] == E.STATUS:
+        if text["new_status"] not in statuses:
+            errors.append(f"Say what the outlet is: one of {', '.join(statuses)}.")
+        elif text["new_status"] in ("merged", "duplicate") and not text["merged_into"]:
+            errors.append(
+                f"A {text['new_status']} outlet needs merged_into: "
+                "what it is part of."
+            )
+    else:
+        text["new_status"] = ""
     when = None
     if text["effective_date"]:
         try:
@@ -191,14 +205,41 @@ def _apply(outlet, event):
         outlet.status = "active"
     if event.event == E.RENAMED:
         outlet.name = event.new_name
+    if event.event == E.STATUS:
+        outlet.status = event.new_status
+        outlet.merged_into = (
+            event.merged_into if event.new_status in ("merged", "duplicate") else ""
+        )
+        outlet.status_basis = event.note or dict(E.STATUSES)[event.new_status]
+        outlet.category, outlet.on_map = _placed(outlet, event.new_status)
+
+
+#: Statuses drawn on the outlet map, each in its own colour. Every other
+#: status is off the map: a legal-notice sheet or a shopper is not a
+#: newsroom, and a merged or closed outlet is drawn where it went, if at all.
+DRAWN = ("replica", "print", "social")
+LISTED = ("legal", "business", "shopper", "magazine")
+
+
+def _placed(outlet, status):
+    """(category, on_map) for an outlet a reviewer gave `status`."""
+    if status == "active":
+        return ("collected" if outlet.march_articles else "not collected"), True
+    if status in DRAWN:
+        return status, True
+    if status in LISTED:
+        return status, False
+    return "", False
 
 
 #: The registry-row fields an event may set, and the file's column for each.
 _FROM_FILE = {
     "owner": "owner",
     "status": "status",
+    "status_basis": "status_basis",
     "merged_into": "merged_into",
     "name": "outlet",
+    "category": "map_category",
 }
 
 

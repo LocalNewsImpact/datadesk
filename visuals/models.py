@@ -427,6 +427,7 @@ class OutletEvent(models.Model):
     RENAMED = "renamed"
     OWNER_CHANGED = "owner_changed"
     CORRECTION = "correction"
+    STATUS = "status"
     RETRACTION = "retraction"
     EVENTS = [
         (SOLD, "Sold"),
@@ -437,7 +438,24 @@ class OutletEvent(models.Model):
         (RENAMED, "Renamed"),
         (OWNER_CHANGED, "Owner changed"),
         (CORRECTION, "Correction"),
+        (STATUS, "Status reviewed"),
         (RETRACTION, "Retraction"),
+    ]
+
+    #: What a reviewer may say an outlet is -- the registry's own statuses.
+    #: `merged` and `closed` have events of their own, which carry a date.
+    STATUSES = [
+        ("active", "Active: a live website"),
+        ("replica", "Replica or e-edition only"),
+        ("print", "Print only"),
+        ("social", "Social media only"),
+        ("duplicate", "Duplicate of another outlet"),
+        ("merged", "Merged into another outlet"),
+        ("closed", "Closed"),
+        ("legal", "Legal-notice publication"),
+        ("business", "Business publication"),
+        ("shopper", "Shopper"),
+        ("magazine", "Magazine"),
     ]
 
     DAY, MONTH, YEAR, BY = "day", "month", "year", "by"
@@ -462,6 +480,8 @@ class OutletEvent(models.Model):
     to_owner = models.CharField(max_length=300, blank=True, default="")
     merged_into = models.CharField(max_length=300, blank=True, default="")
     new_name = models.CharField(max_length=300, blank=True, default="")
+    #: The status a `status` event gives the outlet.
+    new_status = models.CharField(max_length=40, blank=True, default="")
     evidence_url = models.URLField(max_length=500, blank=True, default="")
     note = models.TextField(blank=True, default="")
     #: Whether this also describes the outlet as it is now, and so is laid

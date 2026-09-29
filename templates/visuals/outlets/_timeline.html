@@ -19,6 +19,7 @@
         {% if e.from_owner or e.to_owner %} — {{ e.from_owner|default:"?" }} → {{ e.to_owner|default:"?" }}{% endif %}
         {% if e.merged_into %} — into {{ e.merged_into }}{% endif %}
         {% if e.new_name %} — now {{ e.new_name }}{% endif %}
+        {% if e.new_status %} — {{ e.new_status }}{% endif %}
         {% if e.retracts %} — withdraws “{{ e.retracts }}”{% endif %}
         {% if e.retracted_by.all %} <em>(retracted)</em>{% endif %}
         {% if e.note %}<div class="hint">{{ e.note }}</div>{% endif %}
