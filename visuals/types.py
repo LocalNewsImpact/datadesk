@@ -632,6 +632,16 @@ CHART_TYPES = (
                     ("fixed", "Fixed: 1–2 / 3–5 / 6–9 / 10+"),
                 ),
             ),
+            Option(
+                "as_of",
+                "As of",
+                "text",
+                note=(
+                    "A month, 2026-03, or a day. The outlets operating then, "
+                    "from the dates recorded as outlet events, and collected "
+                    "or not by that month's articles. Empty: the registry now."
+                ),
+            ),
         ),
         also=("newsroom map", "registry map", "news desert map"),
         encoding=SHADING,

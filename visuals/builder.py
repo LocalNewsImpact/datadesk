@@ -86,6 +86,7 @@ _STRING_KEYS = (
     "colour_print",
     "colour_replica",
     "colour_social",
+    "as_of",
     # A table's layout (types.ChartType("table")).
     "detail_columns",
     "filter_column",
