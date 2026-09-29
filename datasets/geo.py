@@ -31,6 +31,20 @@ def county_for_place(place_geoid):
     return (entry[0], entry[1]) if entry else (None, 0)
 
 
+def codes_in_counties(counties):
+    """Every coding that lies in these counties and has a code of its own.
+
+    The counties themselves, and each place whose primary county is one of
+    them -- a place GEOID carries no county, so the crosswalk is read
+    backwards. Tracts and blocks carry their county as a prefix and are
+    matched by it, not listed here. A place straddling two counties counts
+    in the one the Census lists first, the same rule every rollup uses.
+    """
+    wanted = {str(c).strip() for c in counties or () if str(c).strip()}
+    places = {p for p, entry in _load().items() if entry[0] in wanted}
+    return sorted(wanted | places)
+
+
 def to_county(geoid, level):
     """County FIPS for any point coding, or None where undecidable.
 
@@ -68,6 +82,15 @@ def county_label(fips):
                 )
     found = _by_geoid.get(str(fips or "").strip())
     return f"{found[0]}, {found[1]}" if found else str(fips or "")
+
+
+def counties_in_state(usps):
+    """[(county FIPS, name)] for one state, by name: "Boone", not
+    "Boone County"."""
+    county_label("")  # loads the table
+    usps = (usps or "").strip().upper()
+    found = [(fips, name) for fips, (name, st) in _by_geoid.items() if st == usps]
+    return sorted(found, key=lambda c: c[1])
 
 
 def county_of(geoid):

@@ -1,0 +1,64 @@
+{% extends "visuals/steps/_shell.html" %}
+{% block panel %}
+{% comment %}
+Where the stories are, not where the newsrooms are. A county chosen here
+takes every story set in it or naming it, from any newsroom in the datasets
+this visual draws on. Nothing chosen means anywhere.
+{% endcomment %}
+<form method="post" id="step-form">
+  {% csrf_token %}
+  <p class="tree-head">{% if kept %}{{ kept }} count{{ kept|pluralize:"y,ies" }} chosen{% else %}Anywhere{% endif %}
+    <span class="hint">{{ state }} counties</span></p>
+  <label class="stacked">Find a county
+    <input type="search" id="county-find" placeholder="Boone" autocomplete="off"></label>
+  <div class="county-grid" id="county-grid">
+    {% for c in counties %}
+    <label class="row" data-name="{{ c.name|lower }}">
+      <input type="checkbox" name="about_counties" value="{{ c.fips }}" {% if c.on %}checked{% endif %}>
+      <span class="label">{{ c.name }}</span>
+    </label>
+    {% endfor %}
+  </div>
+  <fieldset class="stacked">
+    <legend>A story counts when</legend>
+    <label class="inline"><input type="radio" name="about_match" value="" {% if not central_only %}checked{% endif %}>
+      it is set in one of these counties or names one</label>
+    <label class="inline"><input type="radio" name="about_match" value="central" {% if central_only %}checked{% endif %}>
+      it is set in one of them</label>
+  </fieldset>
+  <label class="inline"><input type="checkbox" name="about_publishers" value="1" {% if with_publishers %}checked{% endif %}>
+    Also every story from newsrooms located in these counties, whatever it is about</label>
+  {% if is_map %}
+  {% comment %}
+  Choosing counties chooses stories, not the frame. The frame is the
+  author's: left alone it stays as it is.
+  {% endcomment %}
+  <fieldset class="stacked">
+    <legend>Frame the map on</legend>
+    {% for key, label in frames %}
+    <label class="inline"><input type="radio" name="frame_to" value="{{ key }}" {% if forloop.first %}checked{% endif %}>
+      {{ label }}</label>
+    {% endfor %}
+    <input type="text" name="frame_counties" placeholder="Boone; Callaway; Howard"
+           aria-label="Counties to frame, separated by semicolons">
+  </fieldset>
+  {% endif %}
+  <div class="action-bar">
+    <button type="submit" class="primary">Next</button>
+    <button type="submit" name="stay" value="1"
+      title="Save this step and redraw the preview with it">Update</button>
+  </div>
+</form>
+<script>
+(function () {
+  var box = document.getElementById("county-find");
+  var rows = document.querySelectorAll("#county-grid .row");
+  box.addEventListener("input", function () {
+    var q = box.value.trim().toLowerCase();
+    rows.forEach(function (row) {
+      row.hidden = q !== "" && row.dataset.name.indexOf(q) === -1;
+    });
+  });
+})();
+</script>
+{% endblock %}

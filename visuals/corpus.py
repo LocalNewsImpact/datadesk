@@ -45,7 +45,13 @@ from datasets.publishers import (  # noqa: F401  (re-exported)
     fold_value,
     group_of,
 )
-from explorer.models import Article, ArticlePlaceManual, DatasetSource, Source
+from explorer.models import (
+    Article,
+    ArticleGeoid,
+    ArticlePlaceManual,
+    DatasetSource,
+    Source,
+)
 
 LOG = logging.getLogger(__name__)
 
@@ -769,6 +775,49 @@ def as_iso(value, what="date"):
     )
 
 
+#: `about_match`: a story set in one of the counties, and not one that only
+#: names it in passing.
+CENTRAL_ONLY = "central"
+FINE_LEVELS = ("tract", "block")
+
+
+def about_counties(counties, central_only=False, with_publishers=False):
+    """Stories about these counties, from whichever newsroom wrote them.
+
+    Where a newsroom is says whose coverage it is; this asks where the
+    coverage is. A story counts when its central location lies in one of
+    the counties or -- unless `central_only` -- when it names one: the
+    place set in `article_geoids`, and a place a reviewer added by hand.
+    `with_publishers` also takes every story from a newsroom located
+    there, whatever it is about.
+    """
+    from datasets.geo import codes_in_counties, county_label
+
+    counties = [str(c).strip() for c in counties if str(c).strip()]
+    codes = codes_in_counties(counties)
+
+    def within(field, level_field):
+        q = Q(**{f"{field}__in": codes})
+        for county in counties:
+            q |= Q(
+                **{f"{field}__startswith": county, f"{level_field}__in": FINE_LEVELS}
+            )
+        return q
+
+    about = within("enrichment__point_geoid", "enrichment__point_geoid_level")
+    if not central_only:
+        named = ArticleGeoid.objects.filter(within("geoid", "geoid_level"))
+        about |= Q(id__in=named.values("article_id"))
+        by_hand = ArticlePlaceManual.objects.filter(geoid__in=codes)
+        about |= Q(id__in=by_hand.values("article_id"))
+    if with_publishers:
+        for county in counties:
+            name = county_label(county).rsplit(",", 1)[0].strip()
+            if name and name != county:
+                about |= Q(candidate_link__source__county__iexact=name)
+    return about
+
+
 def _base_queryset(spec, scopes):
     """Articles narrowed to `scopes`, then by the spec's filters.
 
@@ -842,6 +891,14 @@ def _base_queryset(spec, scopes):
         qs = qs.filter(candidate_link__source__county__iexact=county)
     if city := spec.get("publisher_city"):
         qs = qs.filter(candidate_link__source__city__iexact=city)
+    if about := [c for c in (spec.get("about_counties") or []) if c]:
+        qs = qs.filter(
+            about_counties(
+                about,
+                central_only=spec.get("about_match") == CENTRAL_ONLY,
+                with_publishers=bool(spec.get("about_publishers")),
+            )
+        )
     if status := spec.get("status"):
         qs = qs.filter(status=status)
     if wire := spec.get("wire"):

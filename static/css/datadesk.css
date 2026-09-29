@@ -3098,3 +3098,10 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
 .dd-key-item { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
 .dd-key-swatch { flex: none; width: 0.75rem; height: 0.75rem; border-radius: 3px; }
 .dd-key-label { color: var(--text-2); line-height: 1.25; overflow-wrap: anywhere; }
+
+/* Places step: a state's counties, several to a row, filtered by name. */
+.county-grid{ display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: .15rem .75rem; max-height: 22rem; overflow-y: auto; margin: .4rem 0 .8rem;
+  padding: .4rem .5rem; border: 1px solid var(--border); border-radius: 4px; }
+.county-grid .row{ display: flex; gap: .4rem; align-items: center; font-size: var(--fs-sm); }
+.county-grid .row[hidden]{ display: none; }

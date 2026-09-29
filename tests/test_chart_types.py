@@ -409,6 +409,9 @@ def test_the_steps_are_the_order_the_prototype_settled():
         "theme",
         "data",
         "newsrooms",
+        # Whose coverage, then where it is: stories about a county from any
+        # newsroom, not only the newsrooms located there.
+        "places",
         "fields",
         # Publishing is the end of the flow, not a corner of the advanced
         # settings page: it is where the work is finished and where the
