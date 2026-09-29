@@ -104,6 +104,13 @@ def parts_for(visual, step=""):
         )
         place = config.get("focus_name") or ""
         out.append(("in", place, "said") if place else gap("in", "a place", "theme"))
+        if config.get("as_of"):
+            import contextlib
+
+            from visuals.outlets import as_of_period
+
+            with contextlib.suppress(ValueError, TypeError):
+                out.append(("as of", as_of_period(config["as_of"])[2], "said"))
         return out
 
     if chart and chart.roles:

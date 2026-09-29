@@ -292,6 +292,12 @@ def theme_panel(visual, post=None):
                 config[option.id] = posted if posted in allowed else ""
             else:
                 config[option.id] = posted.strip()
+        if config.get("as_of"):
+            # Refused here, where it was typed, rather than drawn as a map of
+            # today labelled with a date nobody could read.
+            from visuals.outlets import as_of_period
+
+            as_of_period(config["as_of"])
         # A framing option is typed as a place and read as a code. The
         # renderer frames on FIPS because that is what the boundary file
         # is keyed by, and nobody knows Missouri is 29 -- the same
