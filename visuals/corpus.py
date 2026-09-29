@@ -2236,6 +2236,11 @@ def run_story_map(spec, scopes, config=None):
             continue
         by_county.setdefault(county, set()).add(article_id)
 
+    # A map about chosen counties shades those counties and no others. The
+    # stories about them name their neighbours too, and a whole-state frame
+    # shaded every county one of them happened to mention -- a map of where
+    # Boone's coverage reaches, when it was asked for Boone.
+    about = {c for c in (spec.get("about_counties") or []) if c}
     areas = [
         {
             "geoid": county,
@@ -2243,6 +2248,7 @@ def run_story_map(spec, scopes, config=None):
             "stories": len(ids),
         }
         for county, ids in sorted(by_county.items(), key=lambda kv: -len(kv[1]))
+        if not about or county in about
     ]
 
     meta = {

@@ -4841,3 +4841,24 @@ def test_an_upload_has_no_places_step(visual):
     assert "places" not in [s.slug for s in steps_for(visual)]
     visual.source_kind = "corpus"
     assert "places" in [s.slug for s in steps_for(visual)]
+
+
+def test_only_the_chosen_counties_are_shaded(corpus):
+    """Stories about Boone name Kansas City too. On a whole-state frame that
+    shaded Jackson, which is not what a map of Boone asked for."""
+    import json
+
+    from accounts.access import ALL_SCOPES
+    from explorer.models import ArticleEnrichment
+    from visuals.corpus import run_story_map
+
+    enrichment = ArticleEnrichment.objects.get(article_id="a0")
+    enrichment.geoids = json.dumps(["2915670", "2938000"])  # Columbia, Kansas City
+    enrichment.save(update_fields=["geoids"])
+
+    everywhere = run_story_map({}, ALL_SCOPES)
+    assert {a["geoid"] for a in everywhere["areas"]} == {"29019", "29095"}
+
+    boone = run_story_map({"about_counties": ["29019"]}, ALL_SCOPES)
+    assert [a["geoid"] for a in boone["areas"]] == ["29019"]
+    assert boone["meta"]["areas"] == 1
