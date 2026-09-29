@@ -3698,7 +3698,13 @@
       // An explicit focus draws only that geography — the March map is
       // Missouri and nothing else. Auto-framing keeps every county in
       // view so no state reads as a hole.
-      const focused = /^\d{2,5}$/.test(focus);
+      //
+      // A FRAME GIVEN AS A LIST IS A FOCUS TOO. The places step frames a
+      // map on the whole state, or on counties an author names, as a list
+      // with no focus code -- and read as "auto" it drew every county the
+      // boundary file loaded for dots elsewhere, so a Missouri map showed
+      // Kansas and Illinois around it (2026-09-28).
+      const focused = chosen.length > 0 || /^\d{2,5}$/.test(focus);
       const shown = focused ? framed : features;
       const inFrame = new Set(shown.map((f) => String(f.id).slice(0, 2)));
       // The counties this map actually paints. Declared here because the
