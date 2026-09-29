@@ -4706,3 +4706,159 @@ def test_taxonomy_has_one_control(client, author, visual, corpus):
     step(client, visual, "theme", theme="datadesk", taxonomy="1", **{"opt-sort": "y"})
     visual.refresh_from_db()
     assert visual.config["taxonomy"] == "cin"
+
+
+# --- the places step: stories about a county, from any newsroom ---------------
+
+
+def _about(spec):
+    from accounts.access import ALL_SCOPES
+    from visuals.corpus import _base_queryset
+
+    return sorted(_base_queryset(spec, ALL_SCOPES).values_list("id", flat=True))
+
+
+def _mention(article_id, geoid, level):
+    from explorer.models import ArticleGeoid
+
+    ArticleGeoid.objects.create(
+        article_id=article_id, geoid=geoid, geoid_level=level, is_primary=False
+    )
+
+
+def test_a_story_set_in_a_county_is_about_it(corpus):
+    """Coverage of Jackson, not coverage by Jackson's newsrooms: the Boone
+    station's Kansas City story is in, and its Columbia stories are not."""
+    assert _about({"about_counties": ["29095"]}) == ["a2"]
+
+
+def test_a_story_naming_a_county_is_about_it_unless_only_the_centre_counts(corpus):
+    _mention("a0", "29095", "county")
+    assert _about({"about_counties": ["29095"]}) == ["a0", "a2"]
+    assert _about({"about_counties": ["29095"], "about_match": "central"}) == ["a2"]
+
+
+def test_a_place_counts_in_its_county(corpus):
+    """A place GEOID carries no county; Columbia (2915670) is in Boone by
+    the Census crosswalk, so a story naming it is a story about Boone."""
+    _mention("a2", "2915670", "place")
+    assert _about({"about_counties": ["29019"], "about_match": ""}) == [
+        "a0",
+        "a1",
+        "a2",
+    ]
+
+
+def test_a_block_counts_in_its_county(corpus):
+    _mention("a0", "290950001001000", "block")
+    assert _about({"about_counties": ["29095"]}) == ["a0", "a2"]
+
+
+def test_newsrooms_located_there_are_added_only_when_asked(corpus):
+    central = {"about_counties": ["29019"], "about_match": "central"}
+    assert _about(central) == ["a0", "a1"]
+    assert _about({**central, "about_publishers": True}) == ["a0", "a1", "a2"]
+
+
+def test_the_places_step_offers_the_states_counties(client, author, visual, corpus):
+    visual.datasets = ["mizzou"]
+    visual.save()
+    body = step(client, visual, "places").content.decode()
+    assert 'id="county-find"' in body
+    assert 'value="29019"' in body and ">Boone<" in body
+    assert "Anywhere" in body
+
+
+def test_choosing_counties_chooses_stories_not_the_frame(
+    client, author, visual, corpus
+):
+    """The frame is the author's. Picking counties narrows the stories and
+    leaves a frame somebody set on another step where it was."""
+    visual.config = {"kind": "storymap", "frame": ["29001"], "extent": "selected"}
+    visual.datasets = ["mizzou"]
+    visual.save()
+    step(client, visual, "places", about_counties=["29019", "29095"], stay="1")
+    visual.refresh_from_db()
+    assert visual.spec["about_counties"] == ["29019", "29095"]
+    assert visual.config["frame"] == ["29001"]
+
+
+@pytest.mark.parametrize(
+    "post, frame",
+    [
+        ({"frame_to": "chosen"}, ["29019", "29095"]),
+        ({"frame_to": "auto"}, []),
+        (
+            {"frame_to": "listed", "frame_counties": "Callaway; Howard"},
+            ["29027", "29089"],
+        ),
+    ],
+)
+def test_the_frame_is_whatever_the_author_asks(
+    client, author, visual, corpus, post, frame
+):
+    visual.config = {"kind": "storymap"}
+    visual.datasets = ["mizzou"]
+    visual.save()
+    step(client, visual, "places", about_counties=["29019", "29095"], stay="1", **post)
+    visual.refresh_from_db()
+    assert visual.config["frame"] == frame
+
+
+def test_the_whole_state_can_be_the_frame(client, author, visual, corpus):
+    visual.config = {"kind": "storymap"}
+    visual.datasets = ["mizzou"]
+    visual.save()
+    step(client, visual, "places", about_counties=["29019"], frame_to="state", stay="1")
+    visual.refresh_from_db()
+    assert len(visual.config["frame"]) == 115
+    assert "29510" in visual.config["frame"]
+
+
+def test_an_unknown_county_is_refused(client, author, visual, corpus):
+    response = step(client, visual, "places", about_counties=["99999"])
+    assert "No such county" in response.content.decode()
+    visual.refresh_from_db()
+    assert not (visual.spec or {}).get("about_counties")
+
+
+def test_the_sentence_says_where_the_stories_are(visual):
+    from visuals.sentence import parts_for
+
+    visual.config = {"kind": "storymap"}
+    visual.spec = {"about_counties": ["29019", "29095"]}
+    said = [text for _, text, _ in parts_for(visual, "places")]
+    assert "Boone and Jackson counties" in said
+    visual.spec = {"about_counties": ["29019"], "about_match": "central"}
+    parts = parts_for(visual, "places")
+    assert ("set in", "Boone County", "said") in parts
+
+
+def test_an_upload_has_no_places_step(visual):
+    from visuals.steps import steps_for
+
+    visual.source_kind = "inline"
+    assert "places" not in [s.slug for s in steps_for(visual)]
+    visual.source_kind = "corpus"
+    assert "places" in [s.slug for s in steps_for(visual)]
+
+
+def test_only_the_chosen_counties_are_shaded(corpus):
+    """Stories about Boone name Kansas City too. On a whole-state frame that
+    shaded Jackson, which is not what a map of Boone asked for."""
+    import json
+
+    from accounts.access import ALL_SCOPES
+    from explorer.models import ArticleEnrichment
+    from visuals.corpus import run_story_map
+
+    enrichment = ArticleEnrichment.objects.get(article_id="a0")
+    enrichment.geoids = json.dumps(["2915670", "2938000"])  # Columbia, Kansas City
+    enrichment.save(update_fields=["geoids"])
+
+    everywhere = run_story_map({}, ALL_SCOPES)
+    assert {a["geoid"] for a in everywhere["areas"]} == {"29019", "29095"}
+
+    boone = run_story_map({"about_counties": ["29019"]}, ALL_SCOPES)
+    assert [a["geoid"] for a in boone["areas"]] == ["29019"]
+    assert boone["meta"]["areas"] == 1

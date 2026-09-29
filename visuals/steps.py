@@ -1,7 +1,7 @@
 """The builder's five steps, and what each one is for.
 
 The prototype (ROADMAP item 20) settled the order: a chart type, a colour
-theme, the slice of the corpus, the newsrooms, then the fields. Every step
+theme, the slice of the corpus, the newsrooms, the places, then the fields. Every step
 writes its own keys and none clears another's, so going back changes one
 choice and keeps the rest -- which is the difference between a tool people
 explore with and a form they fill in once.
@@ -87,6 +87,16 @@ STEPS = (
         ),
     ),
     Step(
+        "places",
+        "Places",
+        "Which places is it about?",
+        "Stories set in or naming these counties, from every newsroom -- not "
+        "only the newsrooms located there. Empty means anywhere.",
+        # The map frame follows the counties chosen here, as it follows the
+        # newsrooms on the step before; whichever was saved last frames it.
+        ("spec:about_counties", "spec:about_match", "spec:about_publishers"),
+    ),
+    Step(
         "fields",
         "Fields",
         "Which fields?",
@@ -132,7 +142,7 @@ BY_SLUG = {s.slug: s for s in STEPS}
 #: newsrooms to choose between: whoever made the file decided that, and
 #: offering the choice would be offering to filter by a column the file
 #: may not even have.
-_CORPUS_ONLY = ("newsrooms",)
+_CORPUS_ONLY = ("newsrooms", "places")
 
 
 def steps_for(visual):
@@ -175,6 +185,8 @@ def reached(visual):
         done.add("data")
     if spec.get("publishers"):
         done.add("newsrooms")
+    if spec.get("about_counties"):
+        done.add("places")
     # An upload's data step is the file, and the file is there: a visual
     # that has rows has answered the only question that step asks.
     #

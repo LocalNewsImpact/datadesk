@@ -143,6 +143,23 @@ def parts_for(visual, step=""):
     if rooms:
         out.append(("from", f"{len(rooms)} newsrooms", "said"))
 
+    about = spec.get("about_counties") or []
+    if about:
+        from datasets.geo import county_label
+
+        names = [county_label(c).rsplit(",", 1)[0] for c in about]
+        where = (
+            f"{names[0]} County"
+            if len(names) == 1
+            else (
+                f"{len(names)} counties"
+                if len(names) > 3
+                else f"{', '.join(names[:-1])} and {names[-1]} counties"
+            )
+        )
+        verb = "set in" if spec.get("about_match") == "central" else "about"
+        out.append((verb, where, "said"))
+
     # Which subset, always. A chart of everything and a chart of the
     # exported set look identical and mean different things.
     from visuals.corpus import COMPLETE, SUBSETS

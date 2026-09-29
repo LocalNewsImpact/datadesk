@@ -746,6 +746,130 @@ def _frame_from_newsrooms(publishers, visual):
     }
 
 
+#: What the frame can be set to from the places step. Choosing counties does
+#: not move the frame: which stories are drawn and how much of the state is
+#: painted are two decisions, and the author makes each.
+KEEP_FRAME, FRAME_AUTO, FRAME_CHOSEN, FRAME_STATE, FRAME_LISTED = (
+    "keep",
+    "auto",
+    "chosen",
+    "state",
+    "listed",
+)
+FRAMES = (
+    (KEEP_FRAME, "as it is now"),
+    (FRAME_AUTO, "wherever the stories are"),
+    (FRAME_CHOSEN, "the counties chosen above"),
+    (FRAME_STATE, "the whole state"),
+    (FRAME_LISTED, "these counties:"),
+)
+
+
+def _frame_for_places(post, picked, visual):
+    """The map frame the places step asks for, or None to leave it alone."""
+    from visuals.geofocus import (
+        COUNTY,
+        FocusError,
+        counties_in_state,
+        resolve,
+        state_fips,
+        state_of,
+    )
+
+    choice = post.get("frame_to") or KEEP_FRAME
+    if choice == KEEP_FRAME:
+        return None
+    blank = {"focus": "", "focus_name": "", "focus_level": ""}
+    if choice == FRAME_AUTO:
+        return {**blank, "extent": "auto", "frame": []}
+    if choice == FRAME_CHOSEN:
+        if not picked:
+            raise ValueError("Choose a county to frame the map on it.")
+        return {**blank, "extent": "selected", "frame": picked}
+    state = state_of(visual.datasets or []) or ""
+    if choice == FRAME_STATE:
+        fips = state_fips(state) if state else (picked[0][:2] if picked else "")
+        if not fips:
+            raise ValueError("Which state? The datasets span more than one.")
+        return {**blank, "extent": "selected", "frame": sorted(counties_in_state(fips))}
+    if choice == FRAME_LISTED:
+        # Semicolons and new lines between counties: a comma belongs to a
+        # name ("Callaway, MO").
+        import re
+
+        wanted = set()
+        for piece in re.split(r"[;\n]+", post.get("frame_counties") or ""):
+            piece = piece.strip()
+            if not piece:
+                continue
+            try:
+                geoid, _ = resolve(piece, COUNTY, state)
+            except FocusError as exc:
+                raise ValueError(str(exc)) from exc
+            if not geoid:
+                raise ValueError(f"{piece!r} is not a county.")
+            wanted.add(geoid[:5])
+        if not wanted:
+            raise ValueError("Name the counties to frame, separated by semicolons.")
+        return {**blank, "extent": "selected", "frame": sorted(wanted)}
+    raise ValueError(f"No such frame: {choice!r}")
+
+
+def places_panel(visual, post=None):
+    """The counties a visual's stories are about, whoever published them.
+
+    The newsroom step asks whose coverage this is; this asks where it is.
+    A story counts when it is set in a chosen county or names one, so a
+    Boone County map holds the Kansas City station's story about Columbia
+    as well as the Columbia paper's. Stored as county FIPS, which is what
+    the place set and the boundary file are both keyed by.
+    """
+    from datasets.geo import counties_in_state, county_label
+    from visuals.corpus import CENTRAL_ONLY
+    from visuals.geofocus import state_of
+
+    spec, config = visual.spec or {}, visual.config or {}
+    if post is not None:
+        picked = sorted(
+            {c.strip() for c in post.getlist("about_counties") if c.strip()}
+        )
+        unknown = [c for c in picked if county_label(c) == c]
+        if unknown:
+            raise ValueError(f"No such county: {', '.join(unknown)}")
+        written = {
+            "spec": {
+                "about_counties": picked,
+                "about_match": (
+                    CENTRAL_ONLY if post.get("about_match") == CENTRAL_ONLY else ""
+                ),
+                "about_publishers": bool(post.get("about_publishers")) and bool(picked),
+            }
+        }
+        if config.get("kind") in _MAP_KINDS:
+            framed = _frame_for_places(post, picked, visual)
+            if framed is not None:
+                written["config"] = framed
+        return written
+
+    kept = set(spec.get("about_counties") or ())
+    state = state_of(visual.datasets or []) or ""
+    if not state and kept:
+        state = county_label(sorted(kept)[0]).rsplit(",", 1)[-1].strip()
+    state = state or "MO"
+    return {
+        "state": state,
+        "frames": FRAMES,
+        "counties": [
+            {"fips": fips, "name": name, "on": fips in kept}
+            for fips, name in counties_in_state(state)
+        ],
+        "kept": len(kept),
+        "central_only": spec.get("about_match") == CENTRAL_ONLY,
+        "with_publishers": bool(spec.get("about_publishers")),
+        "is_map": config.get("kind") in _MAP_KINDS,
+    }
+
+
 def _newsroom_count(tree):
     """How many newsrooms the picker is offering."""
     return sum(len(rooms) for state in tree.values() for rooms in state.values())
