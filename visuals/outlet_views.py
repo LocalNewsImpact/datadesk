@@ -94,6 +94,7 @@ def outlet_detail(request, outlet_id):
         "may_record": _may_record(request.user),
         "kinds": OutletEvent.EVENTS[:-1],
         "precisions": OutletEvent.PRECISIONS,
+        "statuses": OutletEvent.STATUSES,
         "values": {"outlet_name": outlet.name, "from_owner": outlet.owner},
         "errors": [],
     }
@@ -134,6 +135,7 @@ def event_new(request):
     context = {
         "kinds": OutletEvent.EVENTS[:-1],
         "precisions": OutletEvent.PRECISIONS,
+        "statuses": OutletEvent.STATUSES,
         "values": {},
         "errors": [],
         "may_record": may,
@@ -167,6 +169,7 @@ EXPORT = (
     "to_owner",
     "merged_into",
     "new_name",
+    "new_status",
     "evidence_url",
     "note",
     "retracted",

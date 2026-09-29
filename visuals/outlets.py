@@ -19,13 +19,11 @@ from django.db import transaction
 #: The points' colours, in the order the legend lists them.
 CATEGORIES = ("collected", "not collected", "print", "replica", "social")
 
-#: Where the registry is published: the crawler repo, which is public, keeps
-#: the derived registry and nothing it was derived from. Read at import time,
-#: so a Cloud Run job can load it without the file being in this image.
-DEFAULT_URL = (
-    "https://raw.githubusercontent.com/LocalNewsImpact/MizzouNewsCrawler/"
-    "main/src/lookups/mo_outlet_registry.csv"
-)
+#: Where the crawler's builder publishes each rebuild of the registry. A
+#: bucket, not the repo: a rebuild is data, and waiting on a pull request to
+#: show a newly tagged link or a renamed source is the round trip this
+#: replaces. A reviewer's word is an outlet event here, laid over every import.
+DEFAULT_URL = "gs://mizzou-news-maps-data/registry/mo_outlet_registry.csv"
 
 
 def _float(value):
@@ -43,8 +41,14 @@ def _int(value):
 
 
 def read_registry(where=DEFAULT_URL):
-    """The registry's rows, from a URL or a local path."""
-    if str(where).startswith(("http://", "https://")):
+    """The registry's rows, from a bucket, a URL or a local path."""
+    if str(where).startswith("gs://"):
+        from google.cloud import storage
+
+        bucket, _, blob = str(where)[5:].partition("/")
+        data = storage.Client().bucket(bucket).blob(blob).download_as_bytes()
+        text = data.decode("utf-8-sig")
+    elif str(where).startswith(("http://", "https://")):
         import urllib.request
 
         with urllib.request.urlopen(str(where), timeout=60) as resp:

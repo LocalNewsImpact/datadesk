@@ -39,6 +39,19 @@ registry does not hold; `outlet` is absent on the second.
            placeholder="the outlet or site that absorbed it"></label>
     <label>New name <input type="text" name="new_name" value="{{ values.new_name|default:'' }}"></label>
   </div>
+  <div class="action-bar">
+    <label>Status (for "Status reviewed")
+      <select name="new_status">
+        <option value="">—</option>
+        {% for key, label in statuses %}
+        <option value="{{ key }}" {% if values.new_status == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+  <p class="hint">A reviewed status is what the outlet is — replica, print, a duplicate —
+  and with "how the outlet stands now" ticked it replaces the status the registry file gives it.
+  A merged or duplicate outlet names what it is part of in "Merged into".</p>
   <label class="stacked">Source
     <input type="url" name="evidence_url" value="{{ values.evidence_url|default:'' }}"
            placeholder="https://mopress.com/stories/…"></label>

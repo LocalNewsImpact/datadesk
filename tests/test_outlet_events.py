@@ -348,3 +348,178 @@ class TestThePages:
         client = Client()
         client.force_login(editor)
         assert "Weston Chronicle" in client.get("/outlets/?q=weston").content.decode()
+
+
+def _review(new_status, **kw):
+    return {
+        "event": "status",
+        "outlet_id": "o-weston",
+        "outlet_name": "Weston",
+        "new_status": new_status,
+        "note": kw.pop("note", "reviewed"),
+        "sets_current": kw.pop("sets_current", "on"),
+        **kw,
+    }
+
+
+class TestAReviewedStatus:
+    """A reviewer's word on what an outlet is -- replica, print, a duplicate --
+    recorded here instead of in a file edited, committed and merged (2026-09-28:
+    The Dixon Pilot, a replica, took a pull request to say so)."""
+
+    def test_it_names_a_status(self):
+        _, errors = clean({"event": "status", "outlet_name": "Weston", "note": "x"})
+        assert any("needs new_status" in e for e in errors)
+
+    def test_the_status_is_one_the_registry_draws(self):
+        _, errors = clean(_review("gone"))
+        assert any("Say what the outlet is" in e for e in errors)
+
+    @pytest.mark.parametrize("status", ["merged", "duplicate"])
+    def test_a_merged_or_duplicate_outlet_names_what_it_is_part_of(self, status):
+        _, errors = clean(_review(status))
+        assert any("needs merged_into" in e for e in errors)
+        _, errors = clean(_review(status, merged_into="https://www.monroe-ralls.com/"))
+        assert errors == []
+
+    def test_only_a_status_event_carries_one(self):
+        fields, _ = clean({**SALE, "outlet_name": "Weston", "new_status": "replica"})
+        assert fields["new_status"] == ""
+
+    def test_a_replica_is_drawn_as_one(self, editor):
+        _outlet()
+        note = "replica edition; not an active digital source"
+        record(editor, _review("replica", note=note))
+        o = Outlet.objects.get(pk="o-weston")
+        assert (o.status, o.category, o.on_map) == ("replica", "replica", True)
+        assert o.status_basis == note
+
+    def test_a_legal_sheet_is_listed_but_not_drawn(self, editor):
+        _outlet()
+        record(
+            editor,
+            _review("legal", note="", evidence_url="https://www.mopublicnotices.com/"),
+        )
+        o = Outlet.objects.get(pk="o-weston")
+        assert (o.status, o.category, o.on_map) == ("legal", "legal", False)
+        assert o.status_basis == "Legal-notice publication"
+
+    @pytest.mark.parametrize(
+        "march, category", [(12, "collected"), (0, "not collected")]
+    )
+    def test_an_active_outlet_is_drawn_by_what_we_collect(
+        self, editor, march, category
+    ):
+        o = _outlet(status="print")
+        o.march_articles = march
+        o.save()
+        record(editor, _review("active"))
+        o.refresh_from_db()
+        assert (o.status, o.category, o.on_map) == ("active", category, True)
+
+    def test_a_duplicate_points_at_what_it_duplicates(self, editor):
+        _outlet()
+        record(editor, _review("duplicate", merged_into="a1c30d15"))
+        o = Outlet.objects.get(pk="o-weston")
+        assert (o.status, o.merged_into, o.on_map) == ("duplicate", "a1c30d15", False)
+
+    def test_history_only_leaves_the_registry_alone(self, editor):
+        _outlet()
+        record(editor, _review("replica", sets_current=""))
+        assert Outlet.objects.get(pk="o-weston").status == "active"
+
+    def test_an_import_keeps_the_review(self, editor, tmp_path):
+        """The next rebuild says what the crawler's lists say; the review
+        is laid back over it."""
+        from visuals.outlets import import_registry
+
+        path = tmp_path / "registry.csv"
+        cols = ["outlet_id", "outlet", "status", "status_basis", "map", "map_category"]
+        with open(path, "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=cols)
+            w.writeheader()
+            w.writerow(
+                {
+                    "outlet_id": "o-weston",
+                    "outlet": "Weston Chronicle",
+                    "status": "active",
+                    "status_basis": "sources table",
+                    "map": "yes",
+                    "map_category": "collected",
+                }
+            )
+        import_registry(str(path))
+        record(editor, _review("replica", note="e-edition only"))
+        import_registry(str(path))
+        o = Outlet.objects.get(pk="o-weston")
+        assert (o.status, o.category) == ("replica", "replica")
+        assert o.status_basis == "e-edition only"
+
+    def test_a_retracted_review_gives_back_the_file(self, editor, tmp_path):
+        from visuals.outlets import import_registry
+
+        path = tmp_path / "registry.csv"
+        cols = ["outlet_id", "outlet", "status", "status_basis", "map", "map_category"]
+        with open(path, "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=cols)
+            w.writeheader()
+            w.writerow(
+                {
+                    "outlet_id": "o-weston",
+                    "outlet": "Weston Chronicle",
+                    "status": "active",
+                    "status_basis": "sources table",
+                    "map": "yes",
+                    "map_category": "collected",
+                }
+            )
+        import_registry(str(path))
+        review = record(editor, _review("print"))
+        record(editor, {"note": "it has a website"}, retracts=review)
+        o = Outlet.objects.get(pk="o-weston")
+        assert (o.status, o.category, o.on_map) == ("active", "collected", True)
+        assert o.status_basis == "sources table"
+
+    def test_the_form_offers_the_statuses(self, editor):
+        _outlet()
+        client = Client()
+        client.force_login(editor)
+        page = client.get("/outlets/o-weston/").content.decode()
+        assert 'name="new_status"' in page and "Replica or e-edition only" in page
+        response = client.post("/outlets/o-weston/", _review("replica"))
+        assert response.status_code == 302
+        assert Outlet.objects.get(pk="o-weston").status == "replica"
+
+    def test_the_export_carries_it(self):
+        assert "new_status" in EXPORT
+
+
+class TestTheRegistryIsReadFromTheBucket:
+    def test_a_bucket_object_is_read(self, monkeypatch):
+        from google.cloud import storage
+
+        from visuals.outlets import DEFAULT_URL, read_registry
+
+        asked = {}
+
+        class Blob:
+            def download_as_bytes(self):
+                return "﻿outlet_id,outlet\no-1,Weston Chronicle\n".encode()
+
+        class Bucket:
+            def blob(self, name):
+                asked["blob"] = name
+                return Blob()
+
+        class Client:
+            def bucket(self, name):
+                asked["bucket"] = name
+                return Bucket()
+
+        monkeypatch.setattr(storage, "Client", Client)
+        rows = read_registry(DEFAULT_URL)
+        assert rows == [{"outlet_id": "o-1", "outlet": "Weston Chronicle"}]
+        assert asked == {
+            "bucket": "mizzou-news-maps-data",
+            "blob": "registry/mo_outlet_registry.csv",
+        }
