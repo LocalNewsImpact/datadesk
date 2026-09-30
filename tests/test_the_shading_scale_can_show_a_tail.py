@@ -26,13 +26,9 @@ before.
 from __future__ import annotations
 
 import json
-import re
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 
-import pytest
+from tests.chart_runtime import value
 
 CHART = Path(__file__).resolve().parent.parent / "static/js/datadesk-chart.js"
 
@@ -48,32 +44,42 @@ def _luminance(hex_colour):
     return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
 
 
-def _ramps(bands):
-    """The SHIPPED `quantizeRamp`, run for every theme's sequential ramp.
+def _palettes():
+    """Every distinct sequential pair the runtime's themes carry, by mode:
+    `{"light": [[low, high], ...], "dark": [...]}`. Read from `THEMES`
+    itself, so a theme added tomorrow is covered without a regex to
+    update."""
+    return value("""(() => {
+          const out = { light: [], dark: [] };
+          for (const modes of Object.values(T.THEMES)) {
+            for (const mode of ["light", "dark"]) {
+              const pair = [modes[mode].seqLow, modes[mode].seqHigh];
+              if (!out[mode].some((p) => p[0] === pair[0] && p[1] === pair[1]))
+                out[mode].push(pair);
+            }
+          }
+          return out;
+        })()""")
 
-    Executed rather than reimplemented: a Python copy of the algorithm
-    would prove the copy correct and say nothing about what the browser
-    draws.
-    """
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("no node to run the renderer with")
-    source = CHART.read_text()
-    start = source.index("function quantizeRamp(")
-    fn = source[start : source.index("\n  }", start) + 4]
-    pairs = re.findall(r'seqLow: "(#[0-9a-f]{6})", seqHigh: "(#[0-9a-f]{6})"', source)
-    script = (
-        fn
-        + f"\nconst pairs = {json.dumps(pairs)};"
-        + "\nconsole.log(JSON.stringify("
-        + f"pairs.map(([a,b]) => quantizeRamp(a,b,{bands}))));"
-    )
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
-        fh.write(script)
-        where = fh.name
-    done = subprocess.run([node, where], capture_output=True, text=True)
-    assert done.returncode == 0, done.stderr
-    return json.loads(done.stdout)
+
+def _ramps(bands, mode=None):
+    """The SHIPPED `quantizeRamp`, run for every theme's sequential ramp."""
+    palettes = _palettes()
+    pairs = palettes[mode] if mode else palettes["light"] + palettes["dark"]
+    return value(f"{json.dumps(pairs)}.map(([a, b]) => T.quantizeRamp(a, b, {bands}))")
+
+
+def _bands(values, config=None):
+    return value(f"""(() => {{
+          const b = T.storyMapBands(
+            {json.dumps(sorted(values))}, {json.dumps(config or {})}, null, T.theme());
+          return {{ steps: b.steps, cuts: b.cuts, ramp: b.ramp, labels: b.bandLabels }};
+        }})()""")
+
+
+#: Enough counties that the renderer takes quantiles rather than the
+#: fixed cuts it falls back to under `steps * 2` values.
+SPREAD = list(range(3, 243, 2))
 
 
 class TestTheOptionCanBeReached:
@@ -105,29 +111,24 @@ class TestTheOptionCanBeReached:
 
 
 class TestTheRendererReadsIt:
-    def _block(self):
-        source = CHART.read_text()
-        start = source.index("const steps = config.bands")
-        return source[start : source.index("const bandLabels", start)]
-
     def test_the_step_count_comes_from_the_config(self):
-        assert "parseInt(config.bands, 10)" in self._block()
+        assert _bands(SPREAD, {"bands": "7"})["steps"] == 7
+        assert len(_bands(SPREAD, {"bands": "7"})["cuts"]) == 6
 
     def test_it_falls_back_to_ten(self):
-        assert "|| 10" in self._block()
+        assert _bands(SPREAD)["steps"] == 10
+        assert _bands(SPREAD, {"bands": "many"})["steps"] == 10
 
     def test_it_is_capped_and_floored(self):
         """Twelve is where the ramp stops separating; three is the fewest
         that is still a scale."""
-        block = self._block()
-        assert "Math.min(12" in block
-        assert "Math.max(3" in block
+        assert _bands(SPREAD, {"bands": "40"})["steps"] == 12
+        assert _bands(SPREAD, {"bands": "1"})["steps"] == 3
 
     def test_fixed_still_means_the_march_cuts(self):
-        block = self._block()
-        assert 'config.bands === "fixed"' in block
+        assert _bands(SPREAD, {"bands": "fixed"})["cuts"] == [2, 5, 9]
 
-    def test_the_ramp_is_built_for_the_bands_that_exist(self):
+    def test_the_ramp_and_the_legend_are_the_same_length(self):
         """A ramp shorter than the band count paints the map `undefined`;
         a ramp LONGER than it holds shades no band can reach.
 
@@ -135,38 +136,25 @@ class TestTheRendererReadsIt:
         `cuts.length + 1`, and quantile cuts de-duplicate -- ten deciles
         over a tied count survive as six -- so the darkest shades went
         unpainted and a map of small numbers topped out lighter than a map
-        of large ones. `bandLabels` was already built from `cuts`, so the
-        legend and the ramp disagreed by the same amount."""
-        source = CHART.read_text()
-        assert "quantizeRamp(t.seqLow, t.seqHigh, cuts.length + 2)" in source
-        assert "quantizeRamp(t.seqLow, t.seqHigh, steps + 1)" not in source
-
-    def test_the_ramp_and_the_legend_are_the_same_length(self):
-        """Both are `cuts.length + 2`: a zero band, one per cut, and the
-        tail above the last cut."""
-        source = CHART.read_text()
-        labels = source[source.index("const bandLabels = [") :][:400]
-        assert '["0"].concat(' in labels
-        assert "cuts.map(" in labels
+        of large ones. Both are `cuts.length + 2` now: a zero band, one per
+        cut, and the tail above the last cut."""
+        tied = [1] * 8 + [2] * 6 + [3] * 4 + [4, 4, 5, 6, 7, 9, 12, 18, 25, 40, 88, 204]
+        for values in (SPREAD, tied):
+            b = _bands(values)
+            assert len(b["ramp"]) == len(b["labels"]) == len(b["cuts"]) + 2
 
 
 class TestTheTopBandSaysWhereItEnds:
-    def _labels(self):
-        source = CHART.read_text()
-        start = source.index("const bandLabels = [")
-        return source[start : source.index("];", start)]
-
-    def test_it_is_not_open_ended(self):
+    def test_it_names_the_maximum(self):
         """ "12+" hides the whole tail: a reader cannot tell whether the
         darkest county holds 13 stories or 2,093."""
-        assert "}+`" not in self._labels()
-
-    def test_it_names_the_maximum(self):
-        assert "highest" in self._labels()
+        top = _bands(SPREAD + [2093])["labels"][-1]
+        assert top.endswith("2093") and "+" not in top
 
     def test_a_single_valued_top_band_is_not_a_range(self):
         """`2093–2093` is not a label."""
-        assert "from >= highest" in self._labels()
+        labels = _bands([1, 2, 5, 9, 10], {"bands": "fixed"})["labels"]
+        assert labels[-1] == "10"
 
 
 class TestTheRampSeparatesAtTenBands:
@@ -190,9 +178,7 @@ class TestTheRampSeparatesAtTenBands:
         ]
 
     def _by_mode(self, bands):
-        """Ramps in file order, where each theme is light then dark."""
-        ramps = _ramps(bands)
-        return ramps[0::2], ramps[1::2]
+        return _ramps(bands, "light"), _ramps(bands, "dark")
 
     def test_light_separates_as_well_at_ten_as_it_did_at_four(self):
         """The claim the change rests on. The old sRGB four-band light
@@ -249,10 +235,8 @@ class TestTheRampSeparatesAtTenBands:
         """Same colour family. The ramp is re-parameterised along the
         same line, not replaced -- a theme's two ends are its identity,
         and that is as true of the dark ones as the light."""
-        source = CHART.read_text()
-        pairs = re.findall(
-            r'seqLow: "(#[0-9a-f]{6})", seqHigh: "(#[0-9a-f]{6})"', source
-        )
+        palettes = _palettes()
+        pairs = palettes["light"] + palettes["dark"]
         ramps = _ramps(11)
         assert len(pairs) == len(ramps)
         for (low, high), ramp in zip(pairs, ramps, strict=True):
@@ -260,9 +244,9 @@ class TestTheRampSeparatesAtTenBands:
             assert ramp[-1] == high
 
     def test_dark_ramps_are_covered_at_all(self):
-        """A guard on the guard: if the pair regex ever stops matching
-        the dark blocks, every assertion above would pass over half the
-        palettes without saying so."""
+        """A guard on the guard: if the palettes stopped reaching these
+        tests, every assertion above would pass over them without saying
+        so."""
         light, dark = self._by_mode(11)
         assert len(dark) == len(light) >= 4
 

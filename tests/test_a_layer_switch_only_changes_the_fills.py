@@ -7,27 +7,11 @@ shading and rewrites two attributes over the paths already drawn, and
 refuses anything that would move a shape or a dot.
 """
 
-import json
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 
-import pytest
+from tests.chart_runtime import run
 
 CHART = Path(__file__).resolve().parent.parent / "static/js/datadesk-chart.js"
-
-
-def _node(script):
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("no node to run the renderer with")
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
-        fh.write(script)
-        where = fh.name
-    done = subprocess.run([node, where], capture_output=True, text=True)
-    assert done.returncode == 0, done.stderr
-    return json.loads(done.stdout)
 
 
 def _story_map():
@@ -43,31 +27,27 @@ def _layer_map():
 
 
 def _shading_of():
-    """The inner `shadingOf`, with its one-line dependencies stubbed."""
-    source = CHART.read_text()
-    start = source.index("      const shadingOf = (areas, layerScale) => {")
-    body = source[start : source.index("\n      };\n", start) + len("\n      };\n")]
+    """`renderStoryMap`'s `shadingOf`, composed from the runtime's own parts.
+
+    The composition is three lines -- key the areas by county, take the
+    painted values, band them -- and is repeated here; the banding itself
+    is the runtime's, under the real d3.
+    """
     return "\n".join(
         [
-            "const d3 = {",
-            "  max: (xs, f) => { const v = xs.map(f ? f : (x) => x)",
-            "    .filter((n) => n != null);",
-            "    return v.length ? Math.max(...v) : undefined; },",
-            "  quantile: (xs, q) => xs[Math.floor((xs.length - 1) * q)],",
-            "  ascending: (a, b) => a - b,",
-            "  hsl: () => ({ brighter: () => ({ formatHex: () => '#lighter' }),",
-            "    darker: () => ({ formatHex: () => '#darker' }) }),",
-            "};",
-            "const quantizeRamp = (low, high, n) =>",
-            "  Array.from({ length: n }, (_, i) => `ramp${i}of${n}`);",
-            "const ABSOLUTE_BANDS = [1, 2, 5, 10, 20, 50, 100, 200, 500];",
-            "const LIGHT = { surface: '#fff' };",
-            "const t = { seqLow: '#eef', seqHigh: '#004', missing: '#ddd',",
-            "  boundary: '#999', surface: '#fff' };",
+            "const t = T.theme();",
             "const valueOf = (a) => a.value !== undefined",
             "  ? (a.value == null ? null : Number(a.value))",
             "  : Number(a.stories ?? a.newsrooms ?? 0);",
-            body.replace("      const shadingOf", "const shadingOf"),
+            "const shadingOf = (areas, layerScale) => {",
+            "  const { max, values } =",
+            "    T.paintedValues(areas, painted, valueOf, layerScale);",
+            "  return {",
+            "    byCounty: new Map(areas.map((a) => [String(a.geoid), valueOf(a)])),",
+            "    areaOf: new Map(areas.map((a) => [String(a.geoid), a])),",
+            "    max, values, ...T.storyMapBands(values, config, layerScale, t),",
+            "  };",
+            "};",
         ]
     )
 
@@ -98,22 +78,23 @@ class TestTheShadingIsRecomputable:
                 "  oneHighest: one.highest, twoHighest: two.highest,",
                 "  oneTop: one.shadeFor(40), twoTop: two.shadeFor(37.4),",
                 "  oneMissing: one.shadeFor(0), twoZero: two.shadeFor(0),",
-                "  oneLabels: one.bandLabels, oneRamp: one.ramp.length,",
+                "  oneLabels: one.bandLabels, oneLast: one.ramp[one.ramp.length - 1],",
+                "  seqHigh: t.seqHigh, missing: t.missing,",
                 "  value: two.byCounty.get('29019'),",
                 "  area: two.areaOf.get('29019').value,",
                 "}));",
             ]
         )
-        out = _node(script)
+        out = run(script)
         # The layer's cuts are the server's; the coverage map computes its own.
         assert out["twoCuts"] == [34, 36]
         assert out["oneCuts"] != out["twoCuts"]
         assert out["oneHighest"] == 40 and out["twoHighest"] == 37.4
         # The darkest band is the last step of the ramp in both.
-        assert out["oneTop"] == f"ramp{out['oneRamp'] - 1}of{out['oneRamp']}"
+        assert out["oneTop"] == out["oneLast"] == out["seqHigh"]
         # On a story map 0 is the absence of a value; on a layer it is a value.
-        assert out["oneMissing"] == "#ddd"
-        assert out["twoZero"] != "#ddd"
+        assert out["oneMissing"] == out["missing"]
+        assert out["twoZero"] != out["missing"]
         assert out["oneLabels"][0] == "0"
         assert out["value"] == 33.1 and out["area"] == 33.1
 
@@ -134,7 +115,7 @@ class TestTheShadingIsRecomputable:
                 "  values: s.values }));",
             ]
         )
-        out = _node(script)
+        out = run(script)
         assert out["values"] == [30, 40]
         assert out["max"] == 40 and out["highest"] == 40
 

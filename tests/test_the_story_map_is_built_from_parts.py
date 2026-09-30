@@ -11,14 +11,10 @@ Split into `framedBy`, `storyMapLegend`, `rampMarks` and one
 behaviour is unchanged: what each part draws is asserted by running it.
 """
 
-import json
 import re
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 
-import pytest
+from tests.chart_runtime import run
 
 ROOT = Path(__file__).resolve().parent.parent
 CHART = ROOT / "static/js/datadesk-chart.js"
@@ -27,18 +23,6 @@ CHART = ROOT / "static/js/datadesk-chart.js"
 def _function(source, name):
     start = source.index(f"function {name}(")
     return source[start : source.index("\n  }", start) + 4]
-
-
-def _node(script):
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("no node to run the renderer with")
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
-        fh.write(script)
-        where = fh.name
-    done = subprocess.run([node, where], capture_output=True, text=True)
-    assert done.returncode == 0, done.stderr
-    return json.loads(done.stdout)
 
 
 # --- the renderer is smaller and has no dead code -----------------------------
@@ -80,25 +64,25 @@ class TestTheRendererIsBuiltFromParts:
 
 class TestOneFrameSelection:
     def test_it_picks_a_list_a_county_a_state_or_auto(self):
-        source = CHART.read_text()
         script = "\n".join(
             [
-                _function(source, "framedBy"),
                 "const features = ['29019', '29095', '20091', '17001'].map(",
                 "  (id) => ({ id }));",
                 "const idOf = (f) => String(f.id);",
                 "const auto = (all) => all.filter((f) => f.id === '17001');",
                 "const ids = (out) => out.map((f) => f.id);",
+                "const frame = (focus, chosen) =>",
+                "  ids(T.framedBy(features, focus, chosen, idOf, auto));",
                 "console.log(JSON.stringify({",
-                "  list: ids(framedBy(features, '', ['29019', '20091'], idOf, auto)),",
-                "  county: ids(framedBy(features, '29019', [], idOf, auto)),",
-                "  state: ids(framedBy(features, '29', [], idOf, auto)),",
-                "  auto: ids(framedBy(features, '', [], idOf, auto)),",
-                "  listWins: ids(framedBy(features, '29', ['17001'], idOf, auto)),",
+                "  list: frame('', ['29019', '20091']),",
+                "  county: frame('29019', []),",
+                "  state: frame('29', []),",
+                "  auto: frame('', []),",
+                "  listWins: frame('29', ['17001']),",
                 "}));",
             ]
         )
-        out = _node(script)
+        out = run(script, libs=())
         assert out["list"] == ["29019", "20091"]
         # A county frames its whole state.
         assert out["county"] == ["29019", "29095"]
@@ -124,7 +108,6 @@ class TestOneFrameSelection:
 
 class TestOneLegendBuilder:
     def test_a_swatch_item_is_a_colour_and_a_label(self):
-        source = CHART.read_text()
         script = "\n".join(
             [
                 "const made = [];",
@@ -134,15 +117,13 @@ class TestOneLegendBuilder:
                 "    appendChild(k) { this.kids.push(k); } };",
                 "  made.push(node); return node;",
                 "} };",
-                _function(source, "swatchItem"),
-                _function(source, "legend"),
-                "const plain = swatchItem('none', '#eee');",
-                "const keyed = swatchItem('Sports', '#123456', {",
+                "const plain = T.swatchItem('none', '#eee');",
+                "const keyed = T.swatchItem('Sports', '#123456', {",
                 "  item: 'dd-key-item', swatch: 'dd-key-swatch',",
                 "  label: 'dd-key-label' });",
-                "const hatched = swatchItem('too uncertain', null,",
+                "const hatched = T.swatchItem('too uncertain', null,",
                 "  { swatch: 'dd-swatch hatched' });",
-                "const whole = legend([['a', '#111'], ['b', '#222']]);",
+                "const whole = T.legend([['a', '#111'], ['b', '#222']]);",
                 "console.log(JSON.stringify({",
                 "  plainSwatch: plain.swatch.className,",
                 "  plainColour: plain.swatch.style.background,",
@@ -156,7 +137,9 @@ class TestOneLegendBuilder:
                 "}));",
             ]
         )
-        out = _node(script)
+        # The stand-in `document` records what is built; the runtime reads
+        # the global when it builds, so it is the one used.
+        out = run(script, libs=())
         assert out["plainSwatch"] == "dd-swatch"
         assert out["plainColour"] == "#eee"
         # A swatch and its text, with no wrapper span unless one is asked for.
@@ -197,27 +180,23 @@ class TestOneLegendBuilder:
         assert "centred" in root and "display:block;" in root
 
     def test_a_centred_root_still_centres(self):
-        source = CHART.read_text()
         script = "\n".join(
             [
                 "const calls = {};",
                 "const node = { attr(k, v) { calls[k] = v; return this; } };",
-                "const d3 = { create: () => node };",
-                "const global = { d3 };",
-                "const FONT = 'system-ui';",
-                _function(source, "svgRoot").replace("const d3 = global.d3;", ""),
+                "global.d3 = { create: () => node };",
                 "const t = { ink: '#111' };",
-                "svgRoot(400, 200, t);",
+                "T.svgRoot(400, 200, t);",
                 "const centred = { box: calls.viewBox, style: calls.style };",
-                "svgRoot(400, 200, t, { centred: false });",
-                "console.log(JSON.stringify({ centred,",
+                "T.svgRoot(400, 200, t, { centred: false });",
+                "console.log(JSON.stringify({ centred, font: T.FONT,",
                 "  corner: { box: calls.viewBox, style: calls.style } }));",
             ]
         )
-        out = _node(script)
+        out = run(script, libs=())
         assert out["centred"]["box"] == [-200, -100, 400, 200]
         assert "color:#111" in out["centred"]["style"]
-        assert "font-family:system-ui" in out["centred"]["style"]
+        assert f"font-family:{out['font']}" in out["centred"]["style"]
         assert "display:block" not in out["centred"]["style"]
         assert out["corner"]["box"] == [0, 0, 400, 200]
         assert "display:block" in out["corner"]["style"]

@@ -12,34 +12,13 @@
 The runtime's pure parts run in node; the DOM parts are pinned by text.
 """
 
-import json
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 
-import pytest
+from tests.chart_runtime import run, value
 
 ROOT = Path(__file__).resolve().parent.parent
 CHART = ROOT / "static/js/datadesk-chart.js"
 BUILDER = ROOT / "templates/visuals/renderers/builder.html"
-
-
-def _function(source, name):
-    start = source.index(f"function {name}(")
-    return source[start : source.index("\n  }", start) + 4]
-
-
-def _node(script):
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("no node to run the renderer with")
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
-        fh.write(script)
-        where = fh.name
-    done = subprocess.run([node, where], capture_output=True, text=True)
-    assert done.returncode == 0, done.stderr
-    return json.loads(done.stdout)
 
 
 def _mount_body():
@@ -53,24 +32,22 @@ def _mount_body():
 
 class TestTheLayeredMapRemembersItsChoices:
     def test_the_state_decides_the_layer_and_the_points(self):
-        source = CHART.read_text()
         script = "\n".join(
             [
-                _function(source, "layerState"),
                 "const choices = [",
                 "  { id: 'coverage' }, { id: 'median_age' }, { id: 'none' }];",
                 "const points = [{ name: 'KOMU' }];",
                 "console.log(JSON.stringify({",
-                "  fresh: layerState({}, choices, points),",
-                "  fresh_no_points: layerState({}, choices, []),",
-                "  kept: layerState(",
+                "  fresh: T.layerState({}, choices, points),",
+                "  fresh_no_points: T.layerState({}, choices, []),",
+                "  kept: T.layerState(",
                 "    { active: 'median_age', showPoints: false }, choices, points),",
-                "  unknown: layerState(",
+                "  unknown: T.layerState(",
                 "    { active: 'gone', showPoints: true }, choices, []),",
                 "}));",
             ]
         )
-        out = _node(script)
+        out = run(script)
         # First draw: the first choice, newsrooms on when there are any.
         assert out["fresh"] == {"active": "coverage", "showPoints": True}
         assert out["fresh_no_points"] == {"active": "coverage", "showPoints": False}
@@ -130,14 +107,7 @@ class TestTheMountKeepsTheReadersPlace:
 
 class TestEveryChartMintsItsOwnIds:
     def test_uid_never_repeats(self):
-        source = CHART.read_text()
-        start = source.index("  let uidSeq = 0;")
-        script = (
-            source[start : source.index("\n  }", start) + 4]
-            + '\nconst ids = [uid("dd-clip"), uid("dd-clip"), uid("dd-hatch")];'
-            + "\nconsole.log(JSON.stringify(ids));"
-        )
-        ids = _node(script)
+        ids = value('[T.uid("dd-clip"), T.uid("dd-clip"), T.uid("dd-hatch")]')
         assert len(set(ids)) == 3
         assert ids[0].startswith("dd-clip-") and ids[2].startswith("dd-hatch-")
 

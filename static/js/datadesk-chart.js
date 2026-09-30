@@ -3723,6 +3723,137 @@
   //: put almost every county in the first band.
   const ABSOLUTE_BANDS = [1, 2, 5, 10, 20, 50, 100, 200, 500];
 
+  // WHAT A STORY MAP BANDS ON: the values of the counties it paints, not
+  // every county the feed carries. The payload holds every county the
+  // corpus touched -- 710 of them on the Missouri map -- while the map
+  // paints 115. The 595 outside the frame have a median of 2 stories, so
+  // the deciles came out at 1,1,1,2,2,4,7,20,44 and every Missouri county
+  // (median 44, max 969) landed in the top band or two: the whole state
+  // one flat colour. Over the counties actually shown the same cuts are
+  // 15,22,30,38,44,56,70,92,184.
+  //
+  // `max` is read off the same counties for the same reason: whether there
+  // is anything to put a scale on, and a frame with no stories in it must
+  // not draw a key for somebody else's. Pure, like `storyMapBands`, which
+  // takes its `values`.
+  function paintedValues(areas, painted, valueOf, layerScale) {
+    const inFrame = areas.filter((a) => painted.has(String(a.geoid)));
+    return {
+      max: d3.max(inFrame, valueOf) || 0,
+      values: inFrame
+        .map(valueOf)
+        // On a layer 0 is a value (no one counted); on a story map it is
+        // the absence of one.
+        .filter((n) => (layerScale ? n != null : n > 0))
+        .sort(d3.ascending),
+    };
+  }
+
+  // THE STORY MAP'S BANDS, from the values it paints and nothing else:
+  // how many steps, where they cut, the ramp, which shade a count gets and
+  // what the key calls each band. Pure, so a test can hand it a list of
+  // counts and read the bands back rather than reading this source.
+  // `values` are the painted counties' values, ascending; `layerScale`,
+  // when given, is a Census layer's own cuts, on which 0 is a value.
+  function storyMapBands(values, config, layerScale, t) {
+    // Bands are equal-count groups of the counties that actually have
+    // stories, so the map stays informative whether it is a 500-article
+    // sample or the whole corpus. config.bands: "fixed" restores the
+    // March map's 1-2 / 3-5 / 6-9 / 10+ cuts; a number sets how many
+    // steps the ramp has.
+    //
+    // HOW MANY STEPS IS NOW A SETTING, and it had to become one. Four
+    // bands over a skewed count puts everything above the third
+    // quartile in one colour: the Missouri map's top band read "12+"
+    // while the counties in it held between 12 and 204 stories, so a
+    // county with fifteen and one with two hundred were the same shade
+    // and the map could not be read as a ranking at all.
+    // DECILES BY DEFAULT. Four bands over a skewed count is not a
+    // ranking: the Missouri map's top band read "12+" and held
+    // counties with anything from 12 to 204 stories in one colour.
+    // Ten is what the ramp can carry now that its steps are spaced by
+    // lightness -- every adjacent pair differs by about 0.071 of
+    // relative luminance, which is more separation than the old
+    // four-band scale had. Twelve is the cap for the same reason: at
+    // 0.059 it is still readable, and past that the palest steps stop
+    // being tellable apart on a small county.
+    const steps = config.bands === "fixed"
+      ? 4
+      : Math.min(12, Math.max(3, parseInt(config.bands, 10) || 10));
+    // Cuts at i/steps, rising, de-duplicated. A count with many ties
+    // can put two quantiles on the same number, which would draw two
+    // bands covering the same range with one of them always empty.
+    // RELATIVE OR ABSOLUTE, and the difference is what the colour means.
+    //
+    // Relative (the default) cuts at this map's own quantiles, so every
+    // map uses the whole ramp and a county's shade is its RANK among the
+    // counties drawn beside it. Read alone, that is what you want: a map
+    // of six small counties should not be six shades of pale.
+    //
+    // Absolute cuts at a fixed ladder, so a shade means a COUNT and means
+    // the same count on every map. Read next to another map, that is what
+    // you want, and relative shading actively misleads -- two maps top out
+    // at the same dark blue whether the county behind it holds fifteen
+    // stories or two hundred.
+    //
+    // The ladder is roughly logarithmic because the counts are: Missouri
+    // counties run from 1 to 969 and the median is 44, so even steps would
+    // put almost every county in the first band.
+    const cuts = layerScale ? layerScale.cuts : config.band_scale === "absolute"
+      ? ABSOLUTE_BANDS
+      : config.bands === "fixed" || values.length < steps * 2
+        ? [2, 5, 9].slice(0, steps - 1)
+        : Array.from({ length: steps - 1 }, (_, i) =>
+            Math.max(1, Math.round(d3.quantile(values, (i + 1) / steps))))
+            .reduce((kept, cut) => {
+              if (!kept.length || cut > kept[kept.length - 1]) kept.push(cut);
+              return kept;
+            }, []);
+    // SIZED AFTER THE CUTS, not from `steps`. `bandOf` can return at most
+    // `cuts.length + 1`, and de-duplication drops any quantile that ties
+    // with the one below it -- ten deciles over counties holding 1,1,1,2,2,4
+    // survive as three or four distinct cuts. Built from `steps + 1` the
+    // ramp then had shades no band could ever reach, so a map topped out at
+    // a mid-tone and looked lighter than a map of smaller numbers whose
+    // cuts happened to survive. The darkest band is now always `seqHigh`.
+    const ramp = quantizeRamp(t.seqLow, t.seqHigh, cuts.length + 2);
+    const missingValue = (n) => n == null || (!layerScale && !n);
+    const bandOf = (n) => {
+      if (missingValue(n)) return 0;
+      for (let i = 0; i < cuts.length; i += 1) if (n <= cuts[i]) return i + 1;
+      return cuts.length + 1;
+    };
+    const shadeFor = (n) => (missingValue(n) ? t.missing : ramp[bandOf(n)]);
+    const lightMode = t.surface === LIGHT.surface;
+    const countyEdge = (n) => {
+      if (!n) return t.boundary;
+      const c = d3.hsl(shadeFor(n));
+      return (lightMode ? c.brighter(0.35) : c.darker(0.35)).formatHex();
+    };
+    // NOT `top`: that is a global in a browser (`window.top`), and
+    // this only gets away with the name because it sits inside a
+    // function. Hoisted to module scope it would throw
+    // "Identifier 'top' has already been declared" and take the whole
+    // chart library down with it -- which is exactly what happened to
+    // a flat copy of this block.
+    const highest = d3.max(values) || 0;
+    // THE TOP BAND SAYS WHERE IT ENDS. "12+" hides the whole tail: the
+    // reader cannot tell whether the darkest county holds 13 stories or
+    // 204, which on this corpus is the difference between a flat map
+    // and a very concentrated one.
+    const bandLabels = ["0"].concat(
+      cuts.map((cut, i) => {
+        const from = i === 0 ? 1 : cuts[i - 1] + 1;
+        return from === cut ? `${cut}` : `${from}–${cut}`;
+      }),
+      (() => {
+        const from = cuts.length ? cuts[cuts.length - 1] + 1 : 1;
+        return from >= highest ? `${from}` : `${from}–${highest}`;
+      })()
+    );
+    return { steps, cuts, ramp, bandOf, shadeFor, countyEdge, highest, bandLabels };
+  }
+
   // A LAYER'S VALUES IN ITS OWN UNITS. A story map's numbers are story
   // counts and read as integers; a Census layer's are a percent to a
   // tenth, a dollar to the dollar, or a median of years.
@@ -4026,125 +4157,8 @@
       const shadingOf = (areas, layerScale) => {
         const byCounty = new Map(areas.map((a) => [String(a.geoid), valueOf(a)]));
         const areaOf = new Map(areas.map((a) => [String(a.geoid), a]));
-        // Whether there is anything to put a scale on. Read off the
-        // painted counties for the same reason the cuts are: a frame with
-        // no stories in it must not draw a key for somebody else's.
-        const max = d3.max(
-          areas.filter((a) => painted.has(String(a.geoid))),
-          valueOf
-        ) || 0;
-        // Bands are equal-count groups of the counties that actually have
-        // stories, so the map stays informative whether it is a 500-article
-        // sample or the whole corpus. config.bands: "fixed" restores the
-        // March map's 1-2 / 3-5 / 6-9 / 10+ cuts; a number sets how many
-        // steps the ramp has.
-        //
-        // HOW MANY STEPS IS NOW A SETTING, and it had to become one. Four
-        // bands over a skewed count puts everything above the third
-        // quartile in one colour: the Missouri map's top band read "12+"
-        // while the counties in it held between 12 and 204 stories, so a
-        // county with fifteen and one with two hundred were the same shade
-        // and the map could not be read as a ranking at all.
-        // DECILES BY DEFAULT. Four bands over a skewed count is not a
-        // ranking: the Missouri map's top band read "12+" and held
-        // counties with anything from 12 to 204 stories in one colour.
-        // Ten is what the ramp can carry now that its steps are spaced by
-        // lightness -- every adjacent pair differs by about 0.071 of
-        // relative luminance, which is more separation than the old
-        // four-band scale had. Twelve is the cap for the same reason: at
-        // 0.059 it is still readable, and past that the palest steps stop
-        // being tellable apart on a small county.
-        const steps = config.bands === "fixed"
-          ? 4
-          : Math.min(12, Math.max(3, parseInt(config.bands, 10) || 10));
-        // BANDED ON WHAT IS DRAWN, not on what the feed carries. The
-        // payload holds every county the corpus touched -- 710 of them on
-        // the Missouri map -- while the map paints 115. The 595 counties
-        // outside the frame have a median of 2 stories, so the deciles
-        // came out at 1,1,1,2,2,4,7,20,44 and every Missouri county
-        // (median 44, max 969) landed in the top band or two: the whole
-        // state one flat colour. Over the counties actually shown the
-        // same cuts are 15,22,30,38,44,56,70,92,184.
-        //
-        const values = areas
-          .filter((a) => painted.has(String(a.geoid)))
-          .map(valueOf)
-          // On a layer 0 is a value (no one counted); on a story map it is
-          // the absence of one.
-          .filter((n) => (layerScale ? n != null : n > 0))
-          .sort(d3.ascending);
-        // Cuts at i/steps, rising, de-duplicated. A count with many ties
-        // can put two quantiles on the same number, which would draw two
-        // bands covering the same range with one of them always empty.
-        // RELATIVE OR ABSOLUTE, and the difference is what the colour means.
-        //
-        // Relative (the default) cuts at this map's own quantiles, so every
-        // map uses the whole ramp and a county's shade is its RANK among the
-        // counties drawn beside it. Read alone, that is what you want: a map
-        // of six small counties should not be six shades of pale.
-        //
-        // Absolute cuts at a fixed ladder, so a shade means a COUNT and means
-        // the same count on every map. Read next to another map, that is what
-        // you want, and relative shading actively misleads -- two maps top out
-        // at the same dark blue whether the county behind it holds fifteen
-        // stories or two hundred.
-        //
-        // The ladder is roughly logarithmic because the counts are: Missouri
-        // counties run from 1 to 969 and the median is 44, so even steps would
-        // put almost every county in the first band.
-        const cuts = layerScale ? layerScale.cuts : config.band_scale === "absolute"
-          ? ABSOLUTE_BANDS
-          : config.bands === "fixed" || values.length < steps * 2
-            ? [2, 5, 9].slice(0, steps - 1)
-            : Array.from({ length: steps - 1 }, (_, i) =>
-                Math.max(1, Math.round(d3.quantile(values, (i + 1) / steps))))
-                .reduce((kept, cut) => {
-                  if (!kept.length || cut > kept[kept.length - 1]) kept.push(cut);
-                  return kept;
-                }, []);
-        // SIZED AFTER THE CUTS, not from `steps`. `bandOf` can return at most
-        // `cuts.length + 1`, and de-duplication drops any quantile that ties
-        // with the one below it -- ten deciles over counties holding 1,1,1,2,2,4
-        // survive as three or four distinct cuts. Built from `steps + 1` the
-        // ramp then had shades no band could ever reach, so a map topped out at
-        // a mid-tone and looked lighter than a map of smaller numbers whose
-        // cuts happened to survive. The darkest band is now always `seqHigh`.
-        const ramp = quantizeRamp(t.seqLow, t.seqHigh, cuts.length + 2);
-        const missingValue = (n) => n == null || (!layerScale && !n);
-        const bandOf = (n) => {
-          if (missingValue(n)) return 0;
-          for (let i = 0; i < cuts.length; i += 1) if (n <= cuts[i]) return i + 1;
-          return cuts.length + 1;
-        };
-        const shadeFor = (n) => (missingValue(n) ? t.missing : ramp[bandOf(n)]);
-        const lightMode = t.surface === LIGHT.surface;
-        const countyEdge = (n) => {
-          if (!n) return t.boundary;
-          const c = d3.hsl(shadeFor(n));
-          return (lightMode ? c.brighter(0.35) : c.darker(0.35)).formatHex();
-        };
-        // NOT `top`: that is a global in a browser (`window.top`), and
-        // this only gets away with the name because it sits inside a
-        // function. Hoisted to module scope it would throw
-        // "Identifier 'top' has already been declared" and take the whole
-        // chart library down with it -- which is exactly what happened to
-        // a flat copy of this block.
-        const highest = d3.max(values) || 0;
-        // THE TOP BAND SAYS WHERE IT ENDS. "12+" hides the whole tail: the
-        // reader cannot tell whether the darkest county holds 13 stories or
-        // 204, which on this corpus is the difference between a flat map
-        // and a very concentrated one.
-        const bandLabels = ["0"].concat(
-          cuts.map((cut, i) => {
-            const from = i === 0 ? 1 : cuts[i - 1] + 1;
-            return from === cut ? `${cut}` : `${from}–${cut}`;
-          }),
-          (() => {
-            const from = cuts.length ? cuts[cuts.length - 1] + 1 : 1;
-            return from >= highest ? `${from}` : `${from}–${highest}`;
-          })()
-        );
-        return { byCounty, areaOf, max, values, cuts, ramp, shadeFor, countyEdge, highest, bandLabels };
+        const { max, values } = paintedValues(areas, painted, valueOf, layerScale);
+        return { byCounty, areaOf, max, values, ...storyMapBands(values, config, layerScale, t) };
       };
       let { byCounty, areaOf, max, values, cuts, ramp, shadeFor, countyEdge, highest, bandLabels } = shadingOf(areas, layerScale);
 
@@ -4563,6 +4577,6 @@
   // hues is a fact about these functions, not about the page.
   global.DatadeskChart = {
     render, mount, renderTable,
-    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, spreadCoincident, spreadPoints, featuresOf, framedBy, FONT, fmtValue, scaleLabels, esc, tipRow, tipHead, fetchJSON, unavailable, undrawable, uid, layerState, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf, swatchLegend },
+    __test: { scaleColors, colorScale, theme, THEMES, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, spreadCoincident, spreadPoints, featuresOf, framedBy, FONT, fmtValue, scaleLabels, esc, tipRow, tipHead, fetchJSON, unavailable, undrawable, uid, layerState, paintedValues, storyMapBands, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf, swatchLegend, swatchItem, legend, svgRoot },
   };
 })(window);

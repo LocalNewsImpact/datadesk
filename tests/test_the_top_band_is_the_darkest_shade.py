@@ -12,34 +12,59 @@ darkest blue, and the two could not be compared -- the one with the bigger
 numbers looked lighter.
 """
 
+import json
 from pathlib import Path
 
 import pytest
 
-CHART_JS = Path(__file__).resolve().parent.parent / "static/js/datadesk-chart.js"
+from tests.chart_runtime import value
+
 TYPES = Path(__file__).resolve().parent.parent / "visuals/types.py"
 BUILDER = Path(__file__).resolve().parent.parent / "visuals/builder.py"
 
+#: Counties holding small, tied numbers: ten deciles collapse to six cuts.
+TIED = [1] * 8 + [2] * 6 + [3] * 4 + [4, 4, 5, 6, 7, 9, 12, 18, 25, 40, 88, 204]
+#: Counties spread evenly: every one of the nine cuts survives.
+SPREAD = list(range(15, 975, 32))
 
-def _storymap() -> str:
-    source = CHART_JS.read_text()
-    start = source.index("function renderStoryMap")
-    return source[start : source.index("function ", start + 20)]
+
+def _bands(values, config=None):
+    """Ask the renderer to band `values` as a story map would."""
+    return value(f"""(() => {{
+          const t = T.theme();
+          const values = {json.dumps(sorted(values))};
+          const b = T.storyMapBands(values, {json.dumps(config or {})}, null, t);
+          return {{
+            cuts: b.cuts,
+            ramp: b.ramp,
+            seqHigh: t.seqHigh,
+            bands: values.map(b.bandOf),
+            shades: values.map(b.shadeFor),
+            labels: b.bandLabels,
+          }};
+        }})()""")
 
 
 class TestTheRampIsSizedAfterTheCuts:
-    def test_it_is_built_from_the_cuts_and_not_the_steps(self):
-        body = _storymap()
-        assert "quantizeRamp(t.seqLow, t.seqHigh, cuts.length + 2)" in body
+    @pytest.mark.parametrize("values,cuts", [(TIED, 6), (SPREAD, 9)])
+    def test_the_darkest_county_is_the_darkest_blue(self, values, cuts):
+        """Whether ten deciles survive as six cuts or nine, the county at
+        the top is drawn in `seqHigh` -- the property the ramp was resized
+        for. Sized from `steps` it topped out at a mid-tone."""
+        b = _bands(values)
+        assert len(b["cuts"]) == cuts
+        assert b["shades"][-1] == b["seqHigh"]
 
-    def test_the_old_sizing_is_gone(self):
-        """`steps + 1` is the bug: it counts bands that were asked for, not
-        bands that exist after de-duplication."""
-        assert "quantizeRamp(t.seqLow, t.seqHigh, steps + 1)" not in _storymap()
+    @pytest.mark.parametrize("values", [TIED, SPREAD])
+    def test_every_band_has_a_shade_and_every_shade_a_band(self, values):
+        """One shade per band plus the empty band: none unreachable."""
+        b = _bands(values)
+        assert len(b["ramp"]) == len(b["cuts"]) + 2
+        assert max(b["bands"]) == len(b["ramp"]) - 1
 
-    def test_the_ramp_is_built_after_the_cuts_are_known(self):
-        body = _storymap()
-        assert body.index("const cuts =") < body.index("const ramp =")
+    def test_tied_counts_share_a_shade(self):
+        b = _bands(TIED)
+        assert len({b["shades"][i] for i in range(8)}) == 1
 
 
 class TestAbsoluteBanding:
@@ -47,21 +72,30 @@ class TestAbsoluteBanding:
     read together: both top out at the same dark blue whether the county
     behind it holds fifteen stories or two hundred."""
 
-    def test_the_ladder_exists_and_is_logarithmic(self):
-        source = CHART_JS.read_text()
-        assert "const ABSOLUTE_BANDS = [1, 2, 5, 10, 20, 50, 100, 200, 500]" in source
+    def test_the_ladder_is_the_cuts_whatever_the_values(self):
+        ladder = [1, 2, 5, 10, 20, 50, 100, 200, 500]
+        assert _bands(TIED, {"band_scale": "absolute"})["cuts"] == ladder
+        assert _bands(SPREAD, {"band_scale": "absolute"})["cuts"] == ladder
 
-    def test_absolute_uses_the_ladder_instead_of_quantiles(self):
-        body = _storymap()
-        assert 'config.band_scale === "absolute"' in body
-        assert "? ABSOLUTE_BANDS" in body
+    def test_one_count_is_one_shade_on_every_map(self):
+        """The point of the setting. 40 stories is drawn the same on a map
+        of small counties and a map of large ones."""
+        small = _bands(TIED, {"band_scale": "absolute"})
+        large = _bands(SPREAD + [40], {"band_scale": "absolute"})
+        assert (
+            small["shades"][sorted(TIED).index(40)]
+            == large["shades"][sorted(SPREAD + [40]).index(40)]
+        )
 
-    def test_relative_is_the_default(self):
+    def test_relative_is_the_default_and_follows_the_values(self):
         """An unset `band_scale` keeps the behaviour every existing visual
-        was built with."""
-        body = _storymap()
-        cut = body.index('config.band_scale === "absolute"')
-        assert "d3.quantile" in body[cut:]
+        was built with: the cuts are this map's own quantiles."""
+        assert _bands(TIED)["cuts"] != _bands(SPREAD)["cuts"]
+        assert _bands(TIED)["cuts"] == _bands(TIED, {"band_scale": ""})["cuts"]
+
+    def test_the_top_band_says_where_it_ends(self):
+        """ "12+" hid a tail running to 204."""
+        assert _bands(TIED)["labels"][-1].endswith("204")
 
 
 class TestTheSettingReachesTheBuilderAndSurvivesASave:
@@ -87,43 +121,3 @@ class TestTheSettingReachesTheBuilderAndSurvivesASave:
         source = BUILDER.read_text()
         bools = source[source.index("_BOOL_KEYS") : source.index("_BOOL_KEYS") + 200]
         assert "band_scale" not in bools
-
-
-@pytest.mark.parametrize(
-    "values,steps,expected_cuts",
-    [
-        # Tied and low: deciles collapse, and the ramp must collapse with them.
-        (
-            [1] * 8 + [2] * 6 + [3] * 4 + [4, 4, 5, 6, 7, 9, 12, 18, 25, 40, 88, 204],
-            10,
-            6,
-        ),
-        # Spread: every cut survives.
-        (list(range(15, 975, 32)), 10, 9),
-    ],
-)
-def test_the_top_band_is_always_the_last_ramp_index(values, steps, expected_cuts):
-    """The maths the renderer does, in Python, so the property is pinned
-    rather than eyeballed in a browser."""
-    ordered = sorted(values)
-
-    def quantile(p):
-        i = (len(ordered) - 1) * p
-        lo, hi = int(i), min(int(i) + 1, len(ordered) - 1)
-        return ordered[lo] + (ordered[hi] - ordered[lo]) * (i - lo)
-
-    cuts: list[int] = []
-    for i in range(steps - 1):
-        cut = max(1, round(quantile((i + 1) / steps)))
-        if not cuts or cut > cuts[-1]:
-            cuts.append(cut)
-    assert len(cuts) == expected_cuts
-
-    def band_of(n):
-        for index, cut in enumerate(cuts):
-            if n <= cut:
-                return index + 1
-        return len(cuts) + 1
-
-    ramp_length = len(cuts) + 2
-    assert band_of(max(ordered)) == ramp_length - 1

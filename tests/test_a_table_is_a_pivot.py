@@ -14,6 +14,7 @@ import pytest
 
 from accounts.access import ALL_SCOPES
 from explorer.models import Article, CandidateLink, Dataset, DatasetSource, Source
+from tests.chart_runtime import value
 
 pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
 
@@ -361,34 +362,7 @@ NEWSROOMS = [
 
 def _node(expression):
     """Evaluate `expression` against the renderer, in node, and return it."""
-    import os
-    import shutil
-    import subprocess
-    import tempfile
-
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("no node to run the runtime in")
-    harness = f"""
-    global.window = global;
-    global.document = {{
-      addEventListener() {{}}, querySelectorAll: () => [],
-      documentElement: {{ dataset: {{ theme: "light" }} }},
-    }};
-    global.matchMedia = () => ({{ matches: false }});
-    {CHART.read_text()}
-    const T = DatadeskChart.__test;
-    console.log(JSON.stringify({expression}));
-    """
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
-        fh.write(harness)
-        where = fh.name
-    try:
-        done = subprocess.run([node, where], capture_output=True, text=True)
-    finally:
-        os.unlink(where)
-    assert done.returncode == 0, done.stderr
-    return json.loads(done.stdout)
+    return value(expression, libs=())
 
 
 def _order(col, num, direction, outer, rows=NEWSROOMS):
