@@ -108,6 +108,18 @@ def test_the_story_map_declares_what_its_renderer_reads():
     assert "bands" in declared
 
 
+def test_the_layered_map_declares_what_its_renderers_read():
+    """It is drawn by the story map's renderer under a switch, so between
+    them the three types must declare everything either function reads."""
+    declared = (
+        {o.id for o in BY_ID["layermap"].options}
+        | {o.id for o in BY_ID["storymap"].options}
+        | {o.id for o in BY_ID["outletmap"].options}
+    )
+    assert _reads("renderLayerMap") <= declared | {"frame"}
+    assert _reads("renderStoryMap") <= declared | {"frame"}
+
+
 def test_bar_alone_declares_the_bar_only_options():
     """horizontal, stacked and stack sit inside `if (kind === "bar")`. A
     line chart offering them is the dead-control problem in miniature."""
@@ -412,6 +424,9 @@ def test_the_steps_are_the_order_the_prototype_settled():
         # Whose coverage, then where it is: stories about a county from any
         # newsroom, not only the newsrooms located there.
         "places",
+        # What a layered map shades by, after its slice is settled; only a
+        # layered map walks it (docs/LAYERED_MAP.md).
+        "layers",
         "fields",
         # Publishing is the end of the flow, not a corner of the advanced
         # settings page: it is where the work is finished and where the

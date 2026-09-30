@@ -113,6 +113,18 @@ def parts_for(visual, step=""):
                 out.append(("as of", as_of_period(config["as_of"])[2], "said"))
         return out
 
+    # A LAYERED MAP IS NAMED BY ITS LAYERS, then by the slice like a story
+    # map: it shades by them, over stories from somewhere, some dates.
+    if chart and chart.id == "layermap":
+        from visuals.layermap import layers_of
+
+        n = len(layers_of(config))
+        out.append(
+            ("shading by", f"{n} Census layer{'s' if n != 1 else ''}", "said")
+            if n
+            else gap("shading by", "some Census layers", "layers")
+        )
+
     if chart and chart.roles:
         named = _named(visual, spec, chart)
         if not named:

@@ -648,6 +648,48 @@ CHART_TYPES = (
         functions=("Location", "Distribution"),
     ),
     ChartType(
+        "layermap",
+        "Layered map",
+        SPATIAL,
+        "Coverage and newsrooms as the base, with Census measures the reader "
+        "can switch between laid over the same counties or tracts.",
+        # The story map's renderer under a switch (docs/LAYERED_MAP.md).
+        # Which layers, at which geography, is the Layers step's; what is
+        # here is how the shading and the dots read.
+        roles=(),
+        options=(
+            Option(
+                "bands",
+                "Shading steps",
+                "choice",
+                values=(
+                    ("", "10 — deciles"),
+                    ("5", "5"),
+                    ("fixed", "Fixed: 1–2 / 3–5 / 6–9 / 10+"),
+                ),
+            ),
+            Option(
+                "outline",
+                "Outlines",
+                "choice",
+                values=(
+                    ("", "Ring everything we do not collect in ink"),
+                    ("thin", "A thin dark ring around every dot"),
+                    ("none", "No rings"),
+                ),
+            ),
+            Option(
+                "as_of",
+                "As of",
+                "text",
+                note="A month, 2026-03, or a day: the newsrooms operating then.",
+            ),
+        ),
+        also=("census map", "demographic map", "coverage and population"),
+        encoding=SHADING,
+        functions=("Location", "Distribution"),
+    ),
+    ChartType(
         "locator",
         "Locator map",
         SPATIAL,

@@ -1914,6 +1914,8 @@ NEEDS_TWO_MEASURES = {
 #: step to press.
 WALKED_ELSEWHERE = {
     "outletmap": "tests/test_newsrooms_on_a_story_map.py::TestTheWalk",
+    # Its walk has a Layers step of its own and no fields step.
+    "layermap": "tests/test_layered_map.py::TestTheWalk",
 }
 
 FIELDS_FOR = {

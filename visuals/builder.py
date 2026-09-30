@@ -24,6 +24,7 @@ CHART_KINDS = (
     "locator",
     "storymap",
     "outletmap",
+    "layermap",
     "flowmap",
 )
 
@@ -245,6 +246,7 @@ CHART_LIBS = {
     "storymap": ("d3", "topojson"),
     # The story map's renderer, so the story map's libraries.
     "outletmap": ("d3", "topojson"),
+    "layermap": ("d3", "topojson"),
     "bar": ("d3", "plot"),
     "line": ("d3", "plot"),
     "area": ("d3", "plot"),

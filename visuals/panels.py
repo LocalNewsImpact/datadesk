@@ -574,7 +574,7 @@ def _subset_of(spec):
 
 
 #: The kinds that are drawn on a map and so have somewhere to be centred.
-_MAP_KINDS = ("storymap", "choropleth", "points")
+_MAP_KINDS = ("storymap", "choropleth", "points", "layermap")
 
 
 def _focus_from(post, datasets, default_state=None):
@@ -1221,7 +1221,11 @@ def _picks_columns(chart):
     """
     from visuals.services import OUTLET_MAP_KIND, STORY_MAP_KIND
 
-    return not chart.roles and chart.id not in (STORY_MAP_KIND, OUTLET_MAP_KIND)
+    return not chart.roles and chart.id not in (
+        STORY_MAP_KIND,
+        OUTLET_MAP_KIND,
+        "layermap",
+    )
 
 
 def _variables():
@@ -1817,4 +1821,77 @@ def publish_panel(visual, post=None, actor=None):
         # and the preview beside it has already acted on.
         "ready": snapshot is not None
         or (is_complete(visual) and not unmapped_fields(visual)),
+    }
+
+
+def layers_panel(visual, post=None):
+    """The Census layers a layered map carries, and its base layers.
+
+    Up to `MAX_LAYERS` measures from the registry, at county or tract level;
+    a share may be shown as a percent or a count. At tract level only the
+    measures that hold there are offered (docs/LAYERED_MAP.md).
+    """
+    from visuals import census
+    from visuals.layermap import MAX_LAYERS, layers_of, level_of, shows
+
+    config = visual.config or {}
+    if post is not None:
+        level = post.get("layer_level") or "county"
+        if level not in census.LEVELS:
+            raise ValueError("Geography is county or tract")
+        picked = [k for k in post.getlist("layer") if k]
+        unknown = [k for k in picked if k not in census.BY_KEY]
+        if unknown:
+            raise ValueError(f"No such measure: {', '.join(unknown)}")
+        if len(picked) > MAX_LAYERS:
+            raise ValueError(
+                f"At most {MAX_LAYERS} layers on one map; {len(picked)} chosen"
+            )
+        county_only = [
+            census.BY_KEY[k]["label"]
+            for k in picked
+            if level == "tract" and not census.BY_KEY[k]["tract"]
+        ]
+        if county_only:
+            raise ValueError("Offered by county only: " + ", ".join(county_only))
+        return {
+            "config": {
+                "layer_level": level,
+                "layers": [
+                    {
+                        "variable": k,
+                        "as": "value" if post.get(f"as_{k}") == "value" else "",
+                    }
+                    for k in picked
+                ],
+                "base_points": bool(post.get("base_points")),
+                "base_coverage": bool(post.get("base_coverage")),
+            }
+        }
+
+    chosen = {layer["variable"]: layer for layer in layers_of(config)}
+    groups = []
+    for v in census.VARIABLES:
+        group = next((g for g in groups if g["name"] == v["group"]), None)
+        if group is None:
+            group = {"name": v["group"], "variables": []}
+            groups.append(group)
+        group["variables"].append(
+            {
+                "key": v["key"],
+                "label": v["label"],
+                "share": v["kind"] == "share",
+                "tract": v["tract"],
+                "on": v["key"] in chosen,
+                "as_value": chosen.get(v["key"], {}).get("as") == "value",
+            }
+        )
+    return {
+        "level": level_of(config),
+        "groups": groups,
+        "picked": len(chosen),
+        "max": MAX_LAYERS,
+        "base_points": shows(config, "points"),
+        "base_coverage": shows(config, "coverage"),
+        "year": census.YEAR,
     }

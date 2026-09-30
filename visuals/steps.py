@@ -97,6 +97,19 @@ STEPS = (
         ("spec:about_counties", "spec:about_match", "spec:about_publishers"),
     ),
     Step(
+        "layers",
+        "Layers",
+        "What does it shade by?",
+        "Up to eight Census measures the reader can switch between, over the "
+        "newsrooms and the coverage. County or tract; percent or count.",
+        (
+            "config:layer_level",
+            "config:layers",
+            "config:base_points",
+            "config:base_coverage",
+        ),
+    ),
+    Step(
         "fields",
         "Fields",
         "Which fields?",
@@ -143,6 +156,8 @@ BY_SLUG = {s.slug: s for s in STEPS}
 #: offering the choice would be offering to filter by a column the file
 #: may not even have.
 _CORPUS_ONLY = ("newsrooms", "places")
+#: A step only a layered map has (docs/LAYERED_MAP.md).
+_LAYERMAP_ONLY = ("layers",)
 
 
 def steps_for(visual):
@@ -153,17 +168,22 @@ def steps_for(visual):
     on the way whose only content is that it is not for you.
     """
     from visuals.models import CORPUS
-    from visuals.services import OUTLET_MAP_KIND
+    from visuals.services import LAYER_MAP_KIND, OUTLET_MAP_KIND
 
     # AN OUTLET MAP DRAWS THE REGISTRY WHOLE. It has no slice of the corpus
     # to choose, no newsrooms to narrow to and no fields to fill: what an
     # author decides about it is on the Look step, with every other chart's
     # title, palette and source.
-    if (visual.config or {}).get("kind") == OUTLET_MAP_KIND:
+    kind = (visual.config or {}).get("kind")
+    if kind == OUTLET_MAP_KIND:
         return tuple(s for s in STEPS if s.slug in ("type", "theme", "publish"))
+    # A LAYERED MAP HAS NO FIELDS TO PICK: its shape is its layers, chosen
+    # on a step of its own after the coverage slice is settled.
+    if kind == LAYER_MAP_KIND:
+        return tuple(s for s in STEPS if s.slug != "fields")
     if visual.source_kind == CORPUS:
-        return STEPS
-    return tuple(s for s in STEPS if s.slug not in _CORPUS_ONLY)
+        return tuple(s for s in STEPS if s.slug not in _LAYERMAP_ONLY)
+    return tuple(s for s in STEPS if s.slug not in _CORPUS_ONLY + _LAYERMAP_ONLY)
 
 
 def reached(visual):
@@ -187,6 +207,8 @@ def reached(visual):
         done.add("newsrooms")
     if spec.get("about_counties"):
         done.add("places")
+    if config.get("layers"):
+        done.add("layers")
     # An upload's data step is the file, and the file is there: a visual
     # that has rows has answered the only question that step asks.
     #

@@ -1,0 +1,82 @@
+{% extends "visuals/steps/_shell.html" %}
+{% block panel %}
+{% comment %}
+What the map shades by. Up to eight Census measures from the registry, at
+one geography; the reader switches between them in the page. The two base
+layers -- newsrooms as points, coverage shading -- are the author's to keep
+or drop. A measure that does not hold at tract level cannot be chosen there.
+{% endcomment %}
+<form method="post" id="step-form">
+  {% csrf_token %}
+  <p class="tree-head"><span id="picked-count">{{ picked }}</span> of {{ max }} layers chosen
+    <span class="hint">ACS 5-year, {{ year|add:"-4" }}&ndash;{{ year }}</span></p>
+  <fieldset class="stacked">
+    <legend>Geography</legend>
+    <label class="inline"><input type="radio" name="layer_level" value="county" {% if level == "county" %}checked{% endif %}> counties</label>
+    <label class="inline"><input type="radio" name="layer_level" value="tract" {% if level == "tract" %}checked{% endif %}> Census tracts
+      <span class="hint">&mdash; only the measures reliable at that level</span></label>
+  </fieldset>
+  <fieldset class="stacked">
+    <legend>Base layers</legend>
+    <label class="inline"><input type="checkbox" name="base_points" value="1" {% if base_points %}checked{% endif %}> newsrooms as points</label>
+    <label class="inline"><input type="checkbox" name="base_coverage" value="1" {% if base_coverage %}checked{% endif %}> coverage shading
+      <span class="hint">&mdash; stories about each county, from the slice chosen on the steps before; by county only</span></label>
+  </fieldset>
+  {% for g in groups %}
+  <fieldset class="stacked layer-group">
+    <legend>{{ g.name }}</legend>
+    <div class="county-grid">
+      {% for v in g.variables %}
+      <label class="row layer-row{% if not v.tract %} county-only{% endif %}" data-tract="{{ v.tract|yesno:'yes,no' }}">
+        <input type="checkbox" name="layer" value="{{ v.key }}" {% if v.on %}checked{% endif %}>
+        <span class="label">{{ v.label }}</span>
+        {% if v.share %}
+        <select name="as_{{ v.key }}" aria-label="{{ v.label }}: percent or count">
+          <option value="">percent</option>
+          <option value="value" {% if v.as_value %}selected{% endif %}>count</option>
+        </select>
+        {% endif %}
+        {% if not v.tract %}<span class="hint">county only</span>{% endif %}
+      </label>
+      {% endfor %}
+    </div>
+  </fieldset>
+  {% endfor %}
+  <div class="action-bar">
+    <button type="submit" class="primary">Next</button>
+    <button type="submit" name="stay" value="1"
+      title="Save this step and redraw the preview with it">Update</button>
+  </div>
+</form>
+<script>
+(function () {
+  var max = {{ max }};
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('input[name="layer"]'));
+  var levels = document.querySelectorAll('input[name="layer_level"]');
+  var count = document.getElementById("picked-count");
+  function level() {
+    for (var i = 0; i < levels.length; i++) if (levels[i].checked) return levels[i].value;
+    return "county";
+  }
+  function refresh() {
+    var tract = level() === "tract";
+    var on = 0;
+    boxes.forEach(function (box) {
+      var row = box.closest(".layer-row");
+      var countyOnly = row.dataset.tract === "no";
+      if (tract && countyOnly) { box.checked = false; box.disabled = true; }
+      else box.disabled = false;
+      if (box.checked) on += 1;
+      row.classList.toggle("disabled", box.disabled);
+    });
+    boxes.forEach(function (box) {
+      if (!box.checked && on >= max) box.disabled = true;
+    });
+    count.textContent = on;
+  }
+  boxes.forEach(function (box) { box.addEventListener("change", refresh); });
+  for (var i = 0; i < levels.length; i++) levels[i].addEventListener("change", refresh);
+  refresh();
+})();
+</script>
+{% endblock %}

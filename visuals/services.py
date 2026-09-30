@@ -116,6 +116,8 @@ STORY_MAP_KIND = "storymap"
 #: The outlet registry as a map: the story map's renderer and style rules,
 #: its own data and options (docs/OUTLET_MAP.md).
 OUTLET_MAP_KIND = "outletmap"
+#: Newsrooms and coverage with Census layers over them (docs/LAYERED_MAP.md).
+LAYER_MAP_KIND = "layermap"
 
 
 def _scope_key(scopes):
@@ -162,6 +164,35 @@ def fetch_source_data(visual):
                 from visuals.outlets import run_outlet_map
 
                 return run_outlet_map(visual.config or {})
+            if kind == LAYER_MAP_KIND:
+                from visuals.layermap import run_layer_map
+
+                config = visual.config or {}
+                # Keyed on what changes the answer: the slice, the layers
+                # and the options the base layers read.
+                return answer_once(
+                    "visuals.layermap",
+                    [
+                        spec,
+                        _scope_key(scopes),
+                        {
+                            k: config.get(k)
+                            for k in (
+                                "layer_level",
+                                "layers",
+                                "base_points",
+                                "base_coverage",
+                                "as_of",
+                                "bands",
+                                "roll_up",
+                                "frame",
+                                "focus",
+                                "categories_drawn",
+                            )
+                        },
+                    ],
+                    lambda: run_layer_map(spec, scopes, config),
+                )
             if kind == STORY_MAP_KIND or spec.get("shape") == "story_map":
                 # The config too, because rolling points up to a
                 # city is a display choice made on the Look step
