@@ -100,7 +100,11 @@ document.addEventListener("DOMContentLoaded", function () {
       // embed has none -- it is the visual and a way into its numbers,
       // and nothing else belongs inside somebody else's article.
       toggle.textContent = "View chart";
-      DatadeskChart.renderTable(el, data, credits, takeaway, toggle);
+      // Through the mount, so a resize or a theme change while the table
+      // is up does not redraw the chart over it and take the way back.
+      const show = () =>
+        DatadeskChart.renderTable(el, data, credits, takeaway, toggle);
+      if (chart) chart.table(show); else show();
     } else if (chart) {
       // Back to the caption before the redraw, or `replaceChildren`
       // takes the button with the table and there is no way in again.

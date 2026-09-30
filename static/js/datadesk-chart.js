@@ -2144,10 +2144,13 @@
   //: which is not assigned until the end of this file.
   let arrowSeq = 0;
 
-  function hashOf(s) {
-    let h = 0;
-    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-    return h;
+  // An id no other chart on the page can mint. SVG resolves url(#id)
+  // across the whole document, so a clip path named by width and county
+  // count, or a chord's text paths named by a hash of its categories,
+  // collided whenever two charts of one shape shared a page.
+  let uidSeq = 0;
+  function uid(prefix) {
+    return `${prefix}-${(uidSeq += 1)}`;
   }
 
   // Trim each label to the room it was given, measuring rather than
@@ -3436,7 +3439,7 @@
     // surface, whose contrast is a known quantity.
     const BAND = 12;
     const LABEL_R = R + BAND + 3;
-    const uid = `chord-${Math.abs(hashOf(names.join("|")))}`;
+    const chordId = uid("dd-chord");
     const defs = svg.append("defs");
 
     // 0 is twelve o'clock and angles run clockwise, so the lower half --
@@ -3479,7 +3482,7 @@
       d.angle = mids[i];
       const { mid, half } = spans[i];
       const flip = mid > Math.PI / 2 && mid < (3 * Math.PI) / 2;
-      const id = `${uid}-${i}`;
+      const id = `${chordId}-${i}`;
       defs.append("path").attr("id", id)
         .attr("d", arcPath(mid - half, mid + half, flip));
 
@@ -3739,6 +3742,20 @@
   // cannot stack -- so the reader switches between them, and turns the
   // newsrooms on or off; each switch redraws the story map's renderer
   // with the chosen fill handed in as its scale.
+  // What a redraw of a layered map must not forget: the layer chosen and
+  // whether the newsrooms are on. Kept on the mount's state object, which
+  // outlives the renderer, so a resize or a theme change draws the map
+  // the reader had rather than the first layer with the newsrooms back on.
+  function layerState(state, choices, points) {
+    const known = choices.some((c) => c.id === state.active);
+    return {
+      active: known ? state.active : choices[0].id,
+      showPoints: typeof state.showPoints === "boolean"
+        ? state.showPoints
+        : points.length > 0,
+    };
+  }
+
   function renderLayerMap(el, config, data, opts, t, width) {
     const payload = data || {};
     const points = payload.points || [];
@@ -3761,9 +3778,9 @@
     if (coverage.length) choices.push({ id: "coverage", label: "Coverage" });
     for (const layer of layers) choices.push({ id: layer.id, label: layer.label, layer });
     choices.push({ id: "none", label: "No shading" });
-    let active = choices[0].id;
-    let showPoints = points.length > 0;
-    const group = "dd-layer-" + Math.random().toString(36).slice(2, 8);
+    const state = (opts && opts.state) || {};
+    let { active, showPoints } = layerState(state, choices, points);
+    const group = uid("dd-layer");
 
     const head = document.createElement("span");
     head.className = "dd-layers-head";
@@ -3776,7 +3793,10 @@
       radio.name = group;
       radio.value = c.id;
       radio.checked = c.id === active;
-      radio.addEventListener("change", () => { active = c.id; draw(); });
+      radio.addEventListener("change", () => {
+        active = state.active = c.id;
+        draw();
+      });
       label.append(radio, c.label);
       control.appendChild(label);
     }
@@ -3785,7 +3805,10 @@
       const box = document.createElement("input");
       box.type = "checkbox";
       box.checked = showPoints;
-      box.addEventListener("change", () => { showPoints = box.checked; draw(); });
+      box.addEventListener("change", () => {
+        showPoints = state.showPoints = box.checked;
+        draw();
+      });
       label.append(box, "Newsrooms");
       control.appendChild(label);
     }
@@ -4061,14 +4084,14 @@
         .attr("style",
           'max-width:100%;height:auto;display:block;font-family:system-ui,' +
           '-apple-system,"Segoe UI",sans-serif;font-size:12px');
-      const clipId = "dd-clip-" + Math.abs(width | 0) + "-" + shown.length;
+      const clipId = uid("dd-clip");
       svg.append("clipPath").attr("id", clipId)
         .append("rect").attr("width", width).attr("height", height);
       const frame = svg.append("g").attr("clip-path", `url(#${clipId})`);
       // HATCHING for a cell the survey cannot really say: the margin is
       // wider than 30% of the estimate, so it is neither shaded (which
       // would assert a value) nor blank (which would say none).
-      const hatchId = "dd-hatch-" + clipId;
+      const hatchId = uid("dd-hatch");
       const hatch = svg.append("defs").append("pattern")
         .attr("id", hatchId).attr("width", 6).attr("height", 6)
         .attr("patternUnits", "userSpaceOnUse");
@@ -4393,17 +4416,45 @@
   }
 
   function mount(el, config, rows, opts) {
-    const draw = () => render(el, config, rows, opts);
+    // What a redraw keeps. `state` is the renderer's memory across
+    // redraws (the layered map's chosen layer and newsrooms toggle);
+    // `mode` is whether the page has replaced the chart with its table,
+    // in which case a resize or a theme change must leave the table --
+    // and the way back from it -- where they are.
+    const state = {};
+    let mode = "chart";
+    const draw = () => {
+      if (mode === "table") return;
+      render(el, config, rows, { ...(opts || {}), state });
+    };
     draw();
-    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
+    const media = matchMedia("(prefers-color-scheme: dark)");
+    media.addEventListener("change", draw);
+    // The site's own toggle stamps data-theme on <html>
+    // (datadesk-theme.js); the media query does not see it.
+    const stamps = new MutationObserver(draw);
+    stamps.observe(document.documentElement, {
+      attributes: true, attributeFilter: ["data-theme"],
+    });
     // The observer must measure what the renderer measures, or a pane that
     // widens redraws at a width the chart does not use.
     let width = roomFor(el);
-    new ResizeObserver(() => {
+    const sizes = new ResizeObserver(() => {
       const room = roomFor(el);
       if (Math.abs(room - width) > 24) { width = room; draw(); }
-    }).observe(el);
-    return { redraw: draw };
+    });
+    sizes.observe(el);
+    return {
+      redraw() { mode = "chart"; draw(); },
+      // The page draws its table through here so a redraw knows to
+      // leave it alone; `show` is the page's own renderTable call.
+      table(show) { mode = "table"; show(); },
+      destroy() {
+        media.removeEventListener("change", draw);
+        stamps.disconnect();
+        sizes.disconnect();
+      },
+    };
   }
 
   // Reached by the test harness only. The colour decisions are the part
@@ -4412,6 +4463,6 @@
   // hues is a fact about these functions, not about the page.
   global.DatadeskChart = {
     render, mount, renderTable,
-    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, spreadCoincident, fmtValue, scaleLabels, esc, tipRow, tipHead, fetchJSON, unavailable, undrawable, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf, swatchLegend },
+    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, spreadCoincident, fmtValue, scaleLabels, esc, tipRow, tipHead, fetchJSON, unavailable, undrawable, uid, layerState, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf, swatchLegend },
   };
 })(window);
