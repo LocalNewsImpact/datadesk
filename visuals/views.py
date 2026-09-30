@@ -37,6 +37,7 @@ from visuals.models import BIGQUERY, CORPUS, GCS, INLINE, STORIES, Visual
 from visuals.services import (
     DataSourceError,
     NotPublishable,
+    Standing,
     fetch_source_data,
     may_act_on,
     publish,
@@ -211,7 +212,7 @@ def _question_stamp(visual, live):
         return ""
 
 
-def _credit_line(visual):
+def _credit_line(visual, attribution=None):
     """Whose name sits on the chart, and where it links: (name, href).
 
     The consortium publishes what is built here, so that is the default
@@ -225,7 +226,7 @@ def _credit_line(visual):
         return config["source_text"], config.get("source_url") or None
     if config.get("credit") != "dataset":
         return None, None
-    rows = _attribution(visual)
+    rows = attribution if attribution is not None else _attribution(visual)
     if not rows:
         return None, None
     first = rows[0]
@@ -576,7 +577,7 @@ def _embed_choices(visual, shown):
     }
 
 
-def _downloads(visual, by_uuid, version=None):
+def _downloads(visual, by_uuid, snapshot=None):
     """Every file a reader can take away: the whole payload as JSON, and
     each row-list as CSV.
 
@@ -586,7 +587,7 @@ def _downloads(visual, by_uuid, version=None):
     split the table view makes on the page.
     """
     ident = visual.uuid if by_uuid else visual.slug
-    base = {"v": version} if version is not None else {}
+    base = {"v": snapshot.version} if snapshot is not None else {}
 
     def url(route, **extra):
         params = {**base, **extra}
@@ -603,11 +604,6 @@ def _downloads(visual, by_uuid, version=None):
             "suffix": ".json",
         }
     ]
-    snapshot = (
-        visual.snapshots.filter(version=version).first()
-        if version is not None
-        else visual.pinned_snapshot
-    )
     for name, rows in tables_in(snapshot.data if snapshot else None):
         files.append(
             {
@@ -625,6 +621,8 @@ def page(request, slug):
     if not (request.user.is_authenticated and has_any_grant(request.user, APP)):
         raise Http404("No such visual")
     visual = _get_visual(request, slug)
+    acting = may_act_on(request.user, visual)
+    credit = _credit_line(visual)
     return render(
         request,
         "visuals/page.html",
@@ -635,13 +633,11 @@ def page(request, slug):
             # and got a 404 -- on the only page that shows a draft at all.
             # Whoever may change the visual may see what it currently
             # draws, which is the rule the builder's preview already uses.
-            "feed": _feed_url(
-                visual, by_uuid=False, live=may_act_on(request.user, visual)
-            ),
-            "stamp": _question_stamp(visual, may_act_on(request.user, visual)),
+            "feed": _feed_url(visual, by_uuid=False, live=acting),
+            "stamp": _question_stamp(visual, acting),
             "libs": libs_for(visual.render_config.get("kind")),
-            "credit_name": _credit_line(visual)[0],
-            "credit_href": _credit_line(visual)[1],
+            "credit_name": credit[0],
+            "credit_href": credit[1],
         },
     )
 
@@ -674,6 +670,11 @@ def public_page(request, slug=None, uuid=None):
     live = request.GET.get("live") == "1" and (
         visual.allow_live or may_act_on(request.user, visual)
     )
+    # Each of these once: the attribution feeds the credit line, and the
+    # snapshot shown is the one the downloads describe.
+    showing = shown or visual.pinned_snapshot
+    attribution = _attribution(visual)
+    credit = _credit_line(visual, attribution)
     response = render(
         request,
         "visuals/public.html",
@@ -701,25 +702,20 @@ def public_page(request, slug=None, uuid=None):
             # v4" above links that followed whatever gets published
             # next. Somebody downloading the numbers behind the chart
             # they just read would have got different ones.
-            "downloads": _downloads(
-                visual,
-                by_uuid=uuid is not None,
-                version=(shown or visual.pinned_snapshot)
-                and (shown or visual.pinned_snapshot).version,
-            ),
-            "attribution": _attribution(visual),
+            "downloads": _downloads(visual, by_uuid=uuid is not None, snapshot=showing),
+            "attribution": attribution,
             "libs": libs_for(visual.render_config.get("kind")),
-            "credit_name": _credit_line(visual)[0],
-            "credit_href": _credit_line(visual)[1],
+            "credit_name": credit[0],
+            "credit_href": credit[1],
             # What the reader is looking at, whether they pinned it or
             # took the current one.
-            "shown": shown or visual.pinned_snapshot,
+            "shown": showing,
             # The one thing here a version choice changes. A link takes
             # the numbers behind the chart on this page and always
             # should; an embed is a chart on somebody else's page, and
             # whether that moves when this is republished is a real
             # decision with two right answers.
-            "snippets": _embed_choices(visual, shown or visual.pinned_snapshot),
+            "snippets": _embed_choices(visual, showing),
             "pinned_by_url": shown is not None,
         },
     )
@@ -736,6 +732,7 @@ def embed(request, slug=None, uuid=None):
     asked = _asked_for_version(request)
     if asked is not None and not visual.snapshots.filter(version=asked).exists():
         raise Http404(f"No version {asked} of this visual")
+    credit = _credit_line(visual)
     response = render(
         request,
         "visuals/embed.html",
@@ -747,8 +744,8 @@ def embed(request, slug=None, uuid=None):
             "theme_stamp": _theme_for(request, visual),
             "geo_preload": _geo_preload(visual),
             "libs": libs_for(visual.render_config.get("kind")),
-            "credit_name": _credit_line(visual)[0],
-            "credit_href": _credit_line(visual)[1],
+            "credit_name": credit[0],
+            "credit_href": credit[1],
         },
     )
     response["Content-Security-Policy"] = f"frame-ancestors {visual.frame_ancestors}"
@@ -768,12 +765,14 @@ def index(request):
     a query that looks clever and is wrong at the join.
     """
     visuals = []
+    # The person's grants, read once for the whole list (services.Standing).
+    standing = Standing(request.user)
     for v in Visual.objects.all():
-        if not visible_to(request.user, v):
+        if not visible_to(request.user, v, standing):
             continue
         # The edit link follows the visual, not the privilege: a viewer
         # sees every published visual and may act on none of them.
-        v.actionable = may_act_on(request.user, v)
+        v.actionable = may_act_on(request.user, v, standing)
         visuals.append(v)
 
     from visuals.models import Folder
@@ -1952,6 +1951,7 @@ def builder_step(request, slug, step):
     # between here and the corpus can return one question's rows for
     # another's.
     stamp = _question_stamp(visual, True)
+    credit = _credit_line(visual)
     context.update(
         {
             "visual": visual,
@@ -1983,8 +1983,8 @@ def builder_step(request, slug, step):
             # the same question once per panel.
             "stamp": stamp,
             "libs": libs_for(visual.render_config.get("kind")),
-            "credit_name": _credit_line(visual)[0],
-            "credit_href": _credit_line(visual)[1],
+            "credit_name": credit[0],
+            "credit_href": credit[1],
             # What the preview is still waiting for, so it can say so
             # rather than drawing an empty chart that looks like a
             # finished one.

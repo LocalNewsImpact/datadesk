@@ -1,6 +1,7 @@
 """Snapshot and publish mechanics (SCOPE.md §2.7 v1)."""
 
 import json
+from functools import cached_property
 
 from django.db import transaction
 from django.db.models import Max
@@ -15,7 +16,45 @@ class DataSourceError(Exception):
     """The visual's data source could not be read; message is user-facing."""
 
 
-def may_act_on(user, visual):
+class Standing:
+    """One person's standing, read once for every visual on a page.
+
+    `visible_to` and `may_act_on` each ask the grants table -- an admin?
+    which datasets, readable and owned? -- and the index asked for every
+    visual in the list, up to four queries a row. The answers are the
+    person's, not the visual's, so a page builds one of these and passes
+    it. Each answer is read when first needed and kept, so a single call
+    without one costs what it did.
+    """
+
+    def __init__(self, user):
+        self.user = user
+
+    @cached_property
+    def admin(self):
+        from accounts.access import is_application_admin
+        from accounts.decorators import APP
+
+        return is_application_admin(self.user, APP)
+
+    @cached_property
+    def readable(self):
+        from accounts.access import permitted_scopes
+        from accounts.decorators import APP
+        from accounts.privileges import READ
+
+        return permitted_scopes(self.user, APP, READ)
+
+    @cached_property
+    def owned(self):
+        from accounts.access import permitted_scopes
+        from accounts.decorators import APP
+        from accounts.privileges import WRITE
+
+        return permitted_scopes(self.user, APP, WRITE)
+
+
+def may_act_on(user, visual, standing=None):
     """May this person change this visual -- edit, refresh, publish?
 
     Seeing and acting are separate. A published visual is visible to
@@ -30,26 +69,25 @@ def may_act_on(user, visual):
     seeing their visual, as any viewer would, and can no longer act on it.
     Only an admin can, which is what ROADMAP item 1 decided.
     """
-    from accounts.access import ALL_SCOPES, is_application_admin, permitted_scopes
-    from accounts.decorators import APP
-    from accounts.privileges import WRITE
+    from accounts.access import ALL_SCOPES
 
     if not user.is_authenticated:
         return False
-    if is_application_admin(user, APP):
+    standing = standing or Standing(user)
+    if standing.admin:
         return True
     if visual.created_by_id == user.pk:
         return True
     wired = set(visual.datasets or ())
     if not wired:
         return False
-    owned = permitted_scopes(user, APP, WRITE)
+    owned = standing.owned
     if owned is ALL_SCOPES:
         return True
     return bool(wired & set(owned))
 
 
-def visible_to(user, visual):
+def visible_to(user, visual, standing=None):
     """May this person see this visual inside Datadesk?
 
     Visibility in the admin follows dataset access, and does so for a
@@ -78,20 +116,19 @@ def visible_to(user, visual):
     point of putting the rule on dataset access rather than on the
     visual's status.
     """
-    from accounts.access import ALL_SCOPES, is_application_admin, permitted_scopes
-    from accounts.decorators import APP
-    from accounts.privileges import READ
+    from accounts.access import ALL_SCOPES
 
     if not user.is_authenticated:
         return False
-    if is_application_admin(user, APP):
+    standing = standing or Standing(user)
+    if standing.admin:
         return True
     if visual.created_by_id == user.pk:
         return True
     wired = set(visual.datasets or ())
     if not wired:
         return False
-    readable = permitted_scopes(user, APP, READ)
+    readable = standing.readable
     if readable is ALL_SCOPES:
         return True
     return bool(wired & set(readable))
