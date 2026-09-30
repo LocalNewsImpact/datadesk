@@ -6,6 +6,18 @@
 # a few megabytes rather than reinstalling every library.
 
 ARG BASE_IMAGE=datadesk-base:local
+
+# The chart runtime, minified. Every chart page loads it -- a table
+# included -- and as written it is 68 KB gzipped, most of it comments; this
+# is 25 KB. The script also loads the source and the build side by side and
+# fails the image if they answer differently (review 2026-09-30, item 27).
+FROM node:22-slim AS runtime-js
+WORKDIR /build
+RUN npm install --no-save --no-package-lock esbuild@0.25.12
+COPY static/js/datadesk-chart.js static/js/d3.min.js ./static/js/
+COPY scripts/minify-runtime.mjs ./scripts/
+RUN node scripts/minify-runtime.mjs static/js/datadesk-chart.js datadesk-chart.min.js
+
 FROM ${BASE_IMAGE}
 
 WORKDIR /app
@@ -20,6 +32,9 @@ COPY review/ ./review/
 COPY visuals/ ./visuals/
 COPY templates/ ./templates/
 COPY static/ ./static/
+# Same name, so templates and collectstatic's hashed names do not change;
+# the readable source stays in the repo, where it is read and tested.
+COPY --from=runtime-js /build/datadesk-chart.min.js ./static/js/datadesk-chart.js
 # Dated readings of outside directories. The image carries them because
 # comparing the corpus to one is a job that runs here, not locally.
 COPY data/ ./data/
