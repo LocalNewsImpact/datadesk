@@ -31,6 +31,7 @@ The reader never picks from the Census catalogue.
 | Tract level | Offered only for measures that hold there. Nine were unreliable in more than a third of Missouri's tracts (unemployment, Hispanic, foreign born, language, vacancy, Black alone, uninsured, poverty, veterans): county only. The flag is `tract` on each variable; `fetch_census_layers --report` re-measures it. |
 | Labels | Plain names, never table codes. |
 | Derived layers | Stories per 10,000 residents, outlets per 100,000: viability to be tested before any is offered. |
+| How many layers | Up to eight switchable fill layers per map, chosen from the registry, plus the two base layers always available to the author: newsrooms as points, and coverage shading. The cap is one constant in the builder. |
 
 ## Where the numbers live
 
@@ -57,7 +58,9 @@ updated" re-reads the table at the next publish.
 `percent` or `count`. The payload carries `points` (outlets), and `areas`
 per layer with the value, the margin and whether the cell is unreliable.
 
-Only one fill layer shows at a time; two choropleths cannot stack. The
+A map carries at most eight Census fill layers (`MAX_LAYERS`), and the two
+base layers. Only one fill layer shows at a time; two choropleths cannot
+stack. The
 points layer is always drawn. A second quantity can go on the outline or
 a hatch. Each layer carries its own legend; the legend swaps with the
 layer.
