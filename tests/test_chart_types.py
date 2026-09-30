@@ -663,7 +663,7 @@ def test_the_observer_measures_what_the_renderer_measures():
     """A pane that widens would redraw at a width the chart does not use."""
     js = _chart_js()
     body = js[js.index("function mount(") :]
-    body = body[: body.index("return { redraw: draw };")]
+    body = body[: body.index("return {\n")]
     assert "roomFor(el)" in body
     assert "el.clientWidth" not in body, "the two measurements disagree again"
 
