@@ -560,3 +560,44 @@ class OutletStory(models.Model):
 
     def __str__(self):
         return f"{self.published}: {self.headline}"
+
+
+class CensusValue(models.Model):
+    """One ACS measure for one county or tract, as a map layer reads it.
+
+    Fetched from the Census API by `fetch_census_layers` for the variables
+    in `visuals.census.VARIABLES` (docs/LAYERED_MAP.md), and kept here so a
+    published map is built from stored numbers, not from a call to the
+    Census at publish time. ACS 5-year estimates carry a 90% margin of
+    error; the margin is kept beside the estimate so a map can hatch what
+    the survey cannot really say (`visuals.census.unreliable`).
+
+    `variable` is our own key ("median_household_income"), not the table
+    code, so the code can move between vintages without the layer moving.
+    """
+
+    year = models.PositiveSmallIntegerField()
+    #: county or tract
+    level = models.CharField(max_length=10)
+    #: 5 digits for a county, 11 for a tract
+    geoid = models.CharField(max_length=11)
+    variable = models.CharField(max_length=60)
+    estimate = models.FloatField(null=True, blank=True)
+    moe = models.FloatField(null=True, blank=True)
+    #: The Census's own percent and its margin, where the measure is a share.
+    percent = models.FloatField(null=True, blank=True)
+    percent_moe = models.FloatField(null=True, blank=True)
+    fetched_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "census_layer_value"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["year", "level", "geoid", "variable"],
+                name="census_value_one_per_place",
+            )
+        ]
+        indexes = [models.Index(fields=["year", "level", "variable"])]
+
+    def __str__(self):
+        return f"{self.variable} {self.geoid} ({self.year})"
