@@ -32,11 +32,16 @@ Two standing rules inherited from the corpus work:
 ### 2.1 Accounts and access
 
 `django-allauth` with Google as the sole provider, hosted-domain restricted
-(the pattern proven on sources.localnewsimpact.org). Three roles:
+(the pattern proven on sources.localnewsimpact.org), with invitations for
+accounts outside the domain. Three roles were planned:
 
 - **viewer** — dashboards, data browsing, published visuals
 - **editor** — review/cleanup actions, imports, visual authoring
 - **admin** — dataset management, user administration, destructive actions
+
+Built (ROADMAP item 1): `Grant` rows per user, application and dataset
+scope, on a ladder of viewer, designer, reviewer, editor and admin, with
+`classifier` beside it (`accounts/privileges.py`).
 
 Every mutating action records actor, timestamp, target rows, and
 before/after values in an audit table. The audit log is append-only and
@@ -182,8 +187,10 @@ designed around them.
   migrations as a Cloud Run job, domain mapping for
   datadesk.localnewsimpact.org. Long-running work (imports, syncs) runs
   as Cloud Run Jobs on the same image
-- No public unauthenticated surface except `/embed/*` and
-  `/visuals/*/data.json` for published visuals
+- No public unauthenticated surface except `/embed/*`,
+  `/visuals/*/data.json` and `/visuals/*/data.csv` for published visuals,
+  and the same three by UUID on the `datadesk-data` service
+  (data.localnewsimpact.org)
 
 ## 4. Phases
 
@@ -231,7 +238,7 @@ Decided 2026-08-21:
 3. **Domain: datadesk.localnewsimpact.org**, via Cloud Run domain
    mapping.
 
-4. **GCP project: dedicated** (proposed name `lnic-datadesk`), the
+4. **GCP project: dedicated** (`lnic-datadesk`), the
    sources-directory precedent. Own WIF binding, service accounts, and
    registry; cross-project access to `mizzou-db-prod-ssd` and BigQuery is
    IAM grants, the pattern the directory already proved.

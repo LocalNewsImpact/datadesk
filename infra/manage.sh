@@ -17,7 +17,7 @@ PROJECT="${PROJECT:-lnic-datadesk}"
 REGION="${REGION:-us-central1}"
 SERVICE="${SERVICE:-datadesk}"
 JOB="${JOB:-${SERVICE}-manage}"
-SQL_INSTANCE="${SQL_INSTANCE:-mizzou-news-crawler:us-central1:mizzou-db-prod}"
+SQL_INSTANCE="${SQL_INSTANCE:-mizzou-news-crawler:us-central1:mizzou-db-prod-ssd}"
 
 [[ $# -gt 0 ]] || { grep '^#' "$0" | sed -n '3,11p' | cut -c3-; exit 1; }
 
@@ -38,7 +38,7 @@ echo
 gcloud run jobs deploy "$JOB" \
   --image "$IMAGE" --region "$REGION" --project "$PROJECT" \
   --command python --args "^|^${ARGS}" \
-  --set-secrets DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_DB_PASSWORD=crawler-ro-password:latest,CRAWLER_RW_DB_PASSWORD=crawler-rw-password:latest \
+  --set-secrets DJANGO_SECRET_KEY=django-secret-key:latest,DB_PASSWORD=db-password:latest,CRAWLER_DB_PASSWORD=crawler-ro-password:latest,CRAWLER_RW_DB_PASSWORD=crawler-rw-password:latest,CENSUS_API_KEY=census-api-key:latest \
   --set-env-vars "CLOUD_SQL_CONNECTION_NAME=${SQL_INSTANCE},DB_NAME=datadesk,DB_USER=datadesk,CRAWLER_DB_NAME=mizzou,CRAWLER_DB_USER=datadesk_ro,CRAWLER_RW_DB_USER=datadesk_rw" \
   --set-cloudsql-instances "$SQL_INSTANCE" \
   --service-account "datadesk-run@${PROJECT}.iam.gserviceaccount.com" \

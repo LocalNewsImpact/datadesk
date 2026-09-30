@@ -1,7 +1,8 @@
 # The discovery review queue
 
-What is reviewed before extraction, why it cannot be reviewed today, and
-what has to be built. Measured against production on 2026-09-06.
+What is reviewed before extraction, what had to be built for it, and
+why the boundary is where it is. Measured against production on
+2026-09-06; the queue is built (`/review/discovery/`).
 
 The subject is the pre-extraction judgement: **is this URL a story?**
 That call is made on every discovered link, it decides whether the page
@@ -559,8 +560,9 @@ and the revert path are the ones that already exist. The labelled set is
 then exportable for training without the crawler having to own it.
 
 `url_verifications.human_label` is deliberately **not** written. Datadesk
-does not create rows in the crawler's tables (SCOPE.md §2.5), and a label
-in two places is a label that can disagree with itself. If the crawler
+creates no `url_verifications` rows (its writes to the crawler's tables
+are the ones `infra/sql/create_crawler_write_role.sql` grants), and a
+label in two places is a label that can disagree with itself. If the crawler
 later wants the labels, it reads them.
 
 ---
@@ -570,9 +572,9 @@ later wants the labels, it reads them.
 "It is a story" is the console's first write to `candidate_links`, and
 the boundary is deliberately narrow, so it is three changes and no more:
 
-1. `review/services.py` — `CandidateLink: ("status",)` in `WRITABLE`.
-2. `infra/sql/create_crawler_write_role.sql` — `GRANT UPDATE (status) ON
-   candidate_links TO datadesk_rw`, applied to production.
+1. `review/services.py` — `CandidateLink: ("status", "meta")` in `WRITABLE`.
+2. `infra/sql/create_crawler_write_role.sql` — `GRANT UPDATE (status, meta)
+   ON candidate_links TO datadesk_rw`, applied to production.
 3. `explorer/models.py` — `CandidateLink` gains the columns the queue
    reads (`status`, `discovered_at`, `discovered_by`, `meta`), which it
    does not have today.

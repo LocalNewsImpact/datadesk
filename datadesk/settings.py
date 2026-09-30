@@ -263,8 +263,9 @@ WSGI_APPLICATION = "datadesk.wsgi.application"
 # passes the connection name and the service assembles the DSN itself —
 # a DATABASE_URL built in CI would point at the runner's localhost.
 #
-# Read-only crawler-DB and BigQuery connections are configured separately
-# (Phase 0 infrastructure work); they are not Django DATABASES entries.
+# The read-only crawler database is the `crawler` DATABASES alias below
+# (and `crawler_rw` for the audited write path); BigQuery is configured
+# separately, not as a Django database.
 
 if "CLOUD_SQL_CONNECTION_NAME" in os.environ:
 

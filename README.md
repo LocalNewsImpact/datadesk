@@ -3,11 +3,10 @@
 Django console for LNIC research data: review and cleanup, dataset
 management, cost insight, and a publishing platform for embeddable visuals.
 
-See [SCOPE.md](SCOPE.md) for the delivery plan. Phase 0 is code-complete
-(auth, roles, audit log, deploy pipeline — see
-[infra/README.md](infra/README.md) — and the read-only crawler-DB and
-BigQuery connections; what remains is running the bootstrap against GCP
-and the first deploy). Phase 1, the data explorer, is in: the articles
+See [SCOPE.md](SCOPE.md) for the delivery plan and the index of documents
+at the end of this file. Phase 0 is complete and deployed (auth, roles,
+audit log, deploy pipeline — see [infra/README.md](infra/README.md) — and
+the read-only crawler-DB and BigQuery connections). Phase 1, the data explorer, is in: the articles
 grid with the March filters, the enrichment grid with the geography
 filters, the side-by-side article detail, and the recorded-vs-billed
 cost dashboard, all read-only over the `datadesk_ro` role and
@@ -31,9 +30,11 @@ re-runnable definitions. Phase 2 is code-complete.
 Phase 3, visuals v1, is code-complete: the registry (a `Visual` is a
 renderer template in the repo plus a BigQuery query or bucket object,
 registered and published through the admin), `/visuals/<slug>/`,
-`/visuals/<slug>/data.json`, and `/embed/<slug>/` with a per-visual
-frame-ancestors allowlist — the embed and feed being the only public
-routes, for published visuals only. Publishing pins a data snapshot;
+`/visuals/<slug>/data.json`, `/visuals/<slug>/data.csv`, and
+`/embed/<slug>/` with a per-visual frame-ancestors allowlist — the embed
+and the two feeds being the only public routes, for published visuals
+only; the same routes are served by UUID from the `datadesk-data` service
+on data.localnewsimpact.org (`SERVICE_ROLE=data`, `datadesk/urls_data.py`). Publishing pins a data snapshot;
 embeds serve the pin (`?live=1` works only where a visual opts in), so
 a published report never changes under its readers. The March
 story-geography map becomes the first registration once its assets
@@ -54,10 +55,12 @@ INSERT/DELETE) are in `create_crawler_write_role.sql`, which is
 idempotent — rerun it if the role predates them.
 
 Phase 5, the form-driven builder, is code-complete: editors create a
-visual from an uploaded CSV, a BigQuery query, or a bucket object, pick
-a chart kind — bar, line, area, scatter, donut, chord, arc diagram,
-table, and the GIS pair: choropleth and point maps at every level from
-nation to census tract (nation/state/county boundaries ship with the
+visual from an uploaded CSV, a BigQuery query, a bucket object, or the
+corpus itself, pick a chart kind — seventeen, declared in
+`visuals/types.py`: bar, line, area, scatter, donut, chord, arc diagram,
+sankey, table, grouped table, choropleth, point map, locator map, story
+map, outlet map, layered map ([docs/LAYERED_MAP.md](docs/LAYERED_MAP.md))
+and flow map; the GIS kinds draw at every level from nation to census tract (nation/state/county boundaries ship with the
 repo; place and tract boundaries load per state from the joined GEOIDs,
 built and committed by `infra/fetch_boundaries.sh` — MO, PA, and MN are
 in) with FIPS joins, sequential or diverging ramps, zoom-to-data, and
@@ -170,7 +173,8 @@ Required checks here are `checks / lint`, `checks / test` and
 own stage, and there is no integration stage, so the shared workflow is
 called with those two flags off.
 
-Every push to `main` deploys. Work on a branch.
+Every push to `main` deploys, except one that touches only `*.md`,
+`docs/` or `infra/`. Work on a branch.
 
 ---
 
@@ -225,22 +229,50 @@ All deployment-specific values come from environment variables
 | `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` | Google sign-in credentials; blank leaves the provider unconfigured and the admin login available | blank |
 | `ALLOWED_AUTH_DOMAINS` | Comma-separated Google hosted domains allowed to sign in; empty disables the restriction (development only) | empty |
 | `DATADESK_SQLITE_PATH` | Development sqlite location | `./db.sqlite3` |
+| `CENSUS_API_KEY` | Census API key for `fetch_census_layers`; the `census-api-key` secret in production | unset |
+
+The full list — the database and crawler-database variables
+(`CLOUD_SQL_CONNECTION_NAME`, `DB_*`, `CRAWLER_DB_*`, `CRAWLER_RW_DB_*`),
+`SERVICE_ROLE`, `SESSION_COOKIE_DOMAIN`, `GMAIL_*`, `GITHUB_DISPATCH_*`,
+`PUBLISHER_SECRET_PROJECT` and the `DATADESK_TEST_DB_*` set — is in the
+docstring at the top of `datadesk/settings.py`.
 
 The development database is sqlite (the test suite is not — see
 Quickstart). Production is a `datadesk` database
 on the shared Cloud SQL instance, reached over the Cloud Run unix socket
 with credentials from Secret Manager (the sources-directory pattern —
-SCOPE.md §6.2). The seam is a commented block in `datadesk/settings.py`,
-activated when the deploy pipeline lands.
+SCOPE.md §6.2). The seam is the `CLOUD_SQL_CONNECTION_NAME` block in
+`datadesk/settings.py`: set, it assembles the production databases;
+unset, development runs on sqlite.
 
 ## Access model
 
 Google via django-allauth is the sole sign-in path (SCOPE.md §2.1); local
 password signup is closed. The hosted-domain claim is enforced in
 `accounts/adapters.py` — the `hd` OAuth parameter is only a hint to
-Google's account chooser. Roles are the Django groups `viewer`, `editor`,
-and `admin`, created by the accounts data migration; new sign-ins have no
-role until one is assigned in the admin.
+Google's account chooser — and an account outside the domain is admitted
+only by an invitation (`/manage/invite/`). Roles are `Grant` rows per
+user, application and dataset scope, on a ladder of viewer, designer,
+reviewer, editor and admin, with `classifier` beside it
+(`accounts/privileges.py`); they are assigned at `/manage/users/` and
+`/manage/roles/`, and a new sign-in has none until one is.
 
-Every mutating action will be recorded in the append-only audit log
-(`audit.AuditLogEntry`), visible read-only in the Django admin.
+Every mutating action is recorded in the append-only audit log
+(`audit.AuditLogEntry`), visible read-only at `/review/audit/` and in the
+Django admin.
+
+## The documents
+
+| Document | What it holds |
+|---|---|
+| [SCOPE.md](SCOPE.md) | The original delivery plan and the write boundary (§6.5's grant table is regenerated from `infra/sql/create_crawler_write_role.sql`) |
+| [ROADMAP.md](ROADMAP.md) | Numbered work items, with what was decided and what was built |
+| [REVIEW.md](REVIEW.md) | The rules the review queues follow: flags, the three columns, durable decisions |
+| [infra/README.md](infra/README.md), [infra/oauth-external.md](infra/oauth-external.md) | Deploy, bootstrap, the Cloud Run jobs, external sign-in |
+| [docs/DISCOVERY_REVIEW_QUEUE.md](docs/DISCOVERY_REVIEW_QUEUE.md) | The pre-extraction queue: is this URL a story? |
+| [docs/CLASSIFICATION_REVIEW_QUEUE.md](docs/CLASSIFICATION_REVIEW_QUEUE.md) | The CIN labelling queue, sampling, the classifier role |
+| [docs/CODEBOOK.md](docs/CODEBOOK.md), [docs/CIN_ROUNDS.md](docs/CIN_ROUNDS.md) | CIN category definitions and coder guidance; rounds over cohorts (a proposal) |
+| [docs/OUTLET_MAP.md](docs/OUTLET_MAP.md), [docs/OUTLET_EVENTS.md](docs/OUTLET_EVENTS.md) | The outlet registry as a map; its history as events, imports and export |
+| [docs/LAYERED_MAP.md](docs/LAYERED_MAP.md) | The layered map and the Census layer store (`fetch_census_layers`) |
+| [docs/REVIEW_2026-09-30.md](docs/REVIEW_2026-09-30.md) | A code and documentation review, ranked, for the next pieces of work |
+| `docs/crawler_schema.txt` | The crawler schema snapshot the tests build their fixtures from |

@@ -373,7 +373,8 @@ first word.
 
 **Rename the display, not the class.** The label string is the model's
 class name: `cin_labels.LABELS` is the order `label2id` is built from in
-the shipped checkpoint, and `docs/CIN_MODEL_BASELINE.md` records what
+the shipped checkpoint, and the crawler's `docs/CIN_MODEL_BASELINE.md`
+(MizzouNewsCrawler) records what
 happens when that order is taken from anything else. A rename that
 reaches the stored value silently misaligns every existing label and the
 model trained on them. Map `Civic Life` to a display name; leave the

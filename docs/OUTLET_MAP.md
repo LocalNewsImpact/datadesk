@@ -24,8 +24,8 @@ it. It is now its own type, `outletmap`.
 | | Story map | Outlet map |
 |---|---|---|
 | A dot is | a place stories are set, sized by stories | an outlet |
-| Data | a slice of the corpus (Data and Newsrooms steps) | the whole registry |
-| Walk | type, Look, Data, Newsrooms, Fields, Publish | type, Look, Publish |
+| Data | a slice of the corpus (Data, Newsrooms and Places steps) | the whole registry |
+| Walk | type, Look, Data, Newsrooms, Places, Fields, Publish | type, Look, Publish |
 | Shading counts | stories mentioning the county | outlets located there |
 
 ## Its options (Look step)

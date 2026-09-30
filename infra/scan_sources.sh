@@ -41,7 +41,7 @@ SCHEDULE_NAME="datadesk-scan-sources-daily"
 # when somebody sits down to it.
 SCHEDULE="${SCHEDULE:-10 9 * * *}"
 RUNTIME_SA="datadesk-run@${PROJECT}.iam.gserviceaccount.com"
-SQL_INSTANCE="mizzou-news-crawler:us-central1:mizzou-db-prod"
+SQL_INSTANCE="mizzou-news-crawler:us-central1:mizzou-db-prod-ssd"
 
 # The image *and the environment* the console is running, so the job
 # scans with the same code and the same databases that serve the queue.
