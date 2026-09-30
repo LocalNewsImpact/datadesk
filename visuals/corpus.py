@@ -18,6 +18,7 @@ itself to county/tract/block codings and says how many rows that drops.
 import logging
 import re
 import time
+from datetime import UTC
 
 from django.db.models import (
     Avg,
@@ -751,6 +752,27 @@ ONLY_PREFIX = "_only_"
 _TYPED_DATE = ("%m/%d/%Y", "%m-%d-%Y", "%m/%d/%y")
 
 
+def day_range(date_from, date_to):
+    """Aware timestamps for typed days: [start of `from`, start of the day
+    after `to`).
+
+    `publish_date__date__gte` compiled to `(publish_date AT TIME ZONE
+    'UTC')::date`, a cast no index on `publish_date` can serve, so every
+    dated chart scanned the table. A range on the raw timestamp is the same
+    question and can use one. The corpus stores UTC (settings.TIME_ZONE).
+    """
+    from datetime import date, datetime, time, timedelta
+
+    start = end = None
+    if date_from:
+        day = date.fromisoformat(as_iso(date_from, "from"))
+        start = datetime.combine(day, time.min, tzinfo=UTC)
+    if date_to:
+        day = date.fromisoformat(as_iso(date_to, "to"))
+        end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=UTC)
+    return start, end
+
+
 def as_iso(value, what="date"):
     """One typed date as `yyyy-mm-dd`, or a refusal naming it.
 
@@ -907,10 +929,11 @@ def _base_queryset(spec, scopes):
         qs = qs.filter(enrichment__scope=scope)
     if cin := spec.get("cin"):
         qs = qs.filter(primary_label=cin)
-    if date_from := spec.get("from"):
-        qs = qs.filter(publish_date__date__gte=as_iso(date_from, "from"))
-    if date_to := spec.get("to"):
-        qs = qs.filter(publish_date__date__lte=as_iso(date_to, "to"))
+    start, end = day_range(spec.get("from"), spec.get("to"))
+    if start:
+        qs = qs.filter(publish_date__gte=start)
+    if end:
+        qs = qs.filter(publish_date__lt=end)
     if spec.get("enriched_only"):
         qs = qs.filter(enrichment__isnull=False)
     if spec.get("news_only"):
@@ -978,6 +1001,34 @@ def _base_queryset(spec, scopes):
 # have to agree about what a value means.
 
 
+def scope_key(scopes):
+    """Scopes as part of a cache key.
+
+    `ALL_SCOPES` is the string "__all__"; sorted, it is a list of its
+    characters, which named a key well enough and filtered a query badly
+    (see `scoped_members`)."""
+    return "all" if scopes is ALL_SCOPES else sorted(scopes or [])
+
+
+def scoped_members(scopes):
+    """The dataset memberships a set of scopes may read.
+
+    `ALL_SCOPES` means every dataset, not a dataset named "__all__": as a
+    string it is iterable, so `dataset__slug__in=scopes` compared slugs to
+    its characters and matched nothing. A superuser opening a visual with
+    no datasets saw empty newsroom counts and a publisher filter that
+    listed nobody (2026-09-30).
+    """
+    from explorer.models import DatasetSource
+
+    members = DatasetSource.objects.all()
+    # Empty means unfiltered here, as these helpers have always read it:
+    # a visual wired to no dataset yet offers every newsroom to choose.
+    if scopes is ALL_SCOPES or not scopes:
+        return members
+    return members.filter(dataset__slug__in=scopes)
+
+
 def _publisher_rows(scopes):
     """(type, frequency) for every source the given scopes can see.
 
@@ -989,14 +1040,12 @@ def _publisher_rows(scopes):
 
     from explorer.models import Source
 
-    key = _cache_key("visuals.publisher_rows", sorted(scopes) if scopes else [])
+    key = _cache_key("visuals.publisher_rows", scope_key(scopes))
     hit = cache.get(key)
     if hit is not None:
         return hit
 
-    members = DatasetSource.objects.all()
-    if scopes:
-        members = members.filter(dataset__slug__in=scopes)
+    members = scoped_members(scopes)
     ids = set(members.values_list("source_id", flat=True))
     rows = [
         (
@@ -2352,7 +2401,24 @@ CORPUS_CACHE_SECONDS = 7 * 24 * 3600
 ANSWER_LOCK_SECONDS = 300
 
 
-def answer_once(prefix, parts, compute):
+class StillComputing(Exception):
+    """Another request holds the claim on this answer and it is not in yet.
+
+    Raised only when a caller asked not to wait. The feed turns it into a
+    202 so the page polls, instead of a thread sleeping for the answer."""
+
+    def __init__(self, key, retry_after=3):
+        super().__init__(f"computing {key}")
+        self.key = key
+        self.retry_after = retry_after
+
+
+#: How long a request that will not wait in the thread is told to come
+#: back in. Short: the answer lands whenever the one computing finishes.
+RETRY_AFTER_SECONDS = 3
+
+
+def answer_once(prefix, parts, compute, wait=True):
     """`compute()`, kept under the corpus version and asked once at a time.
 
     A story map of a month of Missouri stories takes about half a minute of
@@ -2367,6 +2433,13 @@ def answer_once(prefix, parts, compute):
     Only one request computes. The others wait for its answer rather than
     starting the same queries beside it. If the one computing dies, its
     claim expires and the next request computes.
+
+    WAITING HELD A THREAD. A waiter slept in the request for up to five
+    minutes, one of the eight gunicorn threads each, so four previews of a
+    slow map held half the pool for everybody (2026-09-30). A request that
+    passes `wait=False` raises `StillComputing` instead and the feed
+    answers 202; the page asks again in a few seconds. Jobs and publishing
+    still wait: nobody is holding a page open for them.
     """
     from django.core.cache import cache
 
@@ -2376,6 +2449,8 @@ def answer_once(prefix, parts, compute):
         return hit
     claim = f"{key}.running"
     if not cache.add(claim, 1, ANSWER_LOCK_SECONDS):
+        if not wait:
+            raise StillComputing(key, RETRY_AFTER_SECONDS)
         deadline = time.monotonic() + ANSWER_LOCK_SECONDS
         while time.monotonic() < deadline:
             time.sleep(1)
@@ -2397,6 +2472,12 @@ def answer_once(prefix, parts, compute):
 #: cheap: a max over an unindexed column and a count of a small table.
 #: Five minutes is the longest a sync can go unnoticed.
 VERSION_CACHE_SECONDS = 300
+#: How long one request may hold the rebuild. Seven queries, well under it.
+VERSION_LOCK_SECONDS = 30
+#: How long the last stamp is kept beside the current one, to serve while a
+#: rebuild runs. Long, because it costs nothing to keep and is only read
+#: during a rebuild.
+PREVIOUS_VERSION_SECONDS = VERSION_CACHE_SECONDS * 12
 
 
 def _publisher_fingerprint():
@@ -2474,7 +2555,6 @@ def corpus_version():
     only for data this stamp could see.
     """
     from django.core.cache import cache
-    from django.db.models import Max
 
     from explorer.models import (
         Article,
@@ -2487,6 +2567,39 @@ def corpus_version():
     hit = cache.get("corpus.version")
     if hit is not None:
         return hit
+    # ONE REQUEST REBUILDS IT. Every cached answer is keyed on this stamp,
+    # so when it expired every request in flight ran the seven queries at
+    # once and all of them waited on the slowest; the rest now take the
+    # last stamp, which is at most one rebuild behind, and a request with
+    # nothing to take waits for the one rebuilding (2026-09-30).
+    if not cache.add("corpus.version.lock", 1, VERSION_LOCK_SECONDS):
+        previous = cache.get("corpus.version.previous")
+        if previous is not None:
+            return previous
+        deadline = time.monotonic() + VERSION_LOCK_SECONDS
+        while time.monotonic() < deadline:
+            time.sleep(0.2)
+            hit = cache.get("corpus.version")
+            if hit is not None:
+                return hit
+            if cache.get("corpus.version.lock") is None:
+                break
+    try:
+        return _stamp_now(
+            Article, ArticleEnrichment, ArticleGeoid, ArticlePlaceManual, DatasetSource
+        )
+    finally:
+        cache.delete("corpus.version.lock")
+
+
+def _stamp_now(
+    Article, ArticleEnrichment, ArticleGeoid, ArticlePlaceManual, DatasetSource
+):
+    """The seven queries, and the stamp they make. Handed its models by
+    `corpus_version`, which is the function that says what the stamp sees."""
+    from django.core.cache import cache
+    from django.db.models import Max
+
     # ONE aggregate over `articles`, not two. Both maxima come from the
     # same table, and asking separately costs a second scan for nothing.
     articles = Article.objects.aggregate(
@@ -2545,6 +2658,7 @@ def corpus_version():
         f":{geoids}"
     )
     cache.set("corpus.version", stamp, VERSION_CACHE_SECONDS)
+    cache.set("corpus.version.previous", stamp, PREVIOUS_VERSION_SECONDS)
     return stamp
 
 
