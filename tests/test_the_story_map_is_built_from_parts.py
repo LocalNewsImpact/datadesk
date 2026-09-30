@@ -59,7 +59,8 @@ class TestTheRendererIsBuiltFromParts:
         start = source.index("  function renderStoryMap(")
         body = source[start : source.index("\n  }\n", start)]
         assert "framedBy(features, focus, chosen," in body
-        assert "el.prepend(storyMapLegend(t, {" in body
+        # Through showLegend, which a layer switch calls again.
+        assert "key = storyMapLegend(t, {" in body
 
     def test_the_dead_rounding_helper_is_gone(self):
         assert "roundish" not in CHART.read_text()
