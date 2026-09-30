@@ -187,10 +187,107 @@ class TestThePayload:
         }
         data = layermap.run_layer_map(spec, ["*"], config)
         assert data["areas"] == []
-        assert (
-            data["meta"]["coverage_note"] == "coverage shading is drawn by county only"
-        )
+        assert "by county only" in data["meta"]["coverage_note"]
         assert data["layers"][0]["areas"][0]["name"] == "Tract 12.03, Boone, MO"
+
+
+class TestADerivedLayer:
+    """Stories per 10,000 residents: the map's coverage over the Census
+    count, by county, every county a cell (docs/LAYERED_MAP.md)."""
+
+    def _population(self):
+        _value("29019", "total_population", estimate=188043, moe=0)
+        _value("29173", "total_population", estimate=10428, moe=0)
+        _value("29005", "total_population", estimate=5187, moe=0)
+
+    def test_it_is_made_from_the_coverage_and_the_count(self):
+        self._population()
+        coverage = [
+            {"geoid": "29019", "stories": 435},
+            {"geoid": "29005", "stories": 66},
+        ]
+        layer = layermap.derived_layer(
+            {"variable": "stories_per_10k"}, coverage, "county", "29", {}
+        )
+        by = {a["geoid"]: a for a in layer["areas"]}
+        assert layer["label"] == "Stories per 10,000 residents"
+        assert by["29005"]["value"] == 127.2 and by["29019"]["value"] == 23.1
+        assert by["29005"]["note"] == "66 stories; 5,187 residents"
+        # A county nobody wrote about is 0, a count of none, not missing.
+        assert by["29173"]["value"] == 0 and by["29173"]["unreliable"] is False
+        assert layer["unreliable"] == 0 and layer["format"] == "number"
+        assert "newsrooms we collect" in layer["note"]
+
+    def test_the_registry_knows_it_and_the_cap_counts_it(self):
+        keys = [{"variable": "stories_per_10k"}] + [
+            {"variable": v["key"]} for v in layermap.census.VARIABLES[:8]
+        ]
+        kept = layermap.layers_of({"layers": keys})
+        assert len(kept) == 8 and kept[0]["variable"] == "stories_per_10k"
+
+    def test_it_reads_the_coverage_even_with_the_base_off(
+        self, corpus, dataset, monkeypatch
+    ):
+        self._population()
+        monkeypatch.setattr(
+            "visuals.corpus.run_story_map",
+            lambda spec, scopes, config=None: {
+                "points": [],
+                "areas": [{"geoid": "29019", "stories": 47}],
+                "meta": {},
+            },
+        )
+        spec = {"datasets": [dataset.slug], "subset": "complete"}
+        config = {
+            "kind": "layermap",
+            "base_points": False,
+            "base_coverage": False,
+            "layers": [{"variable": "stories_per_10k"}],
+        }
+        data = layermap.run_layer_map(spec, ["*"], config)
+        assert data["areas"] == []  # the base is off
+        (layer,) = data["layers"]
+        assert next(a for a in layer["areas"] if a["geoid"] == "29019")["value"] == 2.5
+
+    def test_by_county_only(self, corpus, dataset):
+        spec = {"datasets": [dataset.slug], "subset": "complete"}
+        config = {
+            "kind": "layermap",
+            "layer_level": "tract",
+            "base_points": False,
+            "layers": [{"variable": "stories_per_10k"}],
+        }
+        data = layermap.run_layer_map(spec, ["*"], config)
+        assert data["layers"] == []
+        assert "by county only" in data["meta"]["coverage_note"]
+
+    def test_the_panel_offers_it_and_refuses_it_at_tract_level(self, author):
+        from django.http import QueryDict
+
+        visual = Visual.objects.create(
+            slug="lm",
+            title="LM",
+            source_kind="corpus",
+            created_by=author,
+            config={"kind": "layermap"},
+        )
+        offered = [v for g in layers_panel(visual)["groups"] for v in g["variables"]]
+        derived = next(v for v in offered if v["key"] == "stories_per_10k")
+        assert derived["tract"] is False and "newsrooms we collect" in derived["note"]
+        post = QueryDict(mutable=True)
+        post.setlist("layer", ["stories_per_10k"])
+        post["layer_level"] = "tract"
+        with pytest.raises(ValueError, match="county only: Stories per 10,000"):
+            layers_panel(visual, post)
+        post["layer_level"] = "county"
+        written = layers_panel(visual, post)["config"]
+        assert written["layers"] == [{"variable": "stories_per_10k", "as": ""}]
+
+    def test_the_tooltip_says_what_it_was_made_from(self):
+        from pathlib import Path
+
+        chart = Path(__file__).resolve().parent.parent / "static/js/datadesk-chart.js"
+        assert 'tipRow("from", a.note)' in chart.read_text()
 
 
 class TestTheWalkAndItsSteps:
@@ -231,7 +328,7 @@ class TestThePanel:
         panel = layers_panel(self._visual(author, layers=[{"variable": "median_age"}]))
         assert panel["level"] == "county" and panel["max"] == 8 and panel["picked"] == 1
         offered = [v for g in panel["groups"] for v in g["variables"]]
-        assert len(offered) == 28
+        assert len(offered) == 29  # 28 Census measures and the derived one
         assert next(v for v in offered if v["key"] == "median_age")["on"]
         assert not next(v for v in offered if v["key"] == "hispanic")["tract"]
         assert panel["base_points"] and panel["base_coverage"]

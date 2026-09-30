@@ -37,6 +37,7 @@ or drop. A measure that does not hold at tract level cannot be chosen there.
         </select>
         {% endif %}
         {% if not v.tract %}<span class="hint">county only</span>{% endif %}
+        {% if v.note %}<span class="hint">&mdash; {{ v.note }}</span>{% endif %}
       </label>
       {% endfor %}
     </div>

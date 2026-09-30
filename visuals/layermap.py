@@ -22,8 +22,28 @@ from datasets.geo import county_label
 from visuals import census
 
 KIND = "layermap"
-#: How many Census fill layers one map may carry (decided 2026-09-30).
+#: How many fill layers one map may carry (decided 2026-09-30).
 MAX_LAYERS = 8
+#: Layers made from the map's own coverage and a Census denominator, by
+#: county only, because stories are coded to counties. Newsrooms per
+#: 100,000 residents was tested the same day and dropped: one paper in a
+#: county of 1,934 people scored 51.7 and eight in St. Louis County 0.8,
+#: which measures how small the county is, not how served it is.
+DERIVED = {
+    "stories_per_10k": {
+        "key": "stories_per_10k",
+        "label": "Stories per 10,000 residents",
+        "group": "Coverage per resident",
+        "kind": "value",
+        "tract": False,
+        "denominator": "total_population",
+        "per": 10_000,
+        "note": (
+            "Stories from the newsrooms we collect, so a county served only "
+            "by a print or uncollected paper reads low."
+        ),
+    }
+}
 LEVELS = census.LEVELS
 #: Measures shown as money; the rest are counts, medians of years or
 #: minutes, or percents.
@@ -42,7 +62,8 @@ def layers_of(config):
         if not isinstance(layer, dict):
             continue
         key = layer.get("variable")
-        if key not in census.BY_KEY or any(o["variable"] == key for o in out):
+        known = key in census.BY_KEY or key in DERIVED
+        if not known or any(o["variable"] == key for o in out):
             continue
         out.append({"variable": key, "as": layer.get("as") or ""})
     return out[:MAX_LAYERS]
@@ -147,6 +168,47 @@ def census_layer(layer, level, state, config, year=census.YEAR):
     }
 
 
+def derived_layer(layer, coverage, level, state, config, year=census.YEAR):
+    """A coverage-per-resident layer: the map's stories over a Census count.
+
+    Every county of the state is a cell, a county with no stories at 0 --
+    a count of none, not an absence. The margin is the denominator's, so
+    small: these are not survey shares, and nothing is hatched.
+    """
+    from visuals.models import CensusValue
+
+    spec = DERIVED[layer["variable"]]
+    stories = {a["geoid"]: a.get("stories") or 0 for a in coverage}
+    rows = CensusValue.objects.filter(
+        year=year, level=level, variable=spec["denominator"], geoid__startswith=state
+    ).values_list("geoid", "estimate")
+    areas = []
+    for geoid, people in rows:
+        count = stories.get(geoid, 0)
+        value = round(count / people * spec["per"], 1) if people else None
+        areas.append(
+            {
+                "geoid": geoid,
+                "name": place_name(geoid, level),
+                "value": value,
+                "moe": None,
+                "unreliable": False,
+                "note": f"{count:,} stories; {int(people):,} residents",
+            }
+        )
+    areas.sort(key=lambda a: a["geoid"])
+    return {
+        "id": spec["key"],
+        "label": spec["label"],
+        "group": spec["group"],
+        "format": "number",
+        "cuts": cuts_for([a["value"] for a in areas], _steps(config)),
+        "unreliable": 0,
+        "note": spec["note"],
+        "areas": areas,
+    }
+
+
 def _state_of(config):
     """The state the layers are read for: the frame's, else the focus's,
     else Missouri, which is what the store holds."""
@@ -170,15 +232,27 @@ def run_layer_map(spec, scopes, config=None):
         drawn = run_outlet_map(config)
         points = drawn["points"]
         categories = drawn["meta"].get("categories") or []
+    wanted = layers_of(config)
+    derived = [w for w in wanted if w["variable"] in DERIVED]
     coverage = []
     coverage_note = ""
-    if shows(config, "coverage"):
-        if level == "county":
-            coverage = run_story_map(spec, scopes, config)["areas"]
+    # The coverage is read when it is drawn, and when a derived layer
+    # needs it; by county only, because stories are coded to counties.
+    if level == "county" and (shows(config, "coverage") or derived):
+        coverage = run_story_map(spec, scopes, config)["areas"]
+    elif level != "county" and (shows(config, "coverage") or derived):
+        coverage_note = (
+            "coverage shading and coverage per resident are drawn by county only"
+        )
+    layers = []
+    for layer in wanted:
+        if layer["variable"] in DERIVED:
+            if level == "county":
+                layers.append(derived_layer(layer, coverage, level, state, config))
         else:
-            # Stories are coded to counties and places, not to tracts.
-            coverage_note = "coverage shading is drawn by county only"
-    layers = [census_layer(layer, level, state, config) for layer in layers_of(config)]
+            layers.append(census_layer(layer, level, state, config))
+    if not shows(config, "coverage"):
+        coverage = []
     meta = {
         "unit": "stories",
         "level": level,

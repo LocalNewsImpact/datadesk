@@ -30,7 +30,7 @@ The reader never picks from the Census catalogue.
 | Unreliable estimates | Hatched, never shaded: a cell whose 90% margin is more than 30% of its estimate (the Bureau's own line). The Data Mapper hides this; this map does not. |
 | Tract level | Offered only for measures that hold there. Nine were unreliable in more than a third of Missouri's tracts (unemployment, Hispanic, foreign born, language, vacancy, Black alone, uninsured, poverty, veterans): county only. The flag is `tract` on each variable; `fetch_census_layers --report` re-measures it. |
 | Labels | Plain names, never table codes. |
-| Derived layers | Stories per 10,000 residents, outlets per 100,000: viability to be tested before any is offered. |
+| Derived layers | Tested 2026-09-30 on March 2026, every Missouri county. **Stories per 10,000 residents** holds: median county 20, the suburban counties around both metros lowest (St. Louis County 4.2, St. Charles 4.7), small counties only a third above the median, not ten times it. Offered, by county only, counted against the cap, with the stories and residents in the tooltip; not hatched, since the count is exact. **Newsrooms per 100,000** dropped: one paper in a county of 1,934 people scored 51.7 and eight in St. Louis County 0.8 -- it measures how small a county is. **Reporters covering each county** is the next derived layer, held until the byline count is complete enough to stand behind (2026-09-30). |
 | How many layers | Up to eight switchable fill layers per map, chosen from the registry, plus the two base layers always available to the author: newsrooms as points, and coverage shading. The cap is one constant in the builder. |
 
 ## Where the numbers live
