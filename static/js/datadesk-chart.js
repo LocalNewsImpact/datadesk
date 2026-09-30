@@ -175,6 +175,9 @@
   const CAP_ADJACENT = 8;
   const CAP_ALLPAIRS = 3;
 
+  // The one face every chart sets.
+  const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
   function theme(name) {
     const modes = THEMES[name] || THEMES[DEFAULT_THEME];
     const stamped = document.documentElement.dataset.theme;
@@ -346,6 +349,25 @@
           return [];
         }))
     ).then((sets) => sets.flat());
+  }
+
+  // Which features a map frames: an explicit list (the places step's
+  // counties), a focus code (a county frames its whole state; a state
+  // frames itself), or `auto(features)` when neither is given. The story
+  // map and the flow map had this twice; they differ only in what an id
+  // is (`idOf`) and in what auto means.
+  function framedBy(features, focus, chosen, idOf, auto) {
+    if (chosen.length) {
+      const wanted = new Set(chosen);
+      return features.filter((f) => wanted.has(idOf(f)));
+    }
+    if (/^\d{5}$/.test(focus)) {
+      return features.filter((f) => String(f.id).slice(0, 2) === focus.slice(0, 2));
+    }
+    if (/^\d{2}$/.test(focus)) {
+      return features.filter((f) => String(f.id).slice(0, 2) === focus);
+    }
+    return auto(features);
   }
 
   function baseMarks(Plot, t) {
@@ -633,7 +655,7 @@
       marginRight,
       marginBottom,
       style: { background: "transparent", color: t.ink,
-               fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif' },
+               fontFamily: FONT },
       color: color ? { ...color, legend: false } : color,
       // The value axis carries the percent formatting: x when the bars
       // run horizontally, y when they stand up.
@@ -660,22 +682,44 @@
   }
 
   // A key of colour swatches: one per category, in the chart's own order.
+  // One swatch and its label, as every legend draws them: a coloured
+  // span and text. The class names differ by legend (the bar chart's key
+  // and the d3 charts' legend are styled apart), so they are passed in.
+  function swatchItem(label, colour, classes) {
+    const c = classes || {};
+    const item = document.createElement("span");
+    if (c.item) item.className = c.item;
+    const swatch = document.createElement("span");
+    swatch.className = c.swatch || "dd-swatch";
+    if (colour) swatch.style.background = colour;
+    if (c.label) {
+      const text = document.createElement("span");
+      text.className = c.label;
+      text.textContent = String(label);
+      item.append(swatch, text);
+    } else {
+      item.append(swatch, String(label));
+    }
+    return { item, swatch };
+  }
+
+  // A legend of [label, colour] pairs. Three builders drew this three
+  // ways; the bar chart's key and the d3 charts' legend now differ only
+  // in their class names.
+  function legend(entries, classes) {
+    const div = document.createElement("div");
+    div.className = (classes && classes.root) || "dd-legend";
+    for (const [label, colour] of entries) {
+      div.appendChild(swatchItem(label, colour, classes).item);
+    }
+    return div;
+  }
+
   function swatchLegend(domain, range) {
-    const key = document.createElement("div");
-    key.className = "dd-legend dd-key";
-    domain.forEach((name, i) => {
-      const item = document.createElement("span");
-      item.className = "dd-key-item";
-      const chip = document.createElement("span");
-      chip.className = "dd-key-swatch";
-      chip.style.background = range[i % range.length];
-      const label = document.createElement("span");
-      label.className = "dd-key-label";
-      label.textContent = name;
-      item.append(chip, label);
-      key.appendChild(item);
+    return legend(domain.map((name, i) => [name, range[i % range.length]]), {
+      root: "dd-legend dd-key", item: "dd-key-item",
+      swatch: "dd-key-swatch", label: "dd-key-label",
     });
-    return key;
   }
 
   // --- taking the data somewhere else --------------------------------------
@@ -1824,7 +1868,7 @@
         height: Math.round(width * 0.62),
         projection,
         style: { background: "transparent", color: t.ink,
-                 fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif' },
+                 fontFamily: FONT },
         color: colorOpt,
         marks,
       });
@@ -1998,17 +2042,7 @@
   }
 
   function htmlLegend(el, domain, colors) {
-    const div = document.createElement("div");
-    div.className = "dd-legend";
-    domain.forEach((d, i) => {
-      const item = document.createElement("span");
-      const swatch = document.createElement("span");
-      swatch.className = "dd-swatch";
-      swatch.style.background = colors[i];
-      item.append(swatch, String(d));
-      div.appendChild(item);
-    });
-    el.appendChild(div);
+    el.appendChild(legend(domain.map((d, i) => [d, colors[i]])));
   }
 
   // Slot colors for a name list, gray for the fold bucket.
@@ -2017,13 +2051,21 @@
       d === "Other" ? t.other : t.series[i % t.series.length]);
   }
 
-  function svgRoot(width, height, t) {
+  // The svg every d3 chart starts from. Centred, the origin is in the
+  // middle and the donut, chord and arc draw around it; the maps draw
+  // from the top left as a block, so the svg does not sit on a text
+  // baseline with a gap under it.
+  function svgRoot(width, height, t, opts) {
+    const centred = !(opts && opts.centred === false);
     return d3.create("svg")
       .attr("width", width).attr("height", height)
-      .attr("viewBox", [-width / 2, -height / 2, width, height])
+      .attr("viewBox", centred
+        ? [-width / 2, -height / 2, width, height]
+        : [0, 0, width, height])
       .attr("style",
-        'max-width:100%;height:auto;font-family:system-ui,-apple-system,' +
-        '"Segoe UI",sans-serif;font-size:12px;color:' + t.ink);
+        "max-width:100%;height:auto;" + (centred ? "" : "display:block;") +
+        "font-family:" + FONT + ";font-size:12px" +
+        (centred ? ";color:" + t.ink : ""));
   }
 
   // Parts of a whole. Aggregates y by x, folds past five slices, labels
@@ -2243,7 +2285,7 @@
     const svg = d3.create("svg")
       .attr("viewBox", [0, 0, width, height])
       .attr("width", width).attr("height", height)
-      .attr("font-family", 'system-ui, -apple-system, "Segoe UI", sans-serif')
+      .attr("font-family", FONT)
       .attr("font-size", 12);
     // In the document before anything is measured. `getComputedTextLength`
     // returns 0 on a detached element, and a detached svg is what
@@ -2558,17 +2600,10 @@
       const wanted = new Set(ids.map(String));
       const focus = String(config.focus || "").trim();
       const chosen = Array.isArray(config.frame) ? config.frame.map(String) : [];
-      let shown;
-      if (chosen.length) {
-        const keep = new Set(chosen);
-        shown = features.filter((f) => keep.has(String(f.id)));
-      } else if (/^\d{5}$/.test(focus)) {
-        shown = features.filter((f) => String(f.id).slice(0, 2) === focus.slice(0, 2));
-      } else if (/^\d{2}$/.test(focus)) {
-        shown = features.filter((f) => String(f.id).slice(0, 2) === focus);
-      } else {
-        shown = features.filter((f) => wanted.has(String(f.id)));
-      }
+      // By the feature itself, and when nothing is chosen, the counties
+      // the flows name.
+      let shown = framedBy(features, focus, chosen, (f) => String(f.id),
+        (all) => all.filter((f) => wanted.has(String(f.id))));
       if (!shown.length) shown = features.filter((f) => wanted.has(String(f.id)));
       if (!shown.length) {
         const sample = String(rows[0][fromGeo] || "");
@@ -2601,12 +2636,7 @@
       const at = new Map(shown.map((f) => [String(f.id), path.centroid(f)]));
       const shapeOf = new Map(shown.map((f) => [String(f.id), f]));
 
-      const svg = d3.create("svg")
-        .attr("width", width).attr("height", height)
-        .attr("viewBox", [0, 0, width, height])
-        .attr("style",
-          'max-width:100%;height:auto;display:block;font-family:system-ui,'
-          + '-apple-system,"Segoe UI",sans-serif;font-size:12px');
+      const svg = svgRoot(width, height, t, { centred: false });
 
       const pin = new Set(String(config.highlight || "").split(",")
         .map((n) => n.trim()).filter(Boolean));
@@ -3818,6 +3848,10 @@
     for (const layer of layers) choices.push({ id: layer.id, label: layer.label, layer });
     choices.push({ id: "none", label: "No shading" });
     const state = (opts && opts.state) || {};
+    // One array, so "the newsrooms are off" is the same points every time
+    // and a layer switch with them off still refills rather than redraws.
+    const NO_POINTS = [];
+    let drawn = null;
     let { active, showPoints } = layerState(state, choices, points);
     const group = uid("dd-layer");
 
@@ -3855,7 +3889,7 @@
     function draw() {
       const chosen = choices.find((c) => c.id === active);
       const composed = {
-        points: showPoints ? points : [],
+        points: showPoints ? points : NO_POINTS,
         areas: [],
         meta: { ...meta, unit: "stories", scale: null },
       };
@@ -3872,9 +3906,14 @@
       }
       if (!composed.points.length && !composed.areas.length) {
         map.textContent = "Nothing shown: choose a layer, or turn the newsrooms on.";
+        // The sentence replaced the svg, so there is nothing left to refill.
+        drawn = null;
         return;
       }
-      renderStoryMap(map, config, composed, opts, t, width);
+      if (drawn && drawn.refill(composed)) return;
+      drawn = null;
+      const drawing = renderStoryMap(map, config, composed, opts, t, width);
+      if (drawing && drawing.then) drawing.then((handle) => { drawn = handle || null; });
     }
     draw();
     return { redraw: draw };
@@ -3888,7 +3927,9 @@
     // WHAT THE NUMBERS COUNT. A story map of stories counts stories; one of
     // the outlet registry counts newsrooms, and says so in its key and its
     // tooltips. The shading reads whichever count the layer carries.
-    const unit = (payload.meta || {}).unit || "stories";
+    // Reassignable: a layer switch changes the scale, the unit and the
+    // values, and nothing else (`refill`).
+    let unit = (payload.meta || {}).unit || "stories";
     // A Census layer carries `value`, which may be null (no estimate) and
     // may be 0 (an estimate of none); a story layer carries counts.
     const valueOf = (a) => a.value !== undefined
@@ -3901,7 +3942,7 @@
     // A LAYERED MAP HANDS THE SCALE IN. Its cuts are made on the server
     // over the whole state, in the layer's own units, and its cells can
     // be unreliable -- hatched, not shaded (docs/LAYERED_MAP.md).
-    const layerScale = (payload.meta || {}).scale || null;
+    let layerScale = (payload.meta || {}).scale || null;
     // Counties unless the layer says tracts; ids are 5 or 11 digits.
     const geoLevel = (payload.meta || {}).level === "tract" ? "tracts" : "counties";
     // The renderer's choice first -- clear of the shading ramp -- then the
@@ -3933,30 +3974,16 @@
       ...(geoLevel === "tracts" ? [] : points.map((p) => String(p.geoid || ""))),
     ].filter(Boolean);
 
-    boundaries(opts.geoBase, geoLevel, ids, opts.geoUrls).then((features) => {
+    return boundaries(opts.geoBase, geoLevel, ids, opts.geoUrls).then((features) => {
       // Focus decides the frame, never what is drawn: every county in
       // view is painted, so a state without stories reads as "none"
       // rather than as a hole in the map.
       const focus = String(config.focus || "").trim();
-      let framed;
-      // An explicit list wins. The builder resolves "Boone, MO" and the
-      // chosen extent into the counties to paint, so a published map
-      // shows what its config says rather than what a rule re-derives.
       const chosen = Array.isArray(config.frame) ? config.frame.map(String) : [];
-      if (chosen.length) {
-        const wanted = new Set(chosen);
-        // By county, which frames a tract by the county it is in.
-        framed = features.filter((f) => wanted.has(String(f.id).slice(0, 5)));
-      } else if (/^\d{5}$/.test(focus)) {
-        // A county focus frames its whole state — a lone county floating
-        // in white says nothing about where it is.
-        framed = features.filter((f) => String(f.id).slice(0, 2) === focus.slice(0, 2));
-      } else if (/^\d{2}$/.test(focus)) {
-        framed = features.filter((f) => String(f.id).slice(0, 2) === focus);
-      } else {
-        // Auto: frame the states carrying most of the stories, so a
-        // handful of distant mentions do not zoom the map out to the
-        // whole country.
+      // By county, which frames a tract by the county it is in; and when
+      // nothing is chosen, the states carrying most of the stories, so a
+      // handful of distant mentions do not zoom the map out to the country.
+      let framed = framedBy(features, focus, chosen, (f) => String(f.id).slice(0, 5), (all) => {
         const weight = new Map();
         for (const a of areas) {
           const st = String(a.geoid).slice(0, 2);
@@ -3969,8 +3996,8 @@
         const total = [...weight.values()].reduce((a, b) => a + b, 0);
         const keep = new Set(
           [...weight].filter(([, n]) => n >= total * 0.02).map(([st]) => st));
-        framed = features.filter((f) => keep.has(String(f.id).slice(0, 2)));
-      }
+        return all.filter((f) => keep.has(String(f.id).slice(0, 2)));
+      });
       if (!framed.length) framed = features;
       // An explicit focus draws only that geography — the March map is
       // Missouri and nothing else. Auto-framing keeps every county in
@@ -3991,138 +4018,142 @@
       // It follows the frame wherever that came from: an explicit
       // `config.frame`, a focus, or the auto weighting above.
       const painted = new Set(shown.map((f) => String(f.id)));
-      const byCounty = new Map(areas.map((a) => [String(a.geoid), valueOf(a)]));
-      const areaOf = new Map(areas.map((a) => [String(a.geoid), a]));
-      // Whether there is anything to put a scale on. Read off the
-      // painted counties for the same reason the cuts are: a frame with
-      // no stories in it must not draw a key for somebody else's.
-      const max = d3.max(
-        areas.filter((a) => painted.has(String(a.geoid))),
-        valueOf
-      ) || 0;
-      // Bands are equal-count groups of the counties that actually have
-      // stories, so the map stays informative whether it is a 500-article
-      // sample or the whole corpus. config.bands: "fixed" restores the
-      // March map's 1-2 / 3-5 / 6-9 / 10+ cuts; a number sets how many
-      // steps the ramp has.
-      //
-      // HOW MANY STEPS IS NOW A SETTING, and it had to become one. Four
-      // bands over a skewed count puts everything above the third
-      // quartile in one colour: the Missouri map's top band read "12+"
-      // while the counties in it held between 12 and 204 stories, so a
-      // county with fifteen and one with two hundred were the same shade
-      // and the map could not be read as a ranking at all.
-      // DECILES BY DEFAULT. Four bands over a skewed count is not a
-      // ranking: the Missouri map's top band read "12+" and held
-      // counties with anything from 12 to 204 stories in one colour.
-      // Ten is what the ramp can carry now that its steps are spaced by
-      // lightness -- every adjacent pair differs by about 0.071 of
-      // relative luminance, which is more separation than the old
-      // four-band scale had. Twelve is the cap for the same reason: at
-      // 0.059 it is still readable, and past that the palest steps stop
-      // being tellable apart on a small county.
-      const steps = config.bands === "fixed"
-        ? 4
-        : Math.min(12, Math.max(3, parseInt(config.bands, 10) || 10));
-      // BANDED ON WHAT IS DRAWN, not on what the feed carries. The
-      // payload holds every county the corpus touched -- 710 of them on
-      // the Missouri map -- while the map paints 115. The 595 counties
-      // outside the frame have a median of 2 stories, so the deciles
-      // came out at 1,1,1,2,2,4,7,20,44 and every Missouri county
-      // (median 44, max 969) landed in the top band or two: the whole
-      // state one flat colour. Over the counties actually shown the
-      // same cuts are 15,22,30,38,44,56,70,92,184.
-      //
-      const values = areas
-        .filter((a) => painted.has(String(a.geoid)))
-        .map(valueOf)
-        // On a layer 0 is a value (no one counted); on a story map it is
-        // the absence of one.
-        .filter((n) => (layerScale ? n != null : n > 0))
-        .sort(d3.ascending);
-      // Cuts at i/steps, rising, de-duplicated. A count with many ties
-      // can put two quantiles on the same number, which would draw two
-      // bands covering the same range with one of them always empty.
-      // RELATIVE OR ABSOLUTE, and the difference is what the colour means.
-      //
-      // Relative (the default) cuts at this map's own quantiles, so every
-      // map uses the whole ramp and a county's shade is its RANK among the
-      // counties drawn beside it. Read alone, that is what you want: a map
-      // of six small counties should not be six shades of pale.
-      //
-      // Absolute cuts at a fixed ladder, so a shade means a COUNT and means
-      // the same count on every map. Read next to another map, that is what
-      // you want, and relative shading actively misleads -- two maps top out
-      // at the same dark blue whether the county behind it holds fifteen
-      // stories or two hundred.
-      //
-      // The ladder is roughly logarithmic because the counts are: Missouri
-      // counties run from 1 to 969 and the median is 44, so even steps would
-      // put almost every county in the first band.
-      const cuts = layerScale ? layerScale.cuts : config.band_scale === "absolute"
-        ? ABSOLUTE_BANDS
-        : config.bands === "fixed" || values.length < steps * 2
-          ? [2, 5, 9].slice(0, steps - 1)
-          : Array.from({ length: steps - 1 }, (_, i) =>
-              Math.max(1, Math.round(d3.quantile(values, (i + 1) / steps))))
-              .reduce((kept, cut) => {
-                if (!kept.length || cut > kept[kept.length - 1]) kept.push(cut);
-                return kept;
-              }, []);
-      // SIZED AFTER THE CUTS, not from `steps`. `bandOf` can return at most
-      // `cuts.length + 1`, and de-duplication drops any quantile that ties
-      // with the one below it -- ten deciles over counties holding 1,1,1,2,2,4
-      // survive as three or four distinct cuts. Built from `steps + 1` the
-      // ramp then had shades no band could ever reach, so a map topped out at
-      // a mid-tone and looked lighter than a map of smaller numbers whose
-      // cuts happened to survive. The darkest band is now always `seqHigh`.
-      const ramp = quantizeRamp(t.seqLow, t.seqHigh, cuts.length + 2);
-      const missingValue = (n) => n == null || (!layerScale && !n);
-      const bandOf = (n) => {
-        if (missingValue(n)) return 0;
-        for (let i = 0; i < cuts.length; i += 1) if (n <= cuts[i]) return i + 1;
-        return cuts.length + 1;
+      // WHAT A LAYER SWITCH CHANGES, and all it changes: the value on
+      // each county, the cuts, the ramp and the legend. A switch used to
+      // run the whole renderer again -- reframing, re-projecting and
+      // regenerating every path, which is the entire cost of a draw --
+      // to end up with the same shapes in different colours.
+      const shadingOf = (areas, layerScale) => {
+        const byCounty = new Map(areas.map((a) => [String(a.geoid), valueOf(a)]));
+        const areaOf = new Map(areas.map((a) => [String(a.geoid), a]));
+        // Whether there is anything to put a scale on. Read off the
+        // painted counties for the same reason the cuts are: a frame with
+        // no stories in it must not draw a key for somebody else's.
+        const max = d3.max(
+          areas.filter((a) => painted.has(String(a.geoid))),
+          valueOf
+        ) || 0;
+        // Bands are equal-count groups of the counties that actually have
+        // stories, so the map stays informative whether it is a 500-article
+        // sample or the whole corpus. config.bands: "fixed" restores the
+        // March map's 1-2 / 3-5 / 6-9 / 10+ cuts; a number sets how many
+        // steps the ramp has.
+        //
+        // HOW MANY STEPS IS NOW A SETTING, and it had to become one. Four
+        // bands over a skewed count puts everything above the third
+        // quartile in one colour: the Missouri map's top band read "12+"
+        // while the counties in it held between 12 and 204 stories, so a
+        // county with fifteen and one with two hundred were the same shade
+        // and the map could not be read as a ranking at all.
+        // DECILES BY DEFAULT. Four bands over a skewed count is not a
+        // ranking: the Missouri map's top band read "12+" and held
+        // counties with anything from 12 to 204 stories in one colour.
+        // Ten is what the ramp can carry now that its steps are spaced by
+        // lightness -- every adjacent pair differs by about 0.071 of
+        // relative luminance, which is more separation than the old
+        // four-band scale had. Twelve is the cap for the same reason: at
+        // 0.059 it is still readable, and past that the palest steps stop
+        // being tellable apart on a small county.
+        const steps = config.bands === "fixed"
+          ? 4
+          : Math.min(12, Math.max(3, parseInt(config.bands, 10) || 10));
+        // BANDED ON WHAT IS DRAWN, not on what the feed carries. The
+        // payload holds every county the corpus touched -- 710 of them on
+        // the Missouri map -- while the map paints 115. The 595 counties
+        // outside the frame have a median of 2 stories, so the deciles
+        // came out at 1,1,1,2,2,4,7,20,44 and every Missouri county
+        // (median 44, max 969) landed in the top band or two: the whole
+        // state one flat colour. Over the counties actually shown the
+        // same cuts are 15,22,30,38,44,56,70,92,184.
+        //
+        const values = areas
+          .filter((a) => painted.has(String(a.geoid)))
+          .map(valueOf)
+          // On a layer 0 is a value (no one counted); on a story map it is
+          // the absence of one.
+          .filter((n) => (layerScale ? n != null : n > 0))
+          .sort(d3.ascending);
+        // Cuts at i/steps, rising, de-duplicated. A count with many ties
+        // can put two quantiles on the same number, which would draw two
+        // bands covering the same range with one of them always empty.
+        // RELATIVE OR ABSOLUTE, and the difference is what the colour means.
+        //
+        // Relative (the default) cuts at this map's own quantiles, so every
+        // map uses the whole ramp and a county's shade is its RANK among the
+        // counties drawn beside it. Read alone, that is what you want: a map
+        // of six small counties should not be six shades of pale.
+        //
+        // Absolute cuts at a fixed ladder, so a shade means a COUNT and means
+        // the same count on every map. Read next to another map, that is what
+        // you want, and relative shading actively misleads -- two maps top out
+        // at the same dark blue whether the county behind it holds fifteen
+        // stories or two hundred.
+        //
+        // The ladder is roughly logarithmic because the counts are: Missouri
+        // counties run from 1 to 969 and the median is 44, so even steps would
+        // put almost every county in the first band.
+        const cuts = layerScale ? layerScale.cuts : config.band_scale === "absolute"
+          ? ABSOLUTE_BANDS
+          : config.bands === "fixed" || values.length < steps * 2
+            ? [2, 5, 9].slice(0, steps - 1)
+            : Array.from({ length: steps - 1 }, (_, i) =>
+                Math.max(1, Math.round(d3.quantile(values, (i + 1) / steps))))
+                .reduce((kept, cut) => {
+                  if (!kept.length || cut > kept[kept.length - 1]) kept.push(cut);
+                  return kept;
+                }, []);
+        // SIZED AFTER THE CUTS, not from `steps`. `bandOf` can return at most
+        // `cuts.length + 1`, and de-duplication drops any quantile that ties
+        // with the one below it -- ten deciles over counties holding 1,1,1,2,2,4
+        // survive as three or four distinct cuts. Built from `steps + 1` the
+        // ramp then had shades no band could ever reach, so a map topped out at
+        // a mid-tone and looked lighter than a map of smaller numbers whose
+        // cuts happened to survive. The darkest band is now always `seqHigh`.
+        const ramp = quantizeRamp(t.seqLow, t.seqHigh, cuts.length + 2);
+        const missingValue = (n) => n == null || (!layerScale && !n);
+        const bandOf = (n) => {
+          if (missingValue(n)) return 0;
+          for (let i = 0; i < cuts.length; i += 1) if (n <= cuts[i]) return i + 1;
+          return cuts.length + 1;
+        };
+        const shadeFor = (n) => (missingValue(n) ? t.missing : ramp[bandOf(n)]);
+        const lightMode = t.surface === LIGHT.surface;
+        const countyEdge = (n) => {
+          if (!n) return t.boundary;
+          const c = d3.hsl(shadeFor(n));
+          return (lightMode ? c.brighter(0.35) : c.darker(0.35)).formatHex();
+        };
+        // NOT `top`: that is a global in a browser (`window.top`), and
+        // this only gets away with the name because it sits inside a
+        // function. Hoisted to module scope it would throw
+        // "Identifier 'top' has already been declared" and take the whole
+        // chart library down with it -- which is exactly what happened to
+        // a flat copy of this block.
+        const highest = d3.max(values) || 0;
+        // THE TOP BAND SAYS WHERE IT ENDS. "12+" hides the whole tail: the
+        // reader cannot tell whether the darkest county holds 13 stories or
+        // 204, which on this corpus is the difference between a flat map
+        // and a very concentrated one.
+        const bandLabels = ["0"].concat(
+          cuts.map((cut, i) => {
+            const from = i === 0 ? 1 : cuts[i - 1] + 1;
+            return from === cut ? `${cut}` : `${from}–${cut}`;
+          }),
+          (() => {
+            const from = cuts.length ? cuts[cuts.length - 1] + 1 : 1;
+            return from >= highest ? `${from}` : `${from}–${highest}`;
+          })()
+        );
+        return { byCounty, areaOf, max, values, cuts, ramp, shadeFor, countyEdge, highest, bandLabels };
       };
-      const shadeFor = (n) => (missingValue(n) ? t.missing : ramp[bandOf(n)]);
-      const lightMode = t.surface === LIGHT.surface;
-      const countyEdge = (n) => {
-        if (!n) return t.boundary;
-        const c = d3.hsl(shadeFor(n));
-        return (lightMode ? c.brighter(0.35) : c.darker(0.35)).formatHex();
-      };
-      // NOT `top`: that is a global in a browser (`window.top`), and
-      // this only gets away with the name because it sits inside a
-      // function. Hoisted to module scope it would throw
-      // "Identifier 'top' has already been declared" and take the whole
-      // chart library down with it -- which is exactly what happened to
-      // a flat copy of this block.
-      const highest = d3.max(values) || 0;
-      // THE TOP BAND SAYS WHERE IT ENDS. "12+" hides the whole tail: the
-      // reader cannot tell whether the darkest county holds 13 stories or
-      // 204, which on this corpus is the difference between a flat map
-      // and a very concentrated one.
-      const bandLabels = ["0"].concat(
-        cuts.map((cut, i) => {
-          const from = i === 0 ? 1 : cuts[i - 1] + 1;
-          return from === cut ? `${cut}` : `${from}–${cut}`;
-        }),
-        (() => {
-          const from = cuts.length ? cuts[cuts.length - 1] + 1 : 1;
-          return from >= highest ? `${from}` : `${from}–${highest}`;
-        })()
-      );
+      let { byCounty, areaOf, max, values, cuts, ramp, shadeFor, countyEdge, highest, bandLabels } = shadingOf(areas, layerScale);
 
       const projection = d3.geoAlbersUsa().fitSize(
         [width, Math.round(width * 0.62)],
         { type: "FeatureCollection", features: framed });
       const path = d3.geoPath(projection);
       const height = Math.round(width * 0.62);
-      const svg = d3.create("svg")
-        .attr("width", width).attr("height", height)
-        .attr("viewBox", [0, 0, width, height])
-        .attr("style",
-          'max-width:100%;height:auto;display:block;font-family:system-ui,' +
-          '-apple-system,"Segoe UI",sans-serif;font-size:12px');
+      const svg = svgRoot(width, height, t, { centred: false });
       const clipId = uid("dd-clip");
       svg.append("clipPath").attr("id", clipId)
         .append("rect").attr("width", width).attr("height", height);
@@ -4144,6 +4175,9 @@
 
       const counties = frame.append("g").selectAll("path").data(shown).join("path")
         .attr("d", path)
+        .attr("stroke-width", 0.6);
+      // The two attributes a switch rewrites, over the paths already drawn.
+      const paint = () => counties
         .attr("fill", (f) => (unreliable(f)
           ? `url(#${hatchId})` : shadeFor(byCounty.get(String(f.id)))))
         // A SHADED COUNTY IS OUTLINED IN ITS OWN COLOUR, SHIFTED. The
@@ -4154,8 +4188,8 @@
         // light mode and a step darker in dark, marks the edge and keeps the
         // colours. A county with nothing keeps the grey, which reads
         // against its fill.
-        .attr("stroke", (f) => countyEdge(byCounty.get(String(f.id))))
-        .attr("stroke-width", 0.6);
+        .attr("stroke", (f) => countyEdge(byCounty.get(String(f.id))));
+      paint();
 
       const r = d3.scaleSqrt()
         .domain([0, d3.max(points, (p) => p.stories || 1) || 1])
@@ -4192,7 +4226,7 @@
 
       el.replaceChildren(svg.node());
       const tip = tooltip(el);
-      interactive(counties, tip, (f) => {
+      const bindCounties = () => interactive(counties, tip, (f) => {
         const n = byCounty.get(String(f.id));
         if (layerScale) {
           const a = areaOf.get(String(f.id));
@@ -4214,6 +4248,7 @@
           // no filter now, so it says what it counts.
           tipRow(unit === "stories" ? "stories mentioning it" : `${unit} located here`, n || 0);
       }, { group: counties, related: (target, other) => target === other });
+      bindCounties();
       interactive(dots, tip, (p) => byCategory ?
         tipHead(p.name) +
         tipRow("kind", p.category) +
@@ -4230,220 +4265,238 @@
         { group: dots, related: (target, other) => target === other });
 
       // Two legends: the dot precisions and the shading thresholds.
-      const legend = document.createElement("div");
-      legend.className = "dd-legend";
-      if (byCategory) {
-        for (const c of categories) {
-          if (!placed.some((p) => p.category === c)) continue;
-          const item = document.createElement("span");
-          const dot = document.createElement("span");
-          dot.className = "dd-swatch round";
-          dot.style.background = colourOf(c);
-          // The key shows the ring the dot wears.
-          const ring = newsroomRing(t, c, config.outline);
-          if (ring.inked) dot.style.boxShadow = `inset 0 0 0 ${ring.width}px ${ring.stroke}`;
-          item.append(dot, c);
-          legend.appendChild(item);
-        }
-      }
-      for (const level of byCategory ? [] : ["place", "block", "county"]) {
-        if (!placed.some((p) => p.level === level)) continue;
-        const item = document.createElement("span");
-        const dot = document.createElement("span");
-        dot.className = "dd-swatch round";
-        dot.style.background =
-          (t.points || t.series)[PRECISION[level]] || t.series[PRECISION[level]];
-        item.append(dot, level);
+      let key = null;
+      const showLegend = () => {
+        if (key) key.remove();
+        key = storyMapLegend(t, {
+          byCategory, categories, placed, colourOf, outline: config.outline, max,
+          layerScale, unit, cuts, highest, bandLabels, ramp, values, beyond,
+        });
+        el.prepend(key);
+      };
+      showLegend();
+
+      // A HANDLE FOR THE LAYERED MAP. `refill` takes the same payload the
+      // renderer takes and answers whether it could be drawn by changing
+      // the fills alone; anything that would move a shape or a dot -- a
+      // different level, a different set of points -- is refused, and the
+      // caller draws again from the top.
+      return {
+        refill(next) {
+          const meta = (next || {}).meta || {};
+          if ((meta.level === "tract" ? "tracts" : "counties") !== geoLevel) return false;
+          if ((next.points || []) !== points) return false;
+          layerScale = meta.scale || null;
+          unit = meta.unit || "stories";
+          ({ byCounty, areaOf, max, values, cuts, ramp, shadeFor, countyEdge, highest, bandLabels } = shadingOf(next.areas || [], layerScale));
+          paint();
+          bindCounties();
+          showLegend();
+          return true;
+        },
+      };
+    }, unavailable(el)).catch(undrawable(el));
+  }
+
+  // The story map's legend: the newsroom kinds or the point precisions,
+  // the shading ramp with its marks, and how many points fell beyond the
+  // frame. Everything it needs arrives in `s`; it reads no config, so
+  // what the renderer reads stays in the renderer.
+  function storyMapLegend(t, s) {
+    const d3 = global.d3;
+    const { byCategory, categories, placed, colourOf, max, layerScale, unit,
+      cuts, highest, bandLabels, ramp, values, beyond } = s;
+    const legend = document.createElement("div");
+    legend.className = "dd-legend";
+    if (byCategory) {
+      for (const c of categories) {
+        if (!placed.some((p) => p.category === c)) continue;
+        const { item, swatch } = swatchItem(c, colourOf(c), { swatch: "dd-swatch round" });
+        // The key shows the ring the dot wears.
+        const ring = newsroomRing(t, c, outline);
+        if (ring.inked) swatch.style.boxShadow = `inset 0 0 0 ${ring.width}px ${ring.stroke}`;
         legend.appendChild(item);
       }
-      if (max) {
-        // A STRIP, NOT A CHIP PER BAND. Every band used to carry its own
-        // swatch AND its own text; at ten bands that is eleven labelled
-        // chips like "143-208" laid across the top of the map, which does
-        // not fit and wraps into a paragraph of numbers.
-        //
-        // A ramp is one object, so it is drawn as one: the swatches butt
-        // together and only a few boundaries are written under it. That
-        // is how a reader uses a choropleth key anyway -- to place a
-        // shade between two ends, not to look up an exact band.
-        const scale = document.createElement("span");
-        scale.className = "dd-ramp";
-        scale.append(document.createTextNode(
-          layerScale ? `${layerScale.label}:`
-            : unit === "stories" ? "stories mentioning each county:"
-            : `${unit} located in each county:`));
+    }
+    for (const level of byCategory ? [] : ["place", "block", "county"]) {
+      if (!placed.some((p) => p.level === level)) continue;
+      const colour = (t.points || t.series)[PRECISION[level]] || t.series[PRECISION[level]];
+      legend.appendChild(swatchItem(level, colour, { swatch: "dd-swatch round" }).item);
+    }
+    if (max) {
+      // A STRIP, NOT A CHIP PER BAND. Every band used to carry its own
+      // swatch AND its own text; at ten bands that is eleven labelled
+      // chips like "143-208" laid across the top of the map, which does
+      // not fit and wraps into a paragraph of numbers.
+      //
+      // A ramp is one object, so it is drawn as one: the swatches butt
+      // together and only a few boundaries are written under it. That
+      // is how a reader uses a choropleth key anyway -- to place a
+      // shade between two ends, not to look up an exact band.
+      const scale = document.createElement("span");
+      scale.className = "dd-ramp";
+      scale.append(document.createTextNode(
+        layerScale ? `${layerScale.label}:`
+          : unit === "stories" ? "stories mentioning each county:"
+          : `${unit} located in each county:`));
 
-        // `0` is not a step of the ramp -- it is the absence of data --
-        // so it keeps its own chip and its own word.
-        const none = document.createElement("span");
-        const noneSw = document.createElement("span");
-        noneSw.className = "dd-swatch";
-        noneSw.style.background = t.missing;
-        none.append(noneSw, layerScale ? "no estimate" : "none");
-        scale.appendChild(none);
-        if (layerScale && layerScale.unreliable) {
-          const shaky = document.createElement("span");
-          const sw = document.createElement("span");
-          sw.className = "dd-swatch hatched";
-          shaky.append(sw, "too uncertain to shade");
-          scale.appendChild(shaky);
-        }
-
-        const strip = document.createElement("span");
-        strip.className = "dd-ramp-strip";
-        // ONE SPECTRUM WITH A FEW MILESTONES. The bands are flush, so
-        // the bar reads as a single scale rather than as ten categories
-        // -- which is what the map is, a continuum cut into steps.
-        //
-        // A number under every block was the version that collided with
-        // itself and told the reader far more than a key is for. Four
-        // milestones sit where their value actually falls along the bar,
-        // and every block still knows its own band on hover.
-        // A layer's bands are worded in its own units; a story map's are
-        // the counts above.
-        const shownLabels = layerScale ? scaleLabels(layerScale, cuts, highest) : bandLabels;
-        const dataLabels = shownLabels.slice(1);
-        const blocks = document.createElement("span");
-        blocks.className = "dd-ramp-blocks";
-        dataLabels.forEach((label, i) => {
-          const sw = document.createElement("span");
-          sw.className = "dd-ramp-block";
-          sw.style.background = ramp[i + 1];
-          sw.title = layerScale ? label : `${label} ${unit}`;
-          blocks.appendChild(sw);
-        });
-
-        // The marks: round numbers, placed where they actually fall.
-        //
-        // These used to be the raw quantile cuts -- 74, 142, 604 -- which
-        // are an artefact of where the counties happened to land and mean
-        // nothing to a reader. Rounded to 75 and 150 they are numbers
-        // somebody can hold.
-        //
-        // THE BAR'S AXIS IS RANK, NOT VALUE, because the bands are
-        // equal-count: each holds about a tenth of the counties, so the
-        // tenth band spans 605 to 2,093 while the first spans 1 to 20.
-        // A mark is therefore placed by finding the band its value falls
-        // in and interpolating inside it, rather than by value across the
-        // bar. That keeps every number true to the shade above it, which
-        // is the only thing the key has to be right about.
-        const marks = document.createElement("span");
-        marks.className = "dd-ramp-marks";
-        const edges = [layerScale ? (d3.min(values) || 0) : 0].concat(cuts, [highest]);
-        const positionOf = (v) => {
-          for (let i = 0; i < edges.length - 1; i += 1) {
-            if (v <= edges[i + 1]) {
-              const span = edges[i + 1] - edges[i];
-              const within = span > 0 ? (v - edges[i]) / span : 0;
-              return (i + within) / (edges.length - 1);
-            }
-          }
-          return 1;
-        };
-        // 1, 2, 2.5, 5 and 7.5 times a power of ten: the numbers people
-        // round to without being asked.
-        const roundish = (n) => {
-          if (n <= 10) return n;
-          const power = Math.pow(10, Math.floor(Math.log10(n)));
-          const steps = [1, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10];
-          let best = power;
-          let gap = Infinity;
-          steps.forEach((s) => {
-            const candidate = s * power;
-            if (Math.abs(candidate - n) < gap) {
-              gap = Math.abs(candidate - n);
-              best = candidate;
-            }
-          });
-          return Math.round(best);
-        };
-        const mark = (value, text, align) => {
-          const m = document.createElement("span");
-          m.className = "dd-ramp-mark";
-          m.textContent = text;
-          m.style.left = `${positionOf(value) * 100}%`;
-          if (align) m.dataset.align = align;
-          marks.appendChild(m);
-        };
-        // A LADDER OF ROUND NUMBERS -- 50, 250, 500, 1,000 -- rather
-        // than the quantile cuts, which are an artefact of where the
-        // counties happened to land and mean nothing to a reader.
-        // 1, 2 and 5 times a power of ten: 2, 5, 10, 20, 50, 100, 200.
-        // These are the numbers people round to without being asked.
-        // 2.5 was in here and produced "3" on a small map, which is not
-        // a round number at that scale -- it is just a number.
-        const ladder = [];
-        for (let power = 1; power <= highest; power *= 10) {
-          [1, 2, 5].forEach((m) => {
-            const v = Math.round(m * power);
-            // `<=` so the top of a small scale can be its own last rung:
-            // a map whose busiest county has 200 stories should end at
-            // 200, not at 100.
-            if (v > 1 && v <= highest) ladder.push(v);
-          });
-        }
-        ladder.sort((a, b) => a - b);
-        // Placed by rank, so several round numbers can land inside one
-        // band and pile up. Kept only where they are far enough apart to
-        // read -- a crowded key is worse than a sparse one.
-        // Wide enough that four marks is the usual outcome. This is a
-        // small key on the edge of a map, not an axis: three or four
-        // round numbers and the two ends is all it has room to say.
-        // Wide enough that three or four marks is the usual outcome.
-        // This is a small key on the edge of a map, not an axis.
-        const APART = 0.2;
-        // THE END MARK IS NOT AT 1.0. It sits where its own round value
-        // falls -- 1,000 lands at 0.93 on the March map -- so measuring
-        // the gap against the end of the BAR let the last interior mark
-        // sit 0.19 away from it and the two labels ran together: "250"
-        // and "1,000" rendered as "250,000".
-        // THE END MARK HAS TO MEAN THE END. The largest round number
-        // below the maximum can be far below it -- on a map peaking at
-        // 2,093 the ladder offers 2,000, which is fine, but one peaking
-        // at 12 offers 10 and one peaking at 190 offers 100, which
-        // labels the darkest shade at half what it holds. Where the
-        // nearest rung is not close, the maximum speaks for itself.
-        const rung = ladder.filter((v) => v <= highest).pop() || highest;
-        const topValue = rung >= highest * 0.6 ? rung : highest;
-        const topAt = positionOf(topValue);
-        if (layerScale) {
-          // A measure's key: its low end, a middle cut and its top, in
-          // the measure's own units. The ladder of round story counts
-          // below means nothing on a percent or a dollar scale.
-          const lowest = d3.min(values) || 0;
-          mark(lowest, fmtValue(lowest, layerScale.format), "start");
-          const midCut = cuts[Math.floor(cuts.length / 2)];
-          if (midCut != null && positionOf(midCut) > APART && 1 - positionOf(midCut) > APART) {
-            mark(midCut, fmtValue(midCut, layerScale.format));
-          }
-          mark(highest, fmtValue(highest, layerScale.format), "end");
-        } else {
-        let lastAt = 0;
-        mark(1, "1", "start");
-        ladder.forEach((v) => {
-          const at = positionOf(v);
-          if (v < topValue && at - lastAt >= APART && topAt - at >= APART) {
-            lastAt = at;
-            mark(v, v.toLocaleString());
-          }
-        });
-        mark(topValue, topValue.toLocaleString(), "end");
-        }
-        strip.append(blocks, marks);
-        scale.appendChild(strip);
-        legend.appendChild(scale);
+      // `0` is not a step of the ramp -- it is the absence of data --
+      // so it keeps its own chip and its own word.
+      scale.appendChild(swatchItem(layerScale ? "no estimate" : "none", t.missing).item);
+      if (layerScale && layerScale.unreliable) {
+        scale.appendChild(
+          swatchItem("too uncertain to shade", null, { swatch: "dd-swatch hatched" }).item);
       }
-      if (beyond) {
-        const note = document.createElement("span");
-        note.className = "dd-beyond";
-        note.textContent =
-          byCategory
-            ? `${beyond.toLocaleString()} newsroom${beyond === 1 ? "" : "s"} beyond the frame`
-            : `${beyond.toLocaleString()} central${beyond === 1 ? "" : "s"} beyond the frame`;
-        legend.appendChild(note);
+
+      const strip = document.createElement("span");
+      strip.className = "dd-ramp-strip";
+      // ONE SPECTRUM WITH A FEW MILESTONES. The bands are flush, so
+      // the bar reads as a single scale rather than as ten categories
+      // -- which is what the map is, a continuum cut into steps.
+      //
+      // A number under every block was the version that collided with
+      // itself and told the reader far more than a key is for. Four
+      // milestones sit where their value actually falls along the bar,
+      // and every block still knows its own band on hover.
+      // A layer's bands are worded in its own units; a story map's are
+      // the counts above.
+      const shownLabels = layerScale ? scaleLabels(layerScale, cuts, highest) : bandLabels;
+      const dataLabels = shownLabels.slice(1);
+      const blocks = document.createElement("span");
+      blocks.className = "dd-ramp-blocks";
+      dataLabels.forEach((label, i) => {
+        const sw = document.createElement("span");
+        sw.className = "dd-ramp-block";
+        sw.style.background = ramp[i + 1];
+        sw.title = layerScale ? label : `${label} ${unit}`;
+        blocks.appendChild(sw);
+      });
+
+      // The marks: round numbers, placed where they actually fall.
+      //
+      // These used to be the raw quantile cuts -- 74, 142, 604 -- which
+      // are an artefact of where the counties happened to land and mean
+      // nothing to a reader. Rounded to 75 and 150 they are numbers
+      // somebody can hold.
+      //
+      // THE BAR'S AXIS IS RANK, NOT VALUE, because the bands are
+      // equal-count: each holds about a tenth of the counties, so the
+      // tenth band spans 605 to 2,093 while the first spans 1 to 20.
+      // A mark is therefore placed by finding the band its value falls
+      // in and interpolating inside it, rather than by value across the
+      // bar. That keeps every number true to the shade above it, which
+      // is the only thing the key has to be right about.
+      const marks = rampMarks(s);
+      strip.append(blocks, marks);
+      scale.appendChild(strip);
+      legend.appendChild(scale);
+    }
+    if (beyond) {
+      const note = document.createElement("span");
+      note.className = "dd-beyond";
+      note.textContent =
+        byCategory
+          ? `${beyond.toLocaleString()} newsroom${beyond === 1 ? "" : "s"} beyond the frame`
+          : `${beyond.toLocaleString()} central${beyond === 1 ? "" : "s"} beyond the frame`;
+      legend.appendChild(note);
+    }
+    return legend;
+  }
+
+  // The marks along the shading ramp: where its values fall, from the
+  // first to the highest, with a logarithmic ladder between them for a
+  // count scale and the middle cut for a Census one. Reads no config.
+  function rampMarks(s) {
+    const d3 = global.d3;
+    const { layerScale, values, cuts, highest } = s;
+    const marks = document.createElement("span");
+    marks.className = "dd-ramp-marks";
+    const edges = [layerScale ? (d3.min(values) || 0) : 0].concat(cuts, [highest]);
+    const positionOf = (v) => {
+      for (let i = 0; i < edges.length - 1; i += 1) {
+        if (v <= edges[i + 1]) {
+          const span = edges[i + 1] - edges[i];
+          const within = span > 0 ? (v - edges[i]) / span : 0;
+          return (i + within) / (edges.length - 1);
+        }
       }
-      el.prepend(legend);
-    }, unavailable(el)).catch(undrawable(el));
+      return 1;
+    };
+    // 1, 2, 2.5, 5 and 7.5 times a power of ten: the numbers people
+    // round to without being asked.
+    const mark = (value, text, align) => {
+      const m = document.createElement("span");
+      m.className = "dd-ramp-mark";
+      m.textContent = text;
+      m.style.left = `${positionOf(value) * 100}%`;
+      if (align) m.dataset.align = align;
+      marks.appendChild(m);
+    };
+    // A LADDER OF ROUND NUMBERS -- 50, 250, 500, 1,000 -- rather
+    // than the quantile cuts, which are an artefact of where the
+    // counties happened to land and mean nothing to a reader.
+    // 1, 2 and 5 times a power of ten: 2, 5, 10, 20, 50, 100, 200.
+    // These are the numbers people round to without being asked.
+    // 2.5 was in here and produced "3" on a small map, which is not
+    // a round number at that scale -- it is just a number.
+    const ladder = [];
+    for (let power = 1; power <= highest; power *= 10) {
+      [1, 2, 5].forEach((m) => {
+        const v = Math.round(m * power);
+        // `<=` so the top of a small scale can be its own last rung:
+        // a map whose busiest county has 200 stories should end at
+        // 200, not at 100.
+        if (v > 1 && v <= highest) ladder.push(v);
+      });
+    }
+    ladder.sort((a, b) => a - b);
+    // Placed by rank, so several round numbers can land inside one
+    // band and pile up. Kept only where they are far enough apart to
+    // read -- a crowded key is worse than a sparse one.
+    // Wide enough that four marks is the usual outcome. This is a
+    // small key on the edge of a map, not an axis: three or four
+    // round numbers and the two ends is all it has room to say.
+    // Wide enough that three or four marks is the usual outcome.
+    // This is a small key on the edge of a map, not an axis.
+    const APART = 0.2;
+    // THE END MARK IS NOT AT 1.0. It sits where its own round value
+    // falls -- 1,000 lands at 0.93 on the March map -- so measuring
+    // the gap against the end of the BAR let the last interior mark
+    // sit 0.19 away from it and the two labels ran together: "250"
+    // and "1,000" rendered as "250,000".
+    // THE END MARK HAS TO MEAN THE END. The largest round number
+    // below the maximum can be far below it -- on a map peaking at
+    // 2,093 the ladder offers 2,000, which is fine, but one peaking
+    // at 12 offers 10 and one peaking at 190 offers 100, which
+    // labels the darkest shade at half what it holds. Where the
+    // nearest rung is not close, the maximum speaks for itself.
+    const rung = ladder.filter((v) => v <= highest).pop() || highest;
+    const topValue = rung >= highest * 0.6 ? rung : highest;
+    const topAt = positionOf(topValue);
+    if (layerScale) {
+      // A measure's key: its low end, a middle cut and its top, in
+      // the measure's own units. The ladder of round story counts
+      // below means nothing on a percent or a dollar scale.
+      const lowest = d3.min(values) || 0;
+      mark(lowest, fmtValue(lowest, layerScale.format), "start");
+      const midCut = cuts[Math.floor(cuts.length / 2)];
+      if (midCut != null && positionOf(midCut) > APART && 1 - positionOf(midCut) > APART) {
+        mark(midCut, fmtValue(midCut, layerScale.format));
+      }
+      mark(highest, fmtValue(highest, layerScale.format), "end");
+    } else {
+    let lastAt = 0;
+    mark(1, "1", "start");
+    ladder.forEach((v) => {
+      const at = positionOf(v);
+      if (v < topValue && at - lastAt >= APART && topAt - at >= APART) {
+        lastAt = at;
+        mark(v, v.toLocaleString());
+      }
+    });
+    mark(topValue, topValue.toLocaleString(), "end");
+    }
+    return marks;
   }
 
   // Two half-ramps meeting at the neutral midpoint (odd n keeps it center).
@@ -4510,6 +4563,6 @@
   // hues is a fact about these functions, not about the page.
   global.DatadeskChart = {
     render, mount, renderTable,
-    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, spreadCoincident, spreadPoints, featuresOf, fmtValue, scaleLabels, esc, tipRow, tipHead, fetchJSON, unavailable, undrawable, uid, layerState, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf, swatchLegend },
+    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, spreadCoincident, spreadPoints, featuresOf, framedBy, FONT, fmtValue, scaleLabels, esc, tipRow, tipHead, fetchJSON, unavailable, undrawable, uid, layerState, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf, swatchLegend },
   };
 })(window);
