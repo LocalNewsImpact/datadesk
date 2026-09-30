@@ -31,6 +31,7 @@ from visuals.builder import (
     libs_for,
     parse_upload,
 )
+from visuals.corpus import StillComputing
 from visuals.embed import snippet as embed_snippet
 from visuals.models import BIGQUERY, CORPUS, GCS, INLINE, STORIES, Visual
 from visuals.services import (
@@ -355,7 +356,9 @@ def _feed_payload(request, visual):
     if live:
 
         def fetch():
-            return fetch_source_data(visual)
+            # Not waiting in this thread for an answer another request is
+            # computing: `StillComputing` becomes a 202 (data_json).
+            return fetch_source_data(visual, wait=False)
 
         # No cache here at all. An output is cached by publishing it: the
         # snapshot is the cached copy, it carries a version, and `?v=`
@@ -369,7 +372,20 @@ def _feed_payload(request, visual):
         #
         # Repeat reads are limited by the response's own Cache-Control,
         # set below, which is visible to whoever is reading it.
-        data = fetch()
+        #
+        # EXCEPT FOR A READER. An author previewing sees the source now;
+        # a reader of a published visual that allows live gets the same
+        # answer everybody else got in the last few minutes, because a
+        # corpus source shares its answer (`answer_once`) and the others
+        # -- the outlet map, the stories table, a bucket, BigQuery -- ran
+        # for every anonymous hit, which is a cost anybody on the internet
+        # could run up (2026-09-30). Keyed on the visual's last change, so
+        # an edit is a new key.
+        if visual.source_kind == CORPUS or may_act_on(request.user, visual):
+            data = fetch()
+        else:
+            key = f"visuals.live.{visual.pk}.{visual.updated_at.timestamp():.0f}"
+            data = cache.get_or_set(key, fetch, LIVE_READER_SECONDS)
         # Credited like a published one. The table view reads its owner
         # and contact off the payload, so without this the preview of a
         # dataset's own attribution was the one place it could not be
@@ -416,6 +432,8 @@ def _feed_payload(request, visual):
     return payload, asked is not None, False
 
 
+#: How long a reader's live answer from a non-corpus source is shared.
+LIVE_READER_SECONDS = 300
 #: A year, for a URL that names one immutable snapshot.
 _PINNED = "public, max-age=31536000, immutable"
 #: An hour, for one that means "current" and changes when it is republished.
@@ -445,12 +463,24 @@ def _cache_for(response, visual, versioned, live=False):
     return response
 
 
+def _computing(exc):
+    """202: the answer is being computed by another request; ask again."""
+    response = JsonResponse(
+        {"computing": True, "retry_after": exc.retry_after}, status=202
+    )
+    response["Retry-After"] = str(exc.retry_after)
+    response["Cache-Control"] = "no-store"
+    return response
+
+
 def data_json(request, slug=None, uuid=None):
     visual = _get_visual(request, slug=slug, uuid=uuid)
     try:
         payload, versioned, live = _feed_payload(request, visual)
     except DataSourceError as exc:
         return JsonResponse({"error": str(exc)}, status=502)
+    except StillComputing as exc:
+        return _computing(exc)
     return _cache_for(JsonResponse(payload), visual, versioned, live)
 
 
@@ -504,6 +534,8 @@ def data_csv(request, slug=None, uuid=None):
         payload, versioned, live = _feed_payload(request, visual)
     except DataSourceError as exc:
         return JsonResponse({"error": str(exc)}, status=502)
+    except StillComputing as exc:
+        return _computing(exc)
 
     groups = tables_in(payload["data"])
     if not groups:
@@ -1406,16 +1438,19 @@ def newsroom_counts_for(scopes):
     """
     from django.db.models import Count
 
-    from explorer.models import Article, DatasetSource
-    from visuals.corpus import CORPUS_CACHE_SECONDS, _cache_key
+    from explorer.models import Article
+    from visuals.corpus import (
+        CORPUS_CACHE_SECONDS,
+        _cache_key,
+        scope_key,
+        scoped_members,
+    )
 
-    key = _cache_key("visuals.newsroom_counts", sorted(scopes) if scopes else [])
+    key = _cache_key("visuals.newsroom_counts", scope_key(scopes))
     counts = cache.get(key)
     if counts is not None:
         return counts
-    members = DatasetSource.objects.all()
-    if scopes:
-        members = members.filter(dataset__slug__in=scopes)
+    members = scoped_members(scopes)
     ids = set(members.values_list("source_id", flat=True))
     counts = {
         str(k): v
@@ -1687,21 +1722,24 @@ def newsroom_tree_for(scopes):
     adjacent warms nothing -- and the facet cascade reads this too now,
     so an unwarmed tree is a facet that waits on it.
     """
-    from explorer.models import DatasetSource, Source
-    from visuals.corpus import CORPUS_CACHE_SECONDS, _cache_key
+    from explorer.models import Source
+    from visuals.corpus import (
+        CORPUS_CACHE_SECONDS,
+        _cache_key,
+        scope_key,
+        scoped_members,
+    )
 
     # 13 to 24 seconds without this: a count of articles per source across
     # every dataset the visual is wired to, rebuilt on every visit to the
     # step. Keyed on the scopes, because those decide which sources are in
     # it and a key without them would show one author another's newsrooms.
-    key = _cache_key("visuals.newsroom_tree", sorted(scopes) if scopes else [])
+    key = _cache_key("visuals.newsroom_tree", scope_key(scopes))
     hit = cache.get(key)
     if hit is not None:
         return hit
 
-    members = DatasetSource.objects.all()
-    if scopes:
-        members = members.filter(dataset__slug__in=scopes)
+    members = scoped_members(scopes)
     ids = set(members.values_list("source_id", flat=True))
     tree = {}
     for source in Source.objects.filter(id__in=ids):

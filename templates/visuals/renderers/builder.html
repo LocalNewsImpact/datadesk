@@ -194,8 +194,16 @@ document.addEventListener("DOMContentLoaded", function () {
     {# `&` between two query parameters became `&amp;` in the URL that was #}
     {# actually fetched. It went unseen while a live feed URL had one #}
     {# parameter and no ampersand in it. #}
-    fetch("{{ feed|escapejs }}")
+    // A 202 means another request is computing this answer; ask again
+    // in a few seconds rather than holding a server thread for it.
+    const load = (attempt) => fetch("{{ feed|escapejs }}")
       .then((r) => {
+        if (r.status === 202 && attempt < 120) {
+          el.textContent = "Computing\u2026";
+          return r.json().catch(() => ({})).then((body) =>
+            new Promise((resolve) => setTimeout(resolve, ((body.retry_after || 3) * 1000)))
+              .then(() => load(attempt + 1)));
+        }
         // The server says what is wrong in the body; the status alone is
         // "502 from the feed", which sent somebody to read Cloud Run logs
         // to discover the pivot had been refusing ten columns and saying
@@ -209,7 +217,8 @@ document.addEventListener("DOMContentLoaded", function () {
             });
         }
         return r.json();
-      })
+      });
+    load(0)
       .then((payload) => {
         keep(payload);
         draw(payload);

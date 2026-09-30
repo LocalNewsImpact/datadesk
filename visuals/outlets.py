@@ -229,11 +229,14 @@ def _articles_in(source_ids, first, last):
 
     if not source_ids:
         return {}
+    from visuals.corpus import day_range
+
+    start, end = day_range(first, last)
     rows = (
         Article.objects.filter(
             candidate_link__source_id__in=list(source_ids),
-            publish_date__date__gte=first,
-            publish_date__date__lte=last,
+            publish_date__gte=start,
+            publish_date__lt=end,
         )
         .values("candidate_link__source_id")
         .annotate(n=Count("id"))

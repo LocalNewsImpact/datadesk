@@ -130,8 +130,11 @@ def _scope_key(scopes):
     return "all" if scopes == ALL_SCOPES else sorted(scopes or [])
 
 
-def fetch_source_data(visual):
-    """Run the visual's data source and return JSON-compatible rows."""
+def fetch_source_data(visual, wait=True):
+    """Run the visual's data source and return JSON-compatible rows.
+
+    `wait=False` is the feed's: a corpus answer another request is already
+    computing raises `corpus.StillComputing` rather than sleeping for it."""
     if visual.source_kind == INLINE:
         raise DataSourceError(
             "Inline visuals refresh by uploading a new file in the builder."
@@ -192,6 +195,7 @@ def fetch_source_data(visual):
                         },
                     ],
                     lambda: run_layer_map(spec, scopes, config),
+                    wait=wait,
                 )
             if kind == STORY_MAP_KIND or spec.get("shape") == "story_map":
                 # The config too, because rolling points up to a
@@ -207,11 +211,13 @@ def fetch_source_data(visual):
                     "visuals.storymap",
                     [spec, _scope_key(scopes), roll_up],
                     lambda: run_story_map(spec, scopes, visual.config or {}),
+                    wait=wait,
                 )
             rows = answer_once(
                 "visuals.values",
                 [spec, _scope_key(scopes)],
                 lambda: run_values(spec, scopes)[0],
+                wait=wait,
             )
         except CorpusSpecError as exc:
             raise DataSourceError(str(exc)) from exc

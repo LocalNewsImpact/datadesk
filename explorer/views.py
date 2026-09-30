@@ -257,10 +257,15 @@ def _filtered_articles(params, user, annotated=True):
         qs = qs.filter(candidate_link__source__canonical_name__icontains=publisher)
     if label := params.get("label"):
         qs = qs.filter(primary_label=label)
-    if date_from := params.get("from"):
-        qs = qs.filter(publish_date__date__gte=date_from)
-    if date_to := params.get("to"):
-        qs = qs.filter(publish_date__date__lte=date_to)
+    # A timestamp range, not a date cast, so the index on publish_date
+    # serves it (visuals.corpus.day_range).
+    from visuals.corpus import day_range
+
+    start, end = day_range(params.get("from"), params.get("to"))
+    if start:
+        qs = qs.filter(publish_date__gte=start)
+    if end:
+        qs = qs.filter(publish_date__lt=end)
     if conf_min := params.get("conf_min"):
         qs = qs.filter(primary_label_confidence__gte=conf_min)
     if conf_max := params.get("conf_max"):

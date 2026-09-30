@@ -4,8 +4,17 @@
 <script>
 (function () {
   const el = document.currentScript.previousElementSibling;
-  fetch(el.dataset.feed)
-    .then((r) => r.json())
+  // A 202 means another request is computing this answer; ask again.
+  const load = (attempt) => fetch(el.dataset.feed).then((r) => {
+    if (r.status === 202 && attempt < 120) {
+      el.textContent = "Computing\u2026";
+      return r.json().catch(() => ({})).then((body) =>
+        new Promise((resolve) => setTimeout(resolve, (body.retry_after || 3) * 1000))
+          .then(() => load(attempt + 1)));
+    }
+    return r.json();
+  });
+  load(0)
     .then(({ data }) => {
       if (!Array.isArray(data) || !data.length) {
         el.textContent = "No data.";
