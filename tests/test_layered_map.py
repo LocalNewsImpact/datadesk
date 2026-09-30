@@ -338,6 +338,18 @@ class TestTheWalk:
         assert ("shading by", "2 Census layers", "said") in parts
 
 
+def test_a_tract_map_loads_only_the_fills_states_and_survives_a_missing_one():
+    """KCMO's dot is in Kansas and KHQA's in Illinois; a tract map of
+    Missouri asked for their states' tract files, which do not exist, and
+    one missing file failed the whole load (2026-09-30)."""
+    from pathlib import Path
+
+    chart = Path(__file__).resolve().parent.parent / "static/js/datadesk-chart.js"
+    js = chart.read_text()
+    assert ".catch(() => []))" in js
+    assert 'geoLevel === "tracts" ? [] : points.map' in js
+
+
 def test_the_renderer_speaks_the_layers_units():
     """fmtValue and scaleLabels, run in node."""
     from tests.test_a_table_is_a_pivot import _node

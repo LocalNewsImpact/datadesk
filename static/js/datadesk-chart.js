@@ -299,9 +299,13 @@
       return Promise.reject(new Error(
         "tract/place maps need a joined GEOID column to pick the states"));
     }
+    // A STATE WITH NO FILE IS A STATE NOT DRAWN, not a dead map. The
+    // per-state files exist for the states the corpus covers; a newsroom
+    // over the line in Kansas must not take the Missouri tracts down.
     return Promise.all(
       states.map((s) => fetchJSON(`${base}${spec.perState}${s}.json`)
-        .then((topo) => toFeatures(topo, level)))
+        .then((topo) => toFeatures(topo, level))
+        .catch(() => []))
     ).then((sets) => sets.flat());
   }
 
@@ -3823,9 +3827,13 @@
       return;
     }
 
+    // Which states' boundaries to load. The fill decides; a dot decides
+    // only when the boundaries are the one national county file, because
+    // at tract level a newsroom across the state line (KCMO in Kansas,
+    // KHQA in Illinois) would ask for a state's tracts that are not kept.
     const ids = [
       ...areas.map((a) => String(a.geoid || "")),
-      ...points.map((p) => String(p.geoid || "")),
+      ...(geoLevel === "tracts" ? [] : points.map((p) => String(p.geoid || ""))),
     ].filter(Boolean);
 
     boundaries(opts.geoBase, geoLevel, ids, opts.geoUrls).then((features) => {
@@ -3981,7 +3989,7 @@
       const shadeFor = (n) => (missingValue(n) ? t.missing : ramp[bandOf(n)]);
       const lightMode = t.surface === LIGHT.surface;
       const countyEdge = (n) => {
-        if (missingValue(n)) return t.boundary;
+        if (!n) return t.boundary;
         const c = d3.hsl(shadeFor(n));
         return (lightMode ? c.brighter(0.35) : c.darker(0.35)).formatHex();
       };
@@ -3996,7 +4004,7 @@
       // reader cannot tell whether the darkest county holds 13 stories or
       // 204, which on this corpus is the difference between a flat map
       // and a very concentrated one.
-      const bandLabels = layerScale ? scaleLabels(layerScale, cuts, highest) : ["0"].concat(
+      const bandLabels = ["0"].concat(
         cuts.map((cut, i) => {
           const from = i === 0 ? 1 : cuts[i - 1] + 1;
           return from === cut ? `${cut}` : `${from}–${cut}`;
@@ -4191,7 +4199,10 @@
         // itself and told the reader far more than a key is for. Four
         // milestones sit where their value actually falls along the bar,
         // and every block still knows its own band on hover.
-        const dataLabels = bandLabels.slice(1);
+        // A layer's bands are worded in its own units; a story map's are
+        // the counts above.
+        const shownLabels = layerScale ? scaleLabels(layerScale, cuts, highest) : bandLabels;
+        const dataLabels = shownLabels.slice(1);
         const blocks = document.createElement("span");
         blocks.className = "dd-ramp-blocks";
         dataLabels.forEach((label, i) => {
