@@ -221,7 +221,7 @@ def _state_of(config):
 
 def run_layer_map(spec, scopes, config=None):
     """{points, areas, layers, meta} for a layered map."""
-    from visuals.corpus import run_story_map
+    from visuals.corpus import answer_once, run_story_map, scope_key
     from visuals.outlets import run_outlet_map
 
     config = config or {}
@@ -239,7 +239,16 @@ def run_layer_map(spec, scopes, config=None):
     # The coverage is read when it is drawn, and when a derived layer
     # needs it; by county only, because stories are coded to counties.
     if level == "county" and (shows(config, "coverage") or derived):
-        coverage = run_story_map(spec, scopes, config)["areas"]
+        # Through the story map's own key, not beside it: this is the
+        # story map's answer for the same slice, and the layered map's
+        # key changes with every layer chosen while the coverage does not.
+        # Read directly, every layer edit re-ran the points query, the
+        # manual merge and the roll-up to keep only `areas`.
+        coverage = answer_once(
+            "visuals.storymap",
+            [spec, scope_key(scopes), config.get("roll_up", "")],
+            lambda: run_story_map(spec, scopes, config),
+        )["areas"]
     elif level != "county" and (shows(config, "coverage") or derived):
         coverage_note = (
             "coverage shading and coverage per resident are drawn by county only"

@@ -2259,9 +2259,18 @@ def run_story_map(spec, scopes, config=None):
     by_county = {}
     considered = 0
     unresolved = set()
-    for article_id, raw in area_qs.values_list("id", "enrichment__geoids")[
-        :MAX_RAW_GROUPS
-    ]:
+    areas_truncated = False
+    # In id order, so past the limit the same stories shade the map on
+    # every run rather than whichever rows Postgres returned first; the
+    # one row beyond the limit is how the cut is known and reported.
+    for n, (article_id, raw) in enumerate(
+        area_qs.order_by("id").values_list("id", "enrichment__geoids")[
+            : MAX_RAW_GROUPS + 1
+        ]
+    ):
+        if n == MAX_RAW_GROUPS:
+            areas_truncated = True
+            break
         try:
             places = _json.loads(raw) if raw else []
         except (TypeError, ValueError):
@@ -2320,6 +2329,8 @@ def run_story_map(spec, scopes, config=None):
         "area_stories": considered,
         "unresolved_places": len(unresolved),
     }
+    if areas_truncated:
+        meta["areas_truncated"] = MAX_RAW_GROUPS
     if about:
         meta["centred_elsewhere"] = elsewhere
     if not points and not areas:

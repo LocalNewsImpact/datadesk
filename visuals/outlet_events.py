@@ -131,14 +131,18 @@ def record(actor, data, origin="form", retracts=None):
             "outlet_name": retracts.outlet_name,
         }
     fields, errors = clean(data)
-    if retracts is not None:
-        if retracts.retracted_by.exists():
-            errors.append("That event is already retracted.")
-    elif fields["event"] == E.RETRACTION:
+    if retracts is None and fields["event"] == E.RETRACTION:
         errors.append("A retraction names the event it withdraws.")
     if errors:
         raise EventError(errors)
     with transaction.atomic():
+        if retracts is not None:
+            # Under the withdrawn event's row lock: checked outside the
+            # transaction, two retractions of one event both found it
+            # unretracted and both were recorded.
+            OutletEvent.objects.select_for_update().get(pk=retracts.pk)
+            if retracts.retracted_by.exists():
+                raise EventError(["That event is already retracted."])
         event = OutletEvent.objects.create(
             **fields, retracts=retracts, recorded_by=actor, origin=origin
         )

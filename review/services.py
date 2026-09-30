@@ -233,6 +233,23 @@ def audited_update(actor, instances, changes, action, reason="", events=True):
     return entry
 
 
+def _locked(model, write_alias, by_pk):
+    """The rows named by `by_pk`, locked on the write connection.
+
+    One query, `FOR UPDATE`, inside the caller's transaction. Read a row
+    at a time and unlocked, an edit made between the read and the save
+    was lost, and the audit entry's `before` said the value the editor
+    never saw. Keyed by the pk as a string: audit entries carry pks as
+    JSON keys, and the crawler's are strings already.
+    """
+    return {
+        str(obj.pk): obj
+        for obj in model.objects.using(write_alias)
+        .select_for_update()
+        .filter(pk__in=list(by_pk))
+    }
+
+
 def revert(actor, entry, reason=""):
     """Apply an audit entry's `before` values back, as a new audited action.
 
@@ -255,8 +272,9 @@ def revert(actor, entry, reason=""):
     before = {}
 
     with transaction.atomic(using=write_alias):
+        found = _locked(model, write_alias, entry.before or {})
         for pk, values in (entry.before or {}).items():
-            obj = model.objects.filter(pk=pk).first()
+            obj = found.get(str(pk))
             if obj is None:
                 missing.append(pk)
                 continue
@@ -328,8 +346,9 @@ def audited_update_rows(actor, model, rows, action, reason="", reverts=None):
     write_alias = router.db_for_write(model)
     before = {}
     with transaction.atomic(using=write_alias):
+        found = _locked(model, write_alias, rows)
         for pk, values in rows.items():
-            obj = model.objects.filter(pk=pk).first()
+            obj = found.get(str(pk))
             if obj is None:
                 raise ValueError(f"Row {pk} no longer exists")
             before[pk] = {field: _read(obj, field) for field in values}
