@@ -3618,6 +3618,53 @@
   //: put almost every county in the first band.
   const ABSOLUTE_BANDS = [1, 2, 5, 10, 20, 50, 100, 200, 500];
 
+  // COINCIDENT NEWSROOMS are fanned out, not stacked. Outlets placed at the
+  // same point -- a town's centre, one building, two papers of one owner --
+  // drew as one dot: 235 on the Missouri map showed as 160, Joplin's five
+  // newsrooms as one. Dots closer than a dot's width are gathered and laid
+  // out on a sunflower spiral around where the first of them stands, so
+  // each is its own dot with its own tooltip and none moves further than
+  // its neighbours need. `xy` is projected [x, y] pairs; returns new ones.
+  function spreadCoincident(xy, radius) {
+    const gap = radius * 2.2; // a dot's width and its ring
+    const groups = [];
+    xy.forEach(([x, y], i) => {
+      const near = groups.find((g) => Math.hypot(g.x - x, g.y - y) < gap);
+      if (near) near.members.push(i);
+      else groups.push({ x, y, members: [i] });
+    });
+    const out = xy.map((p) => p.slice());
+    for (const g of groups) {
+      if (g.members.length < 2) continue;
+      g.members.forEach((i, k) => {
+        const d = gap * 0.62 * Math.sqrt(k + 0.5);
+        const a = k * 2.39996; // the golden angle, in radians
+        out[i] = [g.x + d * Math.cos(a), g.y + d * Math.sin(a)];
+      });
+    }
+    // A fanned group can land on the next town's dots (St. Louis's
+    // inner suburbs): any two still touching are eased apart, a little
+    // at a time, and a dot nothing touches stays where it is.
+    for (let pass = 0; pass < 40; pass++) {
+      let moved = false;
+      for (let i = 0; i < out.length; i++) {
+        for (let j = i + 1; j < out.length; j++) {
+          const dx = out[j][0] - out[i][0];
+          const dy = out[j][1] - out[i][1];
+          const dist = Math.hypot(dx, dy);
+          if (dist >= gap - 0.01) continue;
+          const push = (gap - dist) / 2;
+          const [ux, uy] = dist > 0 ? [dx / dist, dy / dist] : [1, 0];
+          out[i] = [out[i][0] - ux * push, out[i][1] - uy * push];
+          out[j] = [out[j][0] + ux * push, out[j][1] + uy * push];
+          moved = true;
+        }
+      }
+      if (!moved) break;
+    }
+    return out;
+  }
+
   function renderStoryMap(el, config, data, opts, t, width) {
     const d3 = global.d3;
     const payload = Array.isArray(data) ? { points: data, areas: [] } : (data || {});
@@ -3877,9 +3924,16 @@
       if (byCategory) placed.sort((a, b) =>
         (a.category === "collected") - (b.category === "collected"));
       const ringOf = (p) => newsroomRing(t, p.category, config.outline);
+      // A story dot is sized by its count and may overlap; a newsroom dot is
+      // one outlet, and two at one point must both be seen. Small enough
+      // that a city's dozen fit its county, large enough to point at:
+      // 4.8px on a 960px map.
+      const dotR = Math.max(3.5, width / 200);
+      const at = placed.map((p) => projection([p.lon, p.lat]));
+      const xy = byCategory ? spreadCoincident(at, dotR) : at;
       const dots = frame.append("g").selectAll("circle").data(placed).join("circle")
-        .attr("transform", (p) => `translate(${projection([p.lon, p.lat])})`)
-        .attr("r", (p) => (byCategory ? Math.max(3.5, width / 150) : r(p.stories)))
+        .attr("transform", (p, i) => `translate(${xy[i]})`)
+        .attr("r", (p) => (byCategory ? dotR : r(p.stories)))
         .attr("fill", (p) => byCategory ? colourOf(p.category) :
           (t.points || t.series)[PRECISION[p.level] ?? 0] ||
           t.series[PRECISION[p.level] ?? 0])
@@ -4134,6 +4188,6 @@
   // hues is a fact about these functions, not about the page.
   global.DatadeskChart = {
     render, mount, renderTable,
-    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf, swatchLegend },
+    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, spreadCoincident, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf, swatchLegend },
   };
 })(window);
