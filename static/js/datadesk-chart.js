@@ -307,6 +307,17 @@
     return features;
   }
 
+  // The topology is fetched once (geoCache) but was decoded into features
+  // on every redraw -- every resize, every layer switch -- which for the
+  // county file is the slowest step short of drawing. Decoded once per
+  // file and object; the arrays are read, never changed.
+  const featureCache = {};
+  function featuresOf(url, topo, objectName) {
+    const key = `${url}|${objectName}`;
+    featureCache[key] = featureCache[key] || toFeatures(topo, objectName);
+    return featureCache[key];
+  }
+
   // Resolve a level's features; ids drive which per-state files load.
   function boundaries(base, level, ids, urls) {
     const spec = GEO_LEVELS[level] || GEO_LEVELS.states;
@@ -316,7 +327,7 @@
       // what makes it the same URL the page preloads -- built here from a
       // bare directory it was neither, and the file came down twice.
       const url = (urls && urls[level]) || base + spec.file;
-      return fetchJSON(url).then((topo) => toFeatures(topo, spec.object));
+      return fetchJSON(url).then((topo) => featuresOf(url, topo, spec.object));
     }
     const states = [...new Set((ids || []).map((id) => id.slice(0, 2)))]
       .filter((s) => /^\d\d$/.test(s));
@@ -329,7 +340,7 @@
     // over the line in Kansas must not take the Missouri tracts down.
     return Promise.all(
       states.map((s) => fetchJSON(`${base}${spec.perState}${s}.json`)
-        .then((topo) => toFeatures(topo, level))
+        .then((topo) => featuresOf(`${base}${spec.perState}${s}.json`, topo, level))
         .catch((err) => {
           console.warn(`datadesk-chart: no ${level} file for state ${s}`, err);
           return [];
@@ -1881,6 +1892,7 @@
       el.appendChild(node);
     }
     let pinned = false;
+    let last = null;
     const place = (event) => {
       const box = el.getBoundingClientRect();
       const x = event.clientX - box.left;
@@ -1892,7 +1904,9 @@
     return {
       show(html, event) {
         if (pinned) return;
-        node.innerHTML = html;
+        // Rewriting the HTML on every pointer move forced a reflow per
+        // move; the same datum is the same tooltip.
+        if (html !== last) { node.innerHTML = html; last = html; }
         node.hidden = false;
         place(event);
       },
@@ -1948,13 +1962,16 @@
         group.style("opacity", (other) => (related(target, other) ? 1 : 0.15));
       }
     };
+    // Entering a mark shows its tooltip and dims its siblings; moving
+    // over it only moves the tooltip. Isolating on every move restyled
+    // every path in the group -- all 1,654 tracts -- per pixel.
     sel
       .style("cursor", "pointer")
-      .on("pointerenter pointermove", function (event, d) {
+      .on("pointerenter", function (event, d) {
         tip.show(html(d, this), event);
-        tip.move(event);
         if (!tip.isPinned()) isolate(d);
       })
+      .on("pointermove", (event) => tip.move(event))
       .on("pointerleave", () => {
         tip.hide();
         if (!tip.isPinned()) undim();
@@ -3110,15 +3127,25 @@
       // highlighted counties, which are where every other arrow is:
       // Audrain's line to Cole has Callaway and Boone to choose from
       // and belongs in Callaway.
+      // Each trace point is inverted once, not once per county, and a
+      // county is asked only when its bounds hold the point: the search
+      // runs this SLIDE x CURVE x SIDE x RUN times per pair.
+      const subjects = [...shapeOf.keys()].filter(isSubject);
+      const boundsOf = new Map(subjects.map(
+        (geoid) => [geoid, d3.geoBounds(shapeOf.get(geoid))]));
+      const within = ([[x0, y0], [x1, y1]], [lon, lat]) =>
+        lon >= x0 && lon <= x1 && lat >= y0 && lat <= y1;
       const trespass = (trace, x, y) => {
         if (!pin.size || !projection.invert) return 0;
+        const lls = trace.points
+          .map((p) => projection.invert([p.x, p.y])).filter(Boolean);
         let cost = 0;
-        for (const geoid of shapeOf.keys()) {
-          if (geoid === x || geoid === y || !isSubject(geoid)) continue;
+        for (const geoid of subjects) {
+          if (geoid === x || geoid === y) continue;
           const shape = shapeOf.get(geoid);
-          for (const p of trace.points) {
-            const ll = projection.invert([p.x, p.y]);
-            if (ll && d3.geoContains(shape, ll)) cost += 60;
+          const bounds = boundsOf.get(geoid);
+          for (const ll of lls) {
+            if (within(bounds, ll) && d3.geoContains(shape, ll)) cost += 60;
           }
         }
         return cost;
@@ -3696,7 +3723,19 @@
   // out on a sunflower spiral around where the first of them stands, so
   // each is its own dot with its own tooltip and none moves further than
   // its neighbours need. `xy` is projected [x, y] pairs; returns new ones.
+  // The last spread, kept: a redraw at the same width places the same
+  // points and would repeat about a million distance checks to reach the
+  // same answer.
+  let lastSpread = { key: null, out: null };
   function spreadCoincident(xy, radius) {
+    const key = radius + ":" + xy.map(([x, y]) => `${x},${y}`).join(";");
+    if (lastSpread.key === key) return lastSpread.out;
+    const out = spreadPoints(xy, radius);
+    lastSpread = { key, out };
+    return out;
+  }
+
+  function spreadPoints(xy, radius) {
     const gap = radius * 2.2; // a dot's width and its ring
     const groups = [];
     xy.forEach(([x, y], i) => {
@@ -4439,9 +4478,16 @@
     // The observer must measure what the renderer measures, or a pane that
     // widens redraws at a width the chart does not use.
     let width = roomFor(el);
+    // One redraw per frame, not one per observation: dragging a pane
+    // through 600px fired about 25 redraws, each a full map.
+    let frame = 0;
     const sizes = new ResizeObserver(() => {
-      const room = roomFor(el);
-      if (Math.abs(room - width) > 24) { width = room; draw(); }
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const room = roomFor(el);
+        if (Math.abs(room - width) > 24) { width = room; draw(); }
+      });
     });
     sizes.observe(el);
     return {
@@ -4450,6 +4496,7 @@
       // leave it alone; `show` is the page's own renderTable call.
       table(show) { mode = "table"; show(); },
       destroy() {
+        if (frame) cancelAnimationFrame(frame);
         media.removeEventListener("change", draw);
         stamps.disconnect();
         sizes.disconnect();
@@ -4463,6 +4510,6 @@
   // hues is a fact about these functions, not about the page.
   global.DatadeskChart = {
     render, mount, renderTable,
-    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, spreadCoincident, fmtValue, scaleLabels, esc, tipRow, tipHead, fetchJSON, unavailable, undrawable, uid, layerState, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf, swatchLegend },
+    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, spreadCoincident, spreadPoints, featuresOf, fmtValue, scaleLabels, esc, tipRow, tipHead, fetchJSON, unavailable, undrawable, uid, layerState, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf, swatchLegend },
   };
 })(window);
