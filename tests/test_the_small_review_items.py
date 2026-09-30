@@ -14,11 +14,7 @@ The renderer functions are executed with node rather than reimplemented:
 a Python copy would prove the copy.
 """
 
-import json
 import re
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 from unittest import mock
 
@@ -26,6 +22,7 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
+from tests.chart_runtime import run
 from visuals.models import Visual
 from visuals.services import NotPublishable, publish, record_snapshot
 
@@ -33,53 +30,24 @@ ROOT = Path(__file__).resolve().parent.parent
 CHART = ROOT / "static/js/datadesk-chart.js"
 
 
-def _function(source, name):
-    """The text of a two-space-indented `function name(...) {...}`."""
-    start = source.index(f"function {name}(")
-    return source[start : source.index("\n  }", start) + 4]
-
-
-def _const(source, name):
-    """The text of a `const name = ...;` at two-space indent."""
-    start = source.index(f"  const {name} = ")
-    return source[start : source.index(";\n", start) + 1]
-
-
-def _node(script):
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("no node to run the renderer with")
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
-        fh.write(script)
-        where = fh.name
-    done = subprocess.run([node, where], capture_output=True, text=True)
-    assert done.returncode == 0, done.stderr
-    return json.loads(done.stdout)
-
-
 # --- tooltips -----------------------------------------------------------------
 
 
 class TestATooltipShowsMarkupAsText:
     def test_a_row_escapes_label_and_value(self):
-        source = CHART.read_text()
         script = "\n".join(
             [
-                _const(source, "fmt"),
-                _const(source, "esc"),
-                _function(source, "tipRow"),
-                _function(source, "tipHead"),
                 'const bad = "<img src=x onerror=alert(1)>";',
                 "console.log(JSON.stringify({",
-                '  row: tipRow("owner", bad),',
-                "  label: tipRow(bad, 1),",
-                "  head: tipHead('Tom & \"Jerry\"'),",
-                '  number: tipRow("stories", 1234),',
-                '  missing: tipRow("owner", null),',
+                '  row: T.tipRow("owner", bad),',
+                "  label: T.tipRow(bad, 1),",
+                "  head: T.tipHead('Tom & \"Jerry\"'),",
+                '  number: T.tipRow("stories", 1234),',
+                '  missing: T.tipRow("owner", null),',
                 "}));",
             ]
         )
-        out = _node(script)
+        out = run(script)
         assert "<img" not in out["row"]
         assert "&lt;img src=x onerror=alert(1)&gt;" in out["row"]
         assert "<img" not in out["label"]
@@ -105,9 +73,6 @@ class TestATooltipShowsMarkupAsText:
 
 class TestABoundaryFetchThatFailedIsRetried:
     def test_a_rejection_is_not_cached(self):
-        source = CHART.read_text()
-        start = source.index("  const geoCache = {};")
-        fetch_json = source[start : source.index("\n  }", start) + 4]
         script = "\n".join(
             [
                 "let calls = 0;",
@@ -117,19 +82,18 @@ class TestABoundaryFetchThatFailedIsRetried:
                 "  return Promise.resolve(",
                 "    { ok: true, json: async () => ({ n: calls }) });",
                 "};",
-                fetch_json,
                 "(async () => {",
                 "  const out = {};",
-                '  try { await fetchJSON("a.json"); out.first = "resolved"; }',
+                '  try { await T.fetchJSON("a.json"); out.first = "resolved"; }',
                 "  catch (e) { out.first = e.message; }",
-                '  out.second = await fetchJSON("a.json");',
-                '  out.third = await fetchJSON("a.json");',
+                '  out.second = await T.fetchJSON("a.json");',
+                '  out.third = await T.fetchJSON("a.json");',
                 "  out.calls = calls;",
                 "  console.log(JSON.stringify(out));",
                 "})();",
             ]
         )
-        out = _node(script)
+        out = run(script)
         assert out["first"] == "blip"
         assert out["second"] == {"n": 2}
         # The success is what is remembered.
@@ -137,9 +101,6 @@ class TestABoundaryFetchThatFailedIsRetried:
         assert out["calls"] == 2
 
     def test_a_status_error_is_not_cached_either(self):
-        source = CHART.read_text()
-        start = source.index("  const geoCache = {};")
-        fetch_json = source[start : source.index("\n  }", start) + 4]
         script = "\n".join(
             [
                 "let calls = 0;",
@@ -149,16 +110,15 @@ class TestABoundaryFetchThatFailedIsRetried:
                 "    ? { ok: false }",
                 "    : { ok: true, json: async () => ({ ok: calls }) });",
                 "};",
-                fetch_json,
                 "(async () => {",
-                '  const first = await fetchJSON("b.json")',
+                '  const first = await T.fetchJSON("b.json")',
                 '    .then(() => "resolved", (e) => e.message);',
-                '  const second = await fetchJSON("b.json");',
+                '  const second = await T.fetchJSON("b.json");',
                 "  console.log(JSON.stringify({ first, second, calls }));",
                 "})();",
             ]
         )
-        out = _node(script)
+        out = run(script)
         assert out["first"] == "b.json"
         assert out["second"] == {"ok": 2}
         assert out["calls"] == 2
@@ -166,25 +126,22 @@ class TestABoundaryFetchThatFailedIsRetried:
 
 class TestARendererErrorIsNotCalledMissingBoundaries:
     def test_the_two_messages(self):
-        source = CHART.read_text()
         script = "\n".join(
             [
                 "const errors = [];",
                 "console.error = (...args) =>",
                 "  errors.push(String(args[1] && args[1].message));",
-                _function(source, "unavailable"),
-                _function(source, "undrawable"),
                 "const a = {}, b = {}, c = {}, d = {};",
-                'unavailable(a)(new Error("net::ERR_FAILED"));',
-                'unavailable(b, " for this level.")(',
+                'T.unavailable(a)(new Error("net::ERR_FAILED"));',
+                'T.unavailable(b, " for this level.")(',
                 '  new Error("tract/place maps need a joined GEOID column"));',
-                'undrawable(c)(new TypeError("x is not a function"));',
-                'unavailable(d, " for this level.")(new Error("404"));',
+                'T.undrawable(c)(new TypeError("x is not a function"));',
+                'T.unavailable(d, " for this level.")(new Error("404"));',
                 "console.log(JSON.stringify({ a: a.textContent, b: b.textContent,",
                 "  c: c.textContent, d: d.textContent, errors }));",
             ]
         )
-        out = _node(script)
+        out = run(script)
         assert out["a"] == "Boundary data unavailable."
         assert out["b"] == "tract/place maps need a joined GEOID column"
         assert out["d"] == "Boundary data unavailable for this level."

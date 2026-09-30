@@ -20,127 +20,108 @@ all ten bands, which is what equal-count bands are for.
 from __future__ import annotations
 
 import json
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 
-import pytest
+from tests.chart_runtime import value
 
 CHART = Path(__file__).resolve().parent.parent / "static/js/datadesk-chart.js"
 
-#: A payload shaped like the real one: a handful of counties in frame
-#: with real counts, and a long tail out of frame with one or two
-#: stories each. Without the tail this bug is invisible.
-IN_FRAME = [15, 22, 30, 38, 44, 55, 70, 92, 170, 969]
+#: A payload shaped like the real one: counties in frame with real counts,
+#: and a long tail out of frame with one or two stories each. Without the
+#: tail this bug is invisible.
+#:
+#: THIRTY IN FRAME, not ten. Under `steps * 2` painted counties the
+#: renderer does not take quantiles at all -- it falls back to the fixed
+#: 2 / 5 / 9 cuts -- so a ten-county fixture never reaches the code the
+#: Missouri map (115 counties) runs. The copy of the cut arithmetic this
+#: file used to carry left that fallback out, and passed.
+IN_FRAME = [
+    15, 16, 19, 22, 24, 27, 30, 33, 36, 38,
+    40, 42, 44, 47, 51, 55, 60, 65, 70, 77,
+    84, 92, 105, 120, 140, 170, 210, 290, 480, 969,
+]  # fmt: skip
 OUT_OF_FRAME = [1, 2] * 60
 
 
-def _cuts(values, steps=10):
-    """The renderer's own cut computation, run through node.
+def _areas():
+    """The feed: in-frame counties 29xxx, the tail 20xxx."""
+    inside = [{"geoid": f"29{i:03d}", "n": n} for i, n in enumerate(IN_FRAME)]
+    outside = [{"geoid": f"20{i:03d}", "n": n} for i, n in enumerate(OUT_OF_FRAME)]
+    return inside + outside
 
-    Lifted from the file rather than reimplemented: the point is what
-    ships, and a Python copy would only prove the copy right.
+
+def _painted_bands(painted_prefix, config=None):
+    """Band the feed as the renderer does, painting only `painted_prefix`.
+
+    Both steps are the renderer's own -- `paintedValues` then
+    `storyMapBands` -- rather than a copy of their arithmetic, which would
+    only prove the copy right.
     """
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("no node to run the renderer with")
-    script = f"""
-      const d3 = {{
-        ascending: (a, b) => a - b,
-        quantile: (a, q) => {{
-          const pos = (a.length - 1) * q, lo = Math.floor(pos);
-          return a[lo] + (a[Math.min(lo + 1, a.length - 1)] - a[lo]) * (pos - lo);
-        }},
-      }};
-      const values = {json.dumps(sorted(values))};
-      const steps = {steps};
-      const cuts = Array.from({{ length: steps - 1 }}, (_, i) =>
-        Math.max(1, Math.round(d3.quantile(values, (i + 1) / steps))))
-        .reduce((kept, cut) => {{
-          if (!kept.length || cut > kept[kept.length - 1]) kept.push(cut);
-          return kept;
-        }}, []);
-      console.log(JSON.stringify(cuts));
-    """
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
-        fh.write(script)
-        where = fh.name
-    done = subprocess.run([node, where], capture_output=True, text=True)
-    assert done.returncode == 0, done.stderr
-    return json.loads(done.stdout)
-
-
-def _band_of(value, cuts):
-    if not value:
-        return 0
-    for i, cut in enumerate(cuts):
-        if value <= cut:
-            return i + 1
-    return len(cuts) + 1
+    return value(f"""(() => {{
+          const areas = {json.dumps(_areas())};
+          const prefix = {json.dumps(painted_prefix)};
+          const painted = new Set(
+            areas.map((a) => a.geoid).filter((g) => g.startsWith(prefix)));
+          const {{ max, values }} =
+            T.paintedValues(areas, painted, (a) => a.n, null);
+          const config = {json.dumps(config or {})};
+          const b = T.storyMapBands(values, config, null, T.theme());
+          const inFrame = {json.dumps(IN_FRAME)};
+          return {{ max, values, cuts: b.cuts, bands: inFrame.map(b.bandOf) }};
+        }})()""")
 
 
 class TestTheOutOfFrameTailFlattensTheMap:
     def test_including_it_crowds_the_painted_counties(self):
         """THE BUG, as a number. With the tail in the sample nearly every
         county in frame lands in the top bands."""
-        cuts = _cuts(IN_FRAME + OUT_OF_FRAME)
-        bands = [_band_of(v, cuts) for v in IN_FRAME]
-        top_two = sum(1 for b in bands if b >= len(cuts))
-        assert top_two >= len(IN_FRAME) * 0.6, bands
+        b = _painted_bands("")  # every county painted: the old behaviour
+        top_two = sum(1 for band in b["bands"] if band >= len(b["cuts"]))
+        assert top_two >= len(IN_FRAME) * 0.6, b["bands"]
 
     def test_excluding_it_uses_the_whole_ramp(self):
         """The fix, as the same number. Ten bands, and the counties
         spread across them."""
-        cuts = _cuts(IN_FRAME)
-        bands = {_band_of(v, cuts) for v in IN_FRAME}
-        assert len(bands) >= 8, sorted(bands)
+        b = _painted_bands("29")
+        assert len(set(b["bands"])) >= 8, sorted(b["bands"])
 
     def test_the_tail_drags_the_cuts_down(self):
         """1, 2, 4, 7, 19, 43 against 15, 22, 30, ... -- the same data,
         banded over two different populations."""
-        with_tail = _cuts(IN_FRAME + OUT_OF_FRAME)
-        without = _cuts(IN_FRAME)
+        with_tail = _painted_bands("")["cuts"]
+        without = _painted_bands("29")["cuts"]
         assert with_tail[0] < without[0]
         assert len(without) > len(with_tail), (with_tail, without)
 
 
 class TestTheRendererBandsOnWhatItPaints:
-    def _source(self):
-        return CHART.read_text()
+    def test_only_painted_counties_are_banded(self):
+        b = _painted_bands("29")
+        assert b["values"] == sorted(IN_FRAME)
 
-    def test_the_painted_set_exists(self):
-        assert "const painted = new Set(shown.map((f) => String(f.id)));" in (
-            self._source()
-        )
-
-    def test_the_values_are_filtered_by_it(self):
-        source = self._source()
-        block = source[source.index("const values = areas") :]
-        block = block[: block.index("const cuts")]
-        assert "painted.has(String(a.geoid))" in block
-
-    def test_the_scale_gate_is_filtered_too(self):
+    def test_the_scale_gate_reads_the_painted_counties_too(self):
         """A frame with no stories in it must not draw a key for
         somebody else's counties."""
-        source = self._source()
-        block = source[source.index("const max = d3.max(") :]
-        block = block[: block.index(") || 0;") + 7]
-        assert "painted.has(String(a.geoid))" in block
+        assert _painted_bands("29")["max"] == 969
+        assert _painted_bands("17")["max"] == 0
 
     def test_it_is_declared_before_it_is_read(self):
-        """`const` is not hoisted. Declared after `max` -- which is where
-        it first went -- the whole renderer throws a ReferenceError and
-        the map does not draw at all."""
-        source = self._source()
+        """`const` is not hoisted. Declared after its first reader -- which
+        is where it first went -- the whole renderer throws a
+        ReferenceError and the map does not draw at all.
+
+        The one ordering this file still reads from source: it is a
+        property of `renderStoryMap`'s body, which draws into a DOM that
+        the node harness does not have.
+        """
+        source = CHART.read_text()
         declared = source.index("const painted = new Set(")
-        for reader in ("const max = d3.max(", "const values = areas"):
-            assert source.index(reader) > declared, reader
+        assert source.index("= paintedValues(areas, painted,") > declared
 
     def test_it_follows_the_frame_rather_than_the_focus(self):
         """`shown`, not `focus`: the frame can come from an explicit
         `config.frame`, a focus, or the auto weighting, and the bands
         have to follow whichever produced the map."""
-        source = self._source()
+        source = CHART.read_text()
         line = [ln for ln in source.splitlines() if "const painted = new Set(" in ln][0]
         assert "shown" in line

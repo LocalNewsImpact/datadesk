@@ -12,13 +12,9 @@
 The pure functions run in node; the DOM parts are pinned by text.
 """
 
-import json
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 
-import pytest
+from tests.chart_runtime import run
 
 ROOT = Path(__file__).resolve().parent.parent
 CHART = ROOT / "static/js/datadesk-chart.js"
@@ -27,18 +23,6 @@ CHART = ROOT / "static/js/datadesk-chart.js"
 def _function(source, name):
     start = source.index(f"function {name}(")
     return source[start : source.index("\n  }", start) + 4]
-
-
-def _node(script):
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("no node to run the renderer with")
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
-        fh.write(script)
-        where = fh.name
-    done = subprocess.run([node, where], capture_output=True, text=True)
-    assert done.returncode == 0, done.stderr
-    return json.loads(done.stdout)
 
 
 # --- hover ---------------------------------------------------------------------
@@ -70,7 +54,6 @@ class TestHoverIsCheap:
 
 class TestARedrawDoesNotRedoTheMap:
     def test_features_are_decoded_once_per_file_and_object(self):
-        source = CHART.read_text()
         script = "\n".join(
             [
                 "let decoded = 0;",
@@ -78,20 +61,19 @@ class TestARedrawDoesNotRedoTheMap:
                 "  decoded += 1;",
                 "  return { features: [{ id: null, properties: { GEOID: '29' } }] };",
                 "} };",
-                _function(source, "toFeatures"),
-                "const featureCache = {};",
-                _function(source, "featuresOf"),
                 "const topo = { objects: { counties: {}, states: {} } };",
-                "const a = featuresOf('c.json', topo, 'counties');",
-                "const b = featuresOf('c.json', topo, 'counties');",
-                "const c = featuresOf('c.json', topo, 'states');",
-                "const d = featuresOf('s.json', topo, 'states');",
+                "const a = T.featuresOf('c.json', topo, 'counties');",
+                "const b = T.featuresOf('c.json', topo, 'counties');",
+                "const c = T.featuresOf('c.json', topo, 'states');",
+                "const d = T.featuresOf('s.json', topo, 'states');",
                 "console.log(JSON.stringify({",
                 "  decoded, same: a === b, id: a[0].id,",
                 "  distinct: c !== a && d !== c }));",
             ]
         )
-        out = _node(script)
+        # The stand-in `topojson` counts decodes; the runtime reads the
+        # global at call time, so it is the one used.
+        out = run(script, libs=())
         assert out["same"] and out["distinct"]
         assert out["decoded"] == 3
         assert out["id"] == "29"
@@ -104,24 +86,18 @@ class TestARedrawDoesNotRedoTheMap:
         assert "toFeatures(" not in body
 
     def test_the_spread_is_remembered_for_the_same_points(self):
-        source = CHART.read_text()
-        start = source.index("  let lastSpread = ")
-        block = source[
-            start : source.index("\n  }", source.index("function spreadPoints(")) + 4
-        ]
         script = "\n".join(
             [
-                block,
                 "const xy = [[100, 100], [100, 100], [140, 90]];",
-                "const one = spreadCoincident(xy, 3.5);",
-                "const two = spreadCoincident(xy.map((p) => p.slice()), 3.5);",
-                "const other = spreadCoincident(xy, 4);",
-                "const fresh = spreadPoints(xy, 3.5);",
+                "const one = T.spreadCoincident(xy, 3.5);",
+                "const two = T.spreadCoincident(xy.map((p) => p.slice()), 3.5);",
+                "const other = T.spreadCoincident(xy, 4);",
+                "const fresh = T.spreadPoints(xy, 3.5);",
                 "console.log(JSON.stringify({ same: one === two, other: other !== one,",
                 "  equal: JSON.stringify(one) === JSON.stringify(fresh) }));",
             ]
         )
-        out = _node(script)
+        out = run(script)
         # Equal points at the same radius: the same answer, not recomputed.
         assert out["same"] and out["other"] and out["equal"]
 
@@ -182,4 +158,6 @@ class TestTheRouteSearchInvertsOnce:
             + "within([[-95, 36], [-89, 40]], [-88, 38]),"
             + "within([[-95, 36], [-89, 40]], [-92, 41])]));"
         )
-        assert _node(script) == [True, False, False]
+        # A local of the flow map's route search, so it is lifted out; the
+        # runtime loads beside it and is not used.
+        assert run(script, libs=()) == [True, False, False]
