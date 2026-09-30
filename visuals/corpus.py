@@ -15,7 +15,9 @@ cannot roll up to a county — the county dimension therefore restricts
 itself to county/tract/block codings and says how many rows that drops.
 """
 
+import functools
 import logging
+import operator
 import re
 import time
 from datetime import UTC
@@ -1711,14 +1713,27 @@ def _run_spec(spec, scopes):
             "unresolved_places": unresolved,
         }
 
-    qs = _base_queryset(spec, scopes)
-    total_before = None
-    for key in dim_keys:
-        requires = DIMENSIONS[key].get("requires")
-        if requires is not None:
-            if total_before is None:
-                total_before = qs.count()
-            qs = qs.filter(requires)
+    base = _base_queryset(spec, scopes)
+    needed = [
+        DIMENSIONS[key]["requires"]
+        for key in dim_keys
+        if DIMENSIONS[key].get("requires") is not None
+    ]
+    qs = base
+    for requires in needed:
+        qs = qs.filter(requires)
+    # What the requirement cost, for the meta: the stories considered and
+    # the stories with a row. One aggregate rather than two full counts,
+    # and distinct, because a requirement that reaches a many-row
+    # relation (`people__…`) joins it, and a plain count of the join
+    # counted a story once per person named in it.
+    counts = None
+    if needed:
+        every = functools.reduce(operator.and_, needed)
+        counts = base.aggregate(
+            considered=Count("id", distinct=True),
+            used=Count("id", filter=every, distinct=True),
+        )
 
     rollups = {k: DIMENSIONS[k].get("rollup") for k in dim_keys}
     has_rollup = any(rollups.values())
@@ -1848,8 +1863,8 @@ def _run_spec(spec, scopes):
         "measure": {"key": measure_key, "label": measure_label},
         "groups": len(out),
         "truncated": truncated,
-        "rows_considered": total_before,
-        "rows_used": qs.count() if total_before is not None else None,
+        "rows_considered": counts["considered"] if counts else None,
+        "rows_used": counts["used"] if counts else None,
     }
     return out, meta
 

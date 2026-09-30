@@ -641,6 +641,10 @@ def _filtered_enrichment(params, user):
     belongs to a dataset through the article it enriches.
     """
     qs = ArticleEnrichment.objects.select_related("article__candidate_link__source")
+    # The grid shows the article's title and link. Its body came along with
+    # the join -- `text`, `raw` and `text_excerpt`, about 200 KB a page that
+    # nothing rendered. Deferred as the article grid's are (`articles`).
+    qs = qs.defer("article__text", "article__raw", "article__text_excerpt")
     qs = narrow(qs, user, READ, source_path="article__candidate_link__source_id")
 
     if slug := params.get("dataset"):
