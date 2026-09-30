@@ -426,5 +426,5 @@ class TestTheRenderer:
         assert stroke in js
         # The author's colour, a slot of the theme's own palette.
         assert 'config[`colour_${c.replace(/ /g, "_")}`]' in js
-        assert "if (ring.inked) dot.style.boxShadow" in js
+        assert "if (ring.inked) swatch.style.boxShadow" in js
         assert '(a.category === "collected") - (b.category === "collected")' in js
