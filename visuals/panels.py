@@ -1832,7 +1832,7 @@ def layers_panel(visual, post=None):
     measures that hold there are offered (docs/LAYERED_MAP.md).
     """
     from visuals import census
-    from visuals.layermap import MAX_LAYERS, layers_of, level_of, shows
+    from visuals.layermap import DERIVED, MAX_LAYERS, layers_of, level_of, shows
 
     config = visual.config or {}
     if post is not None:
@@ -1840,7 +1840,7 @@ def layers_panel(visual, post=None):
         if level not in census.LEVELS:
             raise ValueError("Geography is county or tract")
         picked = [k for k in post.getlist("layer") if k]
-        unknown = [k for k in picked if k not in census.BY_KEY]
+        unknown = [k for k in picked if k not in census.BY_KEY and k not in DERIVED]
         if unknown:
             raise ValueError(f"No such measure: {', '.join(unknown)}")
         if len(picked) > MAX_LAYERS:
@@ -1848,9 +1848,9 @@ def layers_panel(visual, post=None):
                 f"At most {MAX_LAYERS} layers on one map; {len(picked)} chosen"
             )
         county_only = [
-            census.BY_KEY[k]["label"]
+            (census.BY_KEY.get(k) or DERIVED[k])["label"]
             for k in picked
-            if level == "tract" and not census.BY_KEY[k]["tract"]
+            if level == "tract" and not (census.BY_KEY.get(k) or DERIVED[k])["tract"]
         ]
         if county_only:
             raise ValueError("Offered by county only: " + ", ".join(county_only))
@@ -1871,7 +1871,7 @@ def layers_panel(visual, post=None):
 
     chosen = {layer["variable"]: layer for layer in layers_of(config)}
     groups = []
-    for v in census.VARIABLES:
+    for v in [*census.VARIABLES, *DERIVED.values()]:
         group = next((g for g in groups if g["name"] == v["group"]), None)
         if group is None:
             group = {"name": v["group"], "variables": []}
@@ -1884,6 +1884,7 @@ def layers_panel(visual, post=None):
                 "tract": v["tract"],
                 "on": v["key"] in chosen,
                 "as_value": chosen.get(v["key"], {}).get("as") == "value",
+                "note": v.get("note", ""),
             }
         )
     return {

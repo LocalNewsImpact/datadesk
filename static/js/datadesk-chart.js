@@ -4105,6 +4105,9 @@
             : "no estimate";
           return `<strong>${(a && a.name) || f.properties.name || f.id}</strong>` +
             tipRow(layerScale.label, shown) +
+            // A derived layer says what it was made from: the stories
+            // and the residents behind the rate.
+            (a && a.note ? tipRow("from", a.note) : "") +
             (unreliable(f) ? tipRow("reliability", "margin too wide to shade") : "");
         }
         return `<strong>${f.properties.name || f.id}</strong>` +
