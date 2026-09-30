@@ -3,7 +3,7 @@
 A queue that collects human CIN labels good enough to measure the
 production model against, and to retrain it.
 
-It is not a review queue in the sense the other three are. Those ask
+It is not a review queue in the sense the other queues are. Those ask
 "was this call right", show the reviewer what was decided, and write a
 correction. This one asks a person to read a story and say what it is
 about, without showing them what anything decided, because a label
@@ -287,13 +287,13 @@ the reason the built shape is what it is:
     admin       ...and is not limited to one dataset
 
 Reviewer and above inherit `CLASSIFY`, which is right: anyone trusted to
-correct a record is trusted to say what it is about. A classifier gets
-`read` and `classify` and nothing else.
+correct a record is trusted to say what it is about. A classifier holds
+`classify` and nothing else -- not `read` -- and sits beside the ladder
+rather than on it (`accounts/privileges.py`; the section above).
 
-**The consequence to accept:** the ladder means a classifier cannot be
-given classify without read. That is fine. What it also means is that
-this is the first rung added since the ladder was written, and the
-superset test will need to cover it.
+**The consequence to accept:** a classifier sees the classification
+queues and nothing else of the console. The role is outside the ladder,
+so the superset test does not cover it and its own test does.
 
 ---
 
@@ -978,9 +978,10 @@ covering all ten.
 and the first plausible one gets clicked. Worth considering rotating the
 order per reviewer, and worth measuring before assuming.
 
-**A classifier is a new kind of account.** The first rung added to the
-ladder, and the first role that is not a subset of "staff who can fix
-things". Whoever holds it can read every article in scope.
+**A classifier is a new kind of account.** The first role beside the
+ladder rather than on it, and the first that is not a subset of "staff
+who can fix things". Whoever holds it sees the articles the queue puts in
+front of them, and no more.
 
 ---
 

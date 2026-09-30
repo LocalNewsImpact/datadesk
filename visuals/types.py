@@ -1,10 +1,10 @@
 """What each chart type needs, declared once.
 
-The builder offers 25 chart-config controls on one page. No type reads more
-than eleven of them and the median is three: a donut reads three, a story
-map reads one, a table reads none. Every author sees all 25 and has to work
-out which apply, which is most of why the page is unusable (ROADMAP item
-20).
+The builder offered 25 chart-config controls on one page (ROADMAP item 20's
+baseline; the step builder replaced that page). No type read more than
+eleven of them and the median was three: a donut reads three, a story map
+reads one, a table reads none. Every author saw all 25 and had to work out
+which applied, which was most of why the page was unusable.
 
 The fix is not fewer controls. It is that a control belongs to a chart type
 rather than to the page, so the panel starts empty and grows as choices are

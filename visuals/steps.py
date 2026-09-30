@@ -1,7 +1,11 @@
-"""The builder's five steps, and what each one is for.
+"""The builder's steps, and what each one is for.
 
-The prototype (ROADMAP item 20) settled the order: a chart type, a colour
-theme, the slice of the corpus, the newsrooms, the places, then the fields. Every step
+Eight in all -- type, look, data, newsrooms, places, layers, fields,
+publish -- of which `steps_for()` walks the subset a visual's kind and
+source have: an outlet map has three, a layered map every one but fields,
+an upload none of the corpus steps. The prototype (ROADMAP item 20)
+settled the order: a chart type, a colour theme, the slice of the corpus,
+the newsrooms, the places, then the fields. Every step
 writes its own keys and none clears another's, so going back changes one
 choice and keeps the rest -- which is the difference between a tool people
 explore with and a form they fill in once.

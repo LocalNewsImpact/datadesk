@@ -26,7 +26,7 @@ REGION="${REGION:-us-central1}"
 # (SCOPE.md §6.2). A dedicated instance would be ~$50/month; this is $0, and
 # the instance already carries the crawler's and the directory's databases.
 SQL_PROJECT="${SQL_PROJECT:-mizzou-news-crawler}"
-SQL_INSTANCE="${SQL_INSTANCE:-mizzou-db-prod}"
+SQL_INSTANCE="${SQL_INSTANCE:-mizzou-db-prod-ssd}"
 DB_NAME="${DB_NAME:-datadesk}"
 DB_USER="${DB_USER:-datadesk}"
 REPO="${REPO:-app}"

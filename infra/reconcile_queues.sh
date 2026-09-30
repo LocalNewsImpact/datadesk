@@ -39,7 +39,7 @@ SCHEDULE_NAME="datadesk-reconcile-queues-daily"
 # sets, and before the 07:00 BigQuery sync reads the result.
 SCHEDULE="${SCHEDULE:-30 2 * * *}"
 RUNTIME_SA="datadesk-run@${PROJECT}.iam.gserviceaccount.com"
-SQL_INSTANCE="mizzou-news-crawler:us-central1:mizzou-db-prod"
+SQL_INSTANCE="mizzou-news-crawler:us-central1:mizzou-db-prod-ssd"
 # Every write goes through the audited path, which records who made it.
 # A schedule has no person behind it, so it writes as the account that
 # owns the console's automated work rather than as whoever last logged in.

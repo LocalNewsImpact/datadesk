@@ -6,8 +6,7 @@ author lay Census measures over the same counties or tracts. A reader
 switches between the layers the author chose. It is modelled on the
 Census Bureau's Data Mapper (maps.geo.census.gov/ddmv), which shades
 counties by one ACS measure at a time, and adds what that cannot show:
-where the newsrooms are, what they covered, and (to be tested) coverage
-per resident.
+where the newsrooms are, what they covered, and coverage per resident.
 
 ## Two gates, not one
 
@@ -44,7 +43,9 @@ margin where the measure is a share. Filled by
 
 for Missouri (115 counties; 1,654 tracts), in batches under the API's
 50-column limit. The key is the `census-api-key` secret in lnic-datadesk;
-the `datadesk-manage` job and `dd-prod` carry it as `CENSUS_API_KEY`.
+the `datadesk-manage` job carries it as `CENSUS_API_KEY`
+(`infra/manage.sh`), as does the local `manage.py` wrapper that runs
+against production through the Cloud SQL proxy.
 The API refuses calls without one.
 
 A published map is built from this table, never from a call to the
@@ -67,9 +68,10 @@ layer.
 
 ## Build order
 
-1. Store, fetch command, variable registry (this document).
-2. `layermap` kind: builder step, payload, renderer with the layer control
-   and legends.
-3. Derived layers, if they prove out, and hatching in the renderer.
+1. Store, fetch command, variable registry -- built (#425).
+2. `layermap` kind: builder step, payload, renderer with the layer control,
+   legends and hatching -- built (#426).
+3. Derived layers, if they prove out -- one built (#427), see above.
 4. A reader-chosen variable, served from the store by
-   `/visuals/<slug>/layer.json?variable=...` -- later, if wanted.
+   `/visuals/<slug>/layer.json?variable=...` -- not built, and not needed
+   while readers switch among the author's layers.
