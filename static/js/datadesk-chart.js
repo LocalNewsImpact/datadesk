@@ -264,13 +264,38 @@
     tracts: { perState: "tracts/", idLength: 11 },
   };
 
+  // One request per URL for the page's life -- for the ones that arrive.
+  // A rejection is forgotten, or one blip would fail every redraw of
+  // every chart that wants the file, resize after resize.
   const geoCache = {};
   function fetchJSON(url) {
     geoCache[url] = geoCache[url] || fetch(url).then((r) => {
       if (!r.ok) throw new Error(url);
       return r.json();
+    }).catch((err) => {
+      delete geoCache[url];
+      throw err;
     });
     return geoCache[url];
+  }
+
+  // What a reader is told when a chart does not appear. A boundary file
+  // that did not arrive is theirs to hear about; a renderer that threw is
+  // ours, and goes to the console with its stack rather than behind the
+  // same sentence.
+  function unavailable(el, hint) {
+    return (err) => {
+      el.textContent = /GEOID/.test(String(err))
+        ? String(err.message || err)
+        : "Boundary data unavailable" + (hint || ".");
+    };
+  }
+  function undrawable(el) {
+    return (err) => {
+      console.error("datadesk-chart: the chart could not be drawn", err);
+      el.textContent = "This chart could not be drawn: " +
+        String((err && err.message) || err);
+    };
   }
 
   function toFeatures(topo, objectName) {
@@ -305,7 +330,10 @@
     return Promise.all(
       states.map((s) => fetchJSON(`${base}${spec.perState}${s}.json`)
         .then((topo) => toFeatures(topo, level))
-        .catch(() => []))
+        .catch((err) => {
+          console.warn(`datadesk-chart: no ${level} file for state ${s}`, err);
+          return [];
+        }))
     ).then((sets) => sets.flat());
   }
 
@@ -1790,12 +1818,8 @@
         marks,
       });
       el.replaceChildren(plot);
-    }).catch((err) => {
-      el.textContent = /GEOID/.test(String(err))
-        ? String(err.message || err)
-        : "Boundary data unavailable for this level" +
-          " (infra/fetch_boundaries.sh adds states).";
-    });
+    }, unavailable(el, " for this level (infra/fetch_boundaries.sh adds states)."))
+      .catch(undrawable(el));
   }
 
   // A one-hue quantized ramp between two endpoints, in sRGB-linear steps.
@@ -1897,9 +1921,20 @@
           : v.toLocaleString(undefined, { maximumFractionDigits: 4 }))
       : String(v == null ? "\u2014" : v);
 
+  // Tooltip content is built as an HTML string and set with innerHTML,
+  // so everything from the payload passes through here as text: outlet
+  // names, owners, websites, notes and uploaded CSV columns all reach a
+  // tooltip, and embeds are served from the site's own origin.
+  const esc = (v) => String(v).replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
   function tipRow(label, value) {
-    return `<span class="dd-tip-k">${label}</span>` +
-           `<span class="dd-tip-v">${fmt(value)}</span>`;
+    return `<span class="dd-tip-k">${esc(label)}</span>` +
+           `<span class="dd-tip-v">${esc(fmt(value))}</span>`;
+  }
+
+  function tipHead(text) {
+    return `<strong>${esc(text)}</strong>`;
   }
 
   // Hover/tap/pin plus sibling dimming for a d3 selection. The tooltip
@@ -2050,7 +2085,7 @@
     el.appendChild(svg.node());
     const tip = tooltip(el);
     interactive(slices, tip, (d) =>
-      `<strong>${d.data[0]}</strong>` +
+      tipHead(d.data[0]) +
       tipRow(config.ylabel || "value", d.data[1]) +
       tipRow("share", (100 * d.data[1] / total).toFixed(1) + "%"),
       { group: slices, related: (target, other) => target === other });
@@ -2299,11 +2334,11 @@
     const tip = tooltip(el);
     const touching = (node, band) => band.source === node || band.target === node;
     const blockTip = (d) =>
-      `<strong>${d.name}</strong>` +
+      tipHead(d.name) +
       tipRow(d.side === 0 ? "flows out" : "flows in", d.value);
 
     interactive(bands, tip, (d) =>
-      `<strong>${d.source.name} \u2192 ${d.target.name}</strong>` +
+      tipHead(`${d.source.name} \u2192 ${d.target.name}`) +
       tipRow(value, d.value),
       { group: bands, related: (target, other) => target === other });
     interactive(blocks, tip, blockTip,
@@ -3482,13 +3517,13 @@
     // Hovering a group isolates every flow touching it; a ribbon isolates
     // that one pair.
     interactive(groupArcs, tip, (d) =>
-      `<strong>${names[d.index]}</strong>` + tipRow("total", d.value),
+      tipHead(names[d.index]) + tipRow("total", d.value),
       { group: ribbons,
         related: (target, other) =>
           other.source.index === target.index ||
           other.target.index === target.index });
     interactive(ribbons, tip, (d) =>
-      `<strong>${names[d.source.index]} \u2192 ${names[d.target.index]}</strong>` +
+      tipHead(`${names[d.source.index]} \u2192 ${names[d.target.index]}`) +
       tipRow("value", d.source.value) +
       (d.source.index !== d.target.index
         ? tipRow(`${names[d.target.index]} \u2192 ${names[d.source.index]}`,
@@ -3539,7 +3574,7 @@
     el.replaceChildren(svg.node());
     const tip = tooltip(el);
     interactive(arcPaths, tip, (r) =>
-      `<strong>${r[from]} \u2192 ${r[to]}</strong>` +
+      tipHead(`${r[from]} \u2192 ${r[to]}`) +
       (value ? tipRow(value, r[value]) : ""),
       { group: arcPaths, related: (target, other) => target === other });
     interactive(node.select("circle"), tip, (n) => {
@@ -3548,7 +3583,7 @@
       const total = value
         ? touching.reduce((a, r) => a + (+r[value] || 0), 0)
         : touching.length;
-      return `<strong>${n}</strong>` +
+      return tipHead(n) +
         tipRow("connections", touching.length) + tipRow("total", total);
     }, { group: arcPaths,
          related: (target, r) =>
@@ -4103,14 +4138,14 @@
             ? fmtValue(a.value, layerScale.format) +
               (a.moe != null ? ` ± ${fmtValue(a.moe, layerScale.format)}` : "")
             : "no estimate";
-          return `<strong>${(a && a.name) || f.properties.name || f.id}</strong>` +
+          return tipHead((a && a.name) || f.properties.name || f.id) +
             tipRow(layerScale.label, shown) +
             // A derived layer says what it was made from: the stories
             // and the residents behind the rate.
             (a && a.note ? tipRow("from", a.note) : "") +
             (unreliable(f) ? tipRow("reliability", "margin too wide to shade") : "");
         }
-        return `<strong>${f.properties.name || f.id}</strong>` +
+        return tipHead(f.properties.name || f.id) +
           tipRow("county FIPS", f.id) +
           // Every story that mentions a place in this county. The label
           // used to name the scope the shading was filtered to; there is
@@ -4118,14 +4153,14 @@
           tipRow(unit === "stories" ? "stories mentioning it" : `${unit} located here`, n || 0);
       }, { group: counties, related: (target, other) => target === other });
       interactive(dots, tip, (p) => byCategory ?
-        `<strong>${p.name}</strong>` +
+        tipHead(p.name) +
         tipRow("kind", p.category) +
         tipRow("place", p.place) +
         tipRow("county", p.county) +
         tipRow("owner", p.owner) +
         tipRow("website", p.website) +
         tipRow("articles in March 2026", p["articles in March 2026"]) :
-        `<strong>${p.place || p.geoid}</strong>` +
+        tipHead(p.place || p.geoid) +
         tipRow("FIPS", p.geoid) +
         tipRow("precision", p.level) +
         tipRow("stories", p.stories) +
@@ -4346,7 +4381,7 @@
         legend.appendChild(note);
       }
       el.prepend(legend);
-    }).catch(() => { el.textContent = "Boundary data unavailable."; });
+    }, unavailable(el)).catch(undrawable(el));
   }
 
   // Two half-ramps meeting at the neutral midpoint (odd n keeps it center).
@@ -4377,6 +4412,6 @@
   // hues is a fact about these functions, not about the page.
   global.DatadeskChart = {
     render, mount, renderTable,
-    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, spreadCoincident, fmtValue, scaleLabels, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf, swatchLegend },
+    __test: { scaleColors, colorScale, theme, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, spreadCoincident, fmtValue, scaleLabels, esc, tipRow, tipHead, fetchJSON, unavailable, undrawable, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf, swatchLegend },
   };
 })(window);

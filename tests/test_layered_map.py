@@ -443,7 +443,8 @@ def test_a_tract_map_loads_only_the_fills_states_and_survives_a_missing_one():
 
     chart = Path(__file__).resolve().parent.parent / "static/js/datadesk-chart.js"
     js = chart.read_text()
-    assert ".catch(() => []))" in js
+    assert "console.warn(`datadesk-chart: no ${level} file for state ${s}`" in js
+    assert "return [];" in js
     assert 'geoLevel === "tracts" ? [] : points.map' in js
 
 

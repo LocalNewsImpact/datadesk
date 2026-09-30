@@ -246,6 +246,10 @@ def fetch_source_data(visual, wait=True):
 def record_snapshot(visual, actor, data, note=""):
     """Store data as the next snapshot version, audited."""
     with transaction.atomic():
+        # The version is chosen under the visual's row lock. Read bare, a
+        # keep-current job and a hand-pressed Update can both see the same
+        # Max and one dies on the unique (visual, version) index.
+        Visual.objects.select_for_update().get(pk=visual.pk)
         latest = visual.snapshots.aggregate(v=Max("version"))["v"] or 0
         snapshot = VisualSnapshot.objects.create(
             visual=visual, version=latest + 1, data=data, created_by=actor
@@ -304,22 +308,6 @@ def publish(visual, actor):
     # cannot acquire one by editing.
     from visuals.corpus import internal_fields
 
-    # A pinned snapshot of nothing is a published page with nothing on it.
-    # cin-composition-by-county was published against two empty snapshots
-    # while the same spec returned a hundred rows live: the chart looked
-    # broken, the data was fine, and nothing anywhere said which.
-    #
-    # Checked at the pin rather than at the capture. An empty capture is a
-    # fact worth keeping -- it is how "there was nothing that day" is
-    # recorded -- but it is not a thing to serve to readers.
-    latest = visual.snapshots.order_by("-version").first()
-    if latest is not None and not _rows_in(latest.data):
-        raise NotPublishable(
-            f"{visual.title} has nothing to publish: version "
-            f"{latest.version} came back empty. Press Update to run it "
-            "again, and publish once it draws."
-        )
-
     blocked = internal_fields(visual.spec)
     if blocked:
         raise NotPublishable(
@@ -328,10 +316,36 @@ def publish(visual, actor):
             f"{'are' if len(blocked) > 1 else 'is'} for internal use. "
             "Everything else still works — look at it here, or take the CSV."
         )
-    snapshot = visual.snapshots.order_by("-version").first()
-    if snapshot is None:
-        snapshot = refresh_snapshot(visual, actor)
+    # A visual that has never been captured is captured first, outside
+    # the lock (the source may be slow) and kept whatever it holds; it is
+    # then checked below like any other.
+    if not visual.snapshots.exists():
+        refresh_snapshot(visual, actor)
     with transaction.atomic():
+        # One row, read under the visual's lock, checked, then pinned. It
+        # was read twice before, unlocked: the row checked for emptiness and
+        # the row pinned could differ when a capture landed between them,
+        # and a visual with no snapshot at all skipped the check -- the
+        # capture taken for it was pinned whatever it held.
+        Visual.objects.select_for_update().get(pk=visual.pk)
+        snapshot = visual.snapshots.order_by("-version").first()
+        if snapshot is None:
+            raise NotPublishable(f"{visual.title} has no snapshot to pin.")
+        # A pinned snapshot of nothing is a published page with nothing on
+        # it. cin-composition-by-county was published against two empty
+        # snapshots while the same spec returned a hundred rows live: the
+        # chart looked broken, the data was fine, and nothing anywhere said
+        # which.
+        #
+        # Checked at the pin rather than at the capture. An empty capture
+        # is a fact worth keeping -- it is how "there was nothing that day"
+        # is recorded -- but it is not a thing to serve to readers.
+        if not _rows_in(snapshot.data):
+            raise NotPublishable(
+                f"{visual.title} has nothing to publish: version "
+                f"{snapshot.version} came back empty. Press Update to run "
+                "it again, and publish once it draws."
+            )
         visual.pinned_snapshot = snapshot
         visual.status = Visual.PUBLISHED
         visual.published_at = timezone.now()
