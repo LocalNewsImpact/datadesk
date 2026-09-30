@@ -155,7 +155,10 @@ test: $(VENV) ## Run the test suite (Postgres, as production is)
 # migration passes pytest and fails the build, so the check belongs here
 # rather than being discovered on a pull request.
 	$(PY) manage.py makemigrations --check --dry-run
-	$(PY) -m pytest --cov --cov-report=xml --cov-report=term
+# One worker per core. pytest-django gives each its own test database, and
+# the cache is per process (tests/conftest.py), so the tests do not meet.
+# Serially the suite was 7 min 3 s in the pre-push hook.
+	$(PY) -m pytest -n auto --cov --cov-report=xml --cov-report=term
 # The suite's coverage floor, from the package every repository installs.
 # The shared workflow runs the same file after this target in CI.
 	$(PY) -m lnic_contracts.coverage_floor coverage.xml

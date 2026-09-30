@@ -3,6 +3,8 @@
 -r requirements.txt
 pytest>=8.0
 pytest-django>=4.8
+# `make test` runs the suite across the cores (-n auto).
+pytest-xdist>=3.5
 # Writes coverage.xml; lnic_contracts.coverage_floor reads it (make test).
 pytest-cov>=5.0
 ruff>=0.6
