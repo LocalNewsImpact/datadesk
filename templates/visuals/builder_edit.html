@@ -477,6 +477,8 @@
 <script src="{% static 'js/d3.min.js' %}"></script>
 <script src="{% static 'js/plot.min.js' %}"></script>
 <script src="{% static 'js/topojson-client.min.js' %}"></script>
+{# The sankey needs its own library; without it the preview said "did not load". #}
+<script src="{% static 'js/d3-sankey.min.js' %}"></script>
 <script src="{% static 'js/datadesk-chart.js' %}"></script>
 <script src="{% static 'js/datadesk-grid.js' %}"></script>
 <script>
@@ -543,6 +545,14 @@
     updateHint();
     DatadeskChart.render(preview, configFromForm(), working, {
       geoBase: "{% static 'geo/' %}",
+      // The hashed URLs for the fixed levels, as the page renderer passes
+      // them: built from the bare directory the file was not cacheable and
+      // came down twice.
+      geoUrls: {
+        nation: "{% static 'geo/nation-10m.json' %}",
+        states: "{% static 'geo/states-10m.json' %}",
+        counties: "{% static 'geo/counties-10m.json' %}",
+      },
     });
   }
 

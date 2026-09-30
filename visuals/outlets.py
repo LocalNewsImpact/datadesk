@@ -18,6 +18,7 @@ import re
 from pathlib import Path
 
 from django.db import transaction
+from django.utils import timezone
 
 #: The points' colours, in the order the legend lists them.
 CATEGORIES = ("collected", "not collected", "print", "replica", "social")
@@ -75,6 +76,12 @@ def import_registry(where=DEFAULT_URL):
     seen = set()
     created = updated = 0
     with transaction.atomic():
+        # Three queries for the table -- which ids exist, one insert, one
+        # update -- rather than an update_or_create per outlet. Fine at
+        # 300 rows; another state's registry is thousands.
+        existing = Outlet.objects.in_bulk([r["outlet_id"].strip() for r in rows])
+        stamp = timezone.now()
+        fresh, changed = [], []
         for r in rows:
             oid = r["outlet_id"].strip()
             if not oid or oid in seen:
@@ -101,10 +108,19 @@ def import_registry(where=DEFAULT_URL):
                 "category": r.get("map_category", ""),
                 "march_articles": _int(r.get("march_articles")),
                 "row": r,
+                "imported_at": stamp,
             }
-            _, made = Outlet.objects.update_or_create(outlet_id=oid, defaults=fields)
-            created += made
-            updated += not made
+            outlet = existing.get(oid)
+            if outlet is None:
+                fresh.append(Outlet(outlet_id=oid, **fields))
+            else:
+                for field, value in fields.items():
+                    setattr(outlet, field, value)
+                changed.append(outlet)
+        Outlet.objects.bulk_create(fresh, batch_size=500)
+        if changed:
+            Outlet.objects.bulk_update(changed, list(fields), batch_size=500)
+        created, updated = len(fresh), len(changed)
         removed, _ = Outlet.objects.exclude(outlet_id__in=seen).delete()
         # The file says what the crawler knew when it was built; an event
         # recorded here since says what happened after. Laid on top, or

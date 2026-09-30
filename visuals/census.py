@@ -308,11 +308,16 @@ def reliability(level, year=YEAR):
 
     What decided the `tract` flags, re-measurable after a fetch.
     """
+    # One query for the level, grouped here: 28 variables were 28 queries.
+    cells = {}
+    for variable, *cell in CensusValue.objects.filter(
+        year=year, level=level
+    ).values_list("variable", "estimate", "moe", "percent", "percent_moe"):
+        cells.setdefault(variable, []).append(cell)
     out = []
     for v in VARIABLES:
-        qs = CensusValue.objects.filter(year=year, level=level, variable=v["key"])
         shown = hatched = 0
-        for cell in qs.values_list("estimate", "moe", "percent", "percent_moe"):
+        for cell in cells.get(v["key"], ()):
             e, m = (cell[2], cell[3]) if v["kind"] == "share" else (cell[0], cell[1])
             bad = unreliable(e, m)
             if bad is None:
