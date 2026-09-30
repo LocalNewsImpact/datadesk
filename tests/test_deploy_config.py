@@ -24,12 +24,17 @@ def _console_deploy():
     The data and sources front ends deploy from the same file with their
     own environments; this picks the console's, which is the one that
     signs people in and sends their mail.
+
+    ANCHORED ON THE DEPLOY ITSELF. This used to find the console's
+    `--set-env-vars "^@^CLOUD_SQL_CONNECTION_NAME` and back up to the
+    deploy before it. The console moved to a `^|^` delimiter, the anchor
+    landed on the smoke job's list instead, and the slice ran from the
+    console deploy through the smoke job -- so a secret set only on a job
+    passed as the console's.
     """
     text = CONSOLE.read_text()
-    start = text.index('--set-env-vars "^@^CLOUD_SQL_CONNECTION_NAME')
-    # Back up to the start of that deploy step, forward to the end of it.
-    step = text.rindex("gcloud run deploy", 0, start)
-    return text[step : text.index("\n\n", start)]
+    step = text.index('gcloud run deploy "${_SERVICE}"')
+    return text[step : text.index("\n\n", step)]
 
 
 @pytest.mark.parametrize(
@@ -44,6 +49,11 @@ def _console_deploy():
         # which means a set-password link is printed to a log nobody
         # reads and the person it was for never hears anything.
         "GMAIL_CREDENTIALS_JSON",
+        # Publishing. Without it a publish pins the data and never starts
+        # the publish workflow: `notify_published` logs "not configured"
+        # and returns. No deploy set it from the day the dispatch was
+        # written (2026-08-22) until 2026-09-30.
+        "GITHUB_DISPATCH_TOKEN",
     ],
 )
 def test_the_console_deploy_carries_every_secret(name):
@@ -60,6 +70,7 @@ def test_the_console_deploy_carries_every_secret(name):
         "DJANGO_ALLOWED_HOSTS",
         "SESSION_COOKIE_DOMAIN",
         "GMAIL_DELEGATED_USER",
+        "GITHUB_DISPATCH_REPO",
     ],
 )
 def test_the_console_deploy_carries_every_variable(name):
@@ -71,6 +82,20 @@ def test_mail_is_configured_by_both_halves_or_neither():
     is a console that thinks it can send and cannot."""
     step = _console_deploy()
     assert ("GMAIL_CREDENTIALS_JSON" in step) == ("GMAIL_DELEGATED_USER" in step)
+
+
+def test_publishing_is_configured_by_both_halves_or_neither():
+    """`notify_published` needs the repository and the token together; one
+    without the other is a publish that says it dispatched and did not."""
+    step = _console_deploy()
+    assert ("GITHUB_DISPATCH_TOKEN" in step) == ("GITHUB_DISPATCH_REPO" in step)
+
+
+def test_the_dispatch_names_this_repository():
+    """The workflow that listens for `publish-visuals` lives here."""
+    step = _console_deploy()
+    assert "GITHUB_DISPATCH_REPO=LocalNewsImpact/datadesk" in step
+    assert (ROOT / ".github/workflows/publish.yml").read_text().count("publish-visuals")
 
 
 def test_the_settings_read_what_the_deploy_sets():
