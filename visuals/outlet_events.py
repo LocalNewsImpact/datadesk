@@ -256,17 +256,18 @@ def apply_current(outlet_ids=None):
     is the latest one entered, which is the reviewer's latest knowledge.
     """
     rows = Outlet.objects.all()
+    current = OutletEvent.objects.filter(sets_current=True)
+    retractions = OutletEvent.objects.filter(retracts__isnull=False)
     if outlet_ids is not None:
-        rows = rows.filter(outlet_id__in=list(outlet_ids))
-    retracted = set(
-        OutletEvent.objects.filter(retracts__isnull=False).values_list(
-            "retracts_id", flat=True
-        )
-    )
+        # One outlet's events, not every current event in the table: this
+        # runs after each event recorded, for that event's outlet.
+        wanted = list(outlet_ids)
+        rows = rows.filter(outlet_id__in=wanted)
+        current = current.filter(outlet_id__in=wanted)
+        retractions = retractions.filter(retracts__outlet_id__in=wanted)
+    retracted = set(retractions.values_list("retracts_id", flat=True))
     events = {}
-    for event in OutletEvent.objects.filter(sets_current=True).order_by(
-        "recorded_at", "id"
-    ):
+    for event in current.order_by("recorded_at", "id"):
         if event.pk not in retracted and event.event != E.RETRACTION:
             events.setdefault(event.outlet_id, []).append(event)
     changed = 0
