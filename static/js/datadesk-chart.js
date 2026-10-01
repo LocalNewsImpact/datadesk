@@ -4318,8 +4318,8 @@
   // what the renderer reads stays in the renderer.
   function storyMapLegend(t, s) {
     const d3 = global.d3;
-    const { byCategory, categories, placed, colourOf, max, layerScale, unit,
-      cuts, highest, bandLabels, ramp, values, beyond } = s;
+    const { byCategory, categories, placed, colourOf, outline, max, layerScale,
+      unit, cuts, highest, bandLabels, ramp, values, beyond } = s;
     const legend = document.createElement("div");
     legend.className = "dd-legend";
     if (byCategory) {
@@ -4577,6 +4577,6 @@
   // hues is a fact about these functions, not about the page.
   global.DatadeskChart = {
     render, mount, renderTable,
-    __test: { scaleColors, colorScale, theme, THEMES, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, spreadCoincident, spreadPoints, featuresOf, framedBy, FONT, fmtValue, scaleLabels, esc, tipRow, tipHead, fetchJSON, unavailable, undrawable, uid, layerState, paintedValues, storyMapBands, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf, swatchLegend, swatchItem, legend, svgRoot },
+    __test: { scaleColors, colorScale, theme, THEMES, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, storyMapLegend, spreadCoincident, spreadPoints, featuresOf, framedBy, FONT, fmtValue, scaleLabels, esc, tipRow, tipHead, fetchJSON, unavailable, undrawable, uid, layerState, paintedValues, storyMapBands, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf, swatchLegend, swatchItem, legend, svgRoot },
   };
 })(window);
