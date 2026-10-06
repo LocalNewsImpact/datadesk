@@ -984,9 +984,12 @@
   function listItems(value) {
     return String(value ?? "").split(/;\s*/).map((s) => s.trim()).filter(Boolean);
   }
+  // A link is one value, whatever its text says. "...to close later this
+  // year; printing moves to Iowa" made the whole Headline column a list,
+  // and a list cell is text, so 112 headlines drew as raw Markdown.
   function listColumns(rows, cols, numeric) {
     return new Set(cols.filter((c) => !numeric.has(c) &&
-      rows.some((r) => listItems(r?.[c]).length > 1)));
+      rows.some((r) => !cellLink(r?.[c]) && listItems(r?.[c]).length > 1)));
   }
   const csvOf = (s) => String(s || "").split(",").map((x) => x.trim()).filter(Boolean);
 
