@@ -53,6 +53,24 @@ class TestTheRenderer:
             f"[...T.listColumns({json.dumps(ROWS)}, {json.dumps(cols)}, new Set())]"
         ) == ["Publications"]
 
+    def test_a_link_with_a_semicolon_is_one_value(self):
+        rows = ROWS + [
+            {
+                "Headline": "[Plant to close; printing moves to Iowa]"
+                "(https://www.ksmu.org/news/2025-07-09/plant)",
+                "Publications": "Springfield News-Leader",
+            }
+        ]
+        cols = ["Headline", "Publications"]
+        assert _node(
+            f"[...T.listColumns({json.dumps(rows)}, {json.dumps(cols)}, new Set())]"
+        ) == ["Publications"]
+        # Text that is not a link still splits.
+        rows[-1]["Headline"] = "Plant to close; printing moves to Iowa"
+        assert _node(
+            f"[...T.listColumns({json.dumps(rows)}, {json.dumps(cols)}, new Set())]"
+        ) == ["Headline", "Publications"]
+
     def test_the_layout_is_read_from_the_config(self):
         from tests.test_a_table_is_a_pivot import CHART
 
