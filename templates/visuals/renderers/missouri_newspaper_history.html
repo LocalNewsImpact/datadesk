@@ -15,7 +15,7 @@
 <figure class="dd-visual">
   {% if visual.config.title %}<h2 class="dd-title">{{ visual.config.title }}</h2>{% endif %}
   {% if visual.config.subtitle %}<p class="dd-subtitle">{{ visual.config.subtitle }}</p>{% endif %}
-  <div class="nr-panel" aria-live="polite"></div>
+  <div class="nr-card" aria-live="polite"></div>
   <div class="dd-chart" id="nr-chart" data-feed="{{ feed }}" style="position: relative">Loading…</div>
   <figcaption class="dd-footer">
     <span class="dd-source">{% if visual.config.note %}Source: {{ visual.config.note }}{% endif %}
@@ -24,21 +24,39 @@
   </figcaption>
 </figure>
 <style>
-  /* a fixed height: a year's list of names must not push the river up and down the page */
-  .nr-panel { position: sticky; top: 0; z-index: 2; background: var(--bg); font-size: var(--fs-sm); color: var(--text-2);
-    padding: var(--s-2) 0; margin: 0 0 var(--s-2); height: 11em; overflow-y: auto; border-bottom: 1px solid var(--border); }
-  .nr-panel .nr-head { color: var(--text); font-size: var(--fs-md); font-weight: 600; margin: 0 0 var(--s-1); }
-  .nr-panel .nr-head b { font-variant-numeric: tabular-nums; }
-  .nr-panel .nr-list { margin: 0 0 var(--s-1); max-height: 7.5em; overflow-y: auto; }
-  .nr-panel .nr-list i { font-style: normal; font-weight: 600; margin-right: var(--s-1); }
-  .nr-panel .nr-more { color: var(--text-3); }
+  /* The details. On this page they pin to the top of the window while the river slides under them, at a
+     fixed height so they never move the page. Embedded in another site's page (an iframe sized to the whole
+     chart, inside a page that scrolls), nothing in the frame can pin to that page's window, so there they
+     open beside the pointer instead -- where the reader is looking. */
+  .nr-card { font-size: var(--fs-sm); color: var(--text-2); background: var(--bg); }
+  .nr-card.nr-pin { position: sticky; top: 0; z-index: 5; height: 10.5em; overflow-y: auto; padding: var(--s-2) 0;
+    margin: 0 0 var(--s-2); border-bottom: 1px solid var(--border); box-shadow: 0 6px 8px -8px rgba(0, 0, 0, 0.25); }
+  .nr-card.nr-float { position: fixed; z-index: 20; pointer-events: none; max-width: 26rem; max-height: 70vh; overflow: hidden;
+    background: var(--surface, var(--bg)); border: 1px solid var(--border); border-radius: 6px; padding: var(--s-2) var(--s-3);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14); }
+  .nr-card .nr-hint { margin: 0; }
+  .nr-card .nr-head { color: var(--text); font-size: var(--fs-md); font-weight: 600; margin: 0 0 var(--s-1); }
+  .nr-card .nr-head b { font-variant-numeric: tabular-nums; }
+  .nr-card .nr-list { margin: 0 0 var(--s-1); }
+  .nr-card .nr-list i { font-style: normal; font-weight: 600; margin-right: var(--s-1); }
+  .nr-card .nr-more { color: var(--text-3); }
   #nr-chart .nr-hit { cursor: pointer; }
 </style>
 <script src="{% static 'js/d3.min.js' %}" defer></script>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
   const el = document.getElementById("nr-chart");
-  const panel = document.querySelector(".nr-panel");
+  const card = document.querySelector(".nr-card");
+  // pinned on our own page; beside the pointer when framed inside someone else's
+  let framed = false;
+  try { framed = window.self !== window.top; } catch (e) { framed = true; }
+  card.classList.add(framed ? "nr-float" : "nr-pin");
+  card.hidden = framed;
+  // a sticky panel pins only within the nearest box that scrolls; the page's figure box clips overflow,
+  // which would leave the panel to scroll away with the page
+  if (!framed) for (let a = card.parentElement; a && a !== document.body; a = a.parentElement) {
+    if (getComputedStyle(a).overflowY !== "visible") a.style.overflow = "visible";
+  }
 
   // lnic chart slots: blue river, green founded, gold merged, red closed.
   const PALETTE = {
@@ -131,9 +149,11 @@ document.addEventListener("DOMContentLoaded", function () {
       const sum = (fn) => d3.sum(yrs, fn);
       const TF = k2 * sum(F);
       if (TF) {
-        let Lr = Math.max(14, 1.3 * TF);   // a thin tributary joins close to its decade line
-        if (end + Lr > LAST) Lr = Math.max(12, LAST - end);
-        const jt = Math.min(end - TF - 1, LAST - Lr - TF), jb = jt + TF, yend = Math.min(end + Lr, LAST);
+        // The tributary stays within its decade: it has entered the river by the decade's end. Its bend takes
+        // what room the decade leaves -- generous for a thin one, tighter for a crowded decade.
+        const top0 = Y(yrs[0]) + 2, yend = Math.min(end - 2, LAST);
+        const Lr = Math.max(8, Math.min(1.3 * TF, 0.5 * (end - Y(yrs[0])), yend - TF - top0));
+        const jt = Math.max(top0, yend - Lr - TF), jb = jt + TF;
         const xbank = bankAt(end, -1), XL = Math.max(FX + 60, xbank - 1.3 * TF - 90);
         // the end runs inside the river; where the tributary is wider than the river there, it narrows to fit
         // (its width is read at the margin, by year), so it never shows past the far bank
@@ -155,7 +175,10 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       const TM = k2 * sum(M), TC = k2 * sum(C), TT = TM + TC;
       if (TT) {
-        const Lr = Math.max(14, 1.3 * TT), ybot = Y(yrs[0]) + TT + 1, ystart = Math.max(ybot - TT - Lr, TOP);
+        // The leaving stream stays within its decade: it peels off the bank at the decade line, never before,
+        // and levels out as soon as the decade's room allows.
+        const DH = end - Y(yrs[0]), ystart = Math.max(Y(yrs[0]) + 1, TOP);
+        const Lr = Math.max(8, Math.min(1.3 * TT, 0.5 * DH, DH - TT - 4)), ybot = ystart + Lr + TT;
         // the start runs inside the river; where the stream is wider than the river there, it starts narrowed
         // to fit and widens as it leaves, so it never pokes out of the near bank
         const lbS = bankAt(ystart, -1) + 1.5, rbS = bankAt(ystart, 1) - 1.5;
@@ -172,11 +195,11 @@ document.addEventListener("DOMContentLoaded", function () {
           const tm = k2 * M(y), tc = k2 * C(y), slot = Y(y) + (H - tm - tc) / 2;
           if (tm) {
             strands.push({ y, dd, kind: "merged", trunk: true, d: slice((ybot - am) / TT, (ybot - am - tm) / TT) });
-            strands.push({ y, dd, kind: "merged", d: link(XR, am, CX, Math.max(slot, am), tm) }); am += tm;
+            strands.push({ y, dd, kind: "merged", d: link(XR, am, CX, slot, tm) }); am += tm;
           }
           if (tc) {
             strands.push({ y, dd, kind: "closed", trunk: true, d: slice((ybot - ac) / TT, (ybot - ac - tc) / TT) });
-            strands.push({ y, dd, kind: "closed", d: link(XR, ac, CX, Math.max(slot + tm, ac), tc) }); ac += tc;
+            strands.push({ y, dd, kind: "closed", d: link(XR, ac, CX, slot + tm, tc) }); ac += tc;
           }
         }
       }
@@ -238,23 +261,33 @@ document.addEventListener("DOMContentLoaded", function () {
       strandSel.attr("opacity", (s) => (!on || on(s) ? 1 : 0.1));
     };
     const list = (kind, label, papers) => !papers.length ? "" :
-      `<p class="nr-list"><i style="color:${T[kind]}">${papers.length} ${label}</i>${papers.slice(0, 40).map(esc).join("; ")}` +
-      (papers.length > 40 ? ` <span class="nr-more">and ${papers.length - 40} more</span>` : "") + `</p>`;
-    const showYear = (y) => {
+      `<p class="nr-list"><i style="color:${T[kind]}">${papers.length} ${label}</i>${papers.slice(0, 25).map(esc).join("; ")}` +
+      (papers.length > 25 ? ` <span class="nr-more">and ${papers.length - 25} more</span>` : "") + `</p>`;
+    const showYear = (y, ev) => {
       const r = by.get(y);
-      panel.innerHTML = `<p class="nr-head">${y}: <b>${r.publishing}</b> publishing</p>` +
+      card.innerHTML = `<p class="nr-head">${y}: <b>${r.publishing}</b> publishing</p>` +
         list("founded", "founded:", r.founded) + list("merged", r.merged.length === 1 ? "merger:" : "mergers:", r.merged) +
         list("closed", "closed:", r.closed) +
         (r.founded.length + r.merged.length + r.closed.length ? "" : `<p class="nr-list">No papers founded, merged or closed.</p>`);
       paint((s) => s.y === y);   // only that year's own path, margin to river
+      if (!framed) return;
+      // beside the pointer: to its right on the left half of the window, to its left on the right half,
+      // and kept inside the window top to bottom
+      card.hidden = false;
+      const cw = card.offsetWidth, ch = card.offsetHeight, px = ev ? ev.clientX : innerWidth / 2, py = ev ? ev.clientY : innerHeight / 2;
+      card.style.left = `${Math.max(8, Math.min(px < innerWidth / 2 ? px + 18 : px - 18 - cw, innerWidth - cw - 8))}px`;
+      card.style.top = `${Math.max(8, Math.min(py - 24, innerHeight - ch - 8))}px`;
     };
     // Leaving a stream does not reset at once: moving to a neighbouring creek would flash the whole river
     // back to full strength in between. The reset waits, and entering another stream cancels it.
     let resetTimer = null;
-    const reset = () => { panel.textContent = HINT; paint(null); };
+    const reset = () => {
+      if (framed) card.hidden = true; else card.innerHTML = `<p class="nr-hint">${esc(HINT)}</p>`;
+      paint(null);
+    };
     const later = () => { clearTimeout(resetTimer); resetTimer = setTimeout(reset, 350); };
-    const enter = (s) => { clearTimeout(resetTimer); showYear(s.y); };
-    hitSel.on("mouseenter click", (ev, s) => enter(s)).on("mouseleave", later);
+    const enter = (ev, s) => { clearTimeout(resetTimer); showYear(s.y, ev); };
+    hitSel.on("mouseenter click", enter).on("mouseleave", later);
     reset();
   }
 

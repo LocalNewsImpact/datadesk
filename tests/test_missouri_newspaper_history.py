@@ -74,10 +74,9 @@ def test_the_feed_serves_the_pinned_years(client, visual):
 
 def test_a_reader_can_see_the_papers_behind_a_year_or_a_decade(client, visual):
     """Hovering or tapping a stream -- and only a stream, not the empty row
-    of its year -- lights that year's path and names its papers in a panel
-    that stays in view."""
+    of its year -- lights that year's path and names its papers."""
     body = client.get("/embed/missouri-newspaper-history/").content.decode()
-    assert 'class="nr-panel"' in body
+    assert 'class="nr-card"' in body
     assert "Hover or tap a stream" in body
     assert 'attr("width", W).attr("y", Y)' not in body
     assert "dd-tip" not in body
@@ -101,7 +100,20 @@ def test_no_publisher_is_printed_ahead_of_the_note(client, visual):
 
 def test_leaving_a_stream_does_not_reset_the_river_at_once(client, visual):
     """Moving between neighbouring creeks must not flash the whole river back
-    to full strength, and the panel must not resize the page."""
+    to full strength, and the details must not move the page."""
     body = client.get("/embed/missouri-newspaper-history/").content.decode()
     assert "setTimeout(reset, 350)" in body
-    assert "height: 11em; overflow-y: auto" in body
+    assert "position: fixed" in body and "pointer-events: none" in body
+
+
+def test_the_details_pin_on_the_page_and_float_in_a_frame(client, visual):
+    """On its own page the details pin to the top and the river slides under
+    them (the figure box no longer clips the sticky panel). Framed inside a
+    page that scrolls, nothing can pin to that page's window, so the details
+    open beside the pointer instead."""
+    body = client.get("/embed/missouri-newspaper-history/").content.decode()
+    assert ".nr-card.nr-pin { position: sticky" in body
+    assert ".nr-card.nr-float { position: fixed" in body
+    assert "window.self !== window.top" in body
+    assert 'a.style.overflow = "visible"' in body
+    assert "card.style.left" in body and "card.style.top" in body
