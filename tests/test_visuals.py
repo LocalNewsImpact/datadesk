@@ -2364,3 +2364,14 @@ def test_a_shaded_county_is_named_not_coded():
     from datasets.geo import county_label
 
     assert county_label("29151") == "Osage, MO"
+
+
+def test_a_published_page_asks_for_its_pinned_rows_by_version(client, visual, author):
+    """Page and feed are each cached; a feed URL without the version let a
+    browser keep the last pin's rows under a re-pinned page."""
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+    assert "data.json?v=1" in client.get("/embed/story-geography/").content.decode()
+    _snapshot(visual, author, ROWS_V2)
+    publish(visual, author)
+    assert "data.json?v=2" in client.get("/embed/story-geography/").content.decode()

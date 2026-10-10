@@ -262,6 +262,14 @@ def _feed_url(visual, by_uuid, version=None, live=False, stamp=""):
         params["live"] = "1"
     if stamp:
         params["q"] = stamp
+    if version is None and not live and visual.pinned_snapshot_id:
+        # The plain page asks for the pinned rows by their version too. Page
+        # and feed are each cached for an hour; with an unversioned feed URL
+        # a browser that had the last pin kept its rows under the new page --
+        # the newspaper history sankey re-pinned to v4 drew v3's rows, which
+        # carried no paths, so selecting a block selected nothing. A pin now
+        # changes the URL, and a held copy can only answer for its version.
+        version = visual.pinned_snapshot.version
     if version is not None:
         params["v"] = version
     return f"{url}?{urlencode(params)}" if params else url
