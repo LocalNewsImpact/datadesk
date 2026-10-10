@@ -1,0 +1,134 @@
+{% load static %}
+{# A one-off renderer: Missouri's newspapers since 1808 as a time-staged #}
+{# sankey. The builder's sankey has two sides -- one set of things flowing #}
+{# to another -- and this is many: a column per year, with papers founded, #}
+{# merged and closed between them. The data is the feed like any visual's, #}
+{# so publishing pins and caches it the same way. #}
+{#                                                                         #}
+{# Each feed row is one flow: source/target ids, their labels, kinds and #}
+{# columns, the flow's own kind, and how many newspapers it carries. #}
+<figure class="dd-visual">
+  {% if visual.config.title %}<h2 class="dd-title">{{ visual.config.title }}</h2>{% endif %}
+  {% if visual.config.subtitle %}<p class="dd-subtitle">{{ visual.config.subtitle }}</p>{% endif %}
+  <div class="nh-legend" aria-hidden="true"></div>
+  <div class="dd-chart" id="nh-chart" data-feed="{{ feed }}" style="position: relative">Loading…</div>
+  <figcaption class="dd-footer">
+    <span class="dd-source">Source:
+      {% if credit_name %}{% if credit_href %}<a href="{{ credit_href }}">{{ credit_name }}</a>{% else %}{{ credit_name }}{% endif %}{% else %}<a href="https://localnewsimpact.org">Local News Impact Consortium</a>{% endif %}{% if visual.config.note %}. {{ visual.config.note }}{% endif %}
+      <span class="dd-version" hidden></span>
+    </span>
+  </figcaption>
+</figure>
+<style>
+  .nh-legend { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-5); font-size: var(--fs-sm); margin: var(--s-2) 0; }
+  .nh-legend span { display: inline-flex; align-items: center; gap: var(--s-2); }
+  .nh-legend i { width: 0.8rem; height: 0.8rem; border-radius: 2px; display: inline-block; }
+</style>
+<script src="{% static 'js/d3.min.js' %}" defer></script>
+<script src="{% static 'js/d3-sankey.min.js' %}" defer></script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const el = document.getElementById("nh-chart");
+  const legend = document.querySelector(".nh-legend");
+  const feed = el.dataset.feed;
+
+  // The chart palette's lnic slots, light and dark, as datadesk-chart.js
+  // carries them: blue for papers still publishing, then green, gold, red.
+  const PALETTE = {
+    light: { publishing: "#00618f", founded: "#1baf7a", merged: "#eda100", closed: "#e34948", ink: "#0b0b0b", muted: "#78818f" },
+    dark:  { publishing: "#2f9ecf", founded: "#199e70", merged: "#c98500", closed: "#e66767", ink: "#ffffff", muted: "#a5aebc" },
+  };
+  const LABEL = { publishing: "Still publishing at the next date", founded: "Founded", merged: "Merged into another paper", closed: "Closed" };
+  const RANK = { publishing: 0, founded: 1, merged: 2, closed: 3 };
+  function mode() {
+    const set = document.documentElement.getAttribute("data-theme");
+    if (set) return set === "dark" ? "dark" : "light";
+    return window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+
+  // A 202 means another request is computing this answer; ask again.
+  const load = (attempt) => fetch(feed).then((r) => {
+    if (r.status === 202 && attempt < 120) {
+      return r.json().catch(() => ({})).then((body) =>
+        new Promise((resolve) => setTimeout(resolve, (body.retry_after || 3) * 1000)).then(() => load(attempt + 1)));
+    }
+    return r.json();
+  });
+
+  let rows = [];
+  function draw() {
+    const T = PALETTE[mode()];
+    legend.innerHTML = Object.keys(LABEL).map((k) => `<span><i style="background:${T[k]}"></i>${LABEL[k]}</span>`).join("");
+    const nodes = new Map();
+    for (const r of rows) {
+      nodes.set(r.source, { id: r.source, label: r.source_label, kind: r.source_kind, col: +r.source_col });
+      nodes.set(r.target, { id: r.target, label: r.target_label, kind: r.target_kind, col: +r.target_col });
+    }
+    const width = Math.max(640, el.clientWidth || 960);
+    const height = Math.round(Math.max(460, Math.min(760, width * 0.52)));
+    const narrow = width < 900;
+    const svg = d3.create("svg").attr("viewBox", [0, 0, width, height]).attr("width", width).attr("height", height)
+      .attr("font-family", "var(--font-sans)").attr("font-size", narrow ? 11 : 12.5);
+    el.replaceChildren(svg.node());
+    const layout = d3.sankey().nodeId((d) => d.id).nodeAlign((d) => d.col)
+      .nodeWidth(12).nodePadding(narrow ? 10 : 15)
+      .nodeSort((a, b) => RANK[a.kind] - RANK[b.kind])
+      .extent([[24, 30], [width - (narrow ? 90 : 130), height - 6]]);
+    const g = layout({
+      nodes: [...nodes.values()].map((d) => ({ ...d })),
+      links: rows.map((r) => ({ source: r.source, target: r.target, kind: r.kind, value: +r.value })),
+    });
+
+    const tip = document.createElement("div");
+    tip.className = "dd-tip"; tip.hidden = true; el.appendChild(tip);
+    const show = (ev, html) => {
+      tip.innerHTML = html; tip.hidden = false;
+      const box = el.getBoundingClientRect();
+      tip.style.left = Math.min(ev.clientX - box.left + 12, box.width - 260) + "px";
+      tip.style.top = (ev.clientY - box.top + 12) + "px";
+    };
+    const hide = () => { tip.hidden = true; bands.attr("stroke-opacity", 0.42); };
+
+    const bands = svg.append("g").attr("fill", "none").selectAll("path").data(g.links).join("path")
+      .attr("d", d3.sankeyLinkHorizontal()).attr("stroke", (d) => T[d.kind])
+      .attr("stroke-opacity", 0.42).attr("stroke-width", (d) => Math.max(1, d.width))
+      .on("mousemove", function (ev, d) {
+        bands.attr("stroke-opacity", (b) => (b === d ? 0.8 : 0.12));
+        show(ev, `<strong>${d.source.label} → ${d.target.label}</strong><span class="dd-tip-k">Newspapers</span><span class="dd-tip-v">${d.value.toLocaleString()}</span>`);
+      })
+      .on("mouseleave", hide);
+
+    svg.append("g").selectAll("rect").data(g.nodes).join("rect")
+      .attr("x", (d) => d.x0).attr("y", (d) => d.y0).attr("width", (d) => d.x1 - d.x0)
+      .attr("height", (d) => Math.max(1, d.y1 - d.y0)).attr("fill", (d) => T[d.kind])
+      .on("mousemove", function (ev, d) {
+        bands.attr("stroke-opacity", (b) => (b.source === d || b.target === d ? 0.8 : 0.12));
+        show(ev, `<strong>${d.label}</strong><span class="dd-tip-k">Newspapers</span><span class="dd-tip-v">${d.value.toLocaleString()}</span>`);
+      })
+      .on("mouseleave", hide);
+
+    for (const d of g.nodes) {
+      const y = (d.y0 + d.y1) / 2;
+      if (d.kind === "publishing") {
+        svg.append("text").attr("x", (d.x0 + d.x1) / 2).attr("y", 18).attr("text-anchor", "middle")
+          .attr("font-weight", 700).attr("fill", T.ink).text(d.label.slice(-4));
+        svg.append("text").attr("x", d.x1 + 5).attr("y", y).attr("dy", "0.35em").attr("font-weight", 700)
+          .attr("fill", T.ink).text(d.value.toLocaleString());
+      } else if (d.value >= (narrow ? 20 : 6)) {
+        svg.append("text").attr("x", d.x1 + 5).attr("y", y).attr("dy", "0.35em").attr("fill", T[d.kind])
+          .text(`${d.value.toLocaleString()} ${d.kind}`);
+      }
+    }
+  }
+
+  load(0).then((body) => {
+    rows = Array.isArray(body.data) ? body.data : [];
+    if (!rows.length) { el.textContent = "No data."; return; }
+    const v = document.querySelector(".dd-version");
+    if (v && body.version) { v.textContent = ` · v${body.version}`; v.hidden = false; }
+    draw();
+    let t; window.addEventListener("resize", () => { clearTimeout(t); t = setTimeout(draw, 150); });
+    if (window.matchMedia) matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
+  }).catch(() => { el.textContent = "Feed unavailable."; });
+});
+</script>
