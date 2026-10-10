@@ -39,6 +39,11 @@
   .nh-follow .nh-out b { color: var(--text); font-variant-numeric: tabular-nums; }
   .nh-follow button { font: inherit; font-size: var(--fs-xs); padding: 0.15rem 0.5rem; }
   .nh-follow .nh-try { margin-left: var(--s-2); }
+  .nh-follow .nh-living { align-items: flex-start; }
+  .nh-follow .nh-paper { color: var(--text); white-space: nowrap; }
+  .nh-follow .nh-paper small { color: var(--text-3); }
+  .nh-follow .nh-paper:not(:last-of-type)::after { content: ","; }
+  .nh-follow .nh-more { color: var(--text-3); }
   #nh-chart path, #nh-chart rect { cursor: pointer; }
 </style>
 <script src="{% static 'js/d3.min.js' %}" defer></script>
@@ -161,6 +166,17 @@ document.addEventListener("DOMContentLoaded", function () {
         `<p class="nh-head">${sel.length.toLocaleString()} newspapers · ${what} <button type="button">Clear</button></p>` +
         (cells ? `<div class="nh-row"><span class="nh-k">Still publishing in</span>${cells}</div>` : "") +
         `<div class="nh-row"><span class="nh-k">In the end</span>${out(closed, "closed", "closed")}${out(merged, "merged", "merged into a surviving paper")}${out(still, "publishing", "publish today")}</div>`;
+      // The papers that made it are named, oldest first: a count of three
+      // survivors says less than which three.
+      const living = sel.filter((p) => p.info && p.info.outcome === "still publishing" && p.info.name)
+        .sort((a, b) => a.info.start - b.info.start);
+      if (living.length) {
+        const shown = living.slice(0, 20).map((p) =>
+          `<span class="nh-paper">${p.info.name}${p.info.town ? ` <small>${p.info.town}, since ${p.info.start}</small>` : ""}</span>`).join("");
+        follow.insertAdjacentHTML("beforeend",
+          `<div class="nh-row nh-living"><span class="nh-k">Publishing today</span>${shown}` +
+          (living.length > 20 ? `<span class="nh-more">and ${living.length - 20} more</span>` : "") + `</div>`);
+      }
       follow.querySelector("button").onclick = () => { picked = null; paint(); };
     }
 
@@ -223,7 +239,8 @@ document.addEventListener("DOMContentLoaded", function () {
   load(0).then((body) => {
     rows = Array.isArray(body.data) ? body.data : [];
     flows = rows.filter((r) => r.source != null);
-    paths = rows.filter((r) => r.path != null).map((r) => r.path.map(Number));
+    // A path is one newspaper; newer feeds also name it (name, town, years).
+    paths = rows.filter((r) => r.path != null).map((r) => Object.assign(r.path.map(Number), { info: r }));
     if (!flows.length) { el.textContent = "No data."; return; }
     const v = document.querySelector(".dd-version");
     if (v && body.version) { v.textContent = ` · v${body.version}`; v.hidden = false; }
