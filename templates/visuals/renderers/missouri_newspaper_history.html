@@ -6,7 +6,7 @@
 {# and closed (red) leave as one stream per decade that splits into a creek #}
 {# per year. The river leans toward the side that was ahead #}
 {# over the previous 20 years -- foundings against losses, as a share of #}
-{# the window's changes -- smoothed so it bends; the width is untouched. #}
+{# the papers publishing -- smoothed so it bends; the width is untouched. #}
 {#                                                                         #}
 {# The feed is named tables a reader can download as CSV: years (what the #}
 {# river draws), papers (one row per newspaper) and events (one row per #}
@@ -104,16 +104,20 @@ document.addEventListener("DOMContentLoaded", function () {
       return k * d3.mean(ys, P);
     };
 
-    // The lean: the balance of foundings against losses over the trailing 20 years,
-    // (founded - ended) / (founded + ended) on the window's totals so thin years count for little, with the
-    // window's oldest and newest years tapered. Left when foundings were ahead, right when losses were;
-    // then Gaussian-smoothed (sigma 6 years) so the river bends rather than steps. Centreline only.
+    // The lean: the net change over the trailing 20 years (foundings less losses, the window's oldest and
+    // newest years tapered) as a share of the papers publishing -- the larger of the window's first and last
+    // year, and never under 60, so the handful of papers in the 1820s cannot throw it across the page.
+    // tanh keeps a doubling and a 20% loss both visible; growth leans at 0.65 so the boom's river stays
+    // clear of the founding creeks. Left when foundings were ahead, right when losses were; then
+    // Gaussian-smoothed (sigma 6 years) so the river bends rather than steps. Centreline only.
     const wt = d3.range(20).map((i) => Math.min(1, (i + 1) / 4, (20 - i) / 4));
     const bal = (y) => {
       const f = d3.sum(wt, (v, i) => v * F(y - i)), l = d3.sum(wt, (v, i) => v * (C(y - i) + M(y - i)));
-      return (f - l) / (f + l + 10);   // + 10: a window holding a handful of papers barely leans
+      const p = Math.max(P(Math.max(y, Y0)), P(Math.max(y - 19, Y0)), 60);
+      const r = Math.tanh((((f - l) / d3.sum(wt)) * 20) / p / 0.25);
+      return r > 0 ? 0.65 * r : r;
     };
-    const SENS = W * 0.27, raw = new Map();
+    const SENS = W * 0.17, raw = new Map();
     for (let y = Y0; y <= Y1 + 1; y++) raw.set(y, -SENS * bal(y));
     const gk = d3.range(-18, 19).map((j) => [j, Math.exp(-((j / 6) ** 2) / 2)]), gks = d3.sum(gk, ([, v]) => v);
     const off = new Map();
