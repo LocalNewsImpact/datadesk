@@ -15,8 +15,7 @@
 <figure class="dd-visual">
   {% if visual.config.title %}<h2 class="dd-title">{{ visual.config.title }}</h2>{% endif %}
   {% if visual.config.subtitle %}<p class="dd-subtitle">{{ visual.config.subtitle }}</p>{% endif %}
-  <p class="nr-hint"></p>
-  <div class="nr-card" aria-live="polite" hidden></div>
+  <div class="nr-card" aria-live="polite"></div>
   <div class="dd-chart" id="nr-chart" data-feed="{{ feed }}" style="position: relative">Loading…</div>
   <figcaption class="dd-footer">
     <span class="dd-source">{% if visual.config.note %}Source: {{ visual.config.note }}{% endif %}
@@ -25,12 +24,17 @@
   </figcaption>
 </figure>
 <style>
-  .nr-hint { font-size: var(--fs-sm); color: var(--text-2); margin: 0 0 var(--s-2); }
-  /* The details open beside the pointer, wherever the reader is on the page: a panel at the top was off
-     screen by the 1890s. It never takes the pointer, so it cannot steal the hover from the stream. */
-  .nr-card { position: fixed; z-index: 20; pointer-events: none; max-width: 26rem; max-height: 70vh; overflow: hidden;
+  /* The details. On this page they pin to the top of the window while the river slides under them, at a
+     fixed height so they never move the page. Embedded in another site's page (an iframe sized to the whole
+     chart, inside a page that scrolls), nothing in the frame can pin to that page's window, so there they
+     open beside the pointer instead -- where the reader is looking. */
+  .nr-card { font-size: var(--fs-sm); color: var(--text-2); background: var(--bg); }
+  .nr-card.nr-pin { position: sticky; top: 0; z-index: 5; height: 10.5em; overflow-y: auto; padding: var(--s-2) 0;
+    margin: 0 0 var(--s-2); border-bottom: 1px solid var(--border); box-shadow: 0 6px 8px -8px rgba(0, 0, 0, 0.25); }
+  .nr-card.nr-float { position: fixed; z-index: 20; pointer-events: none; max-width: 26rem; max-height: 70vh; overflow: hidden;
     background: var(--surface, var(--bg)); border: 1px solid var(--border); border-radius: 6px; padding: var(--s-2) var(--s-3);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14); font-size: var(--fs-sm); color: var(--text-2); }
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14); }
+  .nr-card .nr-hint { margin: 0; }
   .nr-card .nr-head { color: var(--text); font-size: var(--fs-md); font-weight: 600; margin: 0 0 var(--s-1); }
   .nr-card .nr-head b { font-variant-numeric: tabular-nums; }
   .nr-card .nr-list { margin: 0 0 var(--s-1); }
@@ -42,8 +46,17 @@
 <script>
 document.addEventListener("DOMContentLoaded", function () {
   const el = document.getElementById("nr-chart");
-  const hint = document.querySelector(".nr-hint");
   const card = document.querySelector(".nr-card");
+  // pinned on our own page; beside the pointer when framed inside someone else's
+  let framed = false;
+  try { framed = window.self !== window.top; } catch (e) { framed = true; }
+  card.classList.add(framed ? "nr-float" : "nr-pin");
+  card.hidden = framed;
+  // a sticky panel pins only within the nearest box that scrolls; the page's figure box clips overflow,
+  // which would leave the panel to scroll away with the page
+  if (!framed) for (let a = card.parentElement; a && a !== document.body; a = a.parentElement) {
+    if (getComputedStyle(a).overflowY !== "visible") a.style.overflow = "visible";
+  }
 
   // lnic chart slots: blue river, green founded, gold merged, red closed.
   const PALETTE = {
@@ -252,6 +265,7 @@ document.addEventListener("DOMContentLoaded", function () {
         list("closed", "closed:", r.closed) +
         (r.founded.length + r.merged.length + r.closed.length ? "" : `<p class="nr-list">No papers founded, merged or closed.</p>`);
       paint((s) => s.y === y);   // only that year's own path, margin to river
+      if (!framed) return;
       // beside the pointer: to its right on the left half of the window, to its left on the right half,
       // and kept inside the window top to bottom
       card.hidden = false;
@@ -262,11 +276,13 @@ document.addEventListener("DOMContentLoaded", function () {
     // Leaving a stream does not reset at once: moving to a neighbouring creek would flash the whole river
     // back to full strength in between. The reset waits, and entering another stream cancels it.
     let resetTimer = null;
-    const reset = () => { card.hidden = true; paint(null); };
+    const reset = () => {
+      if (framed) card.hidden = true; else card.innerHTML = `<p class="nr-hint">${esc(HINT)}</p>`;
+      paint(null);
+    };
     const later = () => { clearTimeout(resetTimer); resetTimer = setTimeout(reset, 350); };
     const enter = (ev, s) => { clearTimeout(resetTimer); showYear(s.y, ev); };
     hitSel.on("mouseenter click", enter).on("mouseleave", later);
-    hint.textContent = HINT;
     reset();
   }
 

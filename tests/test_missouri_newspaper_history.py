@@ -76,7 +76,7 @@ def test_a_reader_can_see_the_papers_behind_a_year_or_a_decade(client, visual):
     """Hovering or tapping a stream -- and only a stream, not the empty row
     of its year -- lights that year's path and names its papers."""
     body = client.get("/embed/missouri-newspaper-history/").content.decode()
-    assert 'class="nr-card"' in body and 'class="nr-hint"' in body
+    assert 'class="nr-card"' in body
     assert "Hover or tap a stream" in body
     assert 'attr("width", W).attr("y", Y)' not in body
     assert "dd-tip" not in body
@@ -106,9 +106,14 @@ def test_leaving_a_stream_does_not_reset_the_river_at_once(client, visual):
     assert "position: fixed" in body and "pointer-events: none" in body
 
 
-def test_the_details_open_beside_the_pointer(client, visual):
-    """A panel at the top of the page was off screen by the 1890s; the
-    details open beside the stream that was hovered, inside the window."""
+def test_the_details_pin_on_the_page_and_float_in_a_frame(client, visual):
+    """On its own page the details pin to the top and the river slides under
+    them (the figure box no longer clips the sticky panel). Framed inside a
+    page that scrolls, nothing can pin to that page's window, so the details
+    open beside the pointer instead."""
     body = client.get("/embed/missouri-newspaper-history/").content.decode()
-    assert "nr-panel" not in body
+    assert ".nr-card.nr-pin { position: sticky" in body
+    assert ".nr-card.nr-float { position: fixed" in body
+    assert "window.self !== window.top" in body
+    assert 'a.style.overflow = "visible"' in body
     assert "card.style.left" in body and "card.style.top" in body
