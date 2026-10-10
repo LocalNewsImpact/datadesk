@@ -97,3 +97,11 @@ def test_no_publisher_is_printed_ahead_of_the_note(client, visual):
     body = client.get("/embed/missouri-newspaper-history/").content.decode()
     assert "Source: Missouri School of Journalism analysis" in body
     assert "Local News Impact Consortium</a>" not in body
+
+
+def test_leaving_a_stream_does_not_reset_the_river_at_once(client, visual):
+    """Moving between neighbouring creeks must not flash the whole river back
+    to full strength, and the panel must not resize the page."""
+    body = client.get("/embed/missouri-newspaper-history/").content.decode()
+    assert "setTimeout(reset, 350)" in body
+    assert "height: 11em; overflow-y: auto" in body

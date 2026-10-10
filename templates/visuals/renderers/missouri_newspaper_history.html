@@ -24,8 +24,9 @@
   </figcaption>
 </figure>
 <style>
+  /* a fixed height: a year's list of names must not push the river up and down the page */
   .nr-panel { position: sticky; top: 0; z-index: 2; background: var(--bg); font-size: var(--fs-sm); color: var(--text-2);
-    padding: var(--s-2) 0; margin: 0 0 var(--s-2); min-height: 3.2em; border-bottom: 1px solid var(--border); }
+    padding: var(--s-2) 0; margin: 0 0 var(--s-2); height: 11em; overflow-y: auto; border-bottom: 1px solid var(--border); }
   .nr-panel .nr-head { color: var(--text); font-size: var(--fs-md); font-weight: 600; margin: 0 0 var(--s-1); }
   .nr-panel .nr-head b { font-variant-numeric: tabular-nums; }
   .nr-panel .nr-list { margin: 0 0 var(--s-1); max-height: 7.5em; overflow-y: auto; }
@@ -247,8 +248,13 @@ document.addEventListener("DOMContentLoaded", function () {
         (r.founded.length + r.merged.length + r.closed.length ? "" : `<p class="nr-list">No papers founded, merged or closed.</p>`);
       paint((s) => s.y === y);   // only that year's own path, margin to river
     };
+    // Leaving a stream does not reset at once: moving to a neighbouring creek would flash the whole river
+    // back to full strength in between. The reset waits, and entering another stream cancels it.
+    let resetTimer = null;
     const reset = () => { panel.textContent = HINT; paint(null); };
-    hitSel.on("mouseenter click", (ev, s) => showYear(s.y)).on("mouseleave", reset);
+    const later = () => { clearTimeout(resetTimer); resetTimer = setTimeout(reset, 350); };
+    const enter = (s) => { clearTimeout(resetTimer); showYear(s.y); };
+    hitSel.on("mouseenter click", (ev, s) => enter(s)).on("mouseleave", later);
     reset();
   }
 
