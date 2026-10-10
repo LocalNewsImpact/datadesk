@@ -6,7 +6,7 @@
 {# links are drawn as one family: a renaming carries straight on along the #}
 {# same row, a merger is two or more bars joining into one, a split is one #}
 {# bar forking into several. Families with a paper publishing today come #}
-{# first; titles with no recorded predecessor or successor are counted, #}
+{# first; papers that kept one name and never merged or split are counted, #}
 {# and drawn only on request. #}
 {#                                                                        #}
 {# The feed holds two kinds of row. kind "title": id, county, town, title, #}
@@ -19,7 +19,7 @@
     <label>County <select class="ft-county"></select></label>
     <label>Find a newspaper <input class="ft-find" type="search" list="ft-titles" placeholder="Name or town"></label>
     <datalist id="ft-titles"></datalist>
-    <label class="ft-alone-toggle"><input type="checkbox" class="ft-alone"> <span>Also show papers with no recorded link</span></label>
+    <label class="ft-alone-toggle"><input type="checkbox" class="ft-alone"> <span>Also show papers that kept one name and never merged</span></label>
   </div>
   <p class="ft-summary" aria-live="polite"></p>
   <div class="ft-legend" aria-hidden="true"></div>
@@ -109,7 +109,7 @@ document.addEventListener("DOMContentLoaded", function () {
   // takes its successor's row when it was renamed into it (so a paper's names
   // read along one line), otherwise the nearest row below that is free for
   // its bar and label. Mergers therefore converge on the surviving row.
-  function layout(fam, L, x, labelW) {
+  function layout(fam, L, x, labelW, labelX) {
     const inFam = new Set(fam.map((t) => t.id));
     const preds = new Map(), succs = new Map();
     for (const l of L) {
@@ -128,7 +128,7 @@ document.addEventListener("DOMContentLoaded", function () {
       .sort((a, b) => b.live - a.live || (b.end ?? NOW) - (a.end ?? NOW)).forEach(visit);
     fam.forEach(visit);
     const lanes = [], row = new Map();
-    const span = (t) => [x(t.start) - 4, Math.max(x(t.end ?? NOW), x(t.start) + labelW(t)) + 10];
+    const span = (t) => [Math.min(x(t.start), labelX(t)) - 4, Math.max(x(t.end ?? NOW), labelX(t) + labelW(t)) + 10];
     const free = (i, s) => !(lanes[i] || []).some(([a, b]) => s[0] < b && a < s[1]);
     for (const t of order) {
       const s = span(t);
@@ -159,36 +159,43 @@ document.addEventListener("DOMContentLoaded", function () {
       `${liveN ? `<b>${liveN} publishing today</b>` : "none publishing today"}. ` +
       `${fams.length} ${fams.length === 1 ? "family" : "families"} of papers joined by ` +
       `${counts.renamed} renamings, ${counts.merged} merger links and ${counts.split} split links; ` +
-      `${aloneOwn} ended papers have no recorded predecessor or successor.` +
+      `${aloneOwn} ended papers kept one name from start to finish and never merged or split.` +
       `<span class="ft-hint">Hover or tap a paper to trace everything it came from and became. ` +
       `Families with a paper publishing today are at the top.</span>`;
-    aloneBox.nextElementSibling.textContent = `Also show the ${aloneOwn} papers with no recorded link`;
+    aloneBox.nextElementSibling.textContent = `Also show the ${aloneOwn} papers that kept one name and never merged`;
 
-    const width = Math.max(900, chart.parentElement.clientWidth || 960);
+    const width = Math.max(560, chart.parentElement.clientWidth || 960);
     const minYear = Math.floor((Math.min(...[...fams.flat(), ...shownAlone].map((t) => t.start), firstYear) - 2) / 10) * 10;
     const x = d3.scaleLinear().domain([minYear, NOW]).range([12, width - 14]);
     const label = (t) => t.title + (t.county !== county ? ` (${t.county} Co.)` : "");
     const measure = document.createElement("canvas").getContext("2d");
-    measure.font = "11px sans-serif";
-    const labelW = (t) => measure.measureText(label(t)).width + (t.live ? 12 : 0);
+    // measured in the face the labels are drawn in; a living paper's is bold
+    const face = getComputedStyle(chart).fontFamily || "sans-serif";
+    const labelW = (t) => {
+      measure.font = `${t.live ? 700 : 400} 11px ${face}`;
+      return measure.measureText(label(t) + (t.live ? " ●" : "")).width + 2;
+    };
+    // a label starts at its bar, unless that would run it off the right edge
+    const labelX = (t) => Math.max(4, Math.min(x(t.start), width - 4 - labelW(t)));
 
     const ROW = 28, BAR = 7, GAP = 14, TOP = 26;
     let y = TOP;
     const blocks = [];
     for (const fam of fams) {
-      const lay = layout(fam, L, x, labelW);
+      const lay = layout(fam, L, x, labelW, labelX);
       blocks.push({ fam, lay, y0: y });
       y += lay.rows * ROW + GAP;
     }
     let aloneBlock = null;
     if (shownAlone.length) {
-      const lay = layout(shownAlone, [], x, labelW);
+      const lay = layout(shownAlone, [], x, labelW, labelX);
       aloneBlock = { fam: shownAlone, lay, y0: y + 18 };
       y = aloneBlock.y0 + lay.rows * ROW + GAP;
     }
     const height = y + 18;
-    const svg = d3.create("svg").attr("viewBox", [0, 0, width, height]).attr("width", width).attr("height", height)
-      .attr("font-family", "var(--font-sans)").attr("font-size", 11);
+    // scales to its frame, so a scrollbar appearing after the draw cannot push it past the edge
+    const svg = d3.create("svg").attr("viewBox", [0, 0, width, height]).attr("style", "width: 100%; height: auto; display: block")
+      .attr("font-family", face).attr("font-size", 11);
     chart.replaceChildren(svg.node());
 
     const ticks = d3.range(Math.ceil(minYear / 10) * 10, NOW + 1, width > 1100 ? 10 : 20);
@@ -207,7 +214,7 @@ document.addEventListener("DOMContentLoaded", function () {
       .attr("stroke", T.grid).attr("stroke-dasharray", "2 3");
     if (aloneBlock) {
       svg.append("text").attr("x", 12).attr("y", aloneBlock.y0 - 4).attr("fill", T.muted).attr("font-weight", 700)
-        .text(showAlone ? "Papers with no recorded predecessor or successor" : "Publishing today, with no recorded predecessor");
+        .text(showAlone ? "Kept one name, never merged or split" : "Publishing today; no earlier title on record");
     }
 
     const end = (t) => x(t.end ?? NOW), begin = (t) => x(t.start);
@@ -226,12 +233,12 @@ document.addEventListener("DOMContentLoaded", function () {
     const g = svg.append("g").selectAll("g").data([...pos.keys()].map((i) => titles.get(i))).join("g").attr("class", "title");
     const bars = g.append("rect").attr("x", begin).attr("width", (t) => Math.max(3, end(t) - begin(t)))
       .attr("y", (t) => pos.get(t.id) - BAR / 2).attr("height", BAR).attr("rx", 2);
-    const texts = g.append("text").attr("x", begin).attr("y", (t) => pos.get(t.id) - BAR / 2 - 3)
+    const texts = g.append("text").attr("x", labelX).attr("y", (t) => pos.get(t.id) - BAR / 2 - 3)
       .attr("font-weight", (t) => (t.live ? 700 : 400)).attr("paint-order", "stroke").attr("stroke", T.bg).attr("stroke-width", 3)
       .attr("stroke-linejoin", "round").text((t) => label(t) + (t.live ? " ●" : ""));
     // a hit area covering the bar and its label, so short-lived titles can be found
-    g.append("rect").attr("x", (t) => begin(t) - 3).attr("y", (t) => pos.get(t.id) - ROW + 6)
-      .attr("width", (t) => Math.max(end(t) - begin(t), labelW(t)) + 6).attr("height", ROW - 2).attr("fill", "transparent");
+    g.append("rect").attr("x", (t) => Math.min(begin(t), labelX(t)) - 3).attr("y", (t) => pos.get(t.id) - ROW + 6)
+      .attr("width", (t) => Math.max(end(t), labelX(t) + labelW(t)) - Math.min(begin(t), labelX(t)) + 6).attr("height", ROW - 2).attr("fill", "transparent");
 
     const kin = (t) => {
       const on = new Set([t.id]), walk = (id, dir) => {
@@ -270,9 +277,11 @@ document.addEventListener("DOMContentLoaded", function () {
     const bar = (c) => `<svg width="26" height="10"><rect x="1" y="1.5" width="24" height="7" rx="2" fill="${c}"/></svg>`;
     const join = (c) => `<svg width="34" height="18"><rect x="0" y="1" width="12" height="6" rx="2" fill="${T.past}"/><rect x="0" y="11" width="12" height="6" rx="2" fill="${T.past}"/>` +
       `<path d="M12,4 C20,4 18,14 26,14 M12,14 H26" stroke="${c}" stroke-width="2.5" fill="none"/><rect x="25" y="11" width="9" height="6" rx="2" fill="${T.past}"/></svg>`;
+    const step = `<svg width="34" height="18"><rect x="0" y="11" width="14" height="6" rx="2" fill="${T.past}"/>` +
+      `<path d="M14,14 C17,14 17,4 20,4" stroke="${T.past}" stroke-width="2.5" fill="none"/><rect x="19" y="1" width="15" height="6" rx="2" fill="${T.past}"/></svg>`;
     legend.innerHTML = `<span>${bar(T.live)}Publishing today</span><span>${bar(T.past)}Ended</span>` +
       `<span>${join(T.merged)}Merged</span><span>${join(T.split)}Split</span>` +
-      `<span>A renamed paper carries on along the same row</span>`;
+      `<span>${step}Renamed: steps to the next row</span>`;
   }
 
   function setCounty(c, focusId) {

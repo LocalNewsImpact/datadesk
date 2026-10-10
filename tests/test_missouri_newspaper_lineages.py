@@ -75,7 +75,9 @@ def test_one_county_is_drawn_at_a_time_with_no_statewide_overview(client, visual
     which could not show branching, is gone."""
     body = client.get("/embed/missouri-newspaper-lineages/").content.decode()
     assert "nl-overview" not in body
-    assert "Also show papers with no recorded link" in body
+    assert "Also show papers that kept one name and never merged" in body
+    assert "no recorded predecessor" not in body
+    assert "carries on along the same row" not in body
     assert "Merged" in body and "Split" in body
 
 
