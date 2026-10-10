@@ -3,9 +3,9 @@
 {# down the page. Its width is the papers publishing in each year. Papers #}
 {# founded join from the left in their year; papers merged into another #}
 {# (gold) and papers closed (red) leave to the right in theirs, gathering at #}
-{# the end of their decade. The river leans toward the side that is ahead: #}
-{# its centreline accumulates each year's balance of foundings against #}
-{# losses, as a share of that year's changes, so the width is untouched. #}
+{# the end of their decade. The river leans toward the side that was ahead #}
+{# over the previous 20 years -- foundings against losses, as a share of #}
+{# the window's changes -- smoothed so it bends; the width is untouched. #}
 {#                                                                         #}
 {# The feed holds one row per year: publishing, the papers founded, closed #}
 {# and merged that year by name, and `absorbed` -- the papers a year's #}
@@ -75,14 +75,21 @@ document.addEventListener("DOMContentLoaded", function () {
     const Y = (y) => TOP + (y - Y0) * H;
     const w = (y) => k * P(y);
 
-    // The lean: each year's (founded - ended) / (founded + ended), smoothed over ~9 years and accumulated,
-    // spread across DRIFT px. It moves the centreline only.
-    const imb = (y) => { const f = F(y), l = C(y) + M(y); return f + l ? (f - l) / (f + l) : 0; };
-    const g = d3.range(-9, 10).map((i) => Math.exp(-((i / 3) ** 2) / 2)), gs = d3.sum(g);
-    let c = 0; const cum = new Map();
-    for (let y = Y0; y <= Y1 + 1; y++) { c += d3.sum(g.map((v, i) => v * imb(y + i - 9))) / gs; cum.set(y, c); }
-    const [lo, hi] = d3.extent([...cum.values()]), DRIFT = W * 0.175;
-    const mid = (y) => cx - DRIFT * ((cum.get(Math.min(Math.max(y, Y0), Y1 + 1)) - lo) / (hi - lo || 1) - 0.5);
+    // The lean: the balance of foundings against losses over the trailing 20 years,
+    // (founded - ended) / (founded + ended) on the window's totals so thin years count for little, with the
+    // window's oldest and newest years tapered. Left when foundings were ahead, right when losses were;
+    // then Gaussian-smoothed (sigma 6 years) so the river bends rather than steps. Centreline only.
+    const wt = d3.range(20).map((i) => Math.min(1, (i + 1) / 4, (20 - i) / 4));
+    const bal = (y) => {
+      const f = d3.sum(wt, (v, i) => v * F(y - i)), l = d3.sum(wt, (v, i) => v * (C(y - i) + M(y - i)));
+      return (f - l) / (f + l + 10);   // + 10: a window holding a handful of papers barely leans
+    };
+    const SENS = W * 0.27, raw = new Map();
+    for (let y = Y0; y <= Y1 + 1; y++) raw.set(y, -SENS * bal(y));
+    const gk = d3.range(-18, 19).map((j) => [j, Math.exp(-((j / 6) ** 2) / 2)]), gks = d3.sum(gk, ([, v]) => v);
+    const off = new Map();
+    for (let y = Y0; y <= Y1 + 1; y++) off.set(y, d3.sum(gk, ([j, v]) => v * raw.get(Math.min(Math.max(y + j, Y0), Y1 + 1))) / gks);
+    const mid = (y) => cx + off.get(Math.min(Math.max(y, Y0), Y1 + 1));
 
     const height = Y(Y1 + 1) + 40;
     const svg = d3.create("svg").attr("viewBox", [0, 0, W, height]).attr("style", "width: 100%; height: auto; display: block")
