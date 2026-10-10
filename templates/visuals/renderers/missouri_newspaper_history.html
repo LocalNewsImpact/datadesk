@@ -27,7 +27,8 @@
   .nh-legend { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-5); font-size: var(--fs-sm); margin: var(--s-2) 0; }
   .nh-legend span { display: inline-flex; align-items: center; gap: var(--s-2); }
   .nh-legend i { width: 0.8rem; height: 0.8rem; border-radius: 2px; display: inline-block; }
-  .nh-follow { font-size: var(--fs-sm); color: var(--text-2); margin: 0 0 var(--s-3); min-height: 4.6em; }
+  .nh-follow { font-size: var(--fs-sm); color: var(--text-2); margin: 0 0 var(--s-3); min-height: 4.6em;
+    position: sticky; top: 0; z-index: 2; background: var(--bg); padding: var(--s-2) 0; }
   .nh-follow .nh-head { font-size: var(--fs-md); color: var(--text); font-weight: 600; margin: 0 0 var(--s-1); }
   .nh-follow .nh-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-1) var(--s-3); margin: 0 0 var(--s-1); }
   .nh-follow .nh-k { color: var(--text-3); min-width: 7.5rem; }
@@ -39,8 +40,14 @@
   .nh-follow .nh-out b { color: var(--text); font-variant-numeric: tabular-nums; }
   .nh-follow button { font: inherit; font-size: var(--fs-xs); padding: 0.15rem 0.5rem; }
   .nh-follow .nh-try { margin-left: var(--s-2); }
+  .nh-follow .nh-living { align-items: flex-start; }
+  .nh-follow .nh-paper { color: var(--text); white-space: nowrap; }
+  .nh-follow .nh-paper small { color: var(--text-3); }
+  .nh-follow .nh-paper:not(:last-of-type)::after { content: ","; }
+  .nh-follow .nh-more { color: var(--text-3); }
   #nh-chart path, #nh-chart rect { cursor: pointer; }
 </style>
+{{ visual.config.annotations|default:None|json_script:"nh-notes" }}
 <script src="{% static 'js/d3.min.js' %}" defer></script>
 <script src="{% static 'js/d3-sankey.min.js' %}" defer></script>
 <script>
@@ -48,6 +55,8 @@ document.addEventListener("DOMContentLoaded", function () {
   const el = document.getElementById("nh-chart");
   const legend = document.querySelector(".nh-legend");
   const follow = document.querySelector(".nh-follow");
+  const notesEl = document.getElementById("nh-notes");
+  const NOTES = notesEl ? JSON.parse(notesEl.textContent) : null;
   const feed = el.dataset.feed;
 
   // The chart palette's lnic slots, light and dark, as datadesk-chart.js
@@ -89,14 +98,22 @@ document.addEventListener("DOMContentLoaded", function () {
       nodes.set(r.source, { id: r.source, label: r.source_label, kind: r.source_kind, col: +r.source_col });
       nodes.set(r.target, { id: r.target, label: r.target_label, kind: r.target_kind, col: +r.target_col });
     }
-    const width = Math.max(640, el.clientWidth || 960);
-    const height = Math.round(Math.max(460, Math.min(760, width * 0.52)));
-    const narrow = width < 900;
+    // Vertical: time runs down the page, oldest at the top. The sankey
+    // layout is horizontal, so it is computed across and drawn transposed --
+    // the layout's x (time) is the page's y, its y (papers) the page's x.
+    const width = Math.max(320, el.clientWidth || 960);
+    const narrow = width < 760;
+    const left = narrow ? 44 : 60;                         // the year gutter
+    const notesW = narrow ? 0 : Math.min(330, Math.round(width * 0.32));
+    const across = width - notesW - (narrow ? 8 : 24);     // where the blocks may reach
+    const cols = d3.max([...nodes.values()], (n) => n.col) + 1;
+    const step = cols > 12 ? (narrow ? 96 : 112) : (narrow ? 150 : 175);
+    const height = 36 + (cols - 1) * step + 40;
     const svg = d3.create("svg").attr("viewBox", [0, 0, width, height]).attr("width", width).attr("height", height)
       .attr("font-family", "var(--font-sans)").attr("font-size", narrow ? 11 : 12.5);
     el.replaceChildren(svg.node());
     const layout = d3.sankey().nodeId((d) => d.id).nodeAlign((d) => d.col)
-      .nodeWidth(12).nodePadding(narrow ? 10 : 15)
+      .nodeWidth(14).nodePadding(narrow ? 8 : 14)
       .nodeSort((a, b) => RANK[a.kind] - RANK[b.kind])
       // One band order at every block, so a kind of band sits in the same
       // place in every year: papers carrying on, then papers merged in, then
@@ -104,20 +121,19 @@ document.addEventListener("DOMContentLoaded", function () {
       .linkSort((a, b) => (LINK_RANK[a.kind] - LINK_RANK[b.kind]) ||
         (RANK[a.source.kind] - RANK[b.source.kind]) || (RANK[a.target.kind] - RANK[b.target.kind]))
       .iterations(0)
-      .extent([[24, 30], [width - (narrow ? 90 : 130), height - 6]]);
+      .extent([[36, left], [height - 40, across]]);
     const g = layout({
       nodes: [...nodes.values()].map((d) => ({ ...d })),
       links: flows.map((r, i) => ({ source: r.source, target: r.target, kind: r.kind, value: +r.value, index: i })),
     });
-    // Every column stacks from the top in one order -- publishing, founded,
-    // closed -- so the publishing blocks share a top edge and the bands that
-    // carry papers on run level. The layout's own relaxation let a column
-    // drift against its neighbours and the bands cross for no reason.
-    const pad = narrow ? 10 : 15;
+    // Every row starts at the left edge in one order -- publishing, founded,
+    // closed -- so the publishing blocks share an edge and the bands that
+    // carry papers on run straight down.
+    const pad = narrow ? 8 : 14;
     for (const [, ns] of d3.group(g.nodes, (d) => d.col)) {
-      let top = 30;
+      let at = left;
       ns.sort((a, b) => RANK[a.kind] - RANK[b.kind]).forEach((n) => {
-        const h = n.y1 - n.y0; n.y0 = top; n.y1 = top + h; top += h + pad;
+        const w = n.y1 - n.y0; n.y0 = at; n.y1 = at + w; at += w + pad;
       });
     }
     layout.update(g);
@@ -161,17 +177,27 @@ document.addEventListener("DOMContentLoaded", function () {
         `<p class="nh-head">${sel.length.toLocaleString()} newspapers · ${what} <button type="button">Clear</button></p>` +
         (cells ? `<div class="nh-row"><span class="nh-k">Still publishing in</span>${cells}</div>` : "") +
         `<div class="nh-row"><span class="nh-k">In the end</span>${out(closed, "closed", "closed")}${out(merged, "merged", "merged into a surviving paper")}${out(still, "publishing", "publish today")}</div>`;
+      // The papers that made it are named, oldest first: a count of three
+      // survivors says less than which three.
+      const living = sel.filter((p) => p.info && p.info.outcome === "still publishing" && p.info.name)
+        .sort((a, b) => a.info.start - b.info.start);
+      if (living.length) {
+        const shown = living.slice(0, 20).map((p) =>
+          `<span class="nh-paper">${p.info.name}${p.info.town ? ` <small>${p.info.town}, since ${p.info.start}</small>` : ""}</span>`).join("");
+        follow.insertAdjacentHTML("beforeend",
+          `<div class="nh-row nh-living"><span class="nh-k">Publishing today</span>${shown}` +
+          (living.length > 20 ? `<span class="nh-more">and ${living.length - 20} more</span>` : "") + `</div>`);
+      }
       follow.querySelector("button").onclick = () => { picked = null; paint(); };
     }
 
-    // Each band is a filled shape whose top and bottom edges meet the blocks
-    // exactly. A thick stroke along one curve narrows on a steep drop and
-    // overshoots the block it lands on.
+    // Each band is a filled shape whose edges meet the blocks exactly,
+    // running down the page from one checkpoint's row to the next.
     const band = (d, w) => {
       const full = Math.max(1, d.width), h = (w == null ? full : w) / 2;
-      const off = w == null ? 0 : -full / 2 + h;     // a share rides the band's top edge
-      const x0 = d.source.x1, x1 = d.target.x0, xm = (x0 + x1) / 2, a = d.y0 + off, b = d.y1 + off;
-      return `M${x0},${a - h}C${xm},${a - h} ${xm},${b - h} ${x1},${b - h}L${x1},${b + h}C${xm},${b + h} ${xm},${a + h} ${x0},${a + h}Z`;
+      const off = w == null ? 0 : -full / 2 + h;     // a share rides the band's left edge
+      const y0 = d.source.x1, y1 = d.target.x0, ym = (y0 + y1) / 2, a = d.y0 + off, b = d.y1 + off;
+      return `M${a - h},${y0}C${a - h},${ym} ${b - h},${ym} ${b - h},${y1}L${b + h},${y1}C${b + h},${ym} ${a + h},${ym} ${a + h},${y0}Z`;
     };
     svg.on("click", (ev) => { if (ev.target === svg.node()) { picked = null; paint(); } });
     const bands = svg.append("g").selectAll("path").data(g.links).join("path")
@@ -181,8 +207,8 @@ document.addEventListener("DOMContentLoaded", function () {
       .on("mouseleave", function () { if (!picked) d3.select(this).attr("fill-opacity", 0.42); });
     const share = svg.append("g").attr("pointer-events", "none");
     const blocks = svg.append("g").selectAll("rect").data(g.nodes).join("rect")
-      .attr("x", (d) => d.x0).attr("y", (d) => d.y0).attr("width", (d) => d.x1 - d.x0)
-      .attr("height", (d) => Math.max(1, d.y1 - d.y0)).attr("fill", (d) => T[d.kind])
+      .attr("x", (d) => d.y0).attr("y", (d) => d.x0).attr("width", (d) => Math.max(1, d.y1 - d.y0))
+      .attr("height", (d) => d.x1 - d.x0).attr("fill", (d) => T[d.kind])
       .on("click", (ev, d) => { ev.stopPropagation(); picked = picked && picked.node === d.id ? null : { node: d.id }; paint(); })
       .on("mouseenter", function () { d3.select(this).attr("stroke", T.ink).attr("stroke-width", 2); })
       .on("mouseleave", function () { d3.select(this).attr("stroke", null); });
@@ -199,31 +225,47 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     paint();
 
-    for (const d of g.nodes) {
-      const y = (d.y0 + d.y1) / 2;
-      if (d.kind === "publishing") {
-        svg.append("text").attr("x", (d.x0 + d.x1) / 2).attr("y", 18).attr("text-anchor", "middle")
-          .attr("font-weight", 700).attr("fill", T.ink).text(d.label.slice(-4));
-        // A merged paper's band joins the paper that absorbed it, so the
-        // block is taller than the count: the count is the papers publishing
-        // at the checkpoint, and what merged in is said beside it.
-        const merged = d.targetLinks.filter((l) => l.kind === "merged").reduce((s, l) => s + l.value, 0);
-        const papers = d.value - merged;
-        const t = svg.append("text").attr("x", d.x1 + 5).attr("y", y).attr("dy", "0.35em").attr("fill", T.ink);
-        t.append("tspan").attr("font-weight", 700).text(papers.toLocaleString());
-        if (merged) t.append("tspan").attr("x", d.x1 + 5).attr("dy", "1.2em").attr("fill", T.merged)
-          .attr("font-size", narrow ? 10 : 11).text(`+${merged} merged in`);
-      } else if (d.value >= (narrow ? 20 : 6)) {
-        svg.append("text").attr("x", d.x1 + 5).attr("y", y).attr("dy", "0.35em").attr("fill", T[d.kind])
-          .text(`${d.value.toLocaleString()} ${d.kind}`);
-      }
-    }
+    // The year gutter on the left, and on the right a note for every
+    // checkpoint (how many were publishing) and every span between two
+    // (founded, closed, merged) -- or the visual's own words where its
+    // settings give them (config.annotations, keyed by the span's end year).
+    const rows = g.nodes.filter((n) => n.kind === "publishing").sort((a, b) => a.col - b.col);
+    const notes = svg.append("g").attr("fill", T.muted);
+    const custom = NOTES || {};
+    const sumIn = (n, kind) => n.targetLinks.filter((l) => !kind || l.kind === kind).reduce((s, l) => s + l.value, 0);
+    rows.forEach((n, i) => {
+      const y = (n.x0 + n.x1) / 2;
+      svg.append("text").attr("x", left - 10).attr("y", y).attr("dy", "0.35em").attr("text-anchor", "end")
+        .attr("font-weight", 700).attr("fill", T.ink).text(n.label.slice(-4));
+      const merged = sumIn(n, "merged"), papers = n.value - merged;
+      const tx = notesW ? width - notesW + 8 : n.y1 + 6;
+      const t = svg.append("text").attr("x", tx).attr("y", y).attr("dy", "0.35em").attr("fill", T.ink);
+      t.append("tspan").attr("font-weight", 700).text(`${papers.toLocaleString()} publishing`);
+      if (merged) t.append("tspan").attr("fill", T.merged).attr("dx", 6).text(`+${merged} merged in`);
+      if (!notesW || i === 0) return;
+      const prev = rows[i - 1], ym = (prev.x1 + n.x0) / 2, end = n.label.slice(-4);
+      const founded = g.nodes.find((m) => m.kind === "founded" && m.col === prev.col);
+      const closed = g.nodes.find((m) => m.kind === "closed" && m.col === n.col);
+      const line = custom[end] || [
+        founded ? `${founded.value.toLocaleString()} founded` : null,
+        closed ? `${closed.value.toLocaleString()} closed` : null,
+        merged ? `${merged} merged into surviving papers` : null,
+      ].filter(Boolean).join(" · ");
+      const box = notes.append("text").attr("x", width - notesW + 8).attr("y", ym).attr("font-size", narrow ? 10.5 : 12);
+      box.append("tspan").attr("x", width - notesW + 8).attr("dy", "-0.2em").attr("fill", T.muted).text(`${prev.label.slice(-4) * 1 + 1}–${end}`);
+      // wrap the note to the column
+      const words = line.split(" "); let cur = "", lines = [];
+      for (const w of words) { if ((cur + " " + w).trim().length > (notesW / 6.6)) { lines.push(cur.trim()); cur = w; } else cur += " " + w; }
+      if (cur.trim()) lines.push(cur.trim());
+      lines.forEach((l) => box.append("tspan").attr("x", width - notesW + 8).attr("dy", "1.25em").attr("fill", T.ink).text(l));
+    });
   }
 
   load(0).then((body) => {
     rows = Array.isArray(body.data) ? body.data : [];
     flows = rows.filter((r) => r.source != null);
-    paths = rows.filter((r) => r.path != null).map((r) => r.path.map(Number));
+    // A path is one newspaper; newer feeds also name it (name, town, years).
+    paths = rows.filter((r) => r.path != null).map((r) => Object.assign(r.path.map(Number), { info: r }));
     if (!flows.length) { el.textContent = "No data."; return; }
     const v = document.querySelector(".dd-version");
     if (v && body.version) { v.textContent = ` · v${body.version}`; v.hidden = false; }

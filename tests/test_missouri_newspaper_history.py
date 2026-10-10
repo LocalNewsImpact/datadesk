@@ -102,3 +102,18 @@ def test_no_publisher_is_printed_ahead_of_the_note(client, visual):
     body = client.get("/embed/missouri-newspaper-history/").content.decode()
     assert "Source: Missouri School of Journalism analysis" in body
     assert "Local News Impact Consortium</a>" not in body
+
+
+def test_the_papers_that_survive_are_named(client, visual):
+    """A selection lists the papers still publishing, not only their count."""
+    body = client.get("/embed/missouri-newspaper-history/").content.decode()
+    assert "Publishing today" in body and "nh-living" in body
+
+
+def test_custom_era_notes_reach_the_page(client, visual):
+    """config.annotations (keyed by a span's end year) replaces that span's
+    generated note."""
+    notes = {"annotations": {"1905": "The peak."}}
+    Visual.objects.filter(pk=visual.pk).update(config=notes)
+    body = client.get("/embed/missouri-newspaper-history/").content.decode()
+    assert 'id="nh-notes"' in body and "The peak." in body
