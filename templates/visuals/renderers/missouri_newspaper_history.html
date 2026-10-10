@@ -15,7 +15,8 @@
 <figure class="dd-visual">
   {% if visual.config.title %}<h2 class="dd-title">{{ visual.config.title }}</h2>{% endif %}
   {% if visual.config.subtitle %}<p class="dd-subtitle">{{ visual.config.subtitle }}</p>{% endif %}
-  <div class="nr-panel" aria-live="polite"></div>
+  <p class="nr-hint"></p>
+  <div class="nr-card" aria-live="polite" hidden></div>
   <div class="dd-chart" id="nr-chart" data-feed="{{ feed }}" style="position: relative">Loading…</div>
   <figcaption class="dd-footer">
     <span class="dd-source">{% if visual.config.note %}Source: {{ visual.config.note }}{% endif %}
@@ -24,21 +25,25 @@
   </figcaption>
 </figure>
 <style>
-  /* a fixed height: a year's list of names must not push the river up and down the page */
-  .nr-panel { position: sticky; top: 0; z-index: 2; background: var(--bg); font-size: var(--fs-sm); color: var(--text-2);
-    padding: var(--s-2) 0; margin: 0 0 var(--s-2); height: 11em; overflow-y: auto; border-bottom: 1px solid var(--border); }
-  .nr-panel .nr-head { color: var(--text); font-size: var(--fs-md); font-weight: 600; margin: 0 0 var(--s-1); }
-  .nr-panel .nr-head b { font-variant-numeric: tabular-nums; }
-  .nr-panel .nr-list { margin: 0 0 var(--s-1); max-height: 7.5em; overflow-y: auto; }
-  .nr-panel .nr-list i { font-style: normal; font-weight: 600; margin-right: var(--s-1); }
-  .nr-panel .nr-more { color: var(--text-3); }
+  .nr-hint { font-size: var(--fs-sm); color: var(--text-2); margin: 0 0 var(--s-2); }
+  /* The details open beside the pointer, wherever the reader is on the page: a panel at the top was off
+     screen by the 1890s. It never takes the pointer, so it cannot steal the hover from the stream. */
+  .nr-card { position: fixed; z-index: 20; pointer-events: none; max-width: 26rem; max-height: 70vh; overflow: hidden;
+    background: var(--surface, var(--bg)); border: 1px solid var(--border); border-radius: 6px; padding: var(--s-2) var(--s-3);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14); font-size: var(--fs-sm); color: var(--text-2); }
+  .nr-card .nr-head { color: var(--text); font-size: var(--fs-md); font-weight: 600; margin: 0 0 var(--s-1); }
+  .nr-card .nr-head b { font-variant-numeric: tabular-nums; }
+  .nr-card .nr-list { margin: 0 0 var(--s-1); }
+  .nr-card .nr-list i { font-style: normal; font-weight: 600; margin-right: var(--s-1); }
+  .nr-card .nr-more { color: var(--text-3); }
   #nr-chart .nr-hit { cursor: pointer; }
 </style>
 <script src="{% static 'js/d3.min.js' %}" defer></script>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
   const el = document.getElementById("nr-chart");
-  const panel = document.querySelector(".nr-panel");
+  const hint = document.querySelector(".nr-hint");
+  const card = document.querySelector(".nr-card");
 
   // lnic chart slots: blue river, green founded, gold merged, red closed.
   const PALETTE = {
@@ -238,23 +243,30 @@ document.addEventListener("DOMContentLoaded", function () {
       strandSel.attr("opacity", (s) => (!on || on(s) ? 1 : 0.1));
     };
     const list = (kind, label, papers) => !papers.length ? "" :
-      `<p class="nr-list"><i style="color:${T[kind]}">${papers.length} ${label}</i>${papers.slice(0, 40).map(esc).join("; ")}` +
-      (papers.length > 40 ? ` <span class="nr-more">and ${papers.length - 40} more</span>` : "") + `</p>`;
-    const showYear = (y) => {
+      `<p class="nr-list"><i style="color:${T[kind]}">${papers.length} ${label}</i>${papers.slice(0, 25).map(esc).join("; ")}` +
+      (papers.length > 25 ? ` <span class="nr-more">and ${papers.length - 25} more</span>` : "") + `</p>`;
+    const showYear = (y, ev) => {
       const r = by.get(y);
-      panel.innerHTML = `<p class="nr-head">${y}: <b>${r.publishing}</b> publishing</p>` +
+      card.innerHTML = `<p class="nr-head">${y}: <b>${r.publishing}</b> publishing</p>` +
         list("founded", "founded:", r.founded) + list("merged", r.merged.length === 1 ? "merger:" : "mergers:", r.merged) +
         list("closed", "closed:", r.closed) +
         (r.founded.length + r.merged.length + r.closed.length ? "" : `<p class="nr-list">No papers founded, merged or closed.</p>`);
       paint((s) => s.y === y);   // only that year's own path, margin to river
+      // beside the pointer: to its right on the left half of the window, to its left on the right half,
+      // and kept inside the window top to bottom
+      card.hidden = false;
+      const cw = card.offsetWidth, ch = card.offsetHeight, px = ev ? ev.clientX : innerWidth / 2, py = ev ? ev.clientY : innerHeight / 2;
+      card.style.left = `${Math.max(8, Math.min(px < innerWidth / 2 ? px + 18 : px - 18 - cw, innerWidth - cw - 8))}px`;
+      card.style.top = `${Math.max(8, Math.min(py - 24, innerHeight - ch - 8))}px`;
     };
     // Leaving a stream does not reset at once: moving to a neighbouring creek would flash the whole river
     // back to full strength in between. The reset waits, and entering another stream cancels it.
     let resetTimer = null;
-    const reset = () => { panel.textContent = HINT; paint(null); };
+    const reset = () => { card.hidden = true; paint(null); };
     const later = () => { clearTimeout(resetTimer); resetTimer = setTimeout(reset, 350); };
-    const enter = (s) => { clearTimeout(resetTimer); showYear(s.y); };
-    hitSel.on("mouseenter click", (ev, s) => enter(s)).on("mouseleave", later);
+    const enter = (ev, s) => { clearTimeout(resetTimer); showYear(s.y, ev); };
+    hitSel.on("mouseenter click", enter).on("mouseleave", later);
+    hint.textContent = HINT;
     reset();
   }
 
