@@ -38,7 +38,7 @@ document.addEventListener("DOMContentLoaded", function () {
     light: { publishing: "#00618f", founded: "#1baf7a", merged: "#eda100", closed: "#e34948", ink: "#0b0b0b", muted: "#78818f" },
     dark:  { publishing: "#2f9ecf", founded: "#199e70", merged: "#c98500", closed: "#e66767", ink: "#ffffff", muted: "#a5aebc" },
   };
-  const LABEL = { publishing: "Still publishing at the next date", founded: "Founded", merged: "Merged into another paper", closed: "Closed" };
+  const LABEL = { publishing: "Still publishing at the next checkpoint", founded: "Founded", merged: "Merged into a surviving paper (band joins it)", closed: "Closed" };
   const RANK = { publishing: 0, founded: 1, merged: 2, closed: 3 };
   function mode() {
     const set = document.documentElement.getAttribute("data-theme");
@@ -103,7 +103,9 @@ document.addEventListener("DOMContentLoaded", function () {
       .attr("height", (d) => Math.max(1, d.y1 - d.y0)).attr("fill", (d) => T[d.kind])
       .on("mousemove", function (ev, d) {
         bands.attr("stroke-opacity", (b) => (b.source === d || b.target === d ? 0.8 : 0.12));
-        show(ev, `<strong>${d.label}</strong><span class="dd-tip-k">Newspapers</span><span class="dd-tip-v">${d.value.toLocaleString()}</span>`);
+        const merged = d.targetLinks.filter((l) => l.kind === "merged").reduce((s, l) => s + l.value, 0);
+        show(ev, `<strong>${d.label}</strong><span class="dd-tip-k">Newspapers</span><span class="dd-tip-v">${(d.value - (d.kind === "publishing" ? merged : 0)).toLocaleString()}</span>` +
+          (merged ? `<span class="dd-tip-k">${d.kind === "publishing" ? "Merged into these" : "Of them, merged into papers that closed"}</span><span class="dd-tip-v">${merged}</span>` : ""));
       })
       .on("mouseleave", hide);
 
@@ -112,8 +114,15 @@ document.addEventListener("DOMContentLoaded", function () {
       if (d.kind === "publishing") {
         svg.append("text").attr("x", (d.x0 + d.x1) / 2).attr("y", 18).attr("text-anchor", "middle")
           .attr("font-weight", 700).attr("fill", T.ink).text(d.label.slice(-4));
-        svg.append("text").attr("x", d.x1 + 5).attr("y", y).attr("dy", "0.35em").attr("font-weight", 700)
-          .attr("fill", T.ink).text(d.value.toLocaleString());
+        // A merged paper's band joins the paper that absorbed it, so the
+        // block is taller than the count: the count is the papers publishing
+        // at the checkpoint, and what merged in is said beside it.
+        const merged = d.targetLinks.filter((l) => l.kind === "merged").reduce((s, l) => s + l.value, 0);
+        const papers = d.value - merged;
+        const t = svg.append("text").attr("x", d.x1 + 5).attr("y", y).attr("dy", "0.35em").attr("fill", T.ink);
+        t.append("tspan").attr("font-weight", 700).text(papers.toLocaleString());
+        if (merged) t.append("tspan").attr("x", d.x1 + 5).attr("dy", "1.2em").attr("fill", T.merged)
+          .attr("font-size", narrow ? 10 : 11).text(`+${merged} merged in`);
       } else if (d.value >= (narrow ? 20 : 6)) {
         svg.append("text").attr("x", d.x1 + 5).attr("y", y).attr("dy", "0.35em").attr("fill", T[d.kind])
           .text(`${d.value.toLocaleString()} ${d.kind}`);
