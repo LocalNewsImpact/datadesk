@@ -38,8 +38,9 @@ document.addEventListener("DOMContentLoaded", function () {
     light: { publishing: "#00618f", founded: "#1baf7a", merged: "#eda100", closed: "#e34948", ink: "#0b0b0b", muted: "#78818f" },
     dark:  { publishing: "#2f9ecf", founded: "#199e70", merged: "#c98500", closed: "#e66767", ink: "#ffffff", muted: "#a5aebc" },
   };
-  const LABEL = { publishing: "Still publishing at the next date", founded: "Founded", merged: "Merged into another paper", closed: "Closed" };
+  const LABEL = { publishing: "Still publishing at the next checkpoint", founded: "Founded", merged: "Merged into a surviving paper (band joins it)", closed: "Closed" };
   const RANK = { publishing: 0, founded: 1, merged: 2, closed: 3 };
+  const LINK_RANK = { publishing: 0, merged: 1, closed: 2 };
   function mode() {
     const set = document.documentElement.getAttribute("data-theme");
     if (set) return set === "dark" ? "dark" : "light";
@@ -73,11 +74,29 @@ document.addEventListener("DOMContentLoaded", function () {
     const layout = d3.sankey().nodeId((d) => d.id).nodeAlign((d) => d.col)
       .nodeWidth(12).nodePadding(narrow ? 10 : 15)
       .nodeSort((a, b) => RANK[a.kind] - RANK[b.kind])
+      // One band order at every block, so a kind of band sits in the same
+      // place in every year: papers carrying on, then papers merged in, then
+      // closures; within a kind, existing papers before newly founded ones.
+      .linkSort((a, b) => (LINK_RANK[a.kind] - LINK_RANK[b.kind]) ||
+        (RANK[a.source.kind] - RANK[b.source.kind]) || (RANK[a.target.kind] - RANK[b.target.kind]))
+      .iterations(0)
       .extent([[24, 30], [width - (narrow ? 90 : 130), height - 6]]);
     const g = layout({
       nodes: [...nodes.values()].map((d) => ({ ...d })),
       links: rows.map((r) => ({ source: r.source, target: r.target, kind: r.kind, value: +r.value })),
     });
+    // Every column stacks from the top in one order -- publishing, founded,
+    // closed -- so the publishing blocks share a top edge and the bands that
+    // carry papers on run level. The layout's own relaxation let a column
+    // drift against its neighbours and the bands cross for no reason.
+    const pad = narrow ? 10 : 15;
+    for (const [, ns] of d3.group(g.nodes, (d) => d.col)) {
+      let top = 30;
+      ns.sort((a, b) => RANK[a.kind] - RANK[b.kind]).forEach((n) => {
+        const h = n.y1 - n.y0; n.y0 = top; n.y1 = top + h; top += h + pad;
+      });
+    }
+    layout.update(g);
 
     const tip = document.createElement("div");
     tip.className = "dd-tip"; tip.hidden = true; el.appendChild(tip);
@@ -87,13 +106,21 @@ document.addEventListener("DOMContentLoaded", function () {
       tip.style.left = Math.min(ev.clientX - box.left + 12, box.width - 260) + "px";
       tip.style.top = (ev.clientY - box.top + 12) + "px";
     };
-    const hide = () => { tip.hidden = true; bands.attr("stroke-opacity", 0.42); };
+    const hide = () => { tip.hidden = true; bands.attr("fill-opacity", 0.42); };
 
-    const bands = svg.append("g").attr("fill", "none").selectAll("path").data(g.links).join("path")
-      .attr("d", d3.sankeyLinkHorizontal()).attr("stroke", (d) => T[d.kind])
-      .attr("stroke-opacity", 0.42).attr("stroke-width", (d) => Math.max(1, d.width))
+    // Each band is a filled shape whose top and bottom edges meet the blocks
+    // exactly. A thick stroke along one curve narrows on a steep drop and
+    // overshoots the block it lands on -- most visibly 1876-1900's founded
+    // papers falling to that span's closures.
+    const band = (d) => {
+      const x0 = d.source.x1, x1 = d.target.x0, xm = (x0 + x1) / 2, h = Math.max(1, d.width) / 2, a = d.y0, b = d.y1;
+      return `M${x0},${a - h}C${xm},${a - h} ${xm},${b - h} ${x1},${b - h}L${x1},${b + h}C${xm},${b + h} ${xm},${a + h} ${x0},${a + h}Z`;
+    };
+    const bands = svg.append("g").selectAll("path").data(g.links).join("path")
+      .attr("d", band).attr("fill", (d) => T[d.kind])
+      .attr("fill-opacity", 0.42)
       .on("mousemove", function (ev, d) {
-        bands.attr("stroke-opacity", (b) => (b === d ? 0.8 : 0.12));
+        bands.attr("fill-opacity", (b) => (b === d ? 0.8 : 0.12));
         show(ev, `<strong>${d.source.label} → ${d.target.label}</strong><span class="dd-tip-k">Newspapers</span><span class="dd-tip-v">${d.value.toLocaleString()}</span>`);
       })
       .on("mouseleave", hide);
@@ -102,8 +129,10 @@ document.addEventListener("DOMContentLoaded", function () {
       .attr("x", (d) => d.x0).attr("y", (d) => d.y0).attr("width", (d) => d.x1 - d.x0)
       .attr("height", (d) => Math.max(1, d.y1 - d.y0)).attr("fill", (d) => T[d.kind])
       .on("mousemove", function (ev, d) {
-        bands.attr("stroke-opacity", (b) => (b.source === d || b.target === d ? 0.8 : 0.12));
-        show(ev, `<strong>${d.label}</strong><span class="dd-tip-k">Newspapers</span><span class="dd-tip-v">${d.value.toLocaleString()}</span>`);
+        bands.attr("fill-opacity", (b) => (b.source === d || b.target === d ? 0.8 : 0.12));
+        const merged = d.targetLinks.filter((l) => l.kind === "merged").reduce((s, l) => s + l.value, 0);
+        show(ev, `<strong>${d.label}</strong><span class="dd-tip-k">Newspapers</span><span class="dd-tip-v">${(d.value - (d.kind === "publishing" ? merged : 0)).toLocaleString()}</span>` +
+          (merged ? `<span class="dd-tip-k">${d.kind === "publishing" ? "Merged into these" : "Of them, merged into papers that closed"}</span><span class="dd-tip-v">${merged}</span>` : ""));
       })
       .on("mouseleave", hide);
 
@@ -112,8 +141,15 @@ document.addEventListener("DOMContentLoaded", function () {
       if (d.kind === "publishing") {
         svg.append("text").attr("x", (d.x0 + d.x1) / 2).attr("y", 18).attr("text-anchor", "middle")
           .attr("font-weight", 700).attr("fill", T.ink).text(d.label.slice(-4));
-        svg.append("text").attr("x", d.x1 + 5).attr("y", y).attr("dy", "0.35em").attr("font-weight", 700)
-          .attr("fill", T.ink).text(d.value.toLocaleString());
+        // A merged paper's band joins the paper that absorbed it, so the
+        // block is taller than the count: the count is the papers publishing
+        // at the checkpoint, and what merged in is said beside it.
+        const merged = d.targetLinks.filter((l) => l.kind === "merged").reduce((s, l) => s + l.value, 0);
+        const papers = d.value - merged;
+        const t = svg.append("text").attr("x", d.x1 + 5).attr("y", y).attr("dy", "0.35em").attr("fill", T.ink);
+        t.append("tspan").attr("font-weight", 700).text(papers.toLocaleString());
+        if (merged) t.append("tspan").attr("x", d.x1 + 5).attr("dy", "1.2em").attr("fill", T.merged)
+          .attr("font-size", narrow ? 10 : 11).text(`+${merged} merged in`);
       } else if (d.value >= (narrow ? 20 : 6)) {
         svg.append("text").attr("x", d.x1 + 5).attr("y", y).attr("dy", "0.35em").attr("fill", T[d.kind])
           .text(`${d.value.toLocaleString()} ${d.kind}`);

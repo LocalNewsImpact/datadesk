@@ -75,3 +75,12 @@ def test_the_feed_serves_the_pinned_flows(client, visual):
     feed = client.get("/visuals/missouri-newspaper-history/data.json").json()
     assert feed["version"] == 1
     assert feed["data"] == ROWS
+
+
+def test_a_merged_paper_joins_the_survivor_and_is_not_counted_twice(client, visual):
+    """A merger is drawn into the paper that absorbed it, so the publishing
+    block's count leaves the merged-in papers out and names them beside it."""
+    body = client.get("/embed/missouri-newspaper-history/").content.decode()
+    assert "Merged into a surviving paper" in body
+    assert "merged in" in body
+    assert "Still publishing at the next checkpoint" in body
