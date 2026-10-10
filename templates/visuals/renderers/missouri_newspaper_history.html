@@ -40,6 +40,7 @@ document.addEventListener("DOMContentLoaded", function () {
   };
   const LABEL = { publishing: "Still publishing at the next checkpoint", founded: "Founded", merged: "Merged into a surviving paper (band joins it)", closed: "Closed" };
   const RANK = { publishing: 0, founded: 1, merged: 2, closed: 3 };
+  const LINK_RANK = { publishing: 0, merged: 1, closed: 2 };
   function mode() {
     const set = document.documentElement.getAttribute("data-theme");
     if (set) return set === "dark" ? "dark" : "light";
@@ -73,11 +74,29 @@ document.addEventListener("DOMContentLoaded", function () {
     const layout = d3.sankey().nodeId((d) => d.id).nodeAlign((d) => d.col)
       .nodeWidth(12).nodePadding(narrow ? 10 : 15)
       .nodeSort((a, b) => RANK[a.kind] - RANK[b.kind])
+      // One band order at every block, so a kind of band sits in the same
+      // place in every year: papers carrying on, then papers merged in, then
+      // closures; within a kind, existing papers before newly founded ones.
+      .linkSort((a, b) => (LINK_RANK[a.kind] - LINK_RANK[b.kind]) ||
+        (RANK[a.source.kind] - RANK[b.source.kind]) || (RANK[a.target.kind] - RANK[b.target.kind]))
+      .iterations(0)
       .extent([[24, 30], [width - (narrow ? 90 : 130), height - 6]]);
     const g = layout({
       nodes: [...nodes.values()].map((d) => ({ ...d })),
       links: rows.map((r) => ({ source: r.source, target: r.target, kind: r.kind, value: +r.value })),
     });
+    // Every column stacks from the top in one order -- publishing, founded,
+    // closed -- so the publishing blocks share a top edge and the bands that
+    // carry papers on run level. The layout's own relaxation let a column
+    // drift against its neighbours and the bands cross for no reason.
+    const pad = narrow ? 10 : 15;
+    for (const [, ns] of d3.group(g.nodes, (d) => d.col)) {
+      let top = 30;
+      ns.sort((a, b) => RANK[a.kind] - RANK[b.kind]).forEach((n) => {
+        const h = n.y1 - n.y0; n.y0 = top; n.y1 = top + h; top += h + pad;
+      });
+    }
+    layout.update(g);
 
     const tip = document.createElement("div");
     tip.className = "dd-tip"; tip.hidden = true; el.appendChild(tip);
