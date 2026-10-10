@@ -1,5 +1,5 @@
-"""The family tree of Missouri's newspapers still publishing: a one-off
-renderer that still publishes, pins and caches like every other visual."""
+"""The family trees of one county's newspapers: a one-off renderer that
+still publishes, pins and caches like every other visual."""
 
 from unittest import mock
 
@@ -12,24 +12,28 @@ pytestmark = pytest.mark.django_db
 
 ROWS = [
     {
-        "paper": 1,
-        "paper_title": "Trenton Republican-times",
+        "kind": "title",
+        "id": 2,
         "county": "Grundy",
-        "town_now": "Trenton",
-        "source": 2,
-        "source_label": "Republican-times",
-        "source_town": "Trenton",
-        "source_start": 1945,
-        "source_end": 1952,
-        "source_role": "renamed",
-        "target": 1,
-        "target_label": "Trenton Republican-times",
-        "target_town": "Trenton",
-        "target_start": 1964,
-        "target_end": None,
-        "target_role": "current",
-        "value": 1,
-    }
+        "town": "Trenton",
+        "title": "Republican-times",
+        "start": 1945,
+        "end": 1952,
+        "live": False,
+        "alone": False,
+    },
+    {
+        "kind": "title",
+        "id": 1,
+        "county": "Grundy",
+        "town": "Trenton",
+        "title": "Trenton Republican-times",
+        "start": 1964,
+        "end": None,
+        "live": True,
+        "alone": False,
+    },
+    {"kind": "link", "source": 2, "target": 1, "how": "renamed"},
 ]
 
 
@@ -61,9 +65,24 @@ def test_the_embed_offers_a_county_and_a_search(client, visual):
     page = client.get("/embed/missouri-newspaper-lineages/")
     assert page.status_code == 200
     body = page.content.decode()
-    assert 'class="nl-county"' in body and 'class="nl-find"' in body
-    assert 'id="nl-overview"' in body and 'id="nl-tree"' in body
+    assert 'class="ft-county"' in body and 'class="ft-find"' in body
+    assert 'id="ft-chart"' in body
     assert "/visuals/missouri-newspaper-lineages/data.json" in body
+
+
+def test_one_county_is_drawn_at_a_time_with_no_statewide_overview(client, visual):
+    """The page is the county tree; the statewide line-per-paper overview,
+    which could not show branching, is gone."""
+    body = client.get("/embed/missouri-newspaper-lineages/").content.decode()
+    assert "nl-overview" not in body
+    assert "Also show papers with no recorded link" in body
+    assert "Merged" in body and "Split" in body
+
+
+def test_a_default_county_comes_from_the_config(client, visual):
+    Visual.objects.filter(pk=visual.pk).update(config={"county": "Boone"})
+    body = client.get("/embed/missouri-newspaper-lineages/").content.decode()
+    assert 'data-county="Boone"' in body
 
 
 def test_the_feed_serves_the_pinned_tree(client, visual):
