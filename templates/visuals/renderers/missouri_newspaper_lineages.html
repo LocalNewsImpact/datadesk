@@ -1,24 +1,31 @@
 {% load static %}
-{# A one-off renderer: the family tree of every Missouri newspaper still #}
-{# publishing -- its earlier names and every paper merged into it -- as a #}
-{# sankey laid on a real time axis. A reader picks a county and a paper; #}
-{# a band widens wherever papers merge, because its width counts the #}
-{# founding titles flowing through it. #}
+{# A one-off renderer: every Missouri newspaper publishing today, on one #}
+{# time axis, and the family tree behind any of them. #}
 {#                                                                        #}
-{# Each feed row is one edge (an earlier title -> the title it became or #}
-{# merged into), tagged with the current paper whose tree it belongs to. #}
+{# The overview draws each current paper as a line back into time, from #}
+{# its oldest known ancestor to today, sorted by age, with a mark wherever #}
+{# another paper merged into it. Hovering a line draws that paper's tree #}
+{# beneath: its earlier names along the first row, every paper merged into #}
+{# it on rows of their own, joining where they were absorbed. Choosing a #}
+{# county highlights all of its papers and draws all of their trees. #}
+{#                                                                        #}
+{# The feed holds two kinds of row. kind "paper": one per current paper #}
+{# (its start, its oldest ancestor's start, the years papers merged in). #}
+{# An edge: an earlier title -> the title it became or merged into, tagged #}
+{# with the current paper whose tree it belongs to. #}
 <figure class="dd-visual">
   {% if visual.config.title %}<h2 class="dd-title">{{ visual.config.title }}</h2>{% endif %}
   {% if visual.config.subtitle %}<p class="dd-subtitle">{{ visual.config.subtitle }}</p>{% endif %}
   <div class="nl-controls">
-    <label>County <select class="nl-county"></select></label>
-    <label>Newspaper <select class="nl-paper"></select></label>
+    <label>County <select class="nl-county"><option value="">All of Missouri</option></select></label>
+    <label>Find a newspaper <input class="nl-find" type="search" list="nl-papers" placeholder="Name or town"></label>
+    <datalist id="nl-papers"></datalist>
   </div>
   <div class="nl-legend" aria-hidden="true"></div>
-  <div class="dd-chart" id="nl-chart" data-feed="{{ feed }}" style="position: relative">Loading…</div>
+  <div class="dd-chart" id="nl-overview" data-feed="{{ feed }}" style="position: relative">Loading…</div>
+  <div class="nl-tree" aria-live="polite"><div id="nl-tree"></div></div>
   <figcaption class="dd-footer">
-    <span class="dd-source">Source:
-      {% if credit_name %}{% if credit_href %}<a href="{{ credit_href }}">{{ credit_name }}</a>{% else %}{{ credit_name }}{% endif %}{% else %}<a href="https://localnewsimpact.org">Local News Impact Consortium</a>{% endif %}{% if visual.config.note %}. {{ visual.config.note }}{% endif %}
+    <span class="dd-source">{% if visual.config.note %}Source: {{ visual.config.note }}{% endif %}
       <span class="dd-version" hidden></span>
     </span>
   </figcaption>
@@ -26,25 +33,32 @@
 <style>
   .nl-controls { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); margin: var(--s-2) 0; font-size: var(--fs-sm); }
   .nl-controls label { display: inline-flex; align-items: center; gap: var(--s-2); color: var(--text-2); }
-  .nl-controls select { font: inherit; padding: 0.2rem 0.4rem; max-width: 22rem; }
+  .nl-controls input, .nl-controls select { font: inherit; padding: 0.2rem 0.4rem; }
+  .nl-controls input { width: 16rem; max-width: 60vw; }
   .nl-legend { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-5); font-size: var(--fs-sm); margin: 0 0 var(--s-2); }
   .nl-legend span { display: inline-flex; align-items: center; gap: var(--s-2); }
   .nl-legend i { width: 0.8rem; height: 0.8rem; border-radius: 2px; display: inline-block; }
+  .nl-tree { margin-top: var(--s-3); border-top: 1px solid var(--border); padding-top: var(--s-3); }
+  .nl-tree h3 { font-size: var(--fs-lg); margin: var(--s-3) 0 var(--s-1); }
+  .nl-tree h3 small { font-weight: 400; color: var(--text-2); font-size: var(--fs-sm); }
+  .nl-tree .nl-hint { color: var(--text-2); font-size: var(--fs-sm); margin: 0; }
+  #nl-overview rect.hit { cursor: pointer; }
 </style>
 <script src="{% static 'js/d3.min.js' %}" defer></script>
-<script src="{% static 'js/d3-sankey.min.js' %}" defer></script>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-  const el = document.getElementById("nl-chart");
+  const over = document.getElementById("nl-overview");
+  const treeEl = document.getElementById("nl-tree");
   const legend = document.querySelector(".nl-legend");
+  const find = document.querySelector(".nl-find");
   const countySel = document.querySelector(".nl-county");
-  const paperSel = document.querySelector(".nl-paper");
+  const list = document.getElementById("nl-papers");
 
-  // lnic chart slots: blue for the paper publishing today, the lighter
-  // blue for its own earlier names, gold for papers merged into it.
+  // lnic chart slots: blue for the paper publishing today, the lighter blue
+  // for its own earlier names, gold for papers merged into it.
   const PALETTE = {
-    light: { current: "#00618f", renamed: "#59bbeb", merged: "#eda100", ink: "#0b0b0b", muted: "#78818f", grid: "#e1e0d9", bg: "#fcfcfb" },
-    dark:  { current: "#2f9ecf", renamed: "#1d6f9e", merged: "#c98500", ink: "#ffffff", muted: "#a5aebc", grid: "#2c2c2a", bg: "#1a1a19" },
+    light: { current: "#00618f", renamed: "#59bbeb", merged: "#eda100", ink: "#0b0b0b", muted: "#78818f", grid: "#e1e0d9", bg: "#fcfcfb", rest: "#c9d6de" },
+    dark:  { current: "#2f9ecf", renamed: "#1d6f9e", merged: "#c98500", ink: "#ffffff", muted: "#a5aebc", grid: "#2c2c2a", bg: "#1a1a19", rest: "#33414b" },
   };
   const LABEL = { current: "Publishing today", renamed: "An earlier name of the same paper", merged: "A paper merged into it" };
   function mode() {
@@ -53,8 +67,9 @@ document.addEventListener("DOMContentLoaded", function () {
     return window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
   const years = (s, e) => `${s ?? "?"}–${e ?? "today"}`;
+  const NOW = 2026;
 
-  const load = (attempt) => fetch(el.dataset.feed).then((r) => {
+  const load = (attempt) => fetch(over.dataset.feed).then((r) => {
     if (r.status === 202 && attempt < 120) {
       return r.json().catch(() => ({})).then((body) =>
         new Promise((resolve) => setTimeout(resolve, (body.retry_after || 3) * 1000)).then(() => load(attempt + 1)));
@@ -62,49 +77,87 @@ document.addEventListener("DOMContentLoaded", function () {
     return r.json();
   });
 
-  let rows = [];
-  let papers = new Map();     // paper id -> {title, county, town, size}
+  // papers: every current paper, oldest roots first. focus: the papers whose
+  // trees are drawn (a hovered or found paper, or a whole county).
+  let papers = [], edges = [], focus = [], pinned = false;
 
-  function fillPapers(county, keep) {
-    const list = [...papers.values()].filter((p) => p.county === county)
-      .sort((a, b) => b.size - a.size || a.title.localeCompare(b.title));
-    paperSel.innerHTML = `<option value="all">All ${list.length} in ${county}</option>` +
-      list.map((p) => `<option value="${p.id}">${p.title} (${p.town})</option>`).join("");
-    paperSel.value = keep && list.some((p) => String(p.id) === String(keep)) ? keep : (list.length === 1 ? String(list[0].id) : String(list[0].id));
+  // ----- the overview: lines back into time ------------------------------
+  let paintOverview = () => {};
+  function drawOverview() {
+    const T = PALETTE[mode()];
+    legend.innerHTML = Object.keys(LABEL).map((k) => `<span><i style="background:${T[k]}"></i>${LABEL[k]}</span>`).join("");
+    const width = Math.max(640, over.clientWidth || 960);
+    const ROW = 4, top = 22, bottom = 26;
+    const height = top + papers.length * ROW + bottom;
+    const x = d3.scaleLinear().domain([1830, NOW]).range([12, width - 12]);
+    const svg = d3.create("svg").attr("viewBox", [0, 0, width, height]).attr("width", width).attr("height", height)
+      .attr("font-family", "var(--font-sans)").attr("font-size", 11);
+    over.replaceChildren(svg.node());
+    const ticks = x.ticks(Math.max(4, Math.floor(width / 110))).filter((t) => t % 1 === 0);
+    svg.append("g").selectAll("line").data(ticks).join("line").attr("x1", x).attr("x2", x).attr("y1", top - 4).attr("y2", height - bottom + 2).attr("stroke", T.grid);
+    svg.append("g").selectAll("text").data(ticks).join("text").attr("x", x).attr("y", height - 8).attr("text-anchor", "middle").attr("fill", T.muted).text((t) => t);
+    svg.append("text").attr("x", 12).attr("y", 12).attr("fill", T.muted)
+      .text(`${papers.length} newspapers publishing today, each drawn back to its oldest known ancestor; oldest first`);
+    const yOf = (i) => top + i * ROW + ROW / 2;
+    const g = svg.append("g");
+    const rows = g.selectAll("g").data(papers).join("g");
+    // the paper's history before its current name, then its current name, then where papers merged in
+    const past = rows.append("line").attr("x1", (p) => x(p.root_start)).attr("x2", (p) => x(p.own_start ?? p.root_start))
+      .attr("y1", (p, i) => yOf(i)).attr("y2", (p, i) => yOf(i)).attr("stroke-width", ROW - 1);
+    const now = rows.append("line").attr("x1", (p) => x(p.own_start ?? p.root_start)).attr("x2", x(NOW))
+      .attr("y1", (p, i) => yOf(i)).attr("y2", (p, i) => yOf(i)).attr("stroke-width", ROW - 1);
+    const marks = rows.selectAll("rect").data((p, i) => (p.merge_years || []).map((y) => ({ y, i }))).join("rect")
+      .attr("x", (m) => x(m.y) - 1.5).attr("y", (m) => yOf(m.i) - ROW / 2 - 1).attr("width", 3).attr("height", ROW + 2);
+    const names = svg.append("g");
+    paintOverview = () => {
+      const on = new Set(focus);
+      const lit = (p) => !on.size || on.has(p);
+      past.attr("stroke", (p) => (lit(p) ? T.renamed : T.rest));
+      now.attr("stroke", (p) => (lit(p) ? T.current : T.rest));
+      marks.attr("fill", function () { return lit(d3.select(this.parentNode).datum()) ? T.merged : T.rest; });
+      // name the focused papers beside their lines, when there are few enough to read
+      const named = on.size && on.size <= 12 ? papers.map((p, i) => ({ p, i })).filter(({ p }) => on.has(p)) : [];
+      names.selectAll("text").data(named).join("text")
+        .attr("x", ({ p }) => Math.max(x(p.root_start) - 6, 4)).attr("y", ({ i }) => yOf(i) + 4)
+        .attr("text-anchor", ({ p }) => (x(p.root_start) - 6 > 160 ? "end" : "start"))
+        .attr("fill", T.ink).attr("font-weight", 700).attr("paint-order", "stroke").attr("stroke", T.bg).attr("stroke-width", 3)
+        .text(({ p }) => `${p.paper_title}, ${p.town_now}`);
+    };
+    // the whole row answers, not only its line, so a short one can be found
+    svg.append("g").selectAll("rect").data(papers).join("rect").attr("class", "hit")
+      .attr("x", 0).attr("width", width).attr("y", (p, i) => yOf(i) - ROW / 2).attr("height", ROW).attr("fill", "transparent")
+      .on("mouseenter", (ev, p) => { if (!pinned) show([p]); })
+      .on("mouseleave", () => { if (!pinned) show(countyPapers()); })
+      .on("click", (ev, p) => { pinned = !(pinned && focus.length === 1 && focus[0] === p); show(pinned ? [p] : countyPapers()); });
+    paintOverview();
   }
 
-  // One paper's tree as rows of descent. Row 0 is the paper itself and its
-  // earlier names, followed back at each merger through the predecessor
-  // whose name is closest to the paper's name today -- the one that carried
-  // on -- and the oldest where names do not decide it. Every other predecessor starts a row
-  // of its own beneath -- a paper merged in, with its own earlier names.
-  // How much two titles share, by word: "Republican-times" is closer to
-  // "Trenton Republican-times" than "Grundy County Gazette" is.
+  // ----- family trees ----------------------------------------------------
   const words = (t) => new Set(t.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w.length > 2 && !["the", "and"].includes(w)));
   function like(a, b) {
     const A = words(a), B = words(b); let n = 0;
     for (const w of A) if (B.has(w)) n++;
     return n / Math.max(1, Math.min(A.size, B.size));
   }
-  function chains(paperId, nodes, preds) {
-    const out = [];
+  // Row 0 is the paper and its earlier names, followed back at each merger
+  // through the predecessor whose name is closest to today's (the paper that
+  // carried on), oldest where names do not decide it. Every other predecessor
+  // starts a row of its own beneath, joining where it was absorbed.
+  function chains(top, preds) {
+    const out = [], pending = [], seen = new Set();
     const walk = (start, role) => {
       const row = []; let n = start;
       while (n && !seen.has(n)) {
-        seen.add(n);
-        row.unshift(n);
+        seen.add(n); row.unshift(n);
         const ps = (preds.get(n.key) || []).slice().sort((a, b) =>
-          (role === "current" ? like(b.label, start.label) - like(a.label, start.label) : 0) ||
-          (a.start ?? 9999) - (b.start ?? 9999));
-        const main = ps[0];
+          (role === "current" ? like(b.label, start.label) - like(a.label, start.label) : 0) || (a.start ?? 9999) - (b.start ?? 9999));
         for (const other of ps.slice(1)) pending.push([other, n]);
-        n = main;
+        n = ps[0];
       }
-      for (const t of row) t.role = role === "current" && t === row[row.length - 1] ? "current" : role === "current" ? "renamed" : "merged";
+      for (const t of row) t.role = role === "current" ? (t === row[row.length - 1] ? "current" : "renamed") : "merged";
       out.push(row);
     };
-    const pending = [], seen = new Set();   // seen: a catalogue loop must not walk forever
-    walk(nodes.get(paperId), "current");
+    walk(top, "current");
     while (pending.length) {
       const [n, into] = pending.shift();
       if (seen.has(n)) continue;
@@ -112,143 +165,110 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     return out;
   }
-
-  function draw() {
-    const T = PALETTE[mode()];
-    legend.innerHTML = Object.keys(LABEL).map((k) => `<span><i style="background:${T[k]}"></i>${LABEL[k]}</span>`).join("");
-    const county = countySel.value, pick = paperSel.value;
-    const chosen = [...papers.values()].filter((p) => p.county === county && (pick === "all" || String(p.id) === pick))
-      .sort((a, b) => b.size - a.size);
-    const width = Math.max(640, el.clientWidth || 960);
-    const narrow = width < 900;
-    const ROW = narrow ? 30 : 34, GAP = 26, BAR = 9;
-
-    // Build every chosen paper's rows, deduplicating catalogue entries that
-    // repeat a title with the same first year under two ids.
-    const blocks = [];
-    let minYear = 2026;
-    for (const p of chosen) {
-      const nodes = new Map(), preds = new Map(), byId = new Map();
-      const node = (id, label, town, start, end) => {
-        const key = label.toLowerCase() + "|" + start;
-        if (!nodes.has(key)) nodes.set(key, { key, label, town, start, end });
-        const n = nodes.get(key); byId.set(String(id), n);
-        if (end == null) n.end = null; else if (n.end != null) n.end = Math.max(n.end, end);
-        return n;
-      };
-      for (const r of rows.filter((r) => r.paper === p.id)) {
-        const a = node(r.source, r.source_label, r.source_town, r.source_start, r.source_end);
-        const b = node(r.target, r.target_label, r.target_town, r.target_start, r.target_end);
-        if (a === b) continue;
-        if (!preds.has(b.key)) preds.set(b.key, []);
-        if (!preds.get(b.key).includes(a)) preds.get(b.key).push(a);
-      }
-      const top = byId.get(String(p.id)) || [...nodes.values()].find((n) => n.end == null);
-      if (!top) continue;
-      nodes.set(p.id, top);
-      const rowsOf = chains(p.id, nodes, preds);
-      for (const row of rowsOf) for (const t of row) if (t.start) minYear = Math.min(minYear, t.start);
-      blocks.push({ paper: p, rows: rowsOf });
+  function treeOf(p) {
+    const nodes = new Map(), preds = new Map(), byId = new Map();
+    const node = (id, label, town, start, end) => {
+      const key = label.toLowerCase() + "|" + start;
+      if (!nodes.has(key)) nodes.set(key, { key, label, town, start, end });
+      const n = nodes.get(key); byId.set(String(id), n);
+      if (end == null) n.end = null; else if (n.end != null) n.end = Math.max(n.end, end);
+      return n;
+    };
+    for (const r of edges.filter((r) => r.paper === p.paper)) {
+      const a = node(r.source, r.source_label, r.source_town, r.source_start, r.source_end);
+      const b = node(r.target, r.target_label, r.target_town, r.target_start, r.target_end);
+      if (a === b) continue;
+      if (!preds.has(b.key)) preds.set(b.key, []);
+      if (!preds.get(b.key).includes(a)) preds.get(b.key).push(a);
     }
-    if (!blocks.length) { el.textContent = "No recorded earlier titles for this paper."; return; }
-
-    const nRows = blocks.reduce((s, b) => s + b.rows.length, 0);
-    const height = 30 + nRows * ROW + (blocks.length - 1) * GAP + (blocks.length > 1 ? blocks.length * 22 : 0) + 30;
-    const x = d3.scaleLinear().domain([Math.floor((minYear - 3) / 10) * 10, 2026]).range([12, width - 12]);
+    const top = byId.get(String(p.paper)) || node(p.paper, p.paper_title, p.town_now, p.own_start, null);
+    top.end = null;
+    return chains(top, preds);
+  }
+  function drawTree(p, host) {
+    const T = PALETTE[mode()];
+    const rows = treeOf(p);
+    const titles = rows.flat().length, mergedRows = rows.filter((r) => r[0] && r[0].role === "merged").length;
+    const head = document.createElement("h3");
+    head.innerHTML = `${p.paper_title} <small>${p.town_now}, ${p.county} County · ` +
+      (titles > 1 ? `${titles} titles since ${p.root_start}` + (mergedRows ? `, ${mergedRows} merged in` : ", no mergers on record")
+                  : `no earlier title on record; publishing since ${p.own_start ?? "?"}`) + `</small>`;
+    host.appendChild(head);
+    if (titles === 1) return;
+    const width = Math.max(640, treeEl.clientWidth || 960);
+    const narrow = width < 900, ROW = narrow ? 26 : 30, BAR = 8;
+    const height = 20 + rows.length * ROW + 24;
+    const minY = Math.min(...rows.flat().map((t) => t.start || NOW));
+    const x = d3.scaleLinear().domain([Math.floor((minY - 3) / 10) * 10, NOW]).range([12, width - 12]);
     const svg = d3.create("svg").attr("viewBox", [0, 0, width, height]).attr("width", width).attr("height", height)
       .attr("font-family", "var(--font-sans)").attr("font-size", narrow ? 10.5 : 11.5);
-    el.replaceChildren(svg.node());
-
+    host.appendChild(svg.node());
     const ticks = x.ticks(Math.max(4, Math.floor(width / 110))).filter((t) => t % 1 === 0);
-    svg.append("g").selectAll("line").data(ticks).join("line").attr("x1", x).attr("x2", x).attr("y1", 18).attr("y2", height - 24).attr("stroke", T.grid);
-    svg.append("g").selectAll("text").data(ticks).join("text").attr("x", x).attr("y", height - 8).attr("text-anchor", "middle").attr("fill", T.muted).text((t) => t);
-
-    const tip = document.createElement("div");
-    tip.className = "dd-tip"; tip.hidden = true; el.appendChild(tip);
-    const show = (ev, d) => {
-      tip.innerHTML = `<strong>${d.label}</strong>` +
-        `<span class="dd-tip-k">Town</span><span class="dd-tip-v">${d.town || "—"}</span>` +
-        `<span class="dd-tip-k">Published</span><span class="dd-tip-v">${years(d.start, d.end)}</span>` +
-        `<span class="dd-tip-k">Role</span><span class="dd-tip-v">${LABEL[d.role]}</span>`;
-      tip.hidden = false;
-      const box = el.getBoundingClientRect();
-      tip.style.left = Math.min(ev.clientX - box.left + 12, box.width - 260) + "px";
-      tip.style.top = (ev.clientY - box.top + 12) + "px";
-    };
-    const end = (d) => x(d.end ?? 2026), begin = (d) => x(d.start ?? x.domain()[0]);
-
-    let y = 26;
-    for (const b of blocks) {
-      if (blocks.length > 1) {
-        svg.append("text").attr("x", 12).attr("y", y + 12).attr("font-weight", 700).attr("fill", T.ink).text(b.paper.title);
-        y += 22;
+    svg.append("g").selectAll("line").data(ticks).join("line").attr("x1", x).attr("x2", x).attr("y1", 12).attr("y2", height - 22).attr("stroke", T.grid);
+    svg.append("g").selectAll("text").data(ticks).join("text").attr("x", x).attr("y", height - 6).attr("text-anchor", "middle").attr("fill", T.muted).text((t) => t);
+    const yOf = new Map();
+    rows.forEach((row, i) => row.forEach((t) => yOf.set(t, 20 + i * ROW + ROW / 2)));
+    const end = (d) => x(d.end ?? NOW), begin = (d) => x(d.start ?? x.domain()[0]);
+    const links = [];
+    rows.forEach((row) => {
+      for (let i = 1; i < row.length; i++) links.push([row[i - 1], row[i], row[i].role === "merged" ? "merged" : "renamed"]);
+      if (row.into) links.push([row[row.length - 1], row.into, "merged"]);
+    });
+    svg.append("g").attr("fill", "none").selectAll("path").data(links).join("path")
+      .attr("d", ([a, c]) => {
+        const x0 = end(a), y0 = yOf.get(a), x1 = Math.max(begin(c), x0 + 6), y1 = yOf.get(c), mx = (x0 + x1) / 2;
+        return `M${x0},${y0} C${mx},${y0} ${mx},${y1} ${x1},${y1}`;
+      })
+      .attr("stroke", ([, , k]) => T[k]).attr("stroke-width", BAR - 3).attr("stroke-opacity", 0.55);
+    svg.append("g").selectAll("rect").data(rows.flat()).join("rect")
+      .attr("x", begin).attr("width", (d) => Math.max(3, end(d) - begin(d)))
+      .attr("y", (d) => yOf.get(d) - BAR / 2).attr("height", BAR).attr("rx", 2).attr("fill", (d) => T[d.role])
+      .append("title").text((d) => `${d.label} (${years(d.start, d.end)})${d.town ? ", " + d.town : ""}`);
+    rows.forEach((row) => {
+      let free = -Infinity;
+      for (const t of row) {
+        const label = `${t.label} (${years(t.start, t.end)})`;
+        const cur = t.role === "current", tx = cur ? end(t) : begin(t);
+        if (!cur && tx < free) continue;
+        const el = svg.append("text").attr("x", tx).attr("y", yOf.get(t) - BAR / 2 - 3).attr("text-anchor", cur ? "end" : "start")
+          .attr("fill", cur ? T.ink : T.muted).attr("font-weight", cur ? 700 : 400)
+          .attr("paint-order", "stroke").attr("stroke", T.bg).attr("stroke-width", 3).attr("stroke-linejoin", "round").text(label).node();
+        free = tx + (el.getComputedTextLength ? el.getComputedTextLength() : label.length * 6) + 8;
       }
-      const yOf = new Map();
-      b.rows.forEach((row, i) => row.forEach((t) => yOf.set(t, y + i * ROW + ROW / 2)));
-      // Connectors first, under the bars: an earlier name into the next, a
-      // merged paper's last title into the paper that absorbed it.
-      const links = [];
-      b.rows.forEach((row) => {
-        for (let i = 1; i < row.length; i++) links.push([row[i - 1], row[i], row[i].role === "merged" ? "merged" : "renamed"]);
-        if (row.into) links.push([row[row.length - 1], row.into, "merged"]);
-      });
-      svg.append("g").attr("fill", "none").selectAll("path").data(links).join("path")
-        .attr("d", ([a, c]) => {
-          const x0 = end(a), y0 = yOf.get(a), x1 = Math.max(begin(c), x0 + 6), y1 = yOf.get(c);
-          const mx = (x0 + x1) / 2;
-          return `M${x0},${y0} C${mx},${y0} ${mx},${y1} ${x1},${y1}`;
-        })
-        .attr("stroke", ([, , k]) => T[k]).attr("stroke-width", BAR - 3).attr("stroke-opacity", 0.55);
-      const all = b.rows.flat();
-      svg.append("g").selectAll("rect").data(all).join("rect")
-        .attr("x", begin).attr("width", (d) => Math.max(3, end(d) - begin(d)))
-        .attr("y", (d) => yOf.get(d) - BAR / 2).attr("height", BAR).attr("rx", 2)
-        .attr("fill", (d) => T[d.role])
-        .on("mousemove", show).on("mouseleave", () => { tip.hidden = true; });
-      // Each title is named above where it starts. Earlier names on a row
-      // that would collide with the next one's label are left to the tooltip.
-      b.rows.forEach((row) => {
-        let free = -Infinity;
-        for (const t of row) {
-          const label = `${t.label} (${years(t.start, t.end)})`;
-          const cur = t.role === "current";
-          const tx = cur ? end(t) : begin(t);
-          if (!cur && tx < free) continue;
-          const node = svg.append("text").attr("x", tx).attr("y", yOf.get(t) - BAR / 2 - 3)
-            .attr("text-anchor", cur ? "end" : "start")
-            .attr("fill", t.role === "current" ? T.ink : T.muted).attr("font-weight", t.role === "current" ? 700 : 400)
-            .attr("paint-order", "stroke").attr("stroke", T.bg).attr("stroke-width", 3).attr("stroke-linejoin", "round")
-            .text(label).node();
-          free = tx + (node.getComputedTextLength ? node.getComputedTextLength() : label.length * 6) + 8;
-        }
-      });
-      y += b.rows.length * ROW + GAP;
+    });
+  }
+
+  const countyPapers = () => (countySel.value ? papers.filter((p) => p.county === countySel.value) : []);
+  function show(ps) {
+    focus = ps;
+    paintOverview();
+    treeEl.replaceChildren();
+    if (!ps.length) {
+      const hint = document.createElement("p"); hint.className = "nl-hint";
+      hint.textContent = "Hover a line, find a newspaper, or choose a county to see where those papers came from.";
+      treeEl.appendChild(hint); return;
     }
+    // a county draws its papers with the deepest histories first
+    ps.slice().sort((a, b) => b.titles - a.titles || a.root_start - b.root_start).forEach((p) => drawTree(p, treeEl));
   }
 
   load(0).then((body) => {
-    rows = Array.isArray(body.data) ? body.data : [];
-    if (!rows.length) { el.textContent = "No data."; return; }
+    const rows = Array.isArray(body.data) ? body.data : [];
+    papers = rows.filter((r) => r.kind === "paper").sort((a, b) => a.root_start - b.root_start || (a.own_start ?? 0) - (b.own_start ?? 0));
+    edges = rows.filter((r) => r.kind !== "paper");
+    if (!papers.length) { over.textContent = "No data."; return; }
     const v = document.querySelector(".dd-version");
     if (v && body.version) { v.textContent = ` · v${body.version}`; v.hidden = false; }
-    const size = new Map();
-    for (const r of rows) {
-      if (!papers.has(r.paper)) papers.set(r.paper, { id: r.paper, title: r.paper_title, county: r.county, town: r.town_now, size: 0 });
-      size.set(r.paper, (size.get(r.paper) || 0) + 1);
-    }
-    for (const [id, n] of size) papers.get(id).size = n;
-    const counties = [...new Set(rows.map((r) => r.county))].sort();
-    countySel.innerHTML = counties.map((c) => `<option>${c}</option>`).join("");
-    // Open on the deepest tree in the state, so the first view shows what
-    // the chart is for.
-    const deepest = [...papers.values()].sort((a, b) => b.size - a.size)[0];
-    countySel.value = deepest.county;
-    fillPapers(deepest.county, deepest.id);
-    countySel.addEventListener("change", () => { fillPapers(countySel.value); draw(); });
-    paperSel.addEventListener("change", draw);
-    draw();
-    let t; window.addEventListener("resize", () => { clearTimeout(t); t = setTimeout(draw, 150); });
-    if (window.matchMedia) matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
-  }).catch(() => { el.textContent = "Feed unavailable."; });
+    [...new Set(papers.map((p) => p.county))].sort().forEach((c) => countySel.add(new Option(`${c} County`, c)));
+    list.innerHTML = papers.map((p) => `<option value="${p.paper_title} (${p.town_now})"></option>`).join("");
+    countySel.addEventListener("change", () => { pinned = false; find.value = ""; show(countyPapers()); });
+    find.addEventListener("change", () => {
+      const p = papers.find((p) => `${p.paper_title} (${p.town_now})` === find.value);
+      if (p) { pinned = true; show([p]); }
+    });
+    drawOverview(); show([]);
+    let t; window.addEventListener("resize", () => { clearTimeout(t); t = setTimeout(() => { drawOverview(); show(focus); }, 150); });
+    if (window.matchMedia) matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { drawOverview(); show(focus); });
+  }).catch(() => { over.textContent = "Feed unavailable."; });
 });
 </script>

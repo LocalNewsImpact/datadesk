@@ -17,8 +17,8 @@
   <p class="nh-follow" aria-live="polite"></p>
   <div class="dd-chart" id="nh-chart" data-feed="{{ feed }}" style="position: relative">Loading…</div>
   <figcaption class="dd-footer">
-    <span class="dd-source">Source:
-      {% if credit_name %}{% if credit_href %}<a href="{{ credit_href }}">{{ credit_name }}</a>{% else %}{{ credit_name }}{% endif %}{% else %}<a href="https://localnewsimpact.org">Local News Impact Consortium</a>{% endif %}{% if visual.config.note %}. {{ visual.config.note }}{% endif %}
+    {# The note names who made it; no default publisher is printed ahead of it. #}
+    <span class="dd-source">{% if visual.config.note %}Source: {{ visual.config.note }}{% endif %}
       <span class="dd-version" hidden></span>
     </span>
   </figcaption>
@@ -27,9 +27,18 @@
   .nh-legend { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-5); font-size: var(--fs-sm); margin: var(--s-2) 0; }
   .nh-legend span { display: inline-flex; align-items: center; gap: var(--s-2); }
   .nh-legend i { width: 0.8rem; height: 0.8rem; border-radius: 2px; display: inline-block; }
-  .nh-follow { font-size: var(--fs-sm); color: var(--text-2); margin: 0 0 var(--s-2); min-height: 2.6em; }
-  .nh-follow strong { color: var(--text); }
-  .nh-follow button { font: inherit; margin-left: var(--s-2); }
+  .nh-follow { font-size: var(--fs-sm); color: var(--text-2); margin: 0 0 var(--s-3); min-height: 4.6em; }
+  .nh-follow .nh-head { font-size: var(--fs-md); color: var(--text); font-weight: 600; margin: 0 0 var(--s-1); }
+  .nh-follow .nh-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-1) var(--s-3); margin: 0 0 var(--s-1); }
+  .nh-follow .nh-k { color: var(--text-3); min-width: 7.5rem; }
+  .nh-follow .nh-cell { display: inline-flex; flex-direction: column; align-items: center; line-height: 1.15; min-width: 2.6rem; }
+  .nh-follow .nh-cell small { color: var(--text-3); font-size: var(--fs-2xs); }
+  .nh-follow .nh-cell b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .nh-follow .nh-out { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .nh-follow .nh-out i { width: 0.7rem; height: 0.7rem; border-radius: 2px; display: inline-block; }
+  .nh-follow .nh-out b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .nh-follow button { font: inherit; font-size: var(--fs-xs); padding: 0.15rem 0.5rem; }
+  .nh-follow .nh-try { margin-left: var(--s-2); }
   #nh-chart path, #nh-chart rect { cursor: pointer; }
 </style>
 <script src="{% static 'js/d3.min.js' %}" defer></script>
@@ -66,7 +75,12 @@ document.addEventListener("DOMContentLoaded", function () {
   });
 
   let rows = [], flows = [], paths = [], picked = null;   // picked: {node} or {flow}
-  const PROMPT = "Select a block or a band to follow those newspapers to where they ended up.";
+  // What a reader is told before choosing anything: what clicking does, and
+  // one example to try, because a chart that answers questions on click
+  // looks exactly like one that does not.
+  const PROMPT = `<p class="nh-head">Click any block or band to follow those newspapers forward to where they ended up.</p>
+    <div class="nh-row">Every paper in it is traced through each later checkpoint: how many were still publishing, and how many in the end closed, merged or survive today.
+    <button type="button" class="nh-try" data-try="F1900">Try: papers founded 1876–1900</button></div>`;
   function draw() {
     const T = PALETTE[mode()];
     legend.innerHTML = Object.keys(LABEL).map((k) => `<span><i style="background:${T[k]}"></i>${LABEL[k]}</span>`).join("");
@@ -119,28 +133,34 @@ document.addEventListener("DOMContentLoaded", function () {
       return paths.filter((p) => p.some((i) => byIndex[i].source.id === picked.node || byIndex[i].target.id === picked.node));
     }
     function describe(sel) {
-      if (!sel) { follow.textContent = PROMPT; return; }
+      if (!sel) {
+        follow.innerHTML = PROMPT;
+        const t = follow.querySelector("[data-try]");
+        if (t) t.onclick = () => { picked = { node: t.dataset.try }; paint(); };
+        return;
+      }
       const what = picked.flow != null
         ? `${byIndex[picked.flow].source.label} → ${byIndex[picked.flow].target.label}`
         : g.nodes.find((n) => n.id === picked.node).label;
       const years = g.nodes.filter((n) => n.kind === "publishing").sort((a, b) => a.col - b.col);
-      const fromCol = picked.flow != null ? byIndex[picked.flow].target.col : g.nodes.find((n) => n.id === picked.node).col;
-      const at = years.filter((n) => n.col >= fromCol).map((n) => {
+      const cells = years.map((n) => {
         const c = sel.filter((p) => p.some((i) => byIndex[i].target === n && byIndex[i].kind === "publishing")).length;
-        return c ? `${n.label.slice(-4)}: ${c.toLocaleString()}` : null;
-      }).filter(Boolean);   // only the checkpoints these papers reached
+        return c ? `<span class="nh-cell"><small>${n.label.slice(-4)}</small><b>${c.toLocaleString()}</b></span>` : "";
+      }).join("");
       let closed = 0, merged = 0, still = 0;
+      const last = Math.max(...years.map((n) => n.col));
       for (const p of sel) {
-        const last = byIndex[p[p.length - 1]];
-        if (last.kind === "merged") merged++;
-        else if (last.kind === "closed") closed++;
-        else if (last.target.col === Math.max(...years.map((n) => n.col))) still++;
+        const l = byIndex[p[p.length - 1]];
+        if (l.kind === "merged") merged++;
+        else if (l.kind === "closed") closed++;
+        else if (l.target.col === last) still++;
       }
-      follow.innerHTML = `<strong>${sel.length.toLocaleString()} newspapers: ${what}.</strong> ` +
-        (at.length ? `Still publishing at ${at.join(" · ")}. ` : "") +
-        `In the end ${closed.toLocaleString()} closed, ${merged.toLocaleString()} merged into a surviving paper` +
-        (still ? `, and ${still.toLocaleString()} publish today.` : ".") +
-        ` <button type="button">Clear</button>`;
+      const T = PALETTE[mode()];
+      const out = (n, k, label) => `<span class="nh-out"><i style="background:${T[k]}"></i><b>${n.toLocaleString()}</b> ${label}</span>`;
+      follow.innerHTML =
+        `<p class="nh-head">${sel.length.toLocaleString()} newspapers · ${what} <button type="button">Clear</button></p>` +
+        (cells ? `<div class="nh-row"><span class="nh-k">Still publishing in</span>${cells}</div>` : "") +
+        `<div class="nh-row"><span class="nh-k">In the end</span>${out(closed, "closed", "closed")}${out(merged, "merged", "merged into a surviving paper")}${out(still, "publishing", "publish today")}</div>`;
       follow.querySelector("button").onclick = () => { picked = null; paint(); };
     }
 
@@ -156,12 +176,16 @@ document.addEventListener("DOMContentLoaded", function () {
     svg.on("click", (ev) => { if (ev.target === svg.node()) { picked = null; paint(); } });
     const bands = svg.append("g").selectAll("path").data(g.links).join("path")
       .attr("d", (d) => band(d)).attr("fill", (d) => T[d.kind])
-      .on("click", (ev, d) => { ev.stopPropagation(); picked = picked && picked.flow === d.index ? null : { flow: d.index }; paint(); });
+      .on("click", (ev, d) => { ev.stopPropagation(); picked = picked && picked.flow === d.index ? null : { flow: d.index }; paint(); })
+      .on("mouseenter", function () { if (!picked) d3.select(this).attr("fill-opacity", 0.7); })
+      .on("mouseleave", function () { if (!picked) d3.select(this).attr("fill-opacity", 0.42); });
     const share = svg.append("g").attr("pointer-events", "none");
     const blocks = svg.append("g").selectAll("rect").data(g.nodes).join("rect")
       .attr("x", (d) => d.x0).attr("y", (d) => d.y0).attr("width", (d) => d.x1 - d.x0)
       .attr("height", (d) => Math.max(1, d.y1 - d.y0)).attr("fill", (d) => T[d.kind])
-      .on("click", (ev, d) => { ev.stopPropagation(); picked = picked && picked.node === d.id ? null : { node: d.id }; paint(); });
+      .on("click", (ev, d) => { ev.stopPropagation(); picked = picked && picked.node === d.id ? null : { node: d.id }; paint(); })
+      .on("mouseenter", function () { d3.select(this).attr("stroke", T.ink).attr("stroke-width", 2); })
+      .on("mouseleave", function () { d3.select(this).attr("stroke", null); });
     function paint() {
       const sel = chosen();
       const count = new Map();
