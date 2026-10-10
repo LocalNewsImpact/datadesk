@@ -106,13 +106,21 @@ document.addEventListener("DOMContentLoaded", function () {
       tip.style.left = Math.min(ev.clientX - box.left + 12, box.width - 260) + "px";
       tip.style.top = (ev.clientY - box.top + 12) + "px";
     };
-    const hide = () => { tip.hidden = true; bands.attr("stroke-opacity", 0.42); };
+    const hide = () => { tip.hidden = true; bands.attr("fill-opacity", 0.42); };
 
-    const bands = svg.append("g").attr("fill", "none").selectAll("path").data(g.links).join("path")
-      .attr("d", d3.sankeyLinkHorizontal()).attr("stroke", (d) => T[d.kind])
-      .attr("stroke-opacity", 0.42).attr("stroke-width", (d) => Math.max(1, d.width))
+    // Each band is a filled shape whose top and bottom edges meet the blocks
+    // exactly. A thick stroke along one curve narrows on a steep drop and
+    // overshoots the block it lands on -- most visibly 1876-1900's founded
+    // papers falling to that span's closures.
+    const band = (d) => {
+      const x0 = d.source.x1, x1 = d.target.x0, xm = (x0 + x1) / 2, h = Math.max(1, d.width) / 2, a = d.y0, b = d.y1;
+      return `M${x0},${a - h}C${xm},${a - h} ${xm},${b - h} ${x1},${b - h}L${x1},${b + h}C${xm},${b + h} ${xm},${a + h} ${x0},${a + h}Z`;
+    };
+    const bands = svg.append("g").selectAll("path").data(g.links).join("path")
+      .attr("d", band).attr("fill", (d) => T[d.kind])
+      .attr("fill-opacity", 0.42)
       .on("mousemove", function (ev, d) {
-        bands.attr("stroke-opacity", (b) => (b === d ? 0.8 : 0.12));
+        bands.attr("fill-opacity", (b) => (b === d ? 0.8 : 0.12));
         show(ev, `<strong>${d.source.label} → ${d.target.label}</strong><span class="dd-tip-k">Newspapers</span><span class="dd-tip-v">${d.value.toLocaleString()}</span>`);
       })
       .on("mouseleave", hide);
@@ -121,7 +129,7 @@ document.addEventListener("DOMContentLoaded", function () {
       .attr("x", (d) => d.x0).attr("y", (d) => d.y0).attr("width", (d) => d.x1 - d.x0)
       .attr("height", (d) => Math.max(1, d.y1 - d.y0)).attr("fill", (d) => T[d.kind])
       .on("mousemove", function (ev, d) {
-        bands.attr("stroke-opacity", (b) => (b.source === d || b.target === d ? 0.8 : 0.12));
+        bands.attr("fill-opacity", (b) => (b.source === d || b.target === d ? 0.8 : 0.12));
         const merged = d.targetLinks.filter((l) => l.kind === "merged").reduce((s, l) => s + l.value, 0);
         show(ev, `<strong>${d.label}</strong><span class="dd-tip-k">Newspapers</span><span class="dd-tip-v">${(d.value - (d.kind === "publishing" ? merged : 0)).toLocaleString()}</span>` +
           (merged ? `<span class="dd-tip-k">${d.kind === "publishing" ? "Merged into these" : "Of them, merged into papers that closed"}</span><span class="dd-tip-v">${merged}</span>` : ""));
