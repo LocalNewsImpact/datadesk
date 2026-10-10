@@ -117,3 +117,12 @@ def test_the_details_pin_on_the_page_and_float_in_a_frame(client, visual):
     assert "window.self !== window.top" in body
     assert 'a.style.overflow = "visible"' in body
     assert "card.style.left" in body and "card.style.top" in body
+
+
+def test_the_drawn_width_is_smoothed_but_the_counts_are_exact(client, visual):
+    """One-year swings in the count do not throw bumps into the banks: the
+    drawn width averages the year and the years either side, and the banks
+    use a curve that never overshoots. Printed counts stay exact."""
+    body = client.get("/embed/missouri-newspaper-history/").content.decode()
+    assert "d3.mean(ys, P)" in body
+    assert "d3.curveMonotoneY" in body and "curveCatmullRom" not in body

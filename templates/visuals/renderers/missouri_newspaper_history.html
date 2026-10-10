@@ -93,7 +93,13 @@ document.addEventListener("DOMContentLoaded", function () {
     const k = (W * 0.19) / d3.max(rows, (r) => r.publishing);   // river px per paper
     const k2 = H / 70;                                           // strand px per paper: a year's slot holds 70
     const Y = (y) => TOP + (y - Y0) * H;
-    const w = (y) => k * P(y);
+    // The drawn width is the count averaged over the year and the years either side, so one-year swings
+    // (often a catalogue's end or start year off by one) do not throw bumps into the banks. The counts
+    // printed on the decade lines and in the details are the exact counts.
+    const w = (y) => {
+      const c = Math.min(Math.max(y, Y0), Y1), ys = [c - 1, c, c + 1].filter((v) => v >= Y0 && v <= Y1);
+      return k * d3.mean(ys, P);
+    };
 
     // The lean: the balance of foundings against losses over the trailing 20 years,
     // (founded - ended) / (founded + ended) on the window's totals so thin years count for little, with the
@@ -221,10 +227,12 @@ document.addEventListener("DOMContentLoaded", function () {
       .attr("d", (s) => s.d).attr("fill", "transparent").attr("stroke", "transparent").attr("stroke-width", 6);
 
     // the river: a smooth curve through each year's banks
-    const curve = d3.line().curve(d3.curveCatmullRom.alpha(0));
-    const left = [[mid(Y0), Y(Y0)], ...yrs.map((y) => [mid(y) - w(y) / 2, Y(y) + H / 2]), [mid(Y1) - w(Y1) / 2, Y(Y1 + 1)]];
-    const right = [[mid(Y1) + w(Y1) / 2, Y(Y1 + 1)], ...yrs.slice().reverse().map((y) => [mid(y) + w(y) / 2, Y(y) + H / 2]), [mid(Y0), Y(Y0)]];
-    svg.append("path").attr("d", curve(left) + "L" + curve(right).slice(1) + "Z").attr("fill", T.river);
+    // The banks pass through each year's exact width. A monotone curve never overshoots between two years,
+    // so a sharp change in the count does not throw a bulge into the bank that is not in the data.
+    const pts = [{ py: Y(Y0), l: mid(Y0), r: mid(Y0) }, ...yrs.map((y) => ({ py: Y(y) + H / 2, l: mid(y) - w(y) / 2, r: mid(y) + w(y) / 2 })),
+      { py: Y(Y1 + 1), l: mid(Y1) - w(Y1) / 2, r: mid(Y1) + w(Y1) / 2 }];
+    const banks = d3.area().curve(d3.curveMonotoneY).y((p) => p.py).x0((p) => p.l).x1((p) => p.r);
+    svg.append("path").attr("d", banks(pts)).attr("fill", T.river);
 
     // each decade's count on a hairline across the river at the decade's start
     const dg = svg.append("g").attr("pointer-events", "none");
