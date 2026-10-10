@@ -84,3 +84,12 @@ def test_a_merged_paper_joins_the_survivor_and_is_not_counted_twice(client, visu
     assert "Merged into a surviving paper" in body
     assert "merged in" in body
     assert "Still publishing at the next checkpoint" in body
+
+
+def test_a_reader_can_follow_papers_to_where_they_ended_up(client, visual):
+    """The feed may carry each newspaper's path; the embed offers to follow a
+    selection and no longer only repeats the printed numbers on hover."""
+    body = client.get("/embed/missouri-newspaper-history/").content.decode()
+    assert "follow those newspapers to where they ended up" in body
+    assert 'class="nh-follow"' in body
+    assert "dd-tip" not in body
