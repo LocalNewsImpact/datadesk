@@ -1,9 +1,10 @@
 {% load static %}
 {# A one-off renderer: Missouri's newspapers since 1820 as a river running #}
-{# down the page. Its width is the papers publishing in each year. Papers #}
-{# founded join from the left in their year; papers merged into another #}
-{# (gold) and papers closed (red) leave to the right in theirs, gathering at #}
-{# the end of their decade. The river leans toward the side that was ahead #}
+{# down the page. Its width is the papers publishing in each year. Each #}
+{# year's foundings are a creek from the left; a decade's creeks join and #}
+{# slide into the river along its bank. Papers merged into another (gold) #}
+{# and closed (red) leave as one stream per decade that splits into a creek #}
+{# per year. The river leans toward the side that was ahead #}
 {# over the previous 20 years -- foundings against losses, as a share of #}
 {# the window's changes -- smoothed so it bends; the width is untouched. #}
 {#                                                                         #}
@@ -48,7 +49,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (set) return set === "dark" ? "dark" : "light";
     return window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
-  const HINT = "Hover or tap a year, or a decade's bar, to see the newspapers founded, merged and closed.";
+  const HINT = "Hover or tap a year, or a decade's joined stream, to see the newspapers founded, merged and closed.";
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
   const load = (attempt) => fetch(el.dataset.feed).then((r) => {
@@ -111,33 +112,70 @@ document.addEventListener("DOMContentLoaded", function () {
       const xm = (x0 + x1) / 2;
       return `M${x0},${y0} C${xm},${y0} ${xm},${y1} ${x1},${y1} L${x1},${y1 + t} C${xm},${y1 + t} ${xm},${y0 + t} ${x0},${y0 + t} Z`;
     };
-    // strands: founded from the decade's bar into the river at the year; merged and closed out of the river
-    // at the year into bars stacked at the decade's end, gold above red
-    const strands = [], bars = [], notes = [];
+    // the river's banks at any height on the page
+    const bankAt = (py, side) => {
+      const yy = Math.min(Math.max(Y0 + (py - TOP) / H, Y0), Y1), a = Math.floor(yy), f = yy - a, b = Math.min(a + 1, Y1);
+      const at = (y) => mid(y) + side * w(y) / 2;
+      return (1 - f) * at(a) + f * at(b);
+    };
+    const LAST = Y(Y1 + 1) - 2;
+    // Streams. Left: a creek per year from the margin, gathering at the bottom of the decade into one
+    // tributary that bends down and slides into the river along its bank. Right: one stream peels off the
+    // bank heading down, bends out level by the decade line, and splits into a creek per year that reaches
+    // the margin in that year -- gold on the inside of the bend, red outside. Every creek runs downhill.
+    const strands = [], notes = [];
     for (const dd of decades) {
       const yrs = d3.range(dd, Math.min(dd + 10, Y1 + 1));
       const end = Y(Math.min(dd + 10, Y1 + 1));
       const sum = (fn) => d3.sum(yrs, fn);
-      let fy = Y(dd);
-      let cy = end - k2 * sum(C); const ctop = cy;
-      let my = ctop - k2 * sum(M) - (sum(M) ? 2 : 0); const mtop = my;
-      for (const y of yrs) {
-        const yc = (t) => Y(y) + (H - t) / 2;
-        if (F(y)) { const t = k2 * F(y); strands.push({ y, dd, kind: "founded", d: link(FX + 10, fy, mid(y) - w(y) / 2 + 2, yc(t), t) }); fy += t; }
-        if (M(y)) { const t = k2 * M(y); strands.push({ y, dd, kind: "merged", d: link(mid(y) + w(y) / 2 - 2, yc(t), CX, my, t) }); my += t; }
-        if (C(y)) { const t = k2 * C(y); strands.push({ y, dd, kind: "closed", d: link(mid(y) + w(y) / 2 - 2, yc(t), CX, cy, t) }); cy += t; }
+      const TF = k2 * sum(F);
+      if (TF) {
+        let Lr = Math.max(36, 1.3 * TF);
+        if (end + Lr > LAST) Lr = Math.max(12, LAST - end);
+        const jt = Math.min(end - TF - 1, LAST - Lr - TF), jb = jt + TF, yend = Math.min(end + Lr, LAST);
+        const xbank = bankAt(end, -1), XL = Math.max(FX + 60, xbank - 1.3 * TF - 90);
+        let acc = jt;
+        for (const y of yrs) {
+          if (!F(y)) continue;
+          const t = k2 * F(y);
+          strands.push({ y, dd, kind: "founded", d: link(FX, Y(y) + (H - t) / 2, XL, acc, t) }); acc += t;
+        }
+        const xi = bankAt(yend, -1) + 1.5, xo = xi + TF, x0 = XL - 1;
+        strands.push({ dd, kind: "founded", trunk: true, d:
+          `M${x0},${jt} C${x0 + (xo - x0) * 0.6},${jt} ${xo},${yend - (yend - jt) * 0.6} ${xo},${yend} ` +
+          `L${xi},${yend} C${xi},${yend - (yend - jb) * 0.6} ${x0 + (xi - x0) * 0.6},${jb} ${x0},${jb} Z` });
       }
-      if (fy > Y(dd)) bars.push({ dd, kind: "founded", x: FX, y0: Y(dd), y1: fy });
-      if (my > mtop) bars.push({ dd, kind: "merged", x: CX, y0: mtop, y1: my });
-      if (cy > ctop) bars.push({ dd, kind: "closed", x: CX, y0: ctop, y1: cy });
+      const TM = k2 * sum(M), TC = k2 * sum(C), TT = TM + TC;
+      if (TT) {
+        const Lr = Math.max(36, 1.3 * TT), ybot = Y(yrs[0]) + TT + 1, ystart = Math.max(ybot - TT - Lr, TOP);
+        const xw = Math.max(bankAt(ystart, 1) - 1.5 - TT, bankAt(ystart, -1) + 1);
+        const XR = Math.min(CX - 60, bankAt(Y(yrs[0]), 1) + 1.3 * TT + 90), x1 = XR + 1;
+        const band = (xvo, xvi, yho, yhi) =>
+          `M${xvo},${ystart} C${xvo},${ystart + (yho - ystart) * 0.6} ${xvo + (x1 - xvo) * 0.4},${yho} ${x1},${yho} ` +
+          `L${x1},${yhi} C${xvi + (x1 - xvi) * 0.4},${yhi} ${xvi},${ystart + (yhi - ystart) * 0.6} ${xvi},${ystart} Z`;
+        if (TC) strands.push({ dd, kind: "closed", trunk: true, d: band(xw, xw + TC, ybot, ybot - TC) });
+        if (TM) strands.push({ dd, kind: "merged", trunk: true, d: band(xw + TC, xw + TT, ybot - TC, ybot - TT) });
+        let am = ybot - TT, ac = ybot - TC;
+        for (const y of yrs) {
+          const tm = k2 * M(y), tc = k2 * C(y), slot = Y(y) + (H - tm - tc) / 2;
+          if (tm) { strands.push({ y, dd, kind: "merged", d: link(XR, am, CX, Math.max(slot, am), tm) }); am += tm; }
+          if (tc) { strands.push({ y, dd, kind: "closed", d: link(XR, ac, CX, Math.max(slot + tm, ac), tc) }); ac += tc; }
+        }
+      }
       notes.push({ dd, last: yrs[yrs.length - 1], f: sum(F), m: sum(M), c: sum(C) });
     }
     // the year rows sit beneath everything, so the whole row answers a hover
     const yrs = d3.range(Y0, Y1 + 1);
     const hits = svg.append("g").selectAll("rect").data(yrs).join("rect").attr("class", "nr-hit")
       .attr("x", 0).attr("width", W).attr("y", Y).attr("height", H).attr("fill", "transparent");
-    const strandSel = svg.append("g").attr("pointer-events", "none").selectAll("path").data(strands).join("path")
-      .attr("d", (s) => s.d).attr("fill", (s) => T[s.kind]);
+    // one translucent group per colour, so streams that touch do not print darker where they overlap
+    const REST = { founded: 0.6, closed: 0.55, merged: 0.8 };
+    const layers = {};
+    for (const kind of ["founded", "closed", "merged"]) {
+      layers[kind] = svg.append("g").attr("opacity", REST[kind]).attr("fill", T[kind]);
+    }
+    const strandSel = d3.selectAll(strands.map((s) => layers[s.kind].append("path").datum(s).attr("d", s.d).node()))
+      .attr("pointer-events", (s) => (s.trunk ? null : "none")).attr("class", (s) => (s.trunk ? "nr-hit" : null));
 
     // the river: a smooth curve through each year's banks
     const curve = d3.line().curve(d3.curveCatmullRom.alpha(0));
@@ -150,11 +188,11 @@ document.addEventListener("DOMContentLoaded", function () {
     for (const dd of decades) {
       dg.append("line").attr("x1", mid(dd) - w(dd) / 2).attr("x2", mid(dd) + w(dd) / 2).attr("y1", Y(dd)).attr("y2", Y(dd))
         .attr("stroke", "#ffffff").attr("stroke-opacity", 0.35).attr("stroke-width", 0.5);
-      // where the river is narrower than its number, the number sits beside it in ink
+      // too narrow to hold its number: the number sits on the river's line in ink, with a page-coloured halo,
+      // so it labels the river and not a stream joining or leaving beside it
       const inside = w(dd) >= 34;
-      dg.append("text").attr("x", inside ? mid(dd) : mid(dd) + w(dd) / 2 + 5).attr("y", Y(dd) + 4.5)
-        .attr("text-anchor", inside ? "middle" : "start").attr("fill", inside ? "#ffffff" : T.ink)
-        .attr("font-size", 12.5).attr("font-weight", 700).attr("stroke", inside ? T.river : T.bg).attr("stroke-width", inside ? 4 : 3)
+      dg.append("text").attr("x", mid(dd)).attr("y", Y(dd) + 4.5).attr("text-anchor", "middle").attr("fill", inside ? "#ffffff" : T.ink)
+        .attr("font-size", 12.5).attr("font-weight", 700).attr("stroke", inside ? T.river : T.bg).attr("stroke-width", 4)
         .attr("paint-order", "stroke").text(P(dd));
     }
     dg.append("text").attr("x", mid(Y1)).attr("y", Y(Y1 + 1) + 22).attr("text-anchor", "middle").attr("font-weight", 700)
@@ -174,13 +212,11 @@ document.addEventListener("DOMContentLoaded", function () {
       });
     }
 
-    const barSel = svg.append("g").selectAll("rect").data(bars).join("rect").attr("class", "nr-hit")
-      .attr("x", (b) => b.x - 3).attr("y", (b) => b.y0).attr("width", 16).attr("height", (b) => Math.max(2, b.y1 - b.y0))
-      .attr("fill", (b) => T[b.kind]).attr("stroke", T.bg).attr("stroke-width", 3).attr("paint-order", "stroke");
-
-    // hover: a year (its whole row) or a decade's bar
-    const rest = { founded: 0.6, merged: 0.75, closed: 0.5 };
-    const paint = (on) => strandSel.attr("fill-opacity", (s) => (!on ? rest[s.kind] : on(s) ? 0.95 : 0.08));
+    // hover: a year (its whole row) or a decade's joined stream
+    const paint = (on) => {
+      for (const kind in layers) layers[kind].attr("opacity", on ? 0.95 : REST[kind]);
+      strandSel.attr("opacity", (s) => (!on || on(s) ? 1 : 0.1));
+    };
     const list = (kind, label, papers) => !papers.length ? "" :
       `<p class="nr-list"><i style="color:${T[kind]}">${papers.length} ${label}</i>${papers.slice(0, 40).map(esc).join("; ")}` +
       (papers.length > 40 ? ` <span class="nr-more">and ${papers.length - 40} more</span>` : "") + `</p>`;
@@ -190,7 +226,7 @@ document.addEventListener("DOMContentLoaded", function () {
         list("founded", "founded:", r.founded) + list("merged", r.merged.length === 1 ? "merger:" : "mergers:", r.merged) +
         list("closed", "closed:", r.closed) +
         (r.founded.length + r.merged.length + r.closed.length ? "" : `<p class="nr-list">No papers founded, merged or closed.</p>`);
-      paint((s) => s.y === y);
+      paint((s) => s.y === y || (s.trunk && s.dd === Math.floor(y / 10) * 10 && (s.kind === "founded" ? F(y) : s.kind === "merged" ? M(y) : C(y))));
     };
     const showBar = (b) => {
       const ys = rows.filter((r) => r.year >= b.dd && r.year < b.dd + 10);
@@ -202,7 +238,7 @@ document.addEventListener("DOMContentLoaded", function () {
     };
     const reset = () => { panel.textContent = HINT; paint(null); };
     hits.on("mouseenter click", (ev, y) => showYear(y)).on("mouseleave", reset);
-    barSel.on("mouseenter click", (ev, b) => showBar(b)).on("mouseleave", reset);
+    strandSel.filter((s) => s.trunk).on("mouseenter click", (ev, s) => showBar(s)).on("mouseleave", reset);
     reset();
   }
 
