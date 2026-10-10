@@ -1,81 +1,57 @@
 {% load static %}
-{# A one-off renderer: Missouri's newspapers since 1808 as a time-staged #}
-{# sankey. The builder's sankey has two sides -- one set of things flowing #}
-{# to another -- and this is many: a column per year, with papers founded, #}
-{# merged and closed between them. The data is the feed like any visual's, #}
-{# so publishing pins and caches it the same way. #}
+{# A one-off renderer: Missouri's newspapers since 1820 as a river running #}
+{# down the page. Its width is the papers publishing in each year. Papers #}
+{# founded join from the left in their year; papers merged into another #}
+{# (gold) and papers closed (red) leave to the right in theirs, gathering at #}
+{# the end of their decade. The river leans toward the side that is ahead: #}
+{# its centreline accumulates each year's balance of foundings against #}
+{# losses, as a share of that year's changes, so the width is untouched. #}
 {#                                                                         #}
-{# The feed holds two kinds of row. A flow: source/target ids, their labels, #}
-{# kinds and columns, the flow's kind and how many newspapers it carries -- #}
-{# in order, because a path names flows by position. A path: one newspaper's #}
-{# flows, start to finish, which is what lets a reader pick a block or band #}
-{# and follow those papers to where they ended up. #}
+{# The feed holds one row per year: publishing, the papers founded, closed #}
+{# and merged that year by name, and `absorbed` -- the papers a year's #}
+{# mergers took out of the count (every paper in a merger but the one that #}
+{# carries on). #}
 <figure class="dd-visual">
   {% if visual.config.title %}<h2 class="dd-title">{{ visual.config.title }}</h2>{% endif %}
   {% if visual.config.subtitle %}<p class="dd-subtitle">{{ visual.config.subtitle }}</p>{% endif %}
-  <div class="nh-legend" aria-hidden="true"></div>
-  <p class="nh-follow" aria-live="polite"></p>
-  <div class="dd-chart" id="nh-chart" data-feed="{{ feed }}" style="position: relative">Loading…</div>
+  <div class="nr-panel" aria-live="polite"></div>
+  <div class="dd-chart" id="nr-chart" data-feed="{{ feed }}" style="position: relative">Loading…</div>
   <figcaption class="dd-footer">
-    {# The note names who made it; no default publisher is printed ahead of it. #}
     <span class="dd-source">{% if visual.config.note %}Source: {{ visual.config.note }}{% endif %}
       <span class="dd-version" hidden></span>
     </span>
   </figcaption>
 </figure>
 <style>
-  .nh-legend { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-5); font-size: var(--fs-sm); margin: var(--s-2) 0; }
-  .nh-legend span { display: inline-flex; align-items: center; gap: var(--s-2); }
-  .nh-legend i { width: 0.8rem; height: 0.8rem; border-radius: 2px; display: inline-block; }
-  .nh-follow { font-size: var(--fs-sm); color: var(--text-2); margin: 0 0 var(--s-3); min-height: 4.6em;
-    position: sticky; top: 0; z-index: 2; background: var(--bg); padding: var(--s-2) 0; }
-  .nh-follow .nh-head { font-size: var(--fs-md); color: var(--text); font-weight: 600; margin: 0 0 var(--s-1); }
-  .nh-follow .nh-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-1) var(--s-3); margin: 0 0 var(--s-1); }
-  .nh-follow .nh-k { color: var(--text-3); min-width: 7.5rem; }
-  .nh-follow .nh-cell { display: inline-flex; flex-direction: column; align-items: center; line-height: 1.15; min-width: 2.6rem; }
-  .nh-follow .nh-cell small { color: var(--text-3); font-size: var(--fs-2xs); }
-  .nh-follow .nh-cell b { color: var(--text); font-variant-numeric: tabular-nums; }
-  .nh-follow .nh-out { display: inline-flex; align-items: center; gap: 0.35rem; }
-  .nh-follow .nh-out i { width: 0.7rem; height: 0.7rem; border-radius: 2px; display: inline-block; }
-  .nh-follow .nh-out b { color: var(--text); font-variant-numeric: tabular-nums; }
-  .nh-follow button { font: inherit; font-size: var(--fs-xs); padding: 0.15rem 0.5rem; }
-  .nh-follow .nh-try { margin-left: var(--s-2); }
-  .nh-follow .nh-living { align-items: flex-start; }
-  .nh-follow .nh-paper { color: var(--text); white-space: nowrap; }
-  .nh-follow .nh-paper small { color: var(--text-3); }
-  .nh-follow .nh-paper:not(:last-of-type)::after { content: ","; }
-  .nh-follow .nh-more { color: var(--text-3); }
-  #nh-chart path, #nh-chart rect { cursor: pointer; }
+  .nr-panel { position: sticky; top: 0; z-index: 2; background: var(--bg); font-size: var(--fs-sm); color: var(--text-2);
+    padding: var(--s-2) 0; margin: 0 0 var(--s-2); min-height: 3.2em; border-bottom: 1px solid var(--border); }
+  .nr-panel .nr-head { color: var(--text); font-size: var(--fs-md); font-weight: 600; margin: 0 0 var(--s-1); }
+  .nr-panel .nr-head b { font-variant-numeric: tabular-nums; }
+  .nr-panel .nr-list { margin: 0 0 var(--s-1); max-height: 7.5em; overflow-y: auto; }
+  .nr-panel .nr-list i { font-style: normal; font-weight: 600; margin-right: var(--s-1); }
+  .nr-panel .nr-more { color: var(--text-3); }
+  #nr-chart .nr-hit { cursor: pointer; }
 </style>
-{{ visual.config.annotations|default:None|json_script:"nh-notes" }}
 <script src="{% static 'js/d3.min.js' %}" defer></script>
-<script src="{% static 'js/d3-sankey.min.js' %}" defer></script>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-  const el = document.getElementById("nh-chart");
-  const legend = document.querySelector(".nh-legend");
-  const follow = document.querySelector(".nh-follow");
-  const notesEl = document.getElementById("nh-notes");
-  const NOTES = notesEl ? JSON.parse(notesEl.textContent) : null;
-  const feed = el.dataset.feed;
+  const el = document.getElementById("nr-chart");
+  const panel = document.querySelector(".nr-panel");
 
-  // The chart palette's lnic slots, light and dark, as datadesk-chart.js
-  // carries them: blue for papers still publishing, then green, gold, red.
+  // lnic chart slots: blue river, green founded, gold merged, red closed.
   const PALETTE = {
-    light: { publishing: "#00618f", founded: "#1baf7a", merged: "#eda100", closed: "#e34948", ink: "#0b0b0b", muted: "#78818f" },
-    dark:  { publishing: "#2f9ecf", founded: "#199e70", merged: "#c98500", closed: "#e66767", ink: "#ffffff", muted: "#a5aebc" },
+    light: { river: "#00618f", founded: "#1aa37a", merged: "#d99100", closed: "#e04848", ink: "#0b0b0b", muted: "#5f6874", grid: "#e1e0d9", bg: "#fcfcfb" },
+    dark:  { river: "#2f9ecf", founded: "#2bbf90", merged: "#e0a419", closed: "#ec6a6a", ink: "#ffffff", muted: "#a5aebc", grid: "#2c2c2a", bg: "#1a1a19" },
   };
-  const LABEL = { publishing: "Still publishing at the next checkpoint", founded: "Founded", merged: "Merged into a surviving paper (band joins it)", closed: "Closed" };
-  const RANK = { publishing: 0, founded: 1, merged: 2, closed: 3 };
-  const LINK_RANK = { publishing: 0, merged: 1, closed: 2 };
   function mode() {
     const set = document.documentElement.getAttribute("data-theme");
     if (set) return set === "dark" ? "dark" : "light";
     return window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
+  const HINT = "Hover or tap a year, or a decade's bar, to see the newspapers founded, merged and closed.";
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-  // A 202 means another request is computing this answer; ask again.
-  const load = (attempt) => fetch(feed).then((r) => {
+  const load = (attempt) => fetch(el.dataset.feed).then((r) => {
     if (r.status === 202 && attempt < 120) {
       return r.json().catch(() => ({})).then((body) =>
         new Promise((resolve) => setTimeout(resolve, (body.retry_after || 3) * 1000)).then(() => load(attempt + 1)));
@@ -83,190 +59,149 @@ document.addEventListener("DOMContentLoaded", function () {
     return r.json();
   });
 
-  let rows = [], flows = [], paths = [], picked = null;   // picked: {node} or {flow}
-  // What a reader is told before choosing anything: what clicking does, and
-  // one example to try, because a chart that answers questions on click
-  // looks exactly like one that does not.
-  const PROMPT = `<p class="nh-head">Click any block or band to follow those newspapers forward to where they ended up.</p>
-    <div class="nh-row">Every paper in it is traced through each later checkpoint: how many were still publishing, and how many in the end closed, merged or survive today.
-    <button type="button" class="nh-try" data-try="F1900">Try: papers founded 1876–1900</button></div>`;
+  let rows = [];
   function draw() {
     const T = PALETTE[mode()];
-    legend.innerHTML = Object.keys(LABEL).map((k) => `<span><i style="background:${T[k]}"></i>${LABEL[k]}</span>`).join("");
-    const nodes = new Map();
-    for (const r of flows) {
-      nodes.set(r.source, { id: r.source, label: r.source_label, kind: r.source_kind, col: +r.source_col });
-      nodes.set(r.target, { id: r.target, label: r.target_label, kind: r.target_kind, col: +r.target_col });
-    }
-    // Vertical: time runs down the page, oldest at the top. The sankey
-    // layout is horizontal, so it is computed across and drawn transposed --
-    // the layout's x (time) is the page's y, its y (papers) the page's x.
-    const width = Math.max(320, el.clientWidth || 960);
-    const narrow = width < 760;
-    const left = narrow ? 44 : 60;                         // the year gutter
-    const notesW = narrow ? 0 : Math.min(330, Math.round(width * 0.32));
-    const across = width - notesW - (narrow ? 8 : 24);     // where the blocks may reach
-    const cols = d3.max([...nodes.values()], (n) => n.col) + 1;
-    const step = cols > 12 ? (narrow ? 96 : 112) : (narrow ? 150 : 175);
-    const height = 36 + (cols - 1) * step + 40;
-    const svg = d3.create("svg").attr("viewBox", [0, 0, width, height]).attr("width", width).attr("height", height)
-      .attr("font-family", "var(--font-sans)").attr("font-size", narrow ? 11 : 12.5);
+    const W = Math.max(640, el.clientWidth || 1100);
+    const H = 12, TOP = 34, Y0 = rows[0].year, Y1 = rows[rows.length - 1].year;
+    const by = new Map(rows.map((r) => [r.year, r]));
+    const P = (y) => by.get(Math.min(Math.max(y, Y0), Y1)).publishing;
+    const F = (y) => (by.get(y) ? by.get(y).founded.length : 0);
+    const C = (y) => (by.get(y) ? by.get(y).closed.length : 0);
+    const M = (y) => (by.get(y) ? by.get(y).absorbed : 0);
+    const FX = Math.round(W * 0.17), CX = Math.round(W * 0.80), cx = W * 0.48;
+    const k = (W * 0.19) / d3.max(rows, (r) => r.publishing);   // river px per paper
+    const k2 = H / 70;                                           // strand px per paper: a year's slot holds 70
+    const Y = (y) => TOP + (y - Y0) * H;
+    const w = (y) => k * P(y);
+
+    // The lean: each year's (founded - ended) / (founded + ended), smoothed over ~9 years and accumulated,
+    // spread across DRIFT px. It moves the centreline only.
+    const imb = (y) => { const f = F(y), l = C(y) + M(y); return f + l ? (f - l) / (f + l) : 0; };
+    const g = d3.range(-9, 10).map((i) => Math.exp(-((i / 3) ** 2) / 2)), gs = d3.sum(g);
+    let c = 0; const cum = new Map();
+    for (let y = Y0; y <= Y1 + 1; y++) { c += d3.sum(g.map((v, i) => v * imb(y + i - 9))) / gs; cum.set(y, c); }
+    const [lo, hi] = d3.extent([...cum.values()]), DRIFT = W * 0.175;
+    const mid = (y) => cx - DRIFT * ((cum.get(Math.min(Math.max(y, Y0), Y1 + 1)) - lo) / (hi - lo || 1) - 0.5);
+
+    const height = Y(Y1 + 1) + 40;
+    const svg = d3.create("svg").attr("viewBox", [0, 0, W, height]).attr("style", "width: 100%; height: auto; display: block")
+      .attr("font-family", "var(--font-sans)").attr("font-size", 12);
     el.replaceChildren(svg.node());
-    const layout = d3.sankey().nodeId((d) => d.id).nodeAlign((d) => d.col)
-      .nodeWidth(14).nodePadding(narrow ? 8 : 14)
-      .nodeSort((a, b) => RANK[a.kind] - RANK[b.kind])
-      // One band order at every block, so a kind of band sits in the same
-      // place in every year: papers carrying on, then papers merged in, then
-      // closures; within a kind, existing papers before newly founded ones.
-      .linkSort((a, b) => (LINK_RANK[a.kind] - LINK_RANK[b.kind]) ||
-        (RANK[a.source.kind] - RANK[b.source.kind]) || (RANK[a.target.kind] - RANK[b.target.kind]))
-      .iterations(0)
-      .extent([[36, left], [height - 40, across]]);
-    const g = layout({
-      nodes: [...nodes.values()].map((d) => ({ ...d })),
-      links: flows.map((r, i) => ({ source: r.source, target: r.target, kind: r.kind, value: +r.value, index: i })),
-    });
-    // Every row starts at the left edge in one order -- publishing, founded,
-    // closed -- so the publishing blocks share an edge and the bands that
-    // carry papers on run straight down.
-    const pad = narrow ? 8 : 14;
-    for (const [, ns] of d3.group(g.nodes, (d) => d.col)) {
-      let at = left;
-      ns.sort((a, b) => RANK[a.kind] - RANK[b.kind]).forEach((n) => {
-        const w = n.y1 - n.y0; n.y0 = at; n.y1 = at + w; at += w + pad;
+
+    svg.append("text").attr("x", FX).attr("y", 14).attr("font-weight", 700).attr("fill", T.founded).text("Founded");
+    svg.append("text").attr("x", mid(Y0)).attr("y", 14).attr("text-anchor", "middle").attr("font-weight", 700).attr("fill", T.river).text("Publishing");
+    svg.append("text").attr("x", CX + 10).attr("y", 14).attr("text-anchor", "end").attr("font-weight", 700).attr("fill", T.merged).text("Merged");
+    svg.append("text").attr("x", CX + 10).attr("y", 28).attr("text-anchor", "end").attr("font-weight", 700).attr("fill", T.closed).text("Closed");
+
+    const decades = d3.range(Math.ceil(Y0 / 10) * 10, Y1 + 1, 10);
+    svg.append("g").attr("pointer-events", "none").selectAll("line").data(decades).join("line").attr("x1", 44).attr("x2", W - 8)
+      .attr("y1", Y).attr("y2", Y).attr("stroke", T.grid);
+    svg.append("g").attr("pointer-events", "none").selectAll("text").data(decades).join("text").attr("x", 4).attr("y", (d) => Y(d) + 4)
+      .attr("font-weight", 700).attr("fill", T.ink).text((d) => d);
+
+    const link = (x0, y0, x1, y1, t) => {
+      const xm = (x0 + x1) / 2;
+      return `M${x0},${y0} C${xm},${y0} ${xm},${y1} ${x1},${y1} L${x1},${y1 + t} C${xm},${y1 + t} ${xm},${y0 + t} ${x0},${y0 + t} Z`;
+    };
+    // strands: founded from the decade's bar into the river at the year; merged and closed out of the river
+    // at the year into bars stacked at the decade's end, gold above red
+    const strands = [], bars = [], notes = [];
+    for (const dd of decades) {
+      const yrs = d3.range(dd, Math.min(dd + 10, Y1 + 1));
+      const end = Y(Math.min(dd + 10, Y1 + 1));
+      const sum = (fn) => d3.sum(yrs, fn);
+      let fy = Y(dd);
+      let cy = end - k2 * sum(C); const ctop = cy;
+      let my = ctop - k2 * sum(M) - (sum(M) ? 2 : 0); const mtop = my;
+      for (const y of yrs) {
+        const yc = (t) => Y(y) + (H - t) / 2;
+        if (F(y)) { const t = k2 * F(y); strands.push({ y, dd, kind: "founded", d: link(FX + 10, fy, mid(y) - w(y) / 2 + 2, yc(t), t) }); fy += t; }
+        if (M(y)) { const t = k2 * M(y); strands.push({ y, dd, kind: "merged", d: link(mid(y) + w(y) / 2 - 2, yc(t), CX, my, t) }); my += t; }
+        if (C(y)) { const t = k2 * C(y); strands.push({ y, dd, kind: "closed", d: link(mid(y) + w(y) / 2 - 2, yc(t), CX, cy, t) }); cy += t; }
+      }
+      if (fy > Y(dd)) bars.push({ dd, kind: "founded", x: FX, y0: Y(dd), y1: fy });
+      if (my > mtop) bars.push({ dd, kind: "merged", x: CX, y0: mtop, y1: my });
+      if (cy > ctop) bars.push({ dd, kind: "closed", x: CX, y0: ctop, y1: cy });
+      notes.push({ dd, last: yrs[yrs.length - 1], f: sum(F), m: sum(M), c: sum(C) });
+    }
+    // the year rows sit beneath everything, so the whole row answers a hover
+    const yrs = d3.range(Y0, Y1 + 1);
+    const hits = svg.append("g").selectAll("rect").data(yrs).join("rect").attr("class", "nr-hit")
+      .attr("x", 0).attr("width", W).attr("y", Y).attr("height", H).attr("fill", "transparent");
+    const strandSel = svg.append("g").attr("pointer-events", "none").selectAll("path").data(strands).join("path")
+      .attr("d", (s) => s.d).attr("fill", (s) => T[s.kind]);
+
+    // the river: a smooth curve through each year's banks
+    const curve = d3.line().curve(d3.curveCatmullRom.alpha(0));
+    const left = [[mid(Y0), Y(Y0)], ...yrs.map((y) => [mid(y) - w(y) / 2, Y(y) + H / 2]), [mid(Y1) - w(Y1) / 2, Y(Y1 + 1)]];
+    const right = [[mid(Y1) + w(Y1) / 2, Y(Y1 + 1)], ...yrs.slice().reverse().map((y) => [mid(y) + w(y) / 2, Y(y) + H / 2]), [mid(Y0), Y(Y0)]];
+    svg.append("path").attr("pointer-events", "none").attr("d", curve(left) + "L" + curve(right).slice(1) + "Z").attr("fill", T.river);
+
+    // each decade's count on a hairline across the river at the decade's start
+    const dg = svg.append("g").attr("pointer-events", "none");
+    for (const dd of decades) {
+      dg.append("line").attr("x1", mid(dd) - w(dd) / 2).attr("x2", mid(dd) + w(dd) / 2).attr("y1", Y(dd)).attr("y2", Y(dd))
+        .attr("stroke", "#ffffff").attr("stroke-opacity", 0.35).attr("stroke-width", 0.5);
+      // where the river is narrower than its number, the number sits beside it in ink
+      const inside = w(dd) >= 34;
+      dg.append("text").attr("x", inside ? mid(dd) : mid(dd) + w(dd) / 2 + 5).attr("y", Y(dd) + 4.5)
+        .attr("text-anchor", inside ? "middle" : "start").attr("fill", inside ? "#ffffff" : T.ink)
+        .attr("font-size", 12.5).attr("font-weight", 700).attr("stroke", inside ? T.river : T.bg).attr("stroke-width", inside ? 4 : 3)
+        .attr("paint-order", "stroke").text(P(dd));
+    }
+    dg.append("text").attr("x", mid(Y1)).attr("y", Y(Y1 + 1) + 22).attr("text-anchor", "middle").attr("font-weight", 700)
+      .attr("fill", T.river).text(`${P(Y1)} publishing today`);
+
+    // decade notes: foundings on the left; merged, then closed, on the right
+    const ng = svg.append("g").attr("pointer-events", "none");
+    for (const n of notes) {
+      const yy = Y(n.dd) + 5 * H;
+      ng.append("text").attr("x", FX - 12).attr("y", yy - 4).attr("text-anchor", "end").attr("fill", T.muted).text(`${n.dd}–${n.last}`);
+      const f = ng.append("text").attr("x", FX - 12).attr("y", yy + 12).attr("text-anchor", "end").attr("fill", T.muted);
+      f.append("tspan").attr("fill", T.founded).attr("font-weight", 700).text(n.f); f.append("tspan").text(" founded");
+      const right = [...(n.m ? [["merged", n.m]] : []), ["closed", n.c]];
+      right.forEach(([kind, v], i) => {
+        const t = ng.append("text").attr("x", CX + 22).attr("y", yy - 4 + 16 * i).attr("fill", T.muted);
+        t.append("tspan").attr("fill", T[kind]).attr("font-weight", 700).text(v); t.append("tspan").text(` ${kind}`);
       });
     }
-    layout.update(g);
 
-    // Following a set of papers. A block selects every paper that passes
-    // through it; a band, the papers it carries. Their share of every band
-    // they later (and earlier) pass through is drawn solid, along the top
-    // edge of that band, and the sentence above says where they ended up.
-    const byIndex = g.links;
-    function chosen() {
-      if (!picked) return null;
-      if (picked.flow != null) return paths.filter((p) => p.includes(picked.flow));
-      return paths.filter((p) => p.some((i) => byIndex[i].source.id === picked.node || byIndex[i].target.id === picked.node));
-    }
-    function describe(sel) {
-      if (!sel) {
-        follow.innerHTML = PROMPT;
-        const t = follow.querySelector("[data-try]");
-        if (t) t.onclick = () => { picked = { node: t.dataset.try }; paint(); };
-        return;
-      }
-      const what = picked.flow != null
-        ? `${byIndex[picked.flow].source.label} → ${byIndex[picked.flow].target.label}`
-        : g.nodes.find((n) => n.id === picked.node).label;
-      const years = g.nodes.filter((n) => n.kind === "publishing").sort((a, b) => a.col - b.col);
-      const cells = years.map((n) => {
-        const c = sel.filter((p) => p.some((i) => byIndex[i].target === n && byIndex[i].kind === "publishing")).length;
-        return c ? `<span class="nh-cell"><small>${n.label.slice(-4)}</small><b>${c.toLocaleString()}</b></span>` : "";
-      }).join("");
-      let closed = 0, merged = 0, still = 0;
-      const last = Math.max(...years.map((n) => n.col));
-      for (const p of sel) {
-        const l = byIndex[p[p.length - 1]];
-        if (l.kind === "merged") merged++;
-        else if (l.kind === "closed") closed++;
-        else if (l.target.col === last) still++;
-      }
-      const T = PALETTE[mode()];
-      const out = (n, k, label) => `<span class="nh-out"><i style="background:${T[k]}"></i><b>${n.toLocaleString()}</b> ${label}</span>`;
-      follow.innerHTML =
-        `<p class="nh-head">${sel.length.toLocaleString()} newspapers · ${what} <button type="button">Clear</button></p>` +
-        (cells ? `<div class="nh-row"><span class="nh-k">Still publishing in</span>${cells}</div>` : "") +
-        `<div class="nh-row"><span class="nh-k">In the end</span>${out(closed, "closed", "closed")}${out(merged, "merged", "merged into a surviving paper")}${out(still, "publishing", "publish today")}</div>`;
-      // The papers that made it are named, oldest first: a count of three
-      // survivors says less than which three.
-      const living = sel.filter((p) => p.info && p.info.outcome === "still publishing" && p.info.name)
-        .sort((a, b) => a.info.start - b.info.start);
-      if (living.length) {
-        const shown = living.slice(0, 20).map((p) =>
-          `<span class="nh-paper">${p.info.name}${p.info.town ? ` <small>${p.info.town}, since ${p.info.start}</small>` : ""}</span>`).join("");
-        follow.insertAdjacentHTML("beforeend",
-          `<div class="nh-row nh-living"><span class="nh-k">Publishing today</span>${shown}` +
-          (living.length > 20 ? `<span class="nh-more">and ${living.length - 20} more</span>` : "") + `</div>`);
-      }
-      follow.querySelector("button").onclick = () => { picked = null; paint(); };
-    }
+    const barSel = svg.append("g").selectAll("rect").data(bars).join("rect").attr("class", "nr-hit")
+      .attr("x", (b) => b.x - 3).attr("y", (b) => b.y0).attr("width", 16).attr("height", (b) => Math.max(2, b.y1 - b.y0))
+      .attr("fill", (b) => T[b.kind]).attr("stroke", T.bg).attr("stroke-width", 3).attr("paint-order", "stroke");
 
-    // Each band is a filled shape whose edges meet the blocks exactly,
-    // running down the page from one checkpoint's row to the next.
-    const band = (d, w) => {
-      const full = Math.max(1, d.width), h = (w == null ? full : w) / 2;
-      const off = w == null ? 0 : -full / 2 + h;     // a share rides the band's left edge
-      const y0 = d.source.x1, y1 = d.target.x0, ym = (y0 + y1) / 2, a = d.y0 + off, b = d.y1 + off;
-      return `M${a - h},${y0}C${a - h},${ym} ${b - h},${ym} ${b - h},${y1}L${b + h},${y1}C${b + h},${ym} ${a + h},${ym} ${a + h},${y0}Z`;
+    // hover: a year (its whole row) or a decade's bar
+    const rest = { founded: 0.6, merged: 0.75, closed: 0.5 };
+    const paint = (on) => strandSel.attr("fill-opacity", (s) => (!on ? rest[s.kind] : on(s) ? 0.95 : 0.08));
+    const list = (kind, label, papers) => !papers.length ? "" :
+      `<p class="nr-list"><i style="color:${T[kind]}">${papers.length} ${label}</i>${papers.slice(0, 40).map(esc).join("; ")}` +
+      (papers.length > 40 ? ` <span class="nr-more">and ${papers.length - 40} more</span>` : "") + `</p>`;
+    const showYear = (y) => {
+      const r = by.get(y);
+      panel.innerHTML = `<p class="nr-head">${y}: <b>${r.publishing}</b> publishing</p>` +
+        list("founded", "founded:", r.founded) + list("merged", r.merged.length === 1 ? "merger:" : "mergers:", r.merged) +
+        list("closed", "closed:", r.closed) +
+        (r.founded.length + r.merged.length + r.closed.length ? "" : `<p class="nr-list">No papers founded, merged or closed.</p>`);
+      paint((s) => s.y === y);
     };
-    svg.on("click", (ev) => { if (ev.target === svg.node()) { picked = null; paint(); } });
-    const bands = svg.append("g").selectAll("path").data(g.links).join("path")
-      .attr("d", (d) => band(d)).attr("fill", (d) => T[d.kind])
-      .on("click", (ev, d) => { ev.stopPropagation(); picked = picked && picked.flow === d.index ? null : { flow: d.index }; paint(); })
-      .on("mouseenter", function () { if (!picked) d3.select(this).attr("fill-opacity", 0.7); })
-      .on("mouseleave", function () { if (!picked) d3.select(this).attr("fill-opacity", 0.42); });
-    const share = svg.append("g").attr("pointer-events", "none");
-    const blocks = svg.append("g").selectAll("rect").data(g.nodes).join("rect")
-      .attr("x", (d) => d.y0).attr("y", (d) => d.x0).attr("width", (d) => Math.max(1, d.y1 - d.y0))
-      .attr("height", (d) => d.x1 - d.x0).attr("fill", (d) => T[d.kind])
-      .on("click", (ev, d) => { ev.stopPropagation(); picked = picked && picked.node === d.id ? null : { node: d.id }; paint(); })
-      .on("mouseenter", function () { d3.select(this).attr("stroke", T.ink).attr("stroke-width", 2); })
-      .on("mouseleave", function () { d3.select(this).attr("stroke", null); });
-    function paint() {
-      const sel = chosen();
-      const count = new Map();
-      if (sel) for (const p of sel) for (const i of p) count.set(i, (count.get(i) || 0) + 1);
-      bands.attr("fill-opacity", sel ? 0.1 : 0.42);
-      blocks.attr("opacity", (d) => (!sel || d.sourceLinks.concat(d.targetLinks).some((l) => count.has(l.index)) ? 1 : 0.25));
-      share.selectAll("path").data(sel ? g.links.filter((l) => count.has(l.index)) : []).join("path")
-        .attr("d", (d) => band(d, (d.width / d.value) * count.get(d.index)))
-        .attr("fill", (d) => T[d.kind]).attr("fill-opacity", 0.85);
-      describe(sel);
-    }
-    paint();
-
-    // The year gutter on the left, and on the right a note for every
-    // checkpoint (how many were publishing) and every span between two
-    // (founded, closed, merged) -- or the visual's own words where its
-    // settings give them (config.annotations, keyed by the span's end year).
-    const rows = g.nodes.filter((n) => n.kind === "publishing").sort((a, b) => a.col - b.col);
-    const notes = svg.append("g").attr("fill", T.muted);
-    const custom = NOTES || {};
-    const sumIn = (n, kind) => n.targetLinks.filter((l) => !kind || l.kind === kind).reduce((s, l) => s + l.value, 0);
-    rows.forEach((n, i) => {
-      const y = (n.x0 + n.x1) / 2;
-      svg.append("text").attr("x", left - 10).attr("y", y).attr("dy", "0.35em").attr("text-anchor", "end")
-        .attr("font-weight", 700).attr("fill", T.ink).text(n.label.slice(-4));
-      const merged = sumIn(n, "merged"), papers = n.value - merged;
-      const tx = notesW ? width - notesW + 8 : n.y1 + 6;
-      const t = svg.append("text").attr("x", tx).attr("y", y).attr("dy", "0.35em").attr("fill", T.ink);
-      t.append("tspan").attr("font-weight", 700).text(`${papers.toLocaleString()} publishing`);
-      if (merged) t.append("tspan").attr("fill", T.merged).attr("dx", 6).text(`+${merged} merged in`);
-      if (!notesW || i === 0) return;
-      const prev = rows[i - 1], ym = (prev.x1 + n.x0) / 2, end = n.label.slice(-4);
-      const founded = g.nodes.find((m) => m.kind === "founded" && m.col === prev.col);
-      const closed = g.nodes.find((m) => m.kind === "closed" && m.col === n.col);
-      const line = custom[end] || [
-        founded ? `${founded.value.toLocaleString()} founded` : null,
-        closed ? `${closed.value.toLocaleString()} closed` : null,
-        merged ? `${merged} merged into surviving papers` : null,
-      ].filter(Boolean).join(" · ");
-      const box = notes.append("text").attr("x", width - notesW + 8).attr("y", ym).attr("font-size", narrow ? 10.5 : 12);
-      box.append("tspan").attr("x", width - notesW + 8).attr("dy", "-0.2em").attr("fill", T.muted).text(`${prev.label.slice(-4) * 1 + 1}–${end}`);
-      // wrap the note to the column
-      const words = line.split(" "); let cur = "", lines = [];
-      for (const w of words) { if ((cur + " " + w).trim().length > (notesW / 6.6)) { lines.push(cur.trim()); cur = w; } else cur += " " + w; }
-      if (cur.trim()) lines.push(cur.trim());
-      lines.forEach((l) => box.append("tspan").attr("x", width - notesW + 8).attr("dy", "1.25em").attr("fill", T.ink).text(l));
-    });
+    const showBar = (b) => {
+      const ys = rows.filter((r) => r.year >= b.dd && r.year < b.dd + 10);
+      const papers = ys.flatMap((r) => r[b.kind].map((p) => `${p}, ${r.year}`));
+      const n = b.kind === "merged" ? d3.sum(ys, (r) => r.absorbed) : papers.length;
+      panel.innerHTML = `<p class="nr-head">${b.dd}–${b.dd + 9}: <b>${n}</b> ${b.kind}</p>` +
+        list(b.kind, b.kind === "merged" ? "mergers:" : `${b.kind}:`, papers);
+      paint((s) => s.dd === b.dd && s.kind === b.kind);
+    };
+    const reset = () => { panel.textContent = HINT; paint(null); };
+    hits.on("mouseenter click", (ev, y) => showYear(y)).on("mouseleave", reset);
+    barSel.on("mouseenter click", (ev, b) => showBar(b)).on("mouseleave", reset);
+    reset();
   }
 
   load(0).then((body) => {
-    rows = Array.isArray(body.data) ? body.data : [];
-    flows = rows.filter((r) => r.source != null);
-    // A path is one newspaper; newer feeds also name it (name, town, years).
-    paths = rows.filter((r) => r.path != null).map((r) => Object.assign(r.path.map(Number), { info: r }));
-    if (!flows.length) { el.textContent = "No data."; return; }
+    rows = (Array.isArray(body.data) ? body.data : []).filter((r) => r.kind === "year").sort((a, b) => a.year - b.year);
+    if (!rows.length) { el.textContent = "No data."; return; }
     const v = document.querySelector(".dd-version");
     if (v && body.version) { v.textContent = ` · v${body.version}`; v.hidden = false; }
     draw();
