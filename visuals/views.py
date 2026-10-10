@@ -445,8 +445,12 @@ def _feed_payload(request, visual):
 LIVE_READER_SECONDS = 300
 #: A year, for a URL that names one immutable snapshot.
 _PINNED = "public, max-age=31536000, immutable"
-#: An hour, for one that means "current" and changes when it is republished.
-_CURRENT = "public, max-age=3600"
+#: For one that means "current": kept, but checked with the server on every
+#: load. An hour of `max-age` here held a republished visual's old page in
+#: every browser that had opened it, so a shared link showed the previous
+#: version until the hour ran out and only a `?v=` link showed the new one.
+#: ConditionalGetMiddleware's ETag makes the check a 304 when nothing changed.
+_CURRENT = "public, no-cache"
 
 
 def _cache_for(response, visual, versioned, live=False):

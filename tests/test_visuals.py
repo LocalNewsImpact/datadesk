@@ -813,6 +813,23 @@ def test_a_republished_visual_reaches_a_reader_who_already_had_it(
     assert "immutable" in client.get(f"/embed/{visual.uuid}/?v=1")["Cache-Control"]
 
 
+@pytest.mark.urls("datadesk.urls_data")
+def test_a_shared_link_shows_a_republished_visual_on_the_next_load(
+    client, visual, author
+):
+    """The unversioned page is revalidated on every load, not kept for an
+    hour: a re-pin reached a `?v=` link at once and the shared link only
+    after the hour. An unchanged page answers the check with a 304."""
+    _snapshot(visual, author, ROWS_V1)
+    publish(visual, author)
+    for url in (f"/visuals/{visual.uuid}/", f"/visuals/{visual.uuid}/data.json"):
+        first = client.get(url)
+        assert "no-cache" in first["Cache-Control"]
+        assert "max-age" not in first["Cache-Control"]
+        again = client.get(url, HTTP_IF_NONE_MATCH=first["ETag"])
+        assert again.status_code == 304
+
+
 def test_a_draft_preview_is_never_cached(client, viewer, visual, author):
     """A draft changes under the person previewing it, who is usually the
     person editing it. Cached at all, they would be shown their own stale
