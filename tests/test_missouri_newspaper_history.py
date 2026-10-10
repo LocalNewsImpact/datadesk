@@ -73,11 +73,13 @@ def test_the_feed_serves_the_pinned_years(client, visual):
 
 
 def test_a_reader_can_see_the_papers_behind_a_year_or_a_decade(client, visual):
-    """Hovering or tapping a year, or a decade's bar, names the papers
-    founded, merged and closed in a panel that stays in view."""
+    """Hovering or tapping a stream -- and only a stream, not the empty row
+    of its year -- lights that year's path and names its papers in a panel
+    that stays in view."""
     body = client.get("/embed/missouri-newspaper-history/").content.decode()
     assert 'class="nr-panel"' in body
-    assert "Hover or tap a year, or a decade" in body
+    assert "Hover or tap a stream" in body
+    assert 'attr("width", W).attr("y", Y)' not in body
     assert "dd-tip" not in body
 
 
