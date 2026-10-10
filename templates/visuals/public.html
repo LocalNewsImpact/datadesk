@@ -67,7 +67,7 @@ when the visual has no opinion and wrong when it has one.
   somebody has gone looking for exactly that. Under the chart it was a
   footer on a figure that does not have one.
   {% endcomment %}
-  <div class="wrap{% if visual.render_config.kind == "table" or visual.render_config.kind == "roster" %} wide{% endif %}">
+  <div class="wrap{% if visual.render_config.kind == "table" or visual.render_config.kind == "roster" or visual.template == "missouri_newspaper_event_map" %} wide{% endif %}">
     <div class="figure">{% include renderer %}</div>
 
     <div id="dd-takeaway" class="takeaway" hidden>

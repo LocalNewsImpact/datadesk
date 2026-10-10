@@ -1,0 +1,282 @@
+{% load static %}
+{# A one-off renderer: Missouri's newspapers year by year on a county map. #}
+{# Each year's foundings, mergers, moves and closings appear where they #}
+{# happened -- a dot per paper, packed around its town -- and fade over the #}
+{# next two years; a merger or a move draws an arrow to where it landed. #}
+{# Counties are shaded by the papers publishing there that year, and a paper #}
+{# still publishing today holds a dark blue dot from the year it settled in #}
+{# its town, so the last frame, Today, is the registry's papers. #}
+{#                                                                         #}
+{# The feed is one object (the newspaper-history pipeline's mapfeed.py, in #}
+{# the crawler repository): events (year, event, paper, town, county, x, y; #}
+{# a merger or move adds into/to, into_town, into_county, ix, iy), today #}
+{# (paper, town, county, since, x, y), years (year, publishing), y0 (the #}
+{# first year), counties (FIPS -> papers publishing, one per year from y0) #}
+{# and now (FIPS -> papers publishing today). The river and the county #}
+{# trees are built in the same run from the same papers and events. #}
+{#                                                                         #}
+{# Built to match the approved prototype pixel for pixel: its own type and #}
+{# colours, scoped to .em, whatever the page around it uses. #}
+<figure class="dd-visual em" id="em">
+  {% if visual.config.title %}<h2 class="dd-title em-h">{{ visual.config.title }}</h2>{% endif %}
+  {% if visual.config.subtitle %}<p class="dd-subtitle em-sub">{{ visual.config.subtitle }}</p>{% endif %}
+  <div class="em-legend" id="em-legend"></div>
+  <div class="em-mapwrap" id="em-mapwrap" data-feed="{{ feed }}" data-geo="{% static 'geo/counties-10m.json' %}"><svg id="em-map"></svg><div class="em-hud" id="em-hud"><div class="em-yr" id="em-yr"></div><div class="em-tally" id="em-tally"></div></div><div class="em-panel" id="em-panel"></div><div class="em-ctl" id="em-ctl"><button id="em-play" class="em-play" aria-label="Play"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M2,1L9,5L2,9z" fill="currentColor"/></svg></button><button id="em-back" class="em-step" aria-label="Previous year">‹</button><button id="em-fwd" class="em-step" aria-label="Next year">›</button>
+      <button class="em-speed" id="em-speed" title="Playback speed: click to change">speed <b>1×</b></button></div><svg id="em-spark"></svg></div>
+  <figcaption class="dd-footer">
+    <span class="dd-source">{% if visual.config.note %}Source: {{ visual.config.note }}{% endif %}
+      <span class="dd-version" hidden></span>
+    </span>
+  </figcaption>
+  <div id="em-tip"></div>
+</figure>
+<style>
+  .em { --text:#0b0b0b; --text-2:#5f6874; --border:#e1e0d9; --bg:#fcfcfb;
+        --founded:#2a9d7a; --merged:#d99a1e; --closed:#d6454f; --today:#0b5f8f; --moved:#6b5ca5;
+        color:var(--text); font-family:system-ui,sans-serif; line-height:normal; max-width:1120px; margin:0; }
+  /* on a dark page the figure keeps the prototype's light ground: its colours are drawn for it */
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .em { background:var(--bg); padding:12px; border-radius:8px; } }
+  :root[data-theme="dark"] .em { background:var(--bg); padding:12px; border-radius:8px; }
+  .em .em-h { margin:0 0 4px; font-size:1.25rem; font-weight:700; line-height:normal; color:var(--text); font-family:inherit; }
+  .em .em-sub { color:var(--text-2); font-size:.9rem; line-height:normal; margin:0 0 10px; font-family:inherit; }
+  .em .em-yr { font-size:2rem; font-weight:800; font-variant-numeric:tabular-nums; line-height:1; margin-bottom:4px; }
+  /* the controls and the timeline share a lightly tinted panel, apart from the map and the counts */
+  .em .em-panel { position:absolute; background:#f1f2f4; border:1px solid #dcdfe4; border-radius:8px; }
+  /* above the timeline, its width */
+  .em .em-ctl { position:absolute; width:84px; display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:5px; }
+  .em .em-ctl button { font:inherit; cursor:pointer; color:var(--text); background:#fff; border:1px solid #c9c6bc; padding:0; }
+  .em .em-ctl button:hover { border-color:var(--text); }
+  .em .em-ctl .em-play { width:24px; height:24px; border-radius:50%; background:var(--text); border-color:var(--text); color:#fff; display:grid; place-items:center; }
+  .em .em-ctl .em-play svg { width:9px; height:9px; }
+  .em .em-ctl .em-play:hover { background:var(--today); border-color:var(--today); }
+  .em .em-ctl .em-step { width:20px; height:20px; border-radius:50%; font-size:.85rem; line-height:1; display:grid; place-items:center; }
+  .em .em-ctl .em-speed { flex-basis:100%; text-align:center; border:0; background:none; font-size:.72rem; color:var(--text-2); }
+  .em .em-ctl .em-speed b { font-weight:600; color:var(--text); border-bottom:1px dotted var(--text-2); }
+  .em .em-ctl .em-speed:hover b { border-bottom-style:solid; }
+  .em #em-spark { position:absolute; width:84px; display:block; cursor:ns-resize; touch-action:none; user-select:none; -webkit-user-select:none; }
+  .em #em-spark text { pointer-events:none; }
+  /* The window less 113px, as the approved prototype: the map's scale sets where its border meets the legend.
+     Framed in someone else's page the frame is as tall as its content, so the height is fixed there. */
+  .em .em-mapwrap { position:relative; box-sizing:border-box; padding-top:0; margin-top:-5px; height:calc(100vh - 113px); min-height:420px; max-height:780px; }
+  .em.em-framed .em-mapwrap { height:640px; }
+  .em #em-map { height:100%; width:auto; aspect-ratio:880/760; max-width:calc(100% - 290px); display:block; }
+  /* in the empty Illinois side, east of Ralls County; a fixed width, and the numbers right-aligned in a column
+     three digits wide: nothing moves as the counts change */
+  .em .em-hud { position:absolute; width:150px; }
+  .em .em-tally { font-size:.85rem; color:var(--text-2); line-height:1.45; white-space:nowrap; }
+  .em .em-tally .row { display:block; }
+  .em .em-tally .n { display:inline-block; min-width:3ch; text-align:right; font-variant-numeric:tabular-nums; }
+  .em .em-tally b { font-variant-numeric:tabular-nums; }
+  .em .em-legend { display:flex; gap:6px 14px; flex-wrap:wrap; font-size:.8rem; color:var(--text-2); align-items:center; margin:6px 0 0; }
+  .em .em-legend svg { vertical-align:middle; }
+  .em .dd-footer { font-family:inherit; }
+  #em-tip { position:fixed; pointer-events:none; background:#fff; color:#0b0b0b; border:1px solid #e1e0d9; border-radius:6px; font-family:system-ui,sans-serif;
+            padding:6px 8px; font-size:.8rem; max-width:260px; box-shadow:0 2px 8px #0002; display:none; z-index:30; }
+</style>
+<script src="{% static 'js/d3.min.js' %}" defer></script>
+<script src="{% static 'js/topojson-client.min.js' %}" defer></script>
+<script>
+document.addEventListener("DOMContentLoaded", async () => {
+  const root = document.getElementById("em"), wrapEl = document.getElementById("em-mapwrap");
+  let framed = false;
+  try { framed = window.self !== window.top; } catch (e) { framed = true; }
+  root.classList.toggle("em-framed", framed);
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  let body, topo;
+  try {
+    [body, topo] = await Promise.all([fetch(wrapEl.dataset.feed).then((r) => r.json()), fetch(wrapEl.dataset.geo).then((r) => r.json())]);
+  } catch (e) { wrapEl.textContent = "Feed unavailable."; return; }
+  const D = body.data;
+  if (!D || !D.events || !D.years) { wrapEl.textContent = "No data."; return; }
+  const v = root.querySelector(".dd-version");
+  if (v && body.version) { v.textContent = ` · v${body.version}`; v.hidden = false; }
+  const css = (n) => getComputedStyle(root).getPropertyValue(n).trim();
+  const C = { founded: css("--founded"), merged: css("--merged"), closed: css("--closed"), today: css("--today"), moved: css("--moved") };
+  const Y0 = D.y0, Y1 = D.years[D.years.length - 1].year, TODAY = Y1 + 1;   // the frame after the last year is "Today"
+  const pub = new Map(D.years.map((r) => [r.year, r.publishing]));
+  const geo = topojson.feature(topo, topo.objects.counties);
+  geo.features = geo.features.filter((f) => String(f.id).startsWith("29"));
+
+  // ---- map ----------------------------------------------------------------------------------------------------
+  const W = 880, H = 760;
+  const proj = d3.geoConicEqualArea().parallels([36.5, 40.5]).rotate([92.4, 0]).fitExtent([[10, 2], [W - 10, H - 10]], geo);
+  const path = d3.geoPath(proj);
+  const svg = d3.select("#em-map").attr("viewBox", [0, 0, W, H]);
+  // shading: papers publishing in the county that year. 0 is left unshaded -- no newsroom.
+  const steps = [1, 2, 3, 5, 10, 25];
+  const shade = d3.scaleThreshold(steps, ["#f4f3ef", ...d3.quantize(d3.interpolateRgb("#dbe8f1", "#0b4f7a"), steps.length)]);
+  const counties = svg.append("g").selectAll("path").data(geo.features).join("path").attr("d", path)
+    .attr("stroke", "#d9d6cc").attr("stroke-width", 0.6);
+  const arcs = svg.append("g").attr("fill", "none");
+  const dots = svg.append("g");
+  svg.append("defs").append("marker").attr("id", "em-ah").attr("viewBox", "0 0 10 10").attr("refX", 8).attr("refY", 5)
+    .attr("markerWidth", 6).attr("markerHeight", 6).attr("orient", "auto-start-reverse")
+    .append("path").attr("d", "M0,0L10,5L0,10z").attr("fill", C.merged);
+  svg.select("defs").append("marker").attr("id", "em-ahm").attr("viewBox", "0 0 10 10").attr("refX", 8).attr("refY", 5)
+    .attr("markerWidth", 6).attr("markerHeight", 6).attr("orient", "auto-start-reverse")
+    .append("path").attr("d", "M0,0L10,5L0,10z").attr("fill", C.moved);
+
+  // ---- placing a town's events: a sunflower around the town, this year's at the centre ---------------------------
+  const R = 3.6, GAP = 2 * R + 1.2, GOLD = Math.PI * (3 - Math.sqrt(5));
+  const FADE = [1, 0.4, 0.15];   // this year, last year, the year before
+  // Every mark in a frame, placed in one sunflower per town: this year's events at the centre, then where this
+  // year's mergers and moves landed, then the papers that have settled there and are still publishing, then the
+  // fading events of the two years before.
+  const where = (town, county) => town ? `${town}, ${county === "St. Louis" && town === "St. Louis" ? "St. Louis" : county + " County"}` : `${county} County`;
+  const RANK = { founded: 0, merged: 0, closed: 0, moved: 0, landed: 1, arrived: 1, today: 2 };
+  function frame(y) {
+    const marks = [];
+    if (y !== TODAY) for (const e of D.events) {
+      if (e.year > y || e.year <= y - FADE.length) continue;
+      marks.push({ ...e, age: y - e.year });
+      if (e.ix != null) marks.push({ ...e, event: e.event === "merged" ? "landed" : "arrived", x: e.ix, y: e.iy,
+                                     town: e.into_town, county: e.into_county, from: e.town, age: y - e.year });
+    }
+    for (const p of D.today) if (p.since <= y) marks.push({ ...p, event: "today", age: 0, year: p.since });
+    const byTown = d3.group(marks.sort((a, b) => a.age - b.age || RANK[a.event] - RANK[b.event]), (e) => e.x + "," + e.y);
+    const placed = [];
+    for (const [, es] of byTown) es.forEach((e, k) => {
+      const [x, yy] = proj([e.x, e.y]), r = GAP * 0.62 * Math.sqrt(k), a = k * GOLD;
+      placed.push({ ...e, px: x + r * Math.cos(a), py: yy + r * Math.sin(a) });
+    });
+    return placed;
+  }
+
+  const FILL = { founded: C.founded, merged: C.merged, closed: "#fff", moved: "#fff", landed: "#fff", arrived: C.moved, today: C.today };
+  const LINE = { founded: "#fff", merged: "#fff", closed: C.closed, moved: C.moved, landed: C.merged, arrived: "#fff", today: "#fff" };
+  function draw(y) {
+    const i = Math.min(y, Y1) - Y0;
+    const n = (id) => y === TODAY ? (D.now[id] || 0) : (D.counties[id] ? D.counties[id][i] : 0);
+    counties.attr("fill", (f) => shade(n(f.id)))
+      .on("mousemove", (ev, f) => tip(ev, `<b>${esc(f.properties.name)}${f.id === "29510" ? " (city)" : " County"}</b><br>${n(f.id)} publishing`))
+      .on("mouseleave", hide);
+    const P = frame(y);
+    // an arrow from where each merger or move left to where it landed
+    const end = new Map(P.filter((e) => e.event === "landed" || e.event === "arrived").map((e) => [e.paper + e.year + e.event, e]));
+    arcs.selectAll("path").data(P.filter((e) => (e.event === "merged" || e.event === "moved") && e.ix != null && e.age === 0), (e) => e.event + e.paper + e.year)
+      .join("path").attr("stroke", (e) => e.event === "merged" ? C.merged : C.moved).attr("stroke-width", 1.4)
+      .attr("marker-end", (e) => e.event === "merged" ? "url(#em-ah)" : "url(#em-ahm)")
+      .attr("d", (e) => { const t = end.get(e.paper + e.year + (e.event === "merged" ? "landed" : "arrived")); const [x2, y2] = t ? [t.px, t.py] : proj([e.ix, e.iy]);
+                          const mx = (e.px + x2) / 2, my = (e.py + y2) / 2 - Math.hypot(x2 - e.px, y2 - e.py) * 0.25;
+                          return `M${e.px},${e.py}Q${mx},${my} ${x2},${y2}`; });
+    dots.selectAll("circle").data(P, (e) => e.event + e.paper + e.year + e.town)
+      .join((en) => en.append("circle").attr("r", 0).call((s) => s.transition().duration(180).attr("r", R)), (u) => u.attr("r", R))
+      .attr("cx", (e) => e.px).attr("cy", (e) => e.py)
+      .attr("fill", (e) => FILL[e.event]).attr("stroke", (e) => LINE[e.event])
+      .attr("stroke-width", (e) => LINE[e.event] === "#fff" ? 0.8 : 1.8)
+      .attr("opacity", (e) => e.event === "today" ? 1 : FADE[e.age] ?? 0)
+      .on("mousemove", (ev, e) => tip(ev, `<b>${esc(e.paper)}</b><br>${esc(where(e.town, e.county))}<br>` + esc({
+          today: `publishing here since ${e.since}`,
+          founded: `founded ${e.year}`, closed: `closed ${e.year}`,
+          merged: `merged ${e.year} into ${e.into || "another paper"}${e.into_town ? ` (${where(e.into_town, e.into_county)})` : ""}`,
+          landed: `${e.year}: ${e.paper} (${e.from}) merged into ${e.into || "the paper here"}`,
+          moved: `moved ${e.year} to ${where(e.into_town, e.into_county)}${e.to && e.to !== e.paper ? ` as ${e.to}` : ""}`,
+          arrived: `moved here ${e.year} from ${e.from}`,
+        }[e.event]) + (e.approx ? "<br><i>placed at the county's centre</i>" : "")))
+      .on("mouseleave", hide);
+    // the header
+    const es = y === TODAY ? [] : D.events.filter((e) => e.year === y), c = d3.rollup(es, (v) => v.length, (e) => e.event);
+    document.getElementById("em-yr").textContent = y === TODAY ? "Today" : y;
+    document.getElementById("em-tally").innerHTML = y === TODAY
+      ? `<b>${D.today.length}</b> publishing today<br>in <b>${Object.keys(D.now).length}</b> of 115 counties`
+      : [["founded", C.founded], ["merged", C.merged], ["moved", C.moved], ["closed", C.closed]]
+          .map(([k, col]) => `<span class="row"><b class="n" style="color:${col}">${c.get(k) || 0}</b> ${k}</span>`).join("")
+        + `<span class="row"><b class="n">${pub.get(y)}</b> publishing</span>`;
+    cursor.attr("y1", sx(y)).attr("y2", sx(y));
+  }
+
+  // ---- timeline: the papers publishing each year, scrubbable ------------------------------------------------------
+  // A narrow strip under the controls, years running down as in the river: for scrubbing, not for reading values.
+  // Drawn at its real height (no stretched labels) and again whenever that changes.
+  let year = Y0, timer = null;
+  const SW = 84, sp = d3.select("#em-spark");
+  let SH = 400, sx = d3.scaleLinear([Y0, TODAY], [10, SH - 18]), cursor = null;
+  const half = d3.scaleLinear([0, d3.max(D.years, (r) => r.publishing)], [1.5, 30]), mid = 42;   // never thinner than a hairline, so the bar reads from its first year
+  function drawSpark() {
+    SH = Math.max(160, sp.node().getBoundingClientRect().height);
+    sx = d3.scaleLinear([Y0, TODAY], [14, SH - 20]);   // the bar runs between its two end labels
+    sp.attr("viewBox", [0, 0, SW, SH]).selectAll("*").remove();
+    sp.append("path").datum(D.years).attr("fill", "#c5d8e8")
+      .attr("d", d3.area().y((r) => sx(r.year)).x0((r) => mid - half(r.publishing)).x1((r) => mid + half(r.publishing)));
+    sp.append("g").attr("font-size", 10).attr("fill", "#78818f").selectAll("text").data([1850, 1900, 1950, 2000])
+      .join("text").attr("x", mid).attr("text-anchor", "middle").attr("y", (d) => sx(d) + 3)
+      .attr("paint-order", "stroke").attr("stroke", "#f1f2f4").attr("stroke-width", 3).attr("fill", "#5f6874").text((d) => d);
+    sp.append("text").attr("x", mid).attr("y", 11).attr("font-size", 10).attr("text-anchor", "middle").attr("fill", "#5f6874").text(Y0);
+    // "Today": its cap 3px under the bar, as 1808 sits over it
+    sp.append("text").attr("x", mid).attr("y", sx(TODAY) + 10).attr("font-size", 10).attr("text-anchor", "middle").attr("fill", C.today).text("Today");
+    cursor = sp.append("line").attr("x1", 4).attr("x2", SW - 4).attr("stroke", "#0b0b0b").attr("stroke-width", 2);
+    cursor.attr("y1", sx(year)).attr("y2", sx(year));
+  }
+  const ro = new ResizeObserver(() => { placeTally(); drawSpark(); });
+  ro.observe(document.getElementById("em-map"));
+  // every border point of the state, projected: where the timeline must stop short of the map
+  const EDGE = [];
+  for (const f of geo.features) for (const poly of (f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates))
+    for (const ring of poly) for (const c of ring) EDGE.push(proj(c));
+  const tallyEl = document.getElementById("em-hud");
+  function placeTally() {
+    // map coordinates -> the wrapper's pixels through the SVG's own transform, which accounts for the scale AND the
+    // centring the viewBox applies when the box is not the map's shape
+    const node = document.getElementById("em-map"), m = node.getScreenCTM(), wrap = node.parentNode.getBoundingClientRect();
+    if (!m) return;
+    const stateTop = m.d * path.bounds(geo)[0][1] + m.f - wrap.top, [tx] = proj([-91.28, 40.45]);
+    // The panel (controls over the timeline) sits east of the bend, its controls level with the state's top; the
+    // timeline stops where the state's east edge comes within 22px of it (below St. Louis the border bulges east).
+    const ctl = document.getElementById("em-ctl"), cTop = stateTop, y0 = cTop + ctl.getBoundingClientRect().height + 8;
+    const left = m.a * tx + m.e - wrap.left + 206;
+    const lx = (left - 22 + wrap.left - m.e) / m.a, ty0 = (y0 + wrap.top - m.f) / m.d;   // back into map coordinates
+    let stopAt = path.bounds(geo)[1][1];
+    for (const [x, yy] of EDGE) if (yy > ty0 && x > lx && yy < stopAt) stopAt = yy;
+    const y1 = m.d * stopAt + m.f - wrap.top - 16, sh = Math.max(160, y1 - y0);
+    sp.style("left", left + "px").style("top", y0 + "px").style("height", sh + "px");
+    ctl.style.left = left + "px"; ctl.style.top = cTop + "px";
+    const pad = 10, panel = document.getElementById("em-panel");
+    Object.assign(panel.style, { left: left - pad + "px", top: cTop - pad + "px", width: 84 + 2 * pad + "px", height: y0 + sh - cTop + 2 * pad + "px" });
+    // The year and counts: close to the panel's west side, the year's top level with the panel's top.
+    const yr = document.getElementById("em-yr"), cap = parseFloat(getComputedStyle(yr).fontSize) * -0.05;   // at line-height 1 the digits rise above the box
+    // anchored by its RIGHT edge, so a longer line ("Today", "in 110 of 115 counties") grows west, never under the panel
+    tallyEl.style.left = "auto"; tallyEl.style.right = wrap.width - (left - pad - 16) + "px";
+    tallyEl.style.top = cTop - pad - cap + "px";
+    // the subhead wraps to the graphic's width: map to the panel's right edge
+    const sub = root.querySelector(".em-sub");
+    if (sub) sub.style.maxWidth = panel.getBoundingClientRect().right - sub.getBoundingClientRect().left + "px";
+  }
+  placeTally();
+  drawSpark();
+  const go = (y) => { year = Math.max(Y0, Math.min(TODAY, y)); draw(year); };
+  const scrub = (ev) => { stop(); go(Math.round(sx.invert(d3.pointer(ev, sp.node())[1]))); };
+  sp.on("pointerdown", (ev) => { scrub(ev); sp.on("pointermove", scrub); }).on("pointerup pointerleave", () => sp.on("pointermove", null));
+  const btn = document.getElementById("em-play");
+  const stop = () => { clearInterval(timer); timer = null; btn.innerHTML = '<svg viewBox="0 0 10 10" width="10" height="10"><path d="M2,1L9,5L2,9z" fill="currentColor"/></svg>'; btn.setAttribute("aria-label", "Play"); };
+  btn.onclick = () => { if (timer) return stop(); if (year >= TODAY) go(Y0);
+    btn.innerHTML = '<svg viewBox="0 0 10 10" width="10" height="10"><path d="M2,1h2v8h-2zM6,1h2v8h-2z" fill="currentColor"/></svg>'; btn.setAttribute("aria-label", "Pause"); timer = setInterval(() => { if (year >= TODAY) return stop(); go(year + 1); }, speed); };
+  let speed = 220;
+  // one quiet toggle: 1x -> 2x -> 0.5x
+  const SPEEDS = [[220, "1×"], [110, "2×"], [440, "½×"]];
+  let si = 0;
+  document.getElementById("em-speed").onclick = (ev) => {
+    si = (si + 1) % SPEEDS.length; speed = SPEEDS[si][0]; ev.currentTarget.querySelector("b").textContent = SPEEDS[si][1];
+    if (timer) { stop(); btn.onclick(); }
+  };
+  document.getElementById("em-back").onclick = () => { stop(); go(year - 1); };
+  document.getElementById("em-fwd").onclick = () => { stop(); go(year + 1); };
+  document.addEventListener("keydown", (e) => { if (e.key === "ArrowLeft" || e.key === "ArrowUp") { stop(); go(year - 1); } if (e.key === "ArrowRight" || e.key === "ArrowDown") { stop(); go(year + 1); } });
+
+  // ---- legend + tooltip ----------------------------------------------------------------------------------------
+  const dot = (fill, stroke, sw) => `<svg width="12" height="12"><circle cx="6" cy="6" r="4" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/></svg>`;
+  const ring = (c) => dot("#fff", c, 1.8), arrow = (c) => `<svg width="22" height="10"><path d="M2,8Q11,0 20,6" stroke="${c}" fill="none" stroke-width="1.4"/></svg>`;
+  document.getElementById("em-legend").innerHTML =
+    `<span>${dot(C.founded, "#fff", 0)} Founded</span>
+     <span>${dot(C.merged, "#fff", 0)}${arrow(C.merged)}${ring(C.merged)} Merged into another paper</span>
+     <span>${ring(C.moved)}${arrow(C.moved)}${dot(C.moved, "#fff", 0)} Moved town</span>
+     <span>${ring(C.closed)} Closed</span><span>${dot(C.today, "#fff", 0)} Still publishing today</span>
+     <span style="flex-basis:100%">Papers in the county: ${[0, ...steps].map((s, i) => `<svg width="12" height="10"><rect width="12" height="10" fill="${shade(s)}"/></svg>${i === 0 ? "none" : ""}`).join("")} ${steps[steps.length - 1]}+</span>`;
+  const T = document.getElementById("em-tip");
+  function tip(ev, html) { T.innerHTML = html; T.style.display = "block"; T.style.left = ev.clientX + 12 + "px"; T.style.top = ev.clientY + 12 + "px"; }
+  function hide() { T.style.display = "none"; }
+
+  const q = new URLSearchParams(location.search).get("year");
+  go(q === "today" ? TODAY : q ? +q : Y0);
+  root.dataset.ready = "1";
+});
+</script>
