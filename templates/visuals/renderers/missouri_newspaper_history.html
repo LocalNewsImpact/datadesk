@@ -17,8 +17,8 @@
   <p class="nh-follow" aria-live="polite"></p>
   <div class="dd-chart" id="nh-chart" data-feed="{{ feed }}" style="position: relative">Loading…</div>
   <figcaption class="dd-footer">
-    <span class="dd-source">Source:
-      {% if credit_name %}{% if credit_href %}<a href="{{ credit_href }}">{{ credit_name }}</a>{% else %}{{ credit_name }}{% endif %}{% else %}<a href="https://localnewsimpact.org">Local News Impact Consortium</a>{% endif %}{% if visual.config.note %}. {{ visual.config.note }}{% endif %}
+    {# The note names who made it; no default publisher is printed ahead of it. #}
+    <span class="dd-source">{% if visual.config.note %}Source: {{ visual.config.note }}{% endif %}
       <span class="dd-version" hidden></span>
     </span>
   </figcaption>

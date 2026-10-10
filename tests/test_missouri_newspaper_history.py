@@ -93,3 +93,11 @@ def test_a_reader_can_follow_papers_to_where_they_ended_up(client, visual):
     assert "follow those newspapers to where they ended up" in body
     assert 'class="nh-follow"' in body
     assert "dd-tip" not in body
+
+
+def test_no_publisher_is_printed_ahead_of_the_note(client, visual):
+    note = {"note": "Missouri School of Journalism analysis"}
+    Visual.objects.filter(pk=visual.pk).update(config=note)
+    body = client.get("/embed/missouri-newspaper-history/").content.decode()
+    assert "Source: Missouri School of Journalism analysis" in body
+    assert "Local News Impact Consortium</a>" not in body
