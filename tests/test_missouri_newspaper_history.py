@@ -126,3 +126,71 @@ def test_the_drawn_width_is_smoothed_but_the_counts_are_exact(client, visual):
     body = client.get("/embed/missouri-newspaper-history/").content.decode()
     assert "d3.mean(ys, P)" in body
     assert "d3.curveMonotoneY" in body and "curveCatmullRom" not in body
+
+
+TABLES = {
+    "years": [
+        {
+            "year": 1888,
+            "publishing": 519,
+            "founded": 1,
+            "merged": 1,
+            "closed": 1,
+            "founded_papers": "Vidette (St. Joseph)",
+            "mergers": "Investigator + Unionville Democrat -> Democrat-Investigator",
+            "closed_papers": "Hume Star (Hume)",
+        },
+    ],
+    "papers": [
+        {
+            "paper": "Linn County Leader",
+            "town": "Marceline",
+            "county": "Linn",
+            "first_year": 1886,
+            "last_year": "",
+            "outcome": "still publishing",
+            "merged_into": "",
+            "earlier_titles": "Leader; Daily News-Bulletin",
+            "towns": "Marceline; Brookfield",
+            "title_count": 3,
+            "sources": "SHSMO catalogue",
+        },
+    ],
+    "events": [
+        {
+            "year": 1888,
+            "event": "founded",
+            "paper": "Vidette",
+            "town": "St. Joseph",
+            "county": "Buchanan",
+            "other_paper": "",
+            "source": "SHSMO catalogue",
+        },
+    ],
+}
+
+
+def test_years_papers_and_events_download_as_their_own_csvs(
+    client, visual, django_user_model
+):
+    """The feed is named tables; each is its own CSV, one fact per cell."""
+    author = django_user_model.objects.get(username="author")
+    with mock.patch("visuals.services.fetch_source_data", return_value=TABLES):
+        refresh_snapshot(visual, author)
+    publish(visual, author)
+    for name, first_col in (("years", "year"), ("papers", "paper"), ("events", "year")):
+        r = client.get(f"/visuals/missouri-newspaper-history/data.csv?table={name}")
+        assert r.status_code == 200, name
+        assert r.content.decode().splitlines()[0].startswith(first_col)
+    papers = client.get("/visuals/missouri-newspaper-history/data.csv?table=papers")
+    assert "Linn County Leader" in papers.content.decode()
+    body = client.get("/embed/missouri-newspaper-history/").content.decode()
+    assert "body.data.years" in body and "founded_papers" in body
+
+
+def test_feeds_are_compressed_when_the_browser_accepts_it(client, visual):
+    r = client.get(
+        "/visuals/missouri-newspaper-history/data.json", HTTP_ACCEPT_ENCODING="gzip"
+    )
+    assert r.status_code == 200
+    assert r.get("Content-Encoding") == "gzip"

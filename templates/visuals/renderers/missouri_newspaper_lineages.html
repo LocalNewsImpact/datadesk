@@ -286,7 +286,11 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   load(0).then((body) => {
-    const rows = Array.isArray(body.data) ? body.data : [];
+    // The feed is named tables (titles, links, papers, events) a reader can download; the trees draw titles and
+    // links. An older feed is one list of title and link rows.
+    const rows = Array.isArray(body.data) ? body.data
+      : [...((body.data && body.data.titles) || []).map((t) => ({ ...t, kind: "title" })),
+         ...((body.data && body.data.links) || []).map((l) => ({ ...l, kind: "link" }))];
     for (const r of rows) if (r.kind === "title") titles.set(r.id, r);
     links = rows.filter((r) => r.kind === "link");
     if (!titles.size) { chart.textContent = "No data."; return; }

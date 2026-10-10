@@ -103,3 +103,10 @@ def test_no_publisher_is_printed_ahead_of_the_note(client, visual):
     body = client.get("/embed/missouri-newspaper-lineages/").content.decode()
     assert "Source: Missouri School of Journalism analysis" in body
     assert "Local News Impact Consortium</a>" not in body
+
+
+def test_the_trees_read_named_tables(client, visual):
+    """The feed may be named tables (titles, links, papers, events), so
+    each can be downloaded."""
+    body = client.get("/embed/missouri-newspaper-lineages/").content.decode()
+    assert "body.data.titles" in body and "body.data.links" in body

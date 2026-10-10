@@ -8,7 +8,10 @@
 {# over the previous 20 years -- foundings against losses, as a share of #}
 {# the window's changes -- smoothed so it bends; the width is untouched. #}
 {#                                                                         #}
-{# The feed holds one row per year: publishing, the papers founded, closed #}
+{# The feed is named tables a reader can download as CSV: years (what the #}
+{# river draws), papers (one row per newspaper) and events (one row per #}
+{# founding, renaming, merger, split or closure, with its source). Older: #}
+{# one row per year: publishing, the papers founded, closed #}
 {# and merged that year by name, and `absorbed` -- the papers a year's #}
 {# mergers took out of the count (every paper in a merger but the one that #}
 {# carries on). #}
@@ -300,7 +303,15 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   load(0).then((body) => {
-    rows = (Array.isArray(body.data) ? body.data : []).filter((r) => r.kind === "year").sort((a, b) => a.year - b.year);
+    // The feed is named tables (years, papers, events) a reader can download; the river draws `years`. A year
+    // row carries its counts and the papers by name, "; "-separated. An older feed is one list of year rows.
+    const names = (v) => (v ? String(v).split("; ").filter(Boolean) : []);
+    rows = (Array.isArray(body.data)
+      ? body.data.filter((r) => r.kind === "year")
+      : (body.data && body.data.years ? body.data.years : []).map((r) => ({
+          kind: "year", year: r.year, publishing: r.publishing, absorbed: r.merged,
+          founded: names(r.founded_papers), merged: names(r.mergers), closed: names(r.closed_papers),
+        }))).sort((a, b) => a.year - b.year);
     if (!rows.length) { el.textContent = "No data."; return; }
     const v = document.querySelector(".dd-version");
     if (v && body.version) { v.textContent = ` · v${body.version}`; v.hidden = false; }
