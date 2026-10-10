@@ -149,9 +149,11 @@ document.addEventListener("DOMContentLoaded", function () {
       const sum = (fn) => d3.sum(yrs, fn);
       const TF = k2 * sum(F);
       if (TF) {
-        let Lr = Math.max(14, 1.3 * TF);   // a thin tributary joins close to its decade line
-        if (end + Lr > LAST) Lr = Math.max(12, LAST - end);
-        const jt = Math.min(end - TF - 1, LAST - Lr - TF), jb = jt + TF, yend = Math.min(end + Lr, LAST);
+        // The tributary stays within its decade: it has entered the river by the decade's end. Its bend takes
+        // what room the decade leaves -- generous for a thin one, tighter for a crowded decade.
+        const top0 = Y(yrs[0]) + 2, yend = Math.min(end - 2, LAST);
+        const Lr = Math.max(8, Math.min(1.3 * TF, 0.5 * (end - Y(yrs[0])), yend - TF - top0));
+        const jt = Math.max(top0, yend - Lr - TF), jb = jt + TF;
         const xbank = bankAt(end, -1), XL = Math.max(FX + 60, xbank - 1.3 * TF - 90);
         // the end runs inside the river; where the tributary is wider than the river there, it narrows to fit
         // (its width is read at the margin, by year), so it never shows past the far bank
@@ -173,7 +175,10 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       const TM = k2 * sum(M), TC = k2 * sum(C), TT = TM + TC;
       if (TT) {
-        const Lr = Math.max(14, 1.3 * TT), ybot = Y(yrs[0]) + TT + 1, ystart = Math.max(ybot - TT - Lr, TOP);
+        // The leaving stream stays within its decade: it peels off the bank at the decade line, never before,
+        // and levels out as soon as the decade's room allows.
+        const DH = end - Y(yrs[0]), ystart = Math.max(Y(yrs[0]) + 1, TOP);
+        const Lr = Math.max(8, Math.min(1.3 * TT, 0.5 * DH, DH - TT - 4)), ybot = ystart + Lr + TT;
         // the start runs inside the river; where the stream is wider than the river there, it starts narrowed
         // to fit and widens as it leaves, so it never pokes out of the near bank
         const lbS = bankAt(ystart, -1) + 1.5, rbS = bankAt(ystart, 1) - 1.5;
@@ -190,11 +195,11 @@ document.addEventListener("DOMContentLoaded", function () {
           const tm = k2 * M(y), tc = k2 * C(y), slot = Y(y) + (H - tm - tc) / 2;
           if (tm) {
             strands.push({ y, dd, kind: "merged", trunk: true, d: slice((ybot - am) / TT, (ybot - am - tm) / TT) });
-            strands.push({ y, dd, kind: "merged", d: link(XR, am, CX, Math.max(slot, am), tm) }); am += tm;
+            strands.push({ y, dd, kind: "merged", d: link(XR, am, CX, slot, tm) }); am += tm;
           }
           if (tc) {
             strands.push({ y, dd, kind: "closed", trunk: true, d: slice((ybot - ac) / TT, (ybot - ac - tc) / TT) });
-            strands.push({ y, dd, kind: "closed", d: link(XR, ac, CX, Math.max(slot + tm, ac), tc) }); ac += tc;
+            strands.push({ y, dd, kind: "closed", d: link(XR, ac, CX, slot + tm, tc) }); ac += tc;
           }
         }
       }
