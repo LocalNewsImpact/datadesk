@@ -208,6 +208,9 @@ DIRECTORY_ADMIN_GATE = (
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Feeds are JSON and CSV of public data. Compressed, a visual's 2 MB of
+    # named tables travels as about 220 KB.
+    "django.middleware.gzip.GZipMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
