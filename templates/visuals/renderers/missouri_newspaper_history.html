@@ -5,7 +5,7 @@
 {# slide into the river along its bank. Papers merged into another (gold) #}
 {# and closed (red) leave as one stream per decade that splits into a creek #}
 {# per year. The river leans toward the side that was ahead #}
-{# over the previous 20 years -- foundings against losses, as a share of #}
+{# over the previous 10 years -- foundings against losses, as a share of #}
 {# the papers publishing -- smoothed so it bends; the width is untouched. #}
 {#                                                                         #}
 {# The feed is named tables a reader can download as CSV: years (what the #}
@@ -104,17 +104,17 @@ document.addEventListener("DOMContentLoaded", function () {
       return k * d3.mean(ys, P);
     };
 
-    // The lean: the net change over the trailing 20 years (foundings less losses, the window's oldest and
+    // The lean: the net change over the trailing 10 years (foundings less losses, the window's oldest and
     // newest years tapered) as a share of the papers publishing -- the larger of the window's first and last
     // year, and never under 60, so the handful of papers in the 1820s cannot throw it across the page.
-    // tanh keeps a doubling and a 20% loss both visible; growth leans at 0.65 so the boom's river stays
+    // tanh keeps a doubling and a 10% loss both visible; growth leans at 0.65 so the boom's river stays
     // clear of the founding creeks. Left when foundings were ahead, right when losses were; then
     // Gaussian-smoothed (sigma 6 years) so the river bends rather than steps. Centreline only.
-    const wt = d3.range(20).map((i) => Math.min(1, (i + 1) / 4, (20 - i) / 4));
+    const wt = d3.range(10).map((i) => Math.min(1, (i + 1) / 3, (10 - i) / 3));
     const bal = (y) => {
       const f = d3.sum(wt, (v, i) => v * F(y - i)), l = d3.sum(wt, (v, i) => v * (C(y - i) + M(y - i)));
-      const p = Math.max(P(Math.max(y, Y0)), P(Math.max(y - 19, Y0)), 60);
-      const r = Math.tanh((((f - l) / d3.sum(wt)) * 20) / p / 0.25);
+      const p = Math.max(P(Math.max(y, Y0)), P(Math.max(y - 9, Y0)), 60);
+      const r = Math.tanh((((f - l) / d3.sum(wt)) * 10) / p / 0.15);
       return r > 0 ? 0.65 * r : r;
     };
     const SENS = W * 0.17, raw = new Map();
