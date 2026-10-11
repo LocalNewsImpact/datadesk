@@ -74,12 +74,27 @@ def test_the_feed_serves_the_pinned_years(client, visual):
 
 def test_a_reader_can_see_the_papers_behind_a_year_or_a_decade(client, visual):
     """Hovering or tapping a stream -- and only a stream, not the empty row
-    of its year -- lights that year's path and names its papers."""
+    of its year -- lights that year's path and names its papers. Year rows
+    answer only on a phone, where no streams are drawn."""
     body = client.get("/embed/missouri-newspaper-history/").content.decode()
     assert 'class="nr-card"' in body
     assert "Hover or tap a stream" in body
-    assert 'attr("width", W).attr("y", Y)' not in body
+    assert "data(narrow ? yrs : [])" in body
     assert "dd-tip" not in body
+
+
+def test_a_phone_draws_the_river_alone_and_a_tap_names_the_papers(client, visual):
+    """Under 640px the river is drawn to the box's width without its streams
+    or decade notes -- no sideways scroll -- and a tap on any year's row marks
+    it and fills a taller details panel with that year's papers."""
+    body = client.get("/embed/missouri-newspaper-history/").content.decode()
+    assert "narrow = W < 640" in body
+    assert "Math.max(640" not in body and "overflowX" not in body
+    assert "if (TF && !narrow)" in body and "if (TT && !narrow)" in body
+    assert "narrow ? [] : notes" in body
+    assert "Tap the river at any year" in body
+    assert ".nr-card.nr-pin.nr-tall { height: max(10.5em, 40vh); }" in body
+    assert 'card.classList.toggle("nr-tall", narrow)' in body
 
 
 def test_mergers_and_closures_leave_on_the_right(client, visual):

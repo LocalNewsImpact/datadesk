@@ -34,6 +34,8 @@
   .nr-card { font-size: var(--fs-sm); color: var(--text-2); background: var(--bg); }
   .nr-card.nr-pin { position: sticky; top: 0; z-index: 5; height: 10.5em; overflow-y: auto; padding: var(--s-2) 0;
     margin: 0 0 var(--s-2); border-bottom: 1px solid var(--border); box-shadow: 0 6px 8px -8px rgba(0, 0, 0, 0.25); }
+  /* on a phone the details carry the streams' story, so they take more of the screen */
+  .nr-card.nr-pin.nr-tall { height: max(10.5em, 40vh); }
   .nr-card.nr-float { position: fixed; z-index: 20; pointer-events: none; max-width: 26rem; max-height: 70vh; overflow: hidden;
     background: var(--surface, var(--bg)); border: 1px solid var(--border); border-radius: 6px; padding: var(--s-2) var(--s-3);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14); }
@@ -72,6 +74,7 @@ document.addEventListener("DOMContentLoaded", function () {
     return window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
   const HINT = "Hover or tap a stream to see the newspapers founded, merged or closed that year.";
+  const HINT_PHONE = "Tap the river at any year to see the newspapers founded, merged or closed that year.";
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
   const load = (attempt) => fetch(el.dataset.feed).then((r) => {
@@ -85,18 +88,20 @@ document.addEventListener("DOMContentLoaded", function () {
   let rows = [];
   function draw() {
     const T = PALETTE[mode()];
-    // Narrower than 640px (a phone): drawn at 640 and scrolled sideways in its box, rather than shrunk until
-    // the labels could not be read.
-    const W = Math.max(640, el.clientWidth || 1100), fits = (el.clientWidth || 1100) >= W;
-    el.style.overflowX = fits ? "" : "auto";
+    // Narrower than 640px (a phone): the river alone, with its decade counts, drawn to the box's width. The
+    // streams and their notes would not read at that size; a tap on a year shows its papers in the details.
+    const W = el.clientWidth || 1100, narrow = W < 640;
+    card.classList.toggle("nr-tall", narrow);
     const H = 12, TOP = 34, Y0 = rows[0].year, Y1 = rows[rows.length - 1].year;
     const by = new Map(rows.map((r) => [r.year, r]));
     const P = (y) => by.get(Math.min(Math.max(y, Y0), Y1)).publishing;
     const F = (y) => (by.get(y) ? by.get(y).founded.length : 0);
     const C = (y) => (by.get(y) ? by.get(y).closed.length : 0);
     const M = (y) => (by.get(y) ? by.get(y).absorbed : 0);
-    const FX = Math.round(W * 0.17), CX = Math.round(W * 0.80), cx = W * 0.48;
-    const k = (W * 0.19) / d3.max(rows, (r) => r.publishing);   // river px per paper
+    const FX = Math.round(W * 0.17), CX = Math.round(W * 0.80);
+    // on a phone the river takes the room the streams leave, right of the decade labels
+    const RL = 44, RW = W - RL - 8, cx = narrow ? RL + RW / 2 : W * 0.48;
+    const k = (narrow ? RW * 0.55 : W * 0.19) / d3.max(rows, (r) => r.publishing);   // river px per paper
     const k2 = H / 70;                                           // strand px per paper: a year's slot holds 70
     const Y = (y) => TOP + (y - Y0) * H;
     // The drawn width is the count averaged over the year and the years either side, so one-year swings
@@ -120,7 +125,7 @@ document.addEventListener("DOMContentLoaded", function () {
       const r = Math.tanh((((f - l) / d3.sum(wt)) * 10) / p / 0.15);
       return r > 0 ? 0.65 * r : r;
     };
-    const SENS = W * 0.17, raw = new Map();
+    const SENS = narrow ? RW * 0.15 : W * 0.17, raw = new Map();
     for (let y = Y0; y <= Y1 + 1; y++) raw.set(y, -SENS * bal(y));
     const gk = d3.range(-18, 19).map((j) => [j, Math.exp(-((j / 6) ** 2) / 2)]), gks = d3.sum(gk, ([, v]) => v);
     const off = new Map();
@@ -129,14 +134,16 @@ document.addEventListener("DOMContentLoaded", function () {
 
     const height = Y(Y1 + 1) + 40;
     const svg = d3.create("svg").attr("viewBox", [0, 0, W, height])
-      .attr("style", fits ? "width: 100%; height: auto; display: block" : `width: ${W}px; max-width: none; height: auto; display: block`)
+      .attr("style", "width: 100%; height: auto; display: block")
       .attr("font-family", "var(--font-sans)").attr("font-size", 12);
     el.replaceChildren(svg.node());
 
-    svg.append("text").attr("x", FX).attr("y", 14).attr("font-weight", 700).attr("fill", T.founded).text("Founded");
     svg.append("text").attr("x", mid(Y0)).attr("y", 14).attr("text-anchor", "middle").attr("font-weight", 700).attr("fill", T.river).text("Publishing");
-    svg.append("text").attr("x", CX + 10).attr("y", 14).attr("text-anchor", "end").attr("font-weight", 700).attr("fill", T.merged).text("Merged");
-    svg.append("text").attr("x", CX + 10).attr("y", 28).attr("text-anchor", "end").attr("font-weight", 700).attr("fill", T.closed).text("Closed");
+    if (!narrow) {
+      svg.append("text").attr("x", FX).attr("y", 14).attr("font-weight", 700).attr("fill", T.founded).text("Founded");
+      svg.append("text").attr("x", CX + 10).attr("y", 14).attr("text-anchor", "end").attr("font-weight", 700).attr("fill", T.merged).text("Merged");
+      svg.append("text").attr("x", CX + 10).attr("y", 28).attr("text-anchor", "end").attr("font-weight", 700).attr("fill", T.closed).text("Closed");
+    }
 
     const decades = d3.range(Math.ceil(Y0 / 10) * 10, Y1 + 1, 10);
     svg.append("g").attr("pointer-events", "none").selectAll("line").data(decades).join("line").attr("x1", 44).attr("x2", W - 8)
@@ -165,7 +172,7 @@ document.addEventListener("DOMContentLoaded", function () {
       const end = Y(Math.min(dd + 10, Y1 + 1));
       const sum = (fn) => d3.sum(yrs, fn);
       const TF = k2 * sum(F);
-      if (TF) {
+      if (TF && !narrow) {
         // The tributary stays within its decade: it has entered the river by the decade's end. Its bend takes
         // what room the decade leaves -- generous for a thin one, tighter for a crowded decade.
         const top0 = Y(yrs[0]) + 2, yend = Math.min(end - 2, LAST);
@@ -191,7 +198,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
       }
       const TM = k2 * sum(M), TC = k2 * sum(C), TT = TM + TC;
-      if (TT) {
+      if (TT && !narrow) {
         // The leaving stream stays within its decade: it peels off the bank at the decade line, never before,
         // and levels out as soon as the decade's room allows.
         const DH = end - Y(yrs[0]), ystart = Math.max(Y(yrs[0]) + 1, TOP);
@@ -262,7 +269,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // decade notes: foundings on the left; merged, then closed, on the right
     const ng = svg.append("g").attr("pointer-events", "none");
-    for (const n of notes) {
+    for (const n of narrow ? [] : notes) {
       const yy = Y(n.dd) + 5 * H;
       ng.append("text").attr("x", FX - 12).attr("y", yy - 4).attr("text-anchor", "end").attr("fill", T.muted).text(`${n.dd}–${n.last}`);
       const f = ng.append("text").attr("x", FX - 12).attr("y", yy + 12).attr("text-anchor", "end").attr("fill", T.muted);
@@ -274,6 +281,11 @@ document.addEventListener("DOMContentLoaded", function () {
       });
     }
 
+    // phone: a tap anywhere on a year's row picks it, marked by a line across the river
+    const mark = svg.append("line").attr("stroke", T.ink).attr("stroke-width", 1.5).attr("pointer-events", "none").attr("visibility", "hidden");
+    const rowSel = svg.append("g").selectAll("rect").data(narrow ? yrs : []).join("rect").attr("class", "nr-hit")
+      .attr("x", 0).attr("width", W).attr("y", Y).attr("height", H).attr("fill", "transparent");
+
     // hover: a year (its whole row) or a decade's joined stream
     const paint = (on) => {
       for (const kind in layers) layers[kind].attr("opacity", on ? 0.95 : REST[kind]);
@@ -282,13 +294,16 @@ document.addEventListener("DOMContentLoaded", function () {
     const list = (kind, label, papers) => !papers.length ? "" :
       `<p class="nr-list"><i style="color:${T[kind]}">${papers.length} ${label}</i>${papers.slice(0, 25).map(esc).join("; ")}` +
       (papers.length > 25 ? ` <span class="nr-more">and ${papers.length - 25} more</span>` : "") + `</p>`;
+    const decadeOf = new Map(notes.map((n) => [n.dd, n]));
     const showYear = (y, ev) => {
-      const r = by.get(y);
+      const r = by.get(y), n = decadeOf.get(Math.floor(y / 10) * 10);
       card.innerHTML = `<p class="nr-head">${y}: <b>${r.publishing}</b> publishing</p>` +
+        (narrow && n ? `<p class="nr-list nr-more">${n.dd}–${n.last}: ${n.f} founded, ${n.m} merged, ${n.c} closed</p>` : "") +
         list("founded", "founded:", r.founded) + list("merged", r.merged.length === 1 ? "merger:" : "mergers:", r.merged) +
         list("closed", "closed:", r.closed) +
         (r.founded.length + r.merged.length + r.closed.length ? "" : `<p class="nr-list">No papers founded, merged or closed.</p>`);
-      paint((s) => s.y === y);   // only that year's own path, margin to river
+      if (narrow) mark.attr("x1", mid(y) - w(y) / 2 - 10).attr("x2", mid(y) + w(y) / 2 + 10)
+        .attr("y1", Y(y) + H / 2).attr("y2", Y(y) + H / 2).attr("visibility", "visible");      paint((s) => s.y === y);   // only that year's own path, margin to river
       if (!framed) return;
       // beside the pointer: to its right on the left half of the window, to its left on the right half,
       // and kept inside the window top to bottom
@@ -301,12 +316,14 @@ document.addEventListener("DOMContentLoaded", function () {
     // back to full strength in between. The reset waits, and entering another stream cancels it.
     let resetTimer = null;
     const reset = () => {
-      if (framed) card.hidden = true; else card.innerHTML = `<p class="nr-hint">${esc(HINT)}</p>`;
+      if (framed) card.hidden = true; else card.innerHTML = `<p class="nr-hint">${esc(narrow ? HINT_PHONE : HINT)}</p>`;
+      mark.attr("visibility", "hidden");
       paint(null);
     };
     const later = () => { clearTimeout(resetTimer); resetTimer = setTimeout(reset, 350); };
     const enter = (ev, s) => { clearTimeout(resetTimer); showYear(s.y, ev); };
     hitSel.on("mouseenter click", enter).on("mouseleave", later);
+    rowSel.on("click", (ev, y) => { clearTimeout(resetTimer); showYear(y, ev); });
     reset();
   }
 
