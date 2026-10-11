@@ -106,6 +106,16 @@ def test_the_page_gives_the_map_the_wide_layout(client, visual):
     assert 'class="wrap wide"' in body
 
 
+@pytest.mark.urls("datadesk.urls_data")
+def test_the_page_shows_its_downloads_and_embed_offer(client, visual):
+    """The data panel started hidden for every visual and only the chart
+    builder's data toggle revealed it, so a one-off renderer's downloads
+    and embed snippets were on the page and could not be seen."""
+    body = client.get(f"/visuals/{visual.uuid}/").content.decode()
+    assert '<div id="dd-takeaway" class="takeaway">' in body
+    assert "Embed this visual" in body and "table=events" in body
+
+
 def test_paper_names_are_escaped_in_the_details(client, visual):
     body = client.get("/embed/missouri-newspaper-event-map/").content.decode()
     assert "esc(e.paper)" in body and "esc(where(e.town, e.county))" in body

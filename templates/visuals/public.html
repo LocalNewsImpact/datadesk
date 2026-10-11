@@ -70,7 +70,13 @@ when the visual has no opinion and wrong when it has one.
   <div class="wrap{% if visual.render_config.kind == "table" or visual.render_config.kind == "roster" or visual.template == "missouri_newspaper_event_map" %} wide{% endif %}">
     <div class="figure">{% include renderer %}</div>
 
-    <div id="dd-takeaway" class="takeaway" hidden>
+    {% comment %}
+    Hidden only for the chart builder, which shows it from its own data
+    toggle. A one-off renderer (the newspaper river, trees and map) has no
+    such toggle, so the panel was never shown and its downloads and embed
+    offer could not be reached.
+    {% endcomment %}
+    <div id="dd-takeaway" class="takeaway"{% if visual.template == "builder" %} hidden{% endif %}>
       {% comment %}
       The numbers behind the chart on this page, which is the only thing
       a reader taking them could mean. They carry the version being

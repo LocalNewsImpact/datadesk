@@ -2,7 +2,8 @@
 {# A one-off renderer: Missouri's newspapers year by year on a county map. #}
 {# Each year's foundings, mergers, moves and closings appear where they #}
 {# happened (a paper known only from surviving issues appears once, grey, #}
-{# in their first year -- neither founded nor closed then), and fade over the #}
+{# in their first year -- neither founded nor closed then, and not counted #}
+{# in the shading, which has no dates for it), and fade over the #}
 {# next two years; a merger or a move draws an arrow to where it landed. #}
 {# Counties are shaded by the papers publishing there that year, and a paper #}
 {# still publishing today holds a dark blue dot from the year it settled in #}
@@ -173,7 +174,7 @@ document.addEventListener("DOMContentLoaded", async () => {
           landed: `${e.year}: ${e.paper} (${e.from}) merged into ${e.into || "the paper here"}`,
           moved: `moved ${e.year} to ${where(e.into_town, e.into_county)}${e.to && e.to !== e.paper ? ` as ${e.to}` : ""}`,
           arrived: `moved here ${e.year} from ${e.from}`,
-          "issues survive": `only issues from ${e.year} survive; when it began and ended is not known`,
+          "issues survive": `only issues from ${e.through && e.through !== e.year ? `${e.year}\u2013${e.through}` : e.year} survive; when it began and ended is not known`,
         }[e.event]) + (e.approx ? "<br><i>placed at the county's centre</i>" : "")))
       .on("mouseleave", hide);
     // the header
@@ -241,7 +242,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     tallyEl.style.top = cTop - pad - cap + "px";
     // the subhead wraps to the graphic's width: map to the panel's right edge
     const sub = root.querySelector(".em-sub");
-    if (sub) sub.style.maxWidth = panel.getBoundingClientRect().right - sub.getBoundingClientRect().left + "px";
+    const wide = panel.getBoundingClientRect().right - root.getBoundingClientRect().left + "px";
+    if (sub) sub.style.maxWidth = wide;
+    // and the source line under it, so the credit is as wide as the graphic
+    const foot = root.querySelector(".dd-footer");
+    if (foot) foot.style.maxWidth = wide;
   }
   placeTally();
   drawSpark();
