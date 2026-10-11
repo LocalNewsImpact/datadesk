@@ -5,7 +5,7 @@ from django.contrib import admin, messages
 from django.utils.html import format_html
 
 from visuals.embed import snippet
-from visuals.models import Visual, VisualSnapshot
+from visuals.models import HistoryCorrection, Visual, VisualSnapshot
 from visuals.services import (
     DataSourceError,
     NotPublishable,
@@ -111,3 +111,46 @@ class VisualSnapshotAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(HistoryCorrection)
+class HistoryCorrectionAdmin(admin.ModelAdmin):
+    """A reviewer's corrections to the newspaper history's catalogues
+    (docs/NEWSPAPER_HISTORY.md). Added here, never changed or deleted: a wrong
+    one is withdrawn by adding a retraction that names it."""
+
+    list_display = (
+        "kind",
+        "title",
+        "county",
+        "town",
+        "other_title",
+        "withdrawn",
+        "recorded_at",
+    )
+    list_filter = ("kind",)
+    search_fields = ("title", "town", "other_title", "evidence")
+    fields = (
+        "kind",
+        ("title", "county", "town"),
+        ("field", "value"),
+        ("other_title", "other_county", "other_town"),
+        "evidence",
+        "evidence_url",
+        "retracts",
+    )
+    raw_id_fields = ("retracts",)
+
+    @admin.display(boolean=True, description="withdrawn")
+    def withdrawn(self, c):
+        return c.retracted_by.exists()
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        obj.recorded_by, obj.origin = request.user, "admin"
+        super().save_model(request, obj, form, change)
