@@ -247,11 +247,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   function layout() {
     narrow = root.getBoundingClientRect().width < 760;
     root.classList.toggle("em-narrow", narrow);
-    // the map's size in pixels: the full width on a phone; beside the counts and timeline (290px) otherwise, as
-    // tall as its box allows
+    // the map's size in pixels: the full width and its own height on a phone; beside the counts and timeline
+    // (290px) otherwise, its box the frame's full height, so a map narrower than that sits centred in it
     const mapEl = document.getElementById("em-map"), wrapW = wrapEl.getBoundingClientRect().width;
     const mw = narrow ? wrapW : Math.min(wrapW - 290, wrapEl.clientHeight * W / H);
-    mapEl.style.width = mw + "px"; mapEl.style.height = mw * H / W + "px";
+    mapEl.style.width = mw + "px"; mapEl.style.height = (narrow ? mw * H / W : wrapEl.clientHeight) + "px";
     if (narrow) {
       // clear what the side-by-side layout placed by hand, so the stacked layout's CSS holds
       sp.style("left", null).style("top", null).style("height", null);

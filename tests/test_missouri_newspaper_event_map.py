@@ -92,6 +92,16 @@ def test_the_embed_draws_the_map_with_the_sites_own_scripts(client, visual):
     assert "Missouri newspapers, year by year" in body
 
 
+def test_beside_the_panel_the_map_is_centred_in_the_full_height_box(client, visual):
+    """Sized to its own shape on a wide screen, the map sat at the top of its
+    box, against the legend, with the spare height left above the credits.
+    Only a phone gets the map's own height; elsewhere the box is the frame's
+    height and the map sits centred in it, as the approved prototype drew it."""
+    body = client.get("/embed/missouri-newspaper-event-map/").content.decode()
+    assert "(narrow ? mw * H / W : wrapEl.clientHeight)" in body
+    assert 'mapEl.style.height = mw * H / W + "px"' not in body
+
+
 def test_the_feed_serves_the_pinned_map(client, visual):
     feed = client.get("/visuals/missouri-newspaper-event-map/data.json").json()
     assert feed["version"] == 1
