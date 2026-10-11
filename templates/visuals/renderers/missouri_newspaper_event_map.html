@@ -276,10 +276,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   function layout() {
     narrow = root.getBoundingClientRect().width < 760;
     root.classList.toggle("em-narrow", narrow);
-    // the map's size in pixels: the full width and its own height on a phone; beside the counts and timeline
-    // (290px) otherwise, its box the frame's full height, so a map narrower than that sits centred in it
+    // the map's size in pixels: the full width and its own height on a phone; otherwise as wide as the frame
+    // allows, its box the frame's full height, so a map narrower than that sits centred in it. The counts and the
+    // timeline panel sit over the map's own east side (placeTally): its left edge is the bend's x scaled to the
+    // map plus 206px, its right edge 94px further on -- the only room kept free is what the panel overhangs.
     const mapEl = document.getElementById("em-map"), wrapW = wrapEl.getBoundingClientRect().width;
-    const mw = narrow ? wrapW : Math.min(wrapW - 290, wrapEl.clientHeight * W / H);
+    // Limited by height, the map is centred in its box and kept 10px clear of the legend above it: the box starts
+    // `lead` px below the legend's foot (negative: it tucks under), and the state's top sits half the spare height
+    // down, so its drawn height is at most the box's less twice (10 - lead).
+    const fx = proj([-91.28, 40.45])[0] / W;
+    const lead = wrapEl.getBoundingClientRect().top - document.getElementById("em-legend").getBoundingClientRect().bottom;
+    const tall = wrapEl.clientHeight - 2 * Math.max(0, 10 - lead);
+    const mw = narrow ? wrapW : Math.min(wrapW, (wrapW - 300) / fx, tall * W / H);
     mapEl.style.width = mw + "px"; mapEl.style.height = (narrow ? mw * H / W : wrapEl.clientHeight) + "px";
     if (narrow) {
       // clear what the side-by-side layout placed by hand, so the stacked layout's CSS holds
