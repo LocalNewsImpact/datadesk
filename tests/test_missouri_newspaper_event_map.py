@@ -117,6 +117,17 @@ def test_radio_and_tv_stations_are_triangles_counted_with_the_newsrooms(client, 
     assert "first on the air ${e.year}" in body
 
 
+def test_the_map_keeps_only_the_room_the_panel_overhangs(client, visual):
+    """The counts and the timeline panel sit over the map's own east side, so
+    the map no longer gives up a fixed 290px beside it: it is as wide as the
+    frame allows, less what the panel overhangs, and limited by height it keeps
+    10px clear of the legend."""
+    body = client.get("/embed/missouri-newspaper-event-map/").content.decode()
+    assert "wrapW - 290" not in body
+    assert "(wrapW - 300) / fx" in body
+    assert "2 * Math.max(0, 10 - lead)" in body
+
+
 def test_the_feed_serves_the_pinned_map(client, visual):
     feed = client.get("/visuals/missouri-newspaper-event-map/data.json").json()
     assert feed["version"] == 1
@@ -124,11 +135,12 @@ def test_the_feed_serves_the_pinned_map(client, visual):
 
 
 @pytest.mark.urls("datadesk.urls_data")
-def test_the_page_gives_the_map_the_wide_layout(client, visual):
-    """The map, its year and counts and the timeline panel sit side by side:
-    at a chart's 56rem the map was cut to a third of the window."""
+def test_the_page_gives_the_map_the_standard_frame(client, visual):
+    """In the 80rem frame the map, held by the window's height to about 830px,
+    left 170-280px empty to its right at desktop widths; in the standard frame
+    the panel ends at the frame's edge (measured at 900-1920px wide)."""
     body = client.get(f"/visuals/{visual.uuid}/").content.decode()
-    assert 'class="wrap wide"' in body
+    assert 'class="wrap"' in body and 'class="wrap wide"' not in body
 
 
 @pytest.mark.urls("datadesk.urls_data")
