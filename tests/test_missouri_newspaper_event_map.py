@@ -92,13 +92,12 @@ def test_the_embed_draws_the_map_with_the_sites_own_scripts(client, visual):
     assert "Missouri newspapers, year by year" in body
 
 
-def test_beside_the_panel_the_map_is_centred_in_the_full_height_box(client, visual):
-    """Sized to its own shape on a wide screen, the map sat at the top of its
-    box, against the legend, with the spare height left above the credits.
-    Only a phone gets the map's own height; elsewhere the box is the frame's
-    height and the map sits centred in it, as the approved prototype drew it."""
+def test_beside_the_panel_the_map_clears_the_legend(client, visual):
+    """Sized to its own shape with no clearance, the map sat against the legend.
+    On a phone the box is the map's own height; beside the panel it is the
+    map's height plus 10px clear of the legend, within what the window allows."""
     body = client.get("/embed/missouri-newspaper-event-map/").content.decode()
-    assert "(narrow ? mw * H / W : wrapEl.clientHeight)" in body
+    assert "const box = narrow ? mw * H / W : Math.min(wrapEl.clientHeight" in body
     assert 'mapEl.style.height = mw * H / W + "px"' not in body
 
 
@@ -125,7 +124,19 @@ def test_the_map_keeps_only_the_room_the_panel_overhangs(client, visual):
     body = client.get("/embed/missouri-newspaper-event-map/").content.decode()
     assert "wrapW - 290" not in body
     assert "(wrapW - 300) / fx" in body
-    assert "2 * Math.max(0, 10 - lead)" in body
+    assert "const pad = Math.max(0, 10 - lead)" in body
+    assert "wrapEl.clientHeight - 2 * pad" in body
+
+
+def test_the_box_fits_the_map_so_no_space_is_left_above_the_credits(client, visual):
+    """Limited by width, the map's box was as tall as the window allowed and the
+    spare height (up to 71px measured) fell between the state and the credits.
+    The box is now the map's drawn height and its 10px clearance; and since that
+    resizes the page, a resize lays the map out again only for a new width."""
+    body = client.get("/embed/missouri-newspaper-event-map/").content.decode()
+    assert "Math.min(wrapEl.clientHeight, mw * H / W + 2 * pad)" in body
+    assert 'wrapEl.style.height = box + "px"' in body
+    assert "if (w !== laidW)" in body
 
 
 def test_the_feed_serves_the_pinned_map(client, visual):
