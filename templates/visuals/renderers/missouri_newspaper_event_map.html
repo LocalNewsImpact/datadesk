@@ -7,14 +7,18 @@
 {# next two years; a merger or a move draws an arrow to where it landed. #}
 {# Counties are shaded by the papers publishing there that year, and a paper #}
 {# still publishing today holds a dark blue dot from the year it settled in #}
-{# its town, so the last frame, Today, is the registry's papers. #}
+{# its town, so the last frame, Today, is the registry's papers. The radio #}
+{# and TV stations whose news we collect are triangles in the same colours: #}
+{# each from its first air date, counted in its county's shading and in #}
+{# what is active today -- never in the river or the county trees. #}
 {#                                                                         #}
 {# The feed is one object (the newspaper-history pipeline's mapfeed.py, in #}
 {# the crawler repository): events (year, event, paper, town, county, x, y; #}
 {# a merger or move adds into/to, into_town, into_county, ix, iy), today #}
 {# (paper, town, county, since, x, y), years (year, publishing), y0 (the #}
 {# first year), counties (FIPS -> papers publishing, one per year from y0) #}
-{# and now (FIPS -> papers publishing today). The river and the county #}
+{# and now (FIPS -> papers publishing today); stations (call, first_call, #}
+{# service, town, county, fips, since, x, y). The river and the county #}
 {# trees are built in the same run from the same papers and events. #}
 {#                                                                         #}
 {# Built to match the approved prototype pixel for pixel: its own type and #}
@@ -109,6 +113,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   const C = { founded: css("--founded"), merged: css("--merged"), closed: css("--closed"), today: css("--today"), moved: css("--moved"), issues: css("--issues") };
   const Y0 = D.y0, Y1 = D.years[D.years.length - 1].year, TODAY = Y1 + 1;   // the frame after the last year is "Today"
   const pub = new Map(D.years.map((r) => [r.year, r.publishing]));
+  // radio and TV stations whose news we collect: on the air from their first air date
+  const ST = D.stations || [];
+  const onAir = (y) => ST.filter((s) => s.since <= y);
+  const stationsIn = (id, y) => ST.filter((s) => s.fips === id && s.since <= y).length;
+  const activeCounties = new Set([...Object.keys(D.now), ...ST.map((s) => s.fips)]);
   const geo = topojson.feature(topo, topo.objects.counties);
   geo.features = geo.features.filter((f) => String(f.id).startsWith("29"));
 
@@ -148,6 +157,12 @@ document.addEventListener("DOMContentLoaded", async () => {
                                      town: e.into_town, county: e.into_county, from: e.town, age: y - e.year });
     }
     for (const p of D.today) if (p.since <= y) marks.push({ ...p, event: "today", age: 0, year: p.since });
+    for (const s of ST) {
+      const st = { ...s, paper: s.call, medium: "broadcast" };
+      if (y !== TODAY && s.since <= y && s.since > y - FADE.length)
+        marks.push({ ...st, paper: s.first_call, event: "founded", year: s.since, age: y - s.since });
+      if (s.since <= y) marks.push({ ...st, event: "today", age: 0, year: s.since });
+    }
     const byTown = d3.group(marks.sort((a, b) => a.age - b.age || RANK[a.event] - RANK[b.event]), (e) => e.x + "," + e.y);
     const placed = [];
     for (const [, es] of byTown) es.forEach((e, k) => {
@@ -159,11 +174,17 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const FILL = { founded: C.founded, merged: C.merged, closed: "#fff", moved: "#fff", landed: "#fff", arrived: C.moved, today: C.today, "issues survive": C.issues };
   const LINE = { founded: "#fff", merged: "#fff", closed: C.closed, moved: C.moved, landed: C.merged, arrived: "#fff", today: "#fff", "issues survive": "#fff" };
+  // a paper is a dot; a radio or TV station a triangle of about the same ink, point up like a mast
+  const CIRC = `M${R},0A${R},${R} 0 1 1 ${-R},0A${R},${R} 0 1 1 ${R},0Z`;
+  const TS = R * 1.35, TRI = `M0,${-TS * 1.08}L${TS},${TS * 0.75}L${-TS},${TS * 0.75}Z`;
+  const mark = (e) => e.medium === "broadcast" ? TRI : CIRC;
   function draw(y) {
     const i = Math.min(y, Y1) - Y0;
-    const n = (id) => y === TODAY ? (D.now[id] || 0) : (D.counties[id] ? D.counties[id][i] : 0);
-    counties.attr("fill", (f) => shade(n(f.id)))
-      .on("mousemove", (ev, f) => tip(ev, `<b>${esc(f.properties.name)}${f.id === "29510" ? " (city)" : " County"}</b><br>${n(f.id)} publishing`))
+    const papers = (id) => y === TODAY ? (D.now[id] || 0) : (D.counties[id] ? D.counties[id][i] : 0);
+    const air = (id) => stationsIn(id, y);
+    counties.attr("fill", (f) => shade(papers(f.id) + air(f.id)))
+      .on("mousemove", (ev, f) => tip(ev, `<b>${esc(f.properties.name)}${f.id === "29510" ? " (city)" : " County"}</b><br>${papers(f.id)} publishing` +
+                                          (air(f.id) ? `<br>${air(f.id)} on the air` : "")))
       .on("mouseleave", hide);
     const P = frame(y);
     // an arrow from where each merger or move left to where it landed
@@ -174,15 +195,18 @@ document.addEventListener("DOMContentLoaded", async () => {
       .attr("d", (e) => { const t = end.get(e.paper + e.year + (e.event === "merged" ? "landed" : "arrived")); const [x2, y2] = t ? [t.px, t.py] : proj([e.ix, e.iy]);
                           const mx = (e.px + x2) / 2, my = (e.py + y2) / 2 - Math.hypot(x2 - e.px, y2 - e.py) * 0.25;
                           return `M${e.px},${e.py}Q${mx},${my} ${x2},${y2}`; });
-    dots.selectAll("circle").data(P, (e) => e.event + e.paper + e.year + e.town)
-      .join((en) => en.append("circle").attr("r", 0).call((s) => s.transition().duration(180).attr("r", R)), (u) => u.attr("r", R))
-      .attr("cx", (e) => e.px).attr("cy", (e) => e.py)
+    dots.selectAll("path").data(P, (e) => e.event + e.paper + e.year + e.town)
+      .join((en) => en.append("path").attr("d", mark).attr("transform", (e) => `translate(${e.px},${e.py}) scale(0)`)
+                      .call((s) => s.transition().duration(180).attr("transform", (e) => `translate(${e.px},${e.py}) scale(1)`)),
+            (u) => u.attr("d", mark).attr("transform", (e) => `translate(${e.px},${e.py}) scale(1)`))
       .attr("fill", (e) => FILL[e.event]).attr("stroke", (e) => LINE[e.event])
       .attr("stroke-width", (e) => LINE[e.event] === "#fff" ? 0.8 : 1.8)
       .attr("opacity", (e) => e.event === "today" ? 1 : FADE[e.age] ?? 0)
       .on("mousemove", (ev, e) => tip(ev, `<b>${esc(e.paper)}</b><br>${esc(where(e.town, e.county))}<br>` + esc({
-          today: `publishing here since ${e.since}`,
-          founded: `founded ${e.year}`, closed: `closed ${e.year}`,
+          today: e.medium === "broadcast"
+            ? `on the air since ${e.since}${e.first_call && e.first_call !== e.paper ? ` (as ${e.first_call})` : ""}`
+            : `publishing here since ${e.since}`,
+          founded: e.medium === "broadcast" ? `first on the air ${e.year}` : `founded ${e.year}`, closed: `closed ${e.year}`,
           merged: `merged ${e.year} into ${e.into || "another paper"}${e.into_town ? ` (${where(e.into_town, e.into_county)})` : ""}`,
           landed: `${e.year}: ${e.paper} (${e.from}) merged into ${e.into || "the paper here"}`,
           moved: `moved ${e.year} to ${where(e.into_town, e.into_county)}${e.to && e.to !== e.paper ? ` as ${e.to}` : ""}`,
@@ -192,12 +216,17 @@ document.addEventListener("DOMContentLoaded", async () => {
       .on("mouseleave", hide);
     // the header
     const es = y === TODAY ? [] : D.events.filter((e) => e.year === y), c = d3.rollup(es, (v) => v.length, (e) => e.event);
+    // a station going on the air is a founding
+    if (y !== TODAY) c.set("founded", (c.get("founded") || 0) + ST.filter((s) => s.since === y).length);
+    const airN = onAir(y).length;
     document.getElementById("em-yr").textContent = y === TODAY ? "Today" : y;
     document.getElementById("em-tally").innerHTML = y === TODAY
-      ? `<b>${D.today.length}</b> publishing today<br>in <b>${Object.keys(D.now).length}</b> of 115 counties`
+      ? `<b>${D.today.length + ST.length}</b> active today<br>in <b>${activeCounties.size}</b> of 115 counties` +
+        (ST.length ? `<br><b>${D.today.length}</b> publishing<br><b>${ST.length}</b> on the air` : "")
       : [["founded", C.founded], ["merged", C.merged], ["moved", C.moved], ["closed", C.closed], ["issues survive", C.issues, "known from issues"]]
           .map(([k, col, label]) => `<span class="row"><b class="n" style="color:${col}">${c.get(k) || 0}</b> ${label || k}</span>`).join("")
-        + `<span class="row"><b class="n">${pub.get(y)}</b> publishing</span>`;
+        + `<span class="row"><b class="n">${pub.get(y)}</b> publishing</span>`
+        + (airN ? `<span class="row"><b class="n">${airN}</b> on the air</span>` : "");
     setCursor(y);
   }
 
@@ -325,8 +354,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     `<span>${dot(C.founded, "#fff", 0)} Founded</span>
      <span>${dot(C.merged, "#fff", 0)}${arrow(C.merged)}${ring(C.merged)} Merged into another paper</span>
      <span>${ring(C.moved)}${arrow(C.moved)}${dot(C.moved, "#fff", 0)} Moved town</span>
-     <span>${ring(C.closed)} Closed</span><span>${dot(C.issues, "#fff", 0)} Known only from surviving issues</span><span>${dot(C.today, "#fff", 0)} Still publishing today</span>
-     <span style="flex-basis:100%">Papers in the county: ${[0, ...steps].map((s, i) => `<svg width="12" height="10"><rect width="12" height="10" fill="${shade(s)}"/></svg>${i === 0 ? "none" : ""}`).join("")} ${steps[steps.length - 1]}+</span>`;
+     <span>${ring(C.closed)} Closed</span><span>${dot(C.issues, "#fff", 0)} Known only from surviving issues</span><span>${dot(C.today, "#fff", 0)} Still active today</span>
+     <span><svg width="12" height="12"><path d="M6,1.5L10.5,10L1.5,10Z" fill="${C.today}"/></svg> Radio or TV station</span>
+     <span style="flex-basis:100%">Newsrooms in the county: ${[0, ...steps].map((s, i) => `<svg width="12" height="10"><rect width="12" height="10" fill="${shade(s)}"/></svg>${i === 0 ? "none" : ""}`).join("")} ${steps[steps.length - 1]}+</span>`;
   const T = document.getElementById("em-tip");
   function tip(ev, html) { T.innerHTML = html; T.style.display = "block"; T.style.left = ev.clientX + 12 + "px"; T.style.top = ev.clientY + 12 + "px"; }
   function hide() { T.style.display = "none"; }
