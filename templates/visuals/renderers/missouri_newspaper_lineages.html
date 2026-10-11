@@ -187,7 +187,11 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     const height = y + 18;
     // scales to its frame, so a scrollbar appearing after the draw cannot push it past the edge
-    const svg = d3.create("svg").attr("viewBox", [0, 0, width, height]).attr("style", "width: 100%; height: auto; display: block")
+    // Narrower than the drawing (a phone): drawn at its full width and scrolled sideways in its box, rather
+    // than shrunk until its titles could not be read.
+    const fits = (chart.parentElement.clientWidth || 960) >= width;
+    const svg = d3.create("svg").attr("viewBox", [0, 0, width, height])
+      .attr("style", fits ? "width: 100%; height: auto; display: block" : `width: ${width}px; max-width: none; height: auto; display: block`)
       .attr("font-family", face).attr("font-size", 11);
     chart.replaceChildren(svg.node());
 
