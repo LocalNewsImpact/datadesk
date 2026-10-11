@@ -61,7 +61,8 @@
      Framed in someone else's page the frame is as tall as its content, so the height is fixed there. */
   .em .em-mapwrap { position:relative; box-sizing:border-box; padding-top:0; margin-top:-5px; height:calc(100vh - 113px); min-height:420px; max-height:780px; }
   .em.em-framed .em-mapwrap { height:640px; }
-  .em #em-map { height:100%; width:auto; aspect-ratio:880/760; max-width:calc(100% - 290px); display:block; }
+  /* sized in pixels by the script: iOS Safari gives an SVG with width:auto and aspect-ratio no width at all */
+  .em #em-map { display:block; }
   /* in the empty Illinois side, east of Ralls County; a fixed width, and the numbers right-aligned in a column
      three digits wide: nothing moves as the counts change */
   .em .em-hud { position:absolute; width:150px; }
@@ -72,6 +73,18 @@
   .em .em-legend { display:flex; gap:6px 14px; flex-wrap:wrap; font-size:.8rem; color:var(--text-2); align-items:center; margin:6px 0 0; }
   .em .em-legend svg { vertical-align:middle; }
   .em .dd-footer { font-family:inherit; }
+  /* On a phone: the map at full width and its natural height, then the controls, a horizontal timeline and the
+     year and counts, in that order, in the flow of the page. */
+  .em.em-narrow .em-mapwrap { height:auto; min-height:0; max-height:none; margin-top:4px; display:flex; flex-direction:column; }
+  .em.em-narrow #em-map { order:0; }
+  .em.em-narrow .em-panel { display:none; }
+  .em.em-narrow .em-ctl { position:static; width:auto; order:1; justify-content:flex-start; gap:8px; margin:8px 0 2px; flex-wrap:nowrap; }
+  .em.em-narrow .em-ctl .em-speed { flex-basis:auto; margin-left:auto; }
+  .em.em-narrow #em-spark { position:static; width:100%; height:44px; order:2; cursor:ew-resize; }
+  .em.em-narrow .em-hud { position:static; width:auto; order:3; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-top:6px; }
+  .em.em-narrow .em-tally { white-space:normal; }
+  .em.em-narrow .em-tally .row { display:inline-block; margin-right:10px; white-space:nowrap; }
+  .em.em-narrow .em-tally .n { min-width:0; }
   #em-tip { position:fixed; pointer-events:none; background:#fff; color:#0b0b0b; border:1px solid #e1e0d9; border-radius:6px; font-family:system-ui,sans-serif;
             padding:6px 8px; font-size:.8rem; max-width:260px; box-shadow:0 2px 8px #0002; display:none; z-index:30; }
 </style>
@@ -185,7 +198,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       : [["founded", C.founded], ["merged", C.merged], ["moved", C.moved], ["closed", C.closed], ["issues survive", C.issues, "known from issues"]]
           .map(([k, col, label]) => `<span class="row"><b class="n" style="color:${col}">${c.get(k) || 0}</b> ${label || k}</span>`).join("")
         + `<span class="row"><b class="n">${pub.get(y)}</b> publishing</span>`;
-    cursor.attr("y1", sx(y)).attr("y2", sx(y));
+    setCursor(y);
   }
 
   // ---- timeline: the papers publishing each year, scrubbable ------------------------------------------------------
@@ -195,7 +208,23 @@ document.addEventListener("DOMContentLoaded", async () => {
   const SW = 84, sp = d3.select("#em-spark");
   let SH = 400, sx = d3.scaleLinear([Y0, TODAY], [10, SH - 18]), cursor = null;
   const half = d3.scaleLinear([0, d3.max(D.years, (r) => r.publishing)], [1.5, 30]), mid = 42;   // never thinner than a hairline, so the bar reads from its first year
+  let narrow = false;
   function drawSpark() {
+    if (narrow) {
+      // horizontal on a phone: years run left to right, the bar's thickness is the papers publishing
+      const box = sp.node().getBoundingClientRect(), w = Math.max(200, box.width), h = 44, m = h / 2 - 4;
+      sx = d3.scaleLinear([Y0, TODAY], [24, w - 30]);
+      const hh = d3.scaleLinear([0, d3.max(D.years, (r) => r.publishing)], [1, 12]);
+      sp.attr("viewBox", [0, 0, w, h]).selectAll("*").remove();
+      sp.append("path").datum(D.years).attr("fill", "#c5d8e8")
+        .attr("d", d3.area().x((r) => sx(r.year)).y0((r) => m - hh(r.publishing)).y1((r) => m + hh(r.publishing)));
+      sp.append("g").attr("font-size", 10).attr("fill", "#5f6874").selectAll("text").data([Y0, 1850, 1900, 1950, 2000])
+        .join("text").attr("x", sx).attr("y", h - 2).attr("text-anchor", "middle").text((d) => d);
+      sp.append("text").attr("x", sx(TODAY)).attr("y", h - 2).attr("font-size", 10).attr("text-anchor", "middle").attr("fill", C.today).text("Today");
+      cursor = sp.append("line").attr("y1", 2).attr("y2", h - 14).attr("stroke", "#0b0b0b").attr("stroke-width", 2);
+      setCursor(year);
+      return;
+    }
     SH = Math.max(160, sp.node().getBoundingClientRect().height);
     sx = d3.scaleLinear([Y0, TODAY], [14, SH - 20]);   // the bar runs between its two end labels
     sp.attr("viewBox", [0, 0, SW, SH]).selectAll("*").remove();
@@ -208,10 +237,31 @@ document.addEventListener("DOMContentLoaded", async () => {
     // "Today": its cap 3px under the bar, as 1808 sits over it
     sp.append("text").attr("x", mid).attr("y", sx(TODAY) + 10).attr("font-size", 10).attr("text-anchor", "middle").attr("fill", C.today).text("Today");
     cursor = sp.append("line").attr("x1", 4).attr("x2", SW - 4).attr("stroke", "#0b0b0b").attr("stroke-width", 2);
-    cursor.attr("y1", sx(year)).attr("y2", sx(year));
+    setCursor(year);
   }
-  const ro = new ResizeObserver(() => { placeTally(); drawSpark(); });
-  ro.observe(document.getElementById("em-map"));
+  function setCursor(y) {
+    if (!cursor) return;
+    if (narrow) cursor.attr("x1", sx(y)).attr("x2", sx(y)); else cursor.attr("y1", sx(y)).attr("y2", sx(y));
+  }
+  // narrow below 760px: the side-by-side layout needs ~290px beside the map
+  function layout() {
+    narrow = root.getBoundingClientRect().width < 760;
+    root.classList.toggle("em-narrow", narrow);
+    // the map's size in pixels: the full width on a phone; beside the counts and timeline (290px) otherwise, as
+    // tall as its box allows
+    const mapEl = document.getElementById("em-map"), wrapW = wrapEl.getBoundingClientRect().width;
+    const mw = narrow ? wrapW : Math.min(wrapW - 290, wrapEl.clientHeight * W / H);
+    mapEl.style.width = mw + "px"; mapEl.style.height = mw * H / W + "px";
+    if (narrow) {
+      // clear what the side-by-side layout placed by hand, so the stacked layout's CSS holds
+      sp.style("left", null).style("top", null).style("height", null);
+      for (const el of [tallyEl, document.getElementById("em-ctl"), root.querySelector(".em-sub"), root.querySelector(".dd-footer")])
+        if (el) ["left", "right", "top", "maxWidth"].forEach((k) => (el.style[k] = ""));
+    } else placeTally();
+    drawSpark();
+  }
+  const ro = new ResizeObserver(() => layout());
+  ro.observe(root);
   // every border point of the state, projected: where the timeline must stop short of the map
   const EDGE = [];
   for (const f of geo.features) for (const poly of (f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates))
@@ -248,10 +298,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     const foot = root.querySelector(".dd-footer");
     if (foot) foot.style.maxWidth = wide;
   }
-  placeTally();
-  drawSpark();
+  layout();
   const go = (y) => { year = Math.max(Y0, Math.min(TODAY, y)); draw(year); };
-  const scrub = (ev) => { stop(); go(Math.round(sx.invert(d3.pointer(ev, sp.node())[1]))); };
+  const scrub = (ev) => { stop(); const [px, py] = d3.pointer(ev, sp.node()); go(Math.round(sx.invert(narrow ? px : py))); };
   sp.on("pointerdown", (ev) => { scrub(ev); sp.on("pointermove", scrub); }).on("pointerup pointerleave", () => sp.on("pointermove", null));
   const btn = document.getElementById("em-play");
   const stop = () => { clearInterval(timer); timer = null; btn.innerHTML = '<svg viewBox="0 0 10 10" width="10" height="10"><path d="M2,1L9,5L2,9z" fill="currentColor"/></svg>'; btn.setAttribute("aria-label", "Play"); };
