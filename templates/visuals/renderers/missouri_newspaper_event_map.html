@@ -1,7 +1,8 @@
 {% load static %}
 {# A one-off renderer: Missouri's newspapers year by year on a county map. #}
 {# Each year's foundings, mergers, moves and closings appear where they #}
-{# happened -- a dot per paper, packed around its town -- and fade over the #}
+{# happened (a paper known only from surviving issues appears once, grey, #}
+{# in their first year -- neither founded nor closed then), and fade over the #}
 {# next two years; a merger or a move draws an arrow to where it landed. #}
 {# Counties are shaded by the papers publishing there that year, and a paper #}
 {# still publishing today holds a dark blue dot from the year it settled in #}
@@ -32,7 +33,7 @@
 </figure>
 <style>
   .em { --text:#0b0b0b; --text-2:#5f6874; --border:#e1e0d9; --bg:#fcfcfb;
-        --founded:#2a9d7a; --merged:#d99a1e; --closed:#d6454f; --today:#0b5f8f; --moved:#6b5ca5;
+        --founded:#2a9d7a; --merged:#d99a1e; --closed:#d6454f; --today:#0b5f8f; --moved:#6b5ca5; --issues:#9aa3ad;
         color:var(--text); font-family:system-ui,sans-serif; line-height:normal; max-width:1120px; margin:0; }
   /* on a dark page the figure keeps the prototype's light ground: its colours are drawn for it */
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .em { background:var(--bg); padding:12px; border-radius:8px; } }
@@ -91,7 +92,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const v = root.querySelector(".dd-version");
   if (v && body.version) { v.textContent = ` · v${body.version}`; v.hidden = false; }
   const css = (n) => getComputedStyle(root).getPropertyValue(n).trim();
-  const C = { founded: css("--founded"), merged: css("--merged"), closed: css("--closed"), today: css("--today"), moved: css("--moved") };
+  const C = { founded: css("--founded"), merged: css("--merged"), closed: css("--closed"), today: css("--today"), moved: css("--moved"), issues: css("--issues") };
   const Y0 = D.y0, Y1 = D.years[D.years.length - 1].year, TODAY = Y1 + 1;   // the frame after the last year is "Today"
   const pub = new Map(D.years.map((r) => [r.year, r.publishing]));
   const geo = topojson.feature(topo, topo.objects.counties);
@@ -123,7 +124,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // year's mergers and moves landed, then the papers that have settled there and are still publishing, then the
   // fading events of the two years before.
   const where = (town, county) => town ? `${town}, ${county === "St. Louis" && town === "St. Louis" ? "St. Louis" : county + " County"}` : `${county} County`;
-  const RANK = { founded: 0, merged: 0, closed: 0, moved: 0, landed: 1, arrived: 1, today: 2 };
+  const RANK = { founded: 0, merged: 0, closed: 0, moved: 0, "issues survive": 0, landed: 1, arrived: 1, today: 2 };
   function frame(y) {
     const marks = [];
     if (y !== TODAY) for (const e of D.events) {
@@ -142,8 +143,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     return placed;
   }
 
-  const FILL = { founded: C.founded, merged: C.merged, closed: "#fff", moved: "#fff", landed: "#fff", arrived: C.moved, today: C.today };
-  const LINE = { founded: "#fff", merged: "#fff", closed: C.closed, moved: C.moved, landed: C.merged, arrived: "#fff", today: "#fff" };
+  const FILL = { founded: C.founded, merged: C.merged, closed: "#fff", moved: "#fff", landed: "#fff", arrived: C.moved, today: C.today, "issues survive": C.issues };
+  const LINE = { founded: "#fff", merged: "#fff", closed: C.closed, moved: C.moved, landed: C.merged, arrived: "#fff", today: "#fff", "issues survive": "#fff" };
   function draw(y) {
     const i = Math.min(y, Y1) - Y0;
     const n = (id) => y === TODAY ? (D.now[id] || 0) : (D.counties[id] ? D.counties[id][i] : 0);
@@ -172,6 +173,7 @@ document.addEventListener("DOMContentLoaded", async () => {
           landed: `${e.year}: ${e.paper} (${e.from}) merged into ${e.into || "the paper here"}`,
           moved: `moved ${e.year} to ${where(e.into_town, e.into_county)}${e.to && e.to !== e.paper ? ` as ${e.to}` : ""}`,
           arrived: `moved here ${e.year} from ${e.from}`,
+          "issues survive": `only issues from ${e.year} survive; when it began and ended is not known`,
         }[e.event]) + (e.approx ? "<br><i>placed at the county's centre</i>" : "")))
       .on("mouseleave", hide);
     // the header
@@ -179,8 +181,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.getElementById("em-yr").textContent = y === TODAY ? "Today" : y;
     document.getElementById("em-tally").innerHTML = y === TODAY
       ? `<b>${D.today.length}</b> publishing today<br>in <b>${Object.keys(D.now).length}</b> of 115 counties`
-      : [["founded", C.founded], ["merged", C.merged], ["moved", C.moved], ["closed", C.closed]]
-          .map(([k, col]) => `<span class="row"><b class="n" style="color:${col}">${c.get(k) || 0}</b> ${k}</span>`).join("")
+      : [["founded", C.founded], ["merged", C.merged], ["moved", C.moved], ["closed", C.closed], ["issues survive", C.issues, "known from issues"]]
+          .map(([k, col, label]) => `<span class="row"><b class="n" style="color:${col}">${c.get(k) || 0}</b> ${label || k}</span>`).join("")
         + `<span class="row"><b class="n">${pub.get(y)}</b> publishing</span>`;
     cursor.attr("y1", sx(y)).attr("y2", sx(y));
   }
@@ -269,7 +271,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     `<span>${dot(C.founded, "#fff", 0)} Founded</span>
      <span>${dot(C.merged, "#fff", 0)}${arrow(C.merged)}${ring(C.merged)} Merged into another paper</span>
      <span>${ring(C.moved)}${arrow(C.moved)}${dot(C.moved, "#fff", 0)} Moved town</span>
-     <span>${ring(C.closed)} Closed</span><span>${dot(C.today, "#fff", 0)} Still publishing today</span>
+     <span>${ring(C.closed)} Closed</span><span>${dot(C.issues, "#fff", 0)} Known only from surviving issues</span><span>${dot(C.today, "#fff", 0)} Still publishing today</span>
      <span style="flex-basis:100%">Papers in the county: ${[0, ...steps].map((s, i) => `<svg width="12" height="10"><rect width="12" height="10" fill="${shade(s)}"/></svg>${i === 0 ? "none" : ""}`).join("")} ${steps[steps.length - 1]}+</span>`;
   const T = document.getElementById("em-tip");
   function tip(ev, html) { T.innerHTML = html; T.style.display = "block"; T.style.left = ev.clientX + 12 + "px"; T.style.top = ev.clientY + 12 + "px"; }
