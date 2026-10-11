@@ -10,6 +10,8 @@ from pathlib import Path
 from django.db import transaction
 
 from audit.models import AuditLogEntry
+from visuals.broadcast import FIELDS as BROADCAST_FIELDS
+from visuals.broadcast import rows_for_export
 from visuals.models import HistoryCorrection, Outlet, OutletEvent
 
 H = HistoryCorrection
@@ -166,6 +168,8 @@ def export(out):
         the year a newsroom the catalogue never filmed was founded.
     datadesk_merged_events.csv -- each merger: `merged` events and `status`
         events that say merged.
+    broadcast_stations.csv -- the broadcast stations whose news we collect,
+        their first air dates and call letters.
     """
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
@@ -229,4 +233,11 @@ def export(out):
             for e in merged
         )
         written["datadesk_merged_events.csv"] = len(merged)
+
+    stations = rows_for_export()
+    with open(out / "broadcast_stations.csv", "w", newline="") as fh:
+        w = csv.DictWriter(fh, BROADCAST_FIELDS, lineterminator="\n")
+        w.writeheader()
+        w.writerows(stations)
+        written["broadcast_stations.csv"] = len(stations)
     return written

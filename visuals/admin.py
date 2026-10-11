@@ -5,7 +5,13 @@ from django.contrib import admin, messages
 from django.utils.html import format_html
 
 from visuals.embed import snippet
-from visuals.models import HistoryCorrection, Visual, VisualSnapshot
+from visuals.models import (
+    BroadcastStation,
+    CallSign,
+    HistoryCorrection,
+    Visual,
+    VisualSnapshot,
+)
 from visuals.services import (
     DataSourceError,
     NotPublishable,
@@ -154,3 +160,19 @@ class HistoryCorrectionAdmin(admin.ModelAdmin):
     def save_model(self, request, obj, form, change):
         obj.recorded_by, obj.origin = request.user, "admin"
         super().save_model(request, obj, form, change)
+
+
+class CallSignInline(admin.TabularInline):
+    model = CallSign
+    extra = 1
+
+
+@admin.register(BroadcastStation)
+class BroadcastStationAdmin(admin.ModelAdmin):
+    """The broadcast stations whose news we collect (docs/NEWSPAPER_HISTORY.md):
+    each with its first air date and its call letters over the years."""
+
+    list_display = ("facility_id", "call_sign", "service", "city", "first_air_date")
+    list_filter = ("service",)
+    search_fields = ("facility_id", "city", "call_signs__call_sign", "outlet_id")
+    inlines = (CallSignInline,)

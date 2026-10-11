@@ -657,6 +657,86 @@ class HistoryCorrection(models.Model):
         )
 
 
+class BroadcastStation(models.Model):
+    """One licensed broadcast station whose news we collect, as the newspaper
+    history draws it: a station starts on its first air date and keeps its
+    identity through every change of call letters.
+
+    The FCC facility id is the station -- call letters move between stations
+    (KMOX-TV was today's KMOV, and before that the permit that became KPLR),
+    so the history follows the facility, never the call sign. Several stations
+    can publish their news through one registry outlet (Northwest Mo Media:
+    KAAN, KAAN-FM, KKWK, KMRN); each starts on its own date. See
+    docs/NEWSPAPER_HISTORY.md.
+    """
+
+    AM, FM, TV = "AM", "FM", "TV"
+    SERVICES = [(AM, "AM radio"), (FM, "FM radio"), (TV, "Television")]
+    DAY, MONTH, YEAR = "day", "month", "year"
+    PRECISIONS = [
+        (DAY, "on this day"),
+        (MONTH, "in this month"),
+        (YEAR, "in this year"),
+    ]
+
+    facility_id = models.CharField(max_length=12, unique=True)
+    service = models.CharField(max_length=2, choices=SERVICES)
+    #: The FCC's community of license.
+    city = models.CharField(max_length=120)
+    state = models.CharField(max_length=2, default="MO")
+    #: The registry outlet whose site carries this station's news.
+    outlet_id = models.CharField(max_length=36, db_index=True)
+    #: The first day on the air; blank when no source gives one.
+    first_air_date = models.DateField(null=True, blank=True)
+    date_precision = models.CharField(
+        max_length=5, choices=PRECISIONS, blank=True, default=""
+    )
+    evidence = models.TextField()
+    evidence_url = models.URLField(max_length=500, blank=True, default="")
+    note = models.TextField(blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "broadcast_station"
+        ordering = ["state", "city", "facility_id"]
+
+    def __str__(self):
+        return f"{self.call_sign} ({self.city})"
+
+    @property
+    def call_sign(self):
+        """The call letters now: the one with no end year."""
+        now = [c for c in self.call_signs.all() if c.end_year is None]
+        return now[0].call_sign if now else f"facility {self.facility_id}"
+
+
+class CallSign(models.Model):
+    """A station's call letters over a span of years."""
+
+    station = models.ForeignKey(
+        BroadcastStation, on_delete=models.CASCADE, related_name="call_signs"
+    )
+    call_sign = models.CharField(max_length=20)
+    start_year = models.PositiveSmallIntegerField(null=True, blank=True)
+    #: Blank for the call letters the station carries now.
+    end_year = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "broadcast_call_sign"
+        ordering = ["station", "start_year", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["station"],
+                condition=models.Q(end_year__isnull=True),
+                name="one_current_call_sign",
+            )
+        ]
+
+    def __str__(self):
+        span = f"{self.start_year or '?'}-{self.end_year or ''}"
+        return f"{self.call_sign} ({span})"
+
+
 class CensusValue(models.Model):
     """One ACS measure for one county or tract, as a map layer reads it.
 
