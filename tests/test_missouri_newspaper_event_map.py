@@ -102,6 +102,21 @@ def test_beside_the_panel_the_map_is_centred_in_the_full_height_box(client, visu
     assert 'mapEl.style.height = mw * H / W + "px"' not in body
 
 
+def test_radio_and_tv_stations_are_triangles_counted_with_the_newsrooms(client, visual):
+    """A station whose news we collect is drawn as a triangle in the event
+    colours from its first air date: a founding that year, in its county's
+    shading and in what is active today -- never in the river or the trees,
+    whose papers the feed keeps apart."""
+    body = client.get("/embed/missouri-newspaper-event-map/").content.decode()
+    assert "const ST = D.stations || [];" in body
+    assert 'e.medium === "broadcast" ? TRI : CIRC' in body
+    assert "shade(papers(f.id) + air(f.id))" in body
+    assert 'c.set("founded", (c.get("founded") || 0) + ST.filter' in body
+    assert "active today" in body and "on the air" in body
+    assert "Radio or TV station" in body and "Still active today" in body
+    assert "first on the air ${e.year}" in body
+
+
 def test_the_feed_serves_the_pinned_map(client, visual):
     feed = client.get("/visuals/missouri-newspaper-event-map/data.json").json()
     assert feed["version"] == 1
