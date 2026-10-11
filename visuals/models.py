@@ -562,6 +562,101 @@ class OutletStory(models.Model):
         return f"{self.published}: {self.headline}"
 
 
+class HistoryCorrection(models.Model):
+    """One reviewer's correction to the catalogues the newspaper history is
+    built from: the State Historical Society's county directories, the
+    Library of Congress links, and how their titles meet the outlet registry.
+
+    The catalogues are other people's records, read as they are; what a
+    reviewer knows better -- a title filed under the wrong county, a renaming
+    the catalogue does not link, a paper that moved -- is a row here, with its
+    evidence, and the history's build reads these rows
+    (`export_newspaper_history_inputs`). Written once, like an outlet event:
+    a wrong correction is withdrawn by a `retraction` naming it.
+    """
+
+    SET = "set"
+    DROP = "drop"
+    REELS = "reels_belong_to"
+    MOVED = "moved"
+    LINK = "link"
+    UNLINK = "unlink"
+    ALIAS = "registry_alias"
+    NOT_A_NEWSROOM = "not_a_newsroom"
+    NOT_THE_TOWNS_PAPER = "not_the_towns_paper"
+    PRINT_ENDED = "print_ended"
+    RETRACTION = "retraction"
+    KINDS = [
+        (SET, "A catalogue field is wrong"),
+        (DROP, "An entry is the same film as another"),
+        (REELS, "An entry's reels are another paper's"),
+        (MOVED, "One paper filmed under several towns"),
+        (LINK, "One title carried on as another"),
+        (UNLINK, "A catalogue link that did not happen"),
+        (ALIAS, "The registry's name for a catalogue title"),
+        (NOT_A_NEWSROOM, "A registry outlet that is not a local newsroom"),
+        (NOT_THE_TOWNS_PAPER, "A registry outlet that is not its town's paper"),
+        (PRINT_ENDED, "A registry outlet's print run ended"),
+        (RETRACTION, "Retraction"),
+    ]
+
+    kind = models.CharField(max_length=24, choices=KINDS)
+    #: The catalogue entry (or, for the registry kinds, the registry outlet).
+    title = models.CharField(max_length=300, blank=True, default="")
+    county = models.CharField(max_length=120, blank=True, default="")
+    town = models.CharField(max_length=120, blank=True, default="")
+    #: What changes: the field and its value for `set`, how and the year for
+    #: `print_ended`, the towns in film order for `moved`.
+    field = models.CharField(max_length=40, blank=True, default="")
+    value = models.CharField(max_length=500, blank=True, default="")
+    #: The other entry: a link's later title, an alias's registry name.
+    other_title = models.CharField(max_length=300, blank=True, default="")
+    other_county = models.CharField(max_length=120, blank=True, default="")
+    other_town = models.CharField(max_length=120, blank=True, default="")
+    evidence = models.TextField()
+    evidence_url = models.URLField(max_length=500, blank=True, default="")
+    retracts = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="retracted_by",
+    )
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    recorded_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    #: How it was entered: "admin", "backfill: <file>".
+    origin = models.CharField(max_length=60, blank=True, default="")
+
+    class Meta:
+        db_table = "newspaper_history_correction"
+        ordering = ["recorded_at", "id"]
+
+    def __str__(self):
+        other = f" -> {self.other_title}" if self.other_title else ""
+        return f"{self.get_kind_display()}: {self.title or self.town}{other}"
+
+    def clean(self):
+        from visuals.history_corrections import problems
+
+        errors = problems(self)
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValidationError(
+                "A correction is not edited. Record a retraction and a new correction."
+            )
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError(
+            "A correction is not deleted. Record a retraction that names it."
+        )
+
+
 class CensusValue(models.Model):
     """One ACS measure for one county or tract, as a map layer reads it.
 
