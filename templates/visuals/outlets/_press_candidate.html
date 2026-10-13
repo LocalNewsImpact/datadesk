@@ -7,7 +7,7 @@ Shared by the queue and the page that shows a decision's errors.
   <h2>{{ c.paper|default:"(paper not named)" }}{% if c.town %} · {{ c.town }}{% endif %}{% if c.county %} · {{ c.county }} County{% endif %}</h2>
   <p class="hint">
     <strong>{{ c.label }}</strong> ·
-    {% if c.year %}{% if c.year_basis == "stated" %}{{ c.year }}{% else %}in or before {{ c.year }} (first reported){% endif %}{% else %}year unknown{% endif %}
+    {% if c.date and c.date_precision == "day" %}{{ c.date|date:"F j, Y" }}{% elif c.date and c.date_precision == "month" %}{{ c.date|date:"F Y" }}{% elif c.year %}{% if c.year_basis == "stated" %}{{ c.year }}{% else %}in or before {{ c.year }} (first reported){% endif %}{% else %}year unknown{% endif %}{% if c.date_stated %} (“{{ c.date_stated }}”){% endif %}
     {% if c.from_owner or c.to_owner %} · {{ c.from_owner|default:"?" }} → {{ c.to_owner|default:"?" }}{% endif %}
   </p>
   {% if c.passage %}

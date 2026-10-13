@@ -86,6 +86,16 @@ def _row(raw, publication):
             errors.append(f"year is four digits, not {t['year']!r}.")
         else:
             year = int(t["year"])
+    when, precision = None, t.get("date_precision", "")
+    if t.get("date"):
+        try:
+            when = dt.date.fromisoformat(t["date"])
+        except ValueError:
+            errors.append(f"date is YYYY-MM-DD, not {t['date']!r}.")
+        if precision not in (E.DAY, E.MONTH, E.YEAR):
+            errors.append("date_precision is day, month or year.")
+    else:
+        precision = ""
     fields = {
         "key": key_of(t.get("link"), t.get("quote")),
         "publication": publication,
@@ -107,6 +117,9 @@ def _row(raw, publication):
         "event_type": t.get("event_type", ""),
         "year": year,
         "year_basis": t.get("year_basis", ""),
+        "date": when,
+        "date_precision": precision,
+        "date_stated": t.get("date_stated", "")[:120],
         "from_owner": t.get("from", ""),
         "to_owner": t.get("to", ""),
         "quote": t.get("quote", ""),
@@ -142,6 +155,104 @@ def load(rows, publication):
     with transaction.atomic():
         C.objects.bulk_create(new, batch_size=500)
     return len(new), len(cleaned) - len(new), []
+
+
+#: The fields a later reading may change on a candidate still waiting.
+READING = (
+    "publication",
+    "issue",
+    "page",
+    "link",
+    "all_links",
+    "mentions",
+    "last_reported",
+    "paper",
+    "town",
+    "county",
+    "names_in_press",
+    "known_title",
+    "known_town",
+    "matched_to",
+    "match",
+    "outlet_id",
+    "event_type",
+    "year",
+    "year_basis",
+    "date",
+    "date_precision",
+    "date_stated",
+    "from_owner",
+    "to_owner",
+    "quote",
+    "passage",
+    "flags",
+)
+
+
+def refresh(rows, publication):
+    """Bring the queue up to a later reading of the same pages.
+
+    A candidate still waiting takes the new reading's values; a reading new
+    to the queue is added; a waiting candidate the new reading no longer
+    holds (its reports now belong to another event) is removed. A decided
+    candidate is never touched, and a new reading of a decided event -- one
+    of its pages, the same kind of event, the same paper -- is not added
+    again. Returns ({count: n}, [errors], [readings not added]).
+    """
+    publication = (publication or "").strip()
+    if not publication:
+        return {}, ["Name the publication the events were read from."], []
+    cleaned, errors = [], []
+    for n, raw in enumerate(rows, start=2):
+        fields, problems = _row(raw, publication)
+        errors += [f"line {n}: {p}" for p in problems]
+        cleaned.append(fields)
+    if errors:
+        return {}, errors, []
+    counts = {"updated": 0, "added": 0, "removed": 0, "decided": 0, "not added": 0}
+    held, kept = [], []
+    with transaction.atomic():
+        current = {
+            c.key: c
+            for c in C.objects.select_for_update().filter(publication=publication)
+        }
+        decided = [c for c in current.values() if c.status != C.PENDING]
+        seen = set()
+        for f in cleaned:
+            if f["key"] in seen:
+                continue
+            seen.add(f["key"])
+            c = current.get(f["key"])
+            if c is not None and c.status != C.PENDING:
+                counts["decided"] += 1
+            elif c is not None:
+                for k in READING:
+                    setattr(c, k, f[k])
+                c.save(update_fields=list(READING))
+                counts["updated"] += 1
+            elif any(_same_event(d, f) for d in decided):
+                counts["not added"] += 1
+                held.append(f"{f['paper']} {f['event_type']} {f['link']}")
+            else:
+                kept.append(C(**f))
+        C.objects.bulk_create(kept, batch_size=500)
+        counts["added"] = len(kept)
+        gone = [
+            c.pk for k, c in current.items() if c.status == C.PENDING and k not in seen
+        ]
+        counts["removed"] = C.objects.filter(pk__in=gone).delete()[0]
+    return counts, [], held
+
+
+def _same_event(decided, f):
+    """Whether reading `f` is an event a person already decided: it was
+    reported on the decided candidate's page, is the same kind, of the same
+    paper."""
+    return (
+        decided.link in f["all_links"].split()
+        and decided.event_type == f["event_type"]
+        and (decided.known_title or decided.paper) == (f["known_title"] or f["paper"])
+    )
 
 
 #: Words a period follows without ending a sentence.
@@ -212,14 +323,39 @@ def excerpt(c):
     starts = _sentence_starts(text)
     begin, end = _span(starts, len(before), text)
     end = max(end, _span(starts, len(before) + len(said) - 1, text)[1])
-    year = str(c.year) if c.year and c.year_basis == "stated" else ""
-    if year and year not in text[begin:end]:
-        found = [m.start() for m in re.finditer(rf"\b{year}\b", text)]
+    # the page's own words for the date ("Oct. 9", "ten years ago"), else its year
+    marks = [
+        w
+        for w in (
+            c.date_stated,
+            str(c.year) if c.year_basis == "stated" and c.year else "",
+        )
+        if w
+    ]
+    for mark in marks:
+        if _has(text[begin:end], mark):
+            break
+        found = [m.start() for m in re.finditer(_loose(mark), text, re.I)]
         if found:
             at = min(found, key=lambda i: abs(i - len(before)))
             y_begin, y_end = _span(starts, at, text)
             begin, end = min(begin, y_begin), max(end, y_end)
+            break
     return " ".join(text[begin:end].split())
+
+
+def _loose(words):
+    """A pattern for `words` with any spacing or punctuation between them."""
+    parts = re.findall(r"[a-z0-9]+", words.lower())
+    return (
+        r"\b" + r"[^a-z0-9]+".join(re.escape(p) for p in parts) + r"\b"
+        if parts
+        else r"(?!)"
+    )
+
+
+def _has(text, words):
+    return re.search(_loose(words), text, re.I) is not None
 
 
 def in_context(c):
@@ -228,18 +364,33 @@ def in_context(c):
     matched only through OCR noise is not found, and the passage comes back
     whole."""
     passage = c.passage or ""
-    words = re.findall(r"[a-z0-9]+", (c.quote or "").lower())
-    if not words:
+    # a quote the model shortened ("Touchdown Publications... purchased the
+    # Savannah Reporter on Oct. 9.") is found piece by piece, in order, and
+    # marked from the first piece to the last
+    pieces = [
+        p
+        for p in re.split(r"\.\.\.|…", c.quote or "")
+        if re.search(r"[a-z0-9]", p, re.I)
+    ]
+    if not pieces:
         return passage, "", ""
-    # word for word: the model's quote drops OCR's stray punctuation, and
-    # joins a word the page broke across a line ("En- terprise")
-    pattern = r"[^a-z0-9]+".join(
+    start, at = None, 0
+    for piece in pieces:
+        m = re.compile(_word_for_word(piece), re.I).search(passage, at)
+        if m is None:
+            return passage, "", ""
+        start = m.start() if start is None else start
+        at = m.end()
+    return passage[:start], passage[start:at], passage[at:]
+
+
+def _word_for_word(quote):
+    """Word for word: the model's quote drops OCR's stray punctuation, and
+    joins a word the page broke across a line ("En- terprise")."""
+    words = re.findall(r"[a-z0-9]+", quote.lower())
+    return r"[^a-z0-9]+".join(
         r"(?:-\s*)?".join(re.escape(ch) for ch in w) for w in words
     )
-    m = re.search(pattern, passage, re.I)
-    if m is None:
-        return passage, "", ""
-    return passage[: m.start()], m.group(0), passage[m.end() :]
 
 
 def _the(name):
@@ -252,11 +403,14 @@ def statement(values, c):
     in 1909." It heads the note, so an event says what happened before it
     quotes the page."""
     paper = _the(values["outlet_name"] or "paper")
-    if values["date_precision"] == E.YEAR:
-        when = f" in {values['effective_date'][:4]}"
-    else:
-        d = dt.date.fromisoformat(values["effective_date"])
-        when = f" by {d:%B %Y}"
+    when = ""
+    if values["effective_date"]:
+        d = dt.date.fromisoformat(str(values["effective_date"]))
+        when = {
+            E.DAY: f" on {d:%B} {d.day}, {d.year}",
+            E.MONTH: f" in {d:%B %Y}",
+            E.YEAR: f" in {d.year}",
+        }.get(values["date_precision"], f" by {d:%B %Y}")
     seller = f" from {values['from_owner']}" if values["from_owner"] else ""
     event = values["event"]
     if event == E.SOLD and values["to_owner"]:
@@ -281,17 +435,19 @@ def statement(values, c):
 def proposed(c):
     """The outlet event a candidate proposes, as the accept form's values.
 
-    A year the page states is that year; a year known only from the issue
-    that reported it is "on or before" the end of that issue's month.
+    The date the page gives is that date, to its precision; a year it gives
+    is that year; an event it gives no date for is "on or before" the end of
+    the month of the issue that reported it.
     """
-    if c.year_basis == "stated" and c.year:
+    if c.date and c.date_precision in (E.DAY, E.MONTH, E.YEAR):
+        when, precision = c.date, c.date_precision
+    elif c.year_basis == "stated" and c.year:
         when, precision = dt.date(c.year, 1, 1), E.YEAR
     else:
         y, m = int(c.issue[:4]), int(c.issue[5:7])
         when, precision = dt.date(y, m, calendar.monthrange(y, m)[1]), E.BY
     event = KINDS.get(c.event_type, "")
     name = c.known_title if c.matched_to == "registry" else (c.paper or c.known_title)
-    where = ", ".join(x for x in (c.issue, c.page) if x)
     values = {
         "outlet_id": c.outlet_id if c.matched_to == "registry" else "",
         "outlet_name": name,
@@ -313,8 +469,13 @@ def proposed(c):
         values["merged_into"], values["to_owner"] = c.to_owner, ""
     elif event == E.RENAMED:
         values["new_name"], values["to_owner"] = c.to_owner, ""
-    values["note"] = f'{statement(values, c)} {c.publication}, {where}: "{excerpt(c)}"'
+    values["note"] = _note(values, c)
     return values
+
+
+def _note(values, c):
+    where = ", ".join(x for x in (c.issue, c.page) if x)
+    return f'{statement(values, c)} {c.publication}, {where}: "{excerpt(c)}"'
 
 
 def _decide(actor, c, status, reason="", event=None):
@@ -357,11 +518,18 @@ def accept(actor, pk, data):
     with transaction.atomic():
         c = _pending(pk)
         values = proposed(c)
+        offered = values["note"]
         values.update({k: data[k] for k in FIELDS if k in data})
         values["evidence_url"] = c.link
         values["sets_current"] = ""
+        # A note left as it was offered is the reading's sentence; when the
+        # reviewer corrects the date, owner or name, it says what is recorded
+        # (it said "in 1996" over a sale corrected to Oct. 9, 2002). A note
+        # the reviewer wrote stands.
         if not values.get("event"):
             raise EventError(["Say what happened: a move has no event of its own."])
+        if " ".join(str(values.get("note", "")).split()) == " ".join(offered.split()):
+            values["note"] = _note(values, c)
         event = record(actor, values, origin=f"{c.publication} review")
         _decide(actor, c, C.ACCEPTED, event=event)
     return event

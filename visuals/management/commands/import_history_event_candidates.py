@@ -13,7 +13,7 @@ a person accepts it.
 from django.core.management.base import BaseCommand, CommandError
 
 from visuals.outlet_events import read_rows
-from visuals.press_history import load
+from visuals.press_history import load, refresh
 
 
 class Command(BaseCommand):
@@ -26,8 +26,28 @@ class Command(BaseCommand):
             required=True,
             help='The publication they were read from, e.g. "Missouri Press News".',
         )
+        parser.add_argument(
+            "--refresh",
+            action="store_true",
+            help="a later reading of the same pages: update the candidates still "
+            "waiting, add new ones, remove those it no longer holds; decided "
+            "candidates are never touched",
+        )
 
     def handle(self, *args, **options):
+        if options["refresh"]:
+            counts, errors, held = refresh(
+                read_rows(options["where"]), options["publication"]
+            )
+            if errors:
+                raise CommandError("nothing changed:\n" + "\n".join(errors))
+            self.stdout.write(
+                "history event candidates: "
+                + ", ".join(f"{n} {k}" for k, n in counts.items())
+            )
+            for line in held:
+                self.stdout.write(f"  not added, already decided: {line}")
+            return
         added, skipped, errors = load(
             read_rows(options["where"]), options["publication"]
         )
