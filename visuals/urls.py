@@ -13,6 +13,9 @@ urlpatterns = [
     path("outlets/events/", outlet_views.event_list, name="outlet_events"),
     path("outlets/events/new/", outlet_views.event_new, name="outlet_event_new"),
     path("outlets/stories/", outlet_views.story_list, name="outlet_stories"),
+    # Events read from the press, waiting for a person.
+    path("outlets/press/", outlet_views.press_queue, name="press_queue"),
+    path("outlets/press/<int:pk>/", outlet_views.press_decide, name="press_decide"),
     path("outlets/stories/new/", outlet_views.story_edit, name="outlet_story_new"),
     path(
         "outlets/stories/<int:pk>/", outlet_views.story_edit, name="outlet_story_edit"
