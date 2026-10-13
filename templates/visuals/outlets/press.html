@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Events read from the press — Outlets — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card">
+  <p class="breadcrumb"><a href="{% url 'visuals:outlets' %}">← Outlets</a></p>
+  <h1>Events read from the press</h1>
+  <p class="notice">Sales, mergers, closures, launches and renamings that the
+  press reported, read from its pages by a model. None is history until it is
+  accepted here: accepting records an outlet event with the page as its source;
+  rejecting keeps the reading, with why, so it is not proposed again.
+  {% for key, n in tallies %}{% if not forloop.first %} · {% endif %}{{ key|capfirst }}: {{ n }}{% endfor %}</p>
+
+  <form method="get" class="action-bar">
+    <label>Status
+      <select name="status">
+        {% for key, label in states %}<option value="{{ key }}" {% if f.status == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        <option value="all" {% if f.status == "all" %}selected{% endif %}>all</option>
+      </select>
+    </label>
+    <label>Event
+      <select name="event_type">
+        <option value="">all</option>
+        {% for t, label in event_types %}<option value="{{ t }}" {% if f.event_type == t %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Matched to
+      <select name="matched">
+        <option value="">any</option>
+        <option value="registry" {% if f.matched == "registry" %}selected{% endif %}>the registry</option>
+        <option value="shsmo" {% if f.matched == "shsmo" %}selected{% endif %}>the Historical Society's title list</option>
+        <option value="none" {% if f.matched == "none" %}selected{% endif %}>nothing</option>
+      </select>
+    </label>
+    <label>Flag
+      <select name="flag">
+        <option value="">any</option>
+        <option value="none" {% if f.flag == "none" %}selected{% endif %}>no flag</option>
+        {% for fl in flags %}<option value="{{ fl }}" {% if f.flag == fl %}selected{% endif %}>{{ fl }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>County
+      <select name="county">
+        <option value="">all</option>
+        {% for co in counties %}<option value="{{ co }}" {% if f.county == co %}selected{% endif %}>{{ co }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Search <input type="text" name="q" value="{{ f.q }}" placeholder="paper, town, owner, quote"></label>
+    <button type="submit">Show</button>
+  </form>
+
+  <p class="hint">{{ page.paginator.count }} shown{% if page.paginator.num_pages > 1 %} · page {{ page.number }} of {{ page.paginator.num_pages }}{% endif %}</p>
+</section>
+
+{% with back=request.get_full_path %}
+{% for c in page %}
+  {% include "visuals/outlets/_press_candidate.html" with c=c back=back errors=None %}
+{% empty %}
+<section class="card"><p>Nothing{% if f.status == "pending" %} waiting{% endif %} matches.</p></section>
+{% endfor %}
+{% endwith %}
+
+{% if page.paginator.num_pages > 1 %}
+<nav class="action-bar">
+  {% if page.has_previous %}<a class="button" href="?{{ query }}&amp;page={{ page.previous_page_number }}">← Previous</a>{% endif %}
+  {% if page.has_next %}<a class="button" href="?{{ query }}&amp;page={{ page.next_page_number }}">Next →</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

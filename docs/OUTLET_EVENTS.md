@@ -92,4 +92,62 @@ can record the dated event beside it.
   A row identical to an event already recorded is skipped, so a file can be
   loaded twice. The seed at `visuals/data/outlet_events_seed.csv` holds the
   events reported in the Missouri Press Association's stories, 2018-2026.
+- **Events read from the press**: candidates waiting for review, below.
 - **Export**: `/outlets/events/?format=csv` is every event, for a timeline.
+
+## Events read from the press
+
+Missouri Press News, the Missouri Press Association's magazine, reported
+sales, mergers, closures, launches and renamings of Missouri papers from
+1933 to 2005. The State Historical Society of Missouri hosts its scans with
+their OCR text. A model read every passage that uses the language of a
+transaction and proposed the events it states, each with the words on the
+page that say it. Those proposals are `history_event_candidate` rows, and
+none of them is history: a reading can be a Kansas paper, a website launch
+taken for a founding, or "the Herald" with no town.
+
+| Field | Holds |
+|---|---|
+| `publication`, `issue`, `page`, `link` | Where it was read: the first issue that reported it, and the hosted page. |
+| `all_links`, `mentions`, `last_reported` | Every page that reported the same event -- "years ago" columns retell old sales. |
+| `paper`, `town`, `county`, `names_in_press` | The paper as the press named it. |
+| `known_title`, `matched_to`, `match`, `outlet_id` | What it was matched to: the Historical Society's title list (`shsmo`) or the registry (`registry`, with its outlet id), and how. |
+| `event_type`, `year`, `year_basis` | The reading's event. `stated` is a year the page gives; `first report` is the year of the issue that reported it. |
+| `from_owner`, `to_owner`, `quote` | The reading's parties, and the words on the page. |
+| `flags` | What the reading could not settle: a paper not placed in a town, a quote matched through OCR noise, a title the lists hold only in another town, a website. |
+| `status`, `reason`, `outlet_event`, `reviewed_by`, `reviewed_at` | The decision. |
+
+**Outlets > Events read from the press** (`/outlets/press/`) is the queue,
+filtered by status, event, match, flag and county. Each candidate shows its
+quote and a link to the page.
+
+- **Accept** records an outlet event through the same rules as the form, with
+  the reviewer's corrections, the page as its source and origin
+  `Missouri Press News review`. Its note says what happened in one sentence
+  ("E. E. Swain, Sr. and Walter Ridgway bought the Kirksville Daily Express
+  in 1909."), then cites the page and quotes it: the quote's sentence and,
+  where the year is stated elsewhere, every sentence back to the one that
+  states it. It is history only: `sets_current` is off,
+  because the registry already holds what came after. A stated year is
+  recorded at year precision; a first report is "on or before" the end of the
+  issue's month.
+- **Reject** keeps the candidate with the reason, so the same reading is not
+  proposed again.
+
+A decision is made once. An accepted event that turns out wrong is retracted
+like any other outlet event.
+
+| Reading | Outlet event |
+|---|---|
+| `ownership_change` | `sold` |
+| `lease` | `owner_changed`, the note saying leased |
+| `merger` | `merged`, the reading's `to` as `merged_into` |
+| `founded` | `launched` |
+| `closed` | `closed` |
+| `renamed` | `renamed`, the reading's `to` as `new_name` |
+| `moved` | none: the reviewer chooses |
+
+Candidates are added with
+`manage.py import_history_event_candidates <events.csv> --publication "Missouri Press News"`.
+A reading already held is skipped, so a file can be loaded twice; a file with
+any bad row adds nothing.

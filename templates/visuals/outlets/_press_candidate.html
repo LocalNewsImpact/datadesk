@@ -1,0 +1,81 @@
+{% comment %}
+One candidate: what the page says, what it was matched to, and -- for a
+writer, while it waits -- the event it would record and the way to reject it.
+Shared by the queue and the page that shows a decision's errors.
+{% endcomment %}
+<article class="card press-candidate" id="c{{ c.pk }}">
+  <h2>{{ c.paper|default:"(paper not named)" }}{% if c.town %} · {{ c.town }}{% endif %}{% if c.county %} · {{ c.county }} County{% endif %}</h2>
+  <p class="hint">
+    <strong>{{ c.label }}</strong> ·
+    {% if c.year %}{% if c.year_basis == "stated" %}{{ c.year }}{% else %}in or before {{ c.year }} (first reported){% endif %}{% else %}year unknown{% endif %}
+    {% if c.from_owner or c.to_owner %} · {{ c.from_owner|default:"?" }} → {{ c.to_owner|default:"?" }}{% endif %}
+  </p>
+  {% if c.passage %}
+  <blockquote class="press-passage">{{ c.before }}{% if c.said %}<mark>{{ c.said }}</mark>{% endif %}{{ c.after }}</blockquote>
+  {% if not c.said %}<p class="hint">The model's quote, matched through OCR noise: “{{ c.quote }}”</p>{% endif %}
+  {% else %}
+  <blockquote>“{{ c.quote }}”</blockquote>
+  {% endif %}
+  <p class="hint">
+    <a href="{{ c.link }}" target="_blank" rel="noopener">{{ c.publication }}, {{ c.issue }}{% if c.page %}, {{ c.page }}{% endif %}</a>
+    {% if c.mentions > 1 %} · reported {{ c.mentions }} times, last {{ c.last_reported }}:
+      {% for u in c.other_links %}<a href="{{ u }}" target="_blank" rel="noopener">{{ forloop.counter|add:1 }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}
+  </p>
+  <p class="hint">
+    {% if c.matched_to %}Matched to {% if c.outlet_id %}<a href="{% url 'visuals:outlet_detail' c.outlet_id %}">{{ c.known_title }}</a>{% else %}{{ c.known_title }}{% endif %}{% if c.known_town and c.known_town != c.town %}, {{ c.known_town }}{% endif %}
+      ({% if c.matched_to == "shsmo" %}the Historical Society's title list{% else %}the registry{% endif %}, {{ c.match }}){% else %}Not matched to a known paper{% endif %}
+    {% if c.names_in_press and c.names_in_press != c.paper %} · named in the press: {{ c.names_in_press }}{% endif %}
+  </p>
+  {% if c.flags %}<p class="hint stranded">Check: {{ c.flags }}</p>{% endif %}
+
+  {% if c.status != "pending" %}
+  <p><strong>{{ c.get_status_display|capfirst }}</strong> by {{ c.reviewed_by.email }} on {{ c.reviewed_at|date:"m-d-Y" }}
+    {% if c.reason %} — {{ c.reason }}{% endif %}
+    {% if c.outlet_event %} — recorded as “{{ c.outlet_event }}”{% endif %}</p>
+  {% elif may_record %}
+  <details{% if errors %} open{% endif %}><summary>Accept: record this event</summary>
+    {% for error in errors %}<p class="error">{{ error }}</p>{% endfor %}
+    <form method="post" action="{% url 'visuals:press_decide' c.pk %}" class="event-form">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ back }}">
+      <input type="hidden" name="decision" value="accept">
+      <input type="hidden" name="outlet_id" value="{{ c.proposed.outlet_id }}">
+      <label class="stacked">Outlet <input type="text" name="outlet_name" required value="{{ c.proposed.outlet_name }}"></label>
+      <div class="action-bar">
+        <label>What happened
+          <select name="event" required>
+            <option value="">—</option>
+            {% for key, label in kinds %}<option value="{{ key }}" {% if c.proposed.event == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>When <input type="date" name="effective_date" value="{{ c.proposed.effective_date }}"></label>
+        <label>Date is
+          <select name="date_precision">
+            {% for key, label in precisions %}<option value="{{ key }}" {% if c.proposed.date_precision == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="action-bar">
+        <label>From owner <input type="text" name="from_owner" value="{{ c.proposed.from_owner }}"></label>
+        <label>To owner <input type="text" name="to_owner" value="{{ c.proposed.to_owner }}"></label>
+      </div>
+      <div class="action-bar">
+        <label>Merged into <input type="text" name="merged_into" value="{{ c.proposed.merged_into }}"></label>
+        <label>New name <input type="text" name="new_name" value="{{ c.proposed.new_name }}"></label>
+      </div>
+      <label class="stacked">Note <textarea name="note" rows="6">{{ c.proposed.note }}</textarea></label>
+      <p class="hint">The page is recorded as the source. This is history: it does not change the outlet as it stands now.</p>
+      <button type="submit" class="primary">Accept and record</button>
+    </form>
+  </details>
+  <details><summary>Reject</summary>
+    <form method="post" action="{% url 'visuals:press_decide' c.pk %}">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ back }}">
+      <input type="hidden" name="decision" value="reject">
+      <label class="stacked">Why <input type="text" name="reason" required placeholder="not a Missouri paper; a website, not a paper; the page does not say this"></label>
+      <button type="submit">Reject</button>
+    </form>
+  </details>
+  {% endif %}
+</article>

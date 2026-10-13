@@ -562,6 +562,94 @@ class OutletStory(models.Model):
         return f"{self.published}: {self.headline}"
 
 
+class HistoryEventCandidate(models.Model):
+    """An event the press reported about a paper, read from its pages by a
+    model and waiting for a person (docs/OUTLET_EVENTS.md).
+
+    The first are from Missouri Press News, the Missouri Press Association's
+    magazine, whose scans the State Historical Society of Missouri hosts. A
+    candidate is not history: accepting one records an `outlet_event` with
+    the page as its evidence, and only that event is read by anything else.
+    A rejected candidate stays, with why, so the same reading is not
+    proposed again.
+    """
+
+    PENDING, ACCEPTED, REJECTED = "pending", "accepted", "rejected"
+    STATES = [(s, s) for s in (PENDING, ACCEPTED, REJECTED)]
+
+    #: The reading's identity: its first page and its quote, so an import of
+    #: the same file adds nothing.
+    key = models.CharField(max_length=40, unique=True)
+    publication = models.CharField(max_length=120)
+    #: The issue that first reported it ("1957-06"), and its page.
+    issue = models.CharField(max_length=7)
+    page = models.CharField(max_length=60, blank=True, default="")
+    link = models.URLField(max_length=500)
+    #: Every page that reported it, first to last, separated by spaces.
+    all_links = models.TextField(blank=True, default="")
+    mentions = models.PositiveIntegerField(default=1)
+    last_reported = models.CharField(max_length=7, blank=True, default="")
+
+    #: The paper as the press named it, and its town. Blank when the page
+    #: names only a town ("the paper there").
+    paper = models.CharField(max_length=300, blank=True, default="")
+    town = models.CharField(max_length=120, blank=True, default="")
+    county = models.CharField(max_length=120, blank=True, default="")
+    #: Every name the press gave it, separated by "; ".
+    names_in_press = models.TextField(blank=True, default="")
+    #: The title it was matched to, as that list spells it.
+    known_title = models.CharField(max_length=300, blank=True, default="")
+    known_town = models.CharField(max_length=120, blank=True, default="")
+    #: What it was matched to -- "shsmo" (the Society's title catalogue),
+    #: "registry", or blank -- and how ("exact", "close", "title", "placed").
+    matched_to = models.CharField(max_length=20, blank=True, default="")
+    match = models.CharField(max_length=40, blank=True, default="")
+    #: The registry outlet, when the match is to the registry.
+    outlet_id = models.CharField(max_length=36, blank=True, default="")
+
+    #: The reading's own vocabulary: ownership_change, lease, merger,
+    #: founded, closed, moved, renamed.
+    event_type = models.CharField(max_length=20)
+    year = models.PositiveSmallIntegerField(null=True, blank=True)
+    #: "stated" -- the page gives the year; "first report" -- the year of the
+    #: issue that first reported it, so the event is in or before it.
+    year_basis = models.CharField(max_length=20, blank=True, default="")
+    from_owner = models.CharField(max_length=300, blank=True, default="")
+    to_owner = models.CharField(max_length=300, blank=True, default="")
+    quote = models.TextField()
+    #: The passage the model read -- the paragraph and the one either side --
+    #: so a reviewer weighs the quote in its context.
+    passage = models.TextField(blank=True, default="")
+    #: What the reading could not settle, separated by "; ".
+    flags = models.TextField(blank=True, default="")
+
+    status = models.CharField(max_length=10, choices=STATES, default=PENDING)
+    reason = models.TextField(blank=True, default="")
+    outlet_event = models.ForeignKey(
+        OutletEvent,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="candidates",
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    imported_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "history_event_candidate"
+        ordering = ["county", "town", "paper", "year", "id"]
+
+    def __str__(self):
+        return f"{self.paper}: {self.event_type} ({self.year or 'year unknown'})"
+
+
 class HistoryCorrection(models.Model):
     """One reviewer's correction to the catalogues the newspaper history is
     built from: the State Historical Society's county directories, the

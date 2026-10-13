@@ -12,6 +12,7 @@ from django.db.models import Count, Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 
 from accounts.access import has_privilege_anywhere
 from accounts.decorators import APP, requires
@@ -301,3 +302,135 @@ def story_edit(request, pk=None):
             )
         return redirect(reverse("visuals:outlet_stories"))
     return render(request, "visuals/outlets/story_form.html", context)
+
+
+# --- events read from the press ----------------------------------------------
+
+#: A page of the queue: enough to work through, few enough to read.
+PAGE = 50
+
+
+@requires(READ)
+def press_queue(request):
+    """Events the press reported, waiting for a person: each with its quote,
+    its page, and the event it would record."""
+    from django.core.paginator import Paginator
+    from django.db.models import Case, IntegerField, Value, When
+
+    from visuals.models import HistoryEventCandidate as C
+    from visuals.press_history import FLAGS, LABELS, in_context, proposed
+
+    f = {
+        k: (request.GET.get(k) or "").strip()
+        for k in ("status", "event_type", "flag", "matched", "county", "q")
+    }
+    f["status"] = f["status"] or C.PENDING
+    # Papers placed in a county first: the unplaced are the hardest to
+    # decide and should not be the first thing a reviewer meets.
+    rows = (
+        C.objects.select_related("reviewed_by", "outlet_event")
+        .annotate(
+            unplaced=Case(
+                When(county="", then=Value(1)),
+                default=Value(0),
+                output_field=IntegerField(),
+            )
+        )
+        .order_by("unplaced", "county", "town", "paper", "year", "id")
+    )
+    if f["status"] != "all":
+        rows = rows.filter(status=f["status"])
+    if f["event_type"]:
+        rows = rows.filter(event_type=f["event_type"])
+    if f["flag"] == "none":
+        rows = rows.filter(flags="")
+    elif f["flag"]:
+        rows = rows.filter(flags__icontains=f["flag"])
+    if f["matched"] == "none":
+        rows = rows.filter(matched_to="")
+    elif f["matched"]:
+        rows = rows.filter(matched_to=f["matched"])
+    if f["county"]:
+        rows = rows.filter(county__iexact=f["county"])
+    if f["q"]:
+        rows = rows.filter(
+            Q(paper__icontains=f["q"])
+            | Q(known_title__icontains=f["q"])
+            | Q(town__icontains=f["q"])
+            | Q(from_owner__icontains=f["q"])
+            | Q(to_owner__icontains=f["q"])
+            | Q(quote__icontains=f["q"])
+        )
+    page = Paginator(rows, PAGE).get_page(request.GET.get("page"))
+    for c in page:
+        c.proposed = proposed(c)
+        c.label = LABELS.get(c.event_type, c.event_type)
+        c.before, c.said, c.after = in_context(c)
+        c.other_links = [u for u in c.all_links.split() if u != c.link]
+    counts = dict(
+        C.objects.values_list("status")
+        .annotate(n=Count("id"))
+        .values_list("status", "n")
+    )
+    query = request.GET.copy()
+    query.pop("page", None)
+    return render(
+        request,
+        "visuals/outlets/press.html",
+        {
+            "page": page,
+            "f": f,
+            "query": query.urlencode(),
+            "tallies": [(k, counts.get(k, 0)) for k, _ in C.STATES],
+            "states": C.STATES,
+            "event_types": LABELS.items(),
+            "flags": FLAGS,
+            "counties": C.objects.exclude(county="")
+            .values_list("county", flat=True)
+            .distinct()
+            .order_by("county"),
+            "kinds": OutletEvent.EVENTS[:-1],
+            "precisions": OutletEvent.PRECISIONS,
+            "may_record": _may_record(request.user),
+        },
+    )
+
+
+@requires(READ)
+def press_decide(request, pk):
+    """Accept a candidate -- recording its event -- or reject it, with why."""
+    from visuals.models import HistoryEventCandidate as C
+    from visuals.press_history import LABELS, accept, in_context, proposed, reject
+
+    if request.method != "POST":
+        return redirect(reverse("visuals:press_queue"))
+    if not _may_record(request.user):
+        raise PermissionDenied("Deciding a candidate needs write access")
+    back = request.POST.get("next") or ""
+    if not url_has_allowed_host_and_scheme(back, allowed_hosts={request.get_host()}):
+        back = reverse("visuals:press_queue")
+    try:
+        if request.POST.get("decision") == "reject":
+            reject(request.user, pk, request.POST.get("reason", ""))
+        else:
+            accept(request.user, pk, {k: request.POST.get(k, "") for k in FIELDS})
+    except EventError as e:
+        c = C.objects.filter(pk=pk).first()
+        if c is None:
+            raise Http404("No such candidate") from e
+        c.proposed = {**proposed(c), **{k: request.POST.get(k, "") for k in FIELDS}}
+        c.label = LABELS.get(c.event_type, c.event_type)
+        c.before, c.said, c.after = in_context(c)
+        return render(
+            request,
+            "visuals/outlets/press_decide.html",
+            {
+                "c": c,
+                "errors": e.errors,
+                "back": back,
+                "kinds": OutletEvent.EVENTS[:-1],
+                "precisions": OutletEvent.PRECISIONS,
+            },
+            status=400,
+        )
+    return redirect(back)

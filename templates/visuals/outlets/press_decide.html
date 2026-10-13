@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Events read from the press — Outlets — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card">
+  <p class="breadcrumb"><a href="{{ back }}">← Events read from the press</a></p>
+  <h1>Not recorded</h1>
+  <p class="notice">The event as entered cannot be recorded. Nothing was written.</p>
+</section>
+{% include "visuals/outlets/_press_candidate.html" with c=c back=back errors=errors may_record=True %}
+{% endblock %}
