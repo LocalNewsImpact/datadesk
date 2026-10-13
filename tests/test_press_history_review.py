@@ -21,7 +21,15 @@ from accounts.models import DATADESK, Grant
 from audit.models import AuditLogEntry
 from visuals.models import HistoryEventCandidate, Outlet, OutletEvent
 from visuals.outlet_events import EventError
-from visuals.press_history import accept, in_context, key_of, load, proposed, reject
+from visuals.press_history import (
+    accept,
+    in_context,
+    key_of,
+    load,
+    proposed,
+    refresh,
+    reject,
+)
 
 pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
 
@@ -526,3 +534,211 @@ class TestTheNoteSaysWhatAndWhen:
     )
     def test_each_kind_says_what_happened(self, kind, to, says):
         assert self._note(event_type=kind, to=to).startswith(says)
+
+
+class TestTheDateIsReadAgainstTheIssue:
+    """ "Touchdown Publications ... purchased the Savannah Reporter on Oct. 9"
+    in the December 2002 issue was offered as "by December 2002"."""
+
+    PASSAGE = (
+        "Touchdown Publications, a partnership of Dwyane and Cindy Williams and "
+        "Guy and Leslie Speckman, purchased the Savannah Reporter on Oct. 9. The "
+        "group is the sixth owner of the Andrew County weekly. Gary and Cheryl Ray, "
+        "who bought the paper in 1996, sold the paper to Touchdown."
+    )
+    SAVANNAH = {
+        "paper": "The Savannah Reporter",
+        "event_type": "ownership_change",
+        "year": "2002",
+        "year_basis": "stated",
+        "date": "2002-10-09",
+        "date_precision": "day",
+        "date_stated": "Oct. 9",
+        "from": "Gary and Cheryl Ray",
+        "to": "Touchdown Publications",
+        "quote": "Touchdown Publications... purchased the Savannah Reporter on Oct. 9.",
+        "first_reported": "2002-12",
+        "page": "Page 12",
+    }
+
+    def _c(self, **kw):
+        return _candidate(**{**self.SAVANNAH, "passage": self.PASSAGE, **kw})
+
+    def test_the_day_is_the_day(self):
+        p = proposed(self._c())
+        assert (p["effective_date"], p["date_precision"]) == ("2002-10-09", "day")
+        assert p["note"] == (
+            "Touchdown Publications bought The Savannah Reporter from Gary and Cheryl "
+            "Ray on October 9, 2002. Missouri Press News, 2002-12, Page 12: "
+            '"Touchdown Publications, a partnership of Dwyane and Cindy Williams and '
+            'Guy and Leslie Speckman, purchased the Savannah Reporter on Oct. 9."'
+        )
+
+    def test_a_shortened_quote_is_marked_whole(self):
+        before, said, _ = in_context(self._c())
+        assert before == "" and said.endswith(
+            "purchased the Savannah Reporter on Oct. 9"
+        )
+
+    def test_a_shortened_quote_not_on_the_page_is_not_marked(self):
+        assert (
+            in_context(self._c(quote="Touchdown... bought the Bolckow Herald"))[1] == ""
+        )
+
+    def test_a_month(self):
+        p = proposed(self._c(date="2002-10-01", date_precision="month"))
+        assert " in October 2002." in p["note"] and p["date_precision"] == "month"
+
+    def test_the_sentence_with_the_date_words_is_quoted(self):
+        c = self._c(
+            quote="sold the paper to Touchdown",
+            date="1992-01-01",
+            date_precision="year",
+            date_stated="ten years ago",
+            passage="It was ten years ago this fall. The Rays sold the paper to "
+            "Touchdown. They moved away.",
+        )
+        assert proposed(c)["note"].endswith(
+            '"It was ten years ago this fall. The Rays sold the paper to Touchdown."'
+        )
+
+    def test_a_bad_date_adds_nothing(self):
+        _, _, errors = load([{**ROW, "date": "Oct. 9", "date_precision": "day"}], PRESS)
+        assert errors == ["line 2: date is YYYY-MM-DD, not 'Oct. 9'."]
+        _, _, errors = load(
+            [{**ROW, "date": "2002-10-09", "date_precision": "week"}], PRESS
+        )
+        assert errors == ["line 2: date_precision is day, month or year."]
+
+    def test_no_date_no_precision(self):
+        c = _candidate(date="", date_precision="day")
+        assert c.date is None and c.date_precision == ""
+
+    def test_the_card_shows_the_date_and_the_words(self, editor):
+        self._c()
+        client = Client()
+        client.force_login(editor)
+        page = client.get("/outlets/press/").content.decode()
+        assert "October 9, 2002 (“Oct. 9”)" in page
+
+    def test_a_note_left_as_offered_says_what_is_recorded(self, editor):
+        c = self._c(date="", date_precision="", year="1996")
+        offered = proposed(c)["note"]
+        assert " in 1996." in offered
+        event = accept(
+            editor,
+            c.pk,
+            {
+                "effective_date": "2002-10-09",
+                "date_precision": "day",
+                "note": offered,
+                "event": "sold",
+            },
+        )
+        assert " on October 9, 2002." in event.note and "1996." not in event.note
+
+    def test_a_note_the_reviewer_wrote_stands(self, editor):
+        c = self._c()
+        event = accept(editor, c.pk, {"note": "Sold to Touchdown; see the page."})
+        assert event.note == "Sold to Touchdown; see the page."
+
+
+class TestALaterReading:
+    """A second reading of the pages regrouped some events: the queue takes
+    it without touching anything a person decided."""
+
+    def test_waiting_candidates_take_the_new_reading(self):
+        _candidate()
+        counts, errors, _ = refresh(
+            [{**ROW, "date": "1961-06-01", "date_precision": "month"}], PRESS
+        )
+        assert errors == [] and counts["updated"] == 1
+        c = HistoryEventCandidate.objects.get()
+        assert c.date_precision == "month"
+
+    def test_decided_candidates_are_untouched(self, editor):
+        c = _candidate()
+        reject(editor, c.pk, "not a sale")
+        counts, _, _ = refresh([{**ROW, "to": "someone else"}], PRESS)
+        c.refresh_from_db()
+        assert counts["decided"] == 1 and c.to_owner == "Mr. and Mrs. Joe Doe"
+
+    def test_a_reading_it_no_longer_holds_is_removed_if_waiting(self, editor):
+        _candidate(quote="A reading that is gone.")
+        kept = _candidate(
+            quote="A decided reading that is gone.",
+            paper="Houston Herald",
+            known_title="",
+        )
+        accept(editor, kept.pk, {})
+        counts, _, _ = refresh([ROW], PRESS)
+        assert counts["removed"] == 1 and counts["added"] == 1
+        assert HistoryEventCandidate.objects.filter(pk=kept.pk).exists()
+
+    def test_a_decided_event_is_not_offered_again(self, editor):
+        c = _candidate(quote="Gary and Cheryl Ray sold the paper to Touchdown.")
+        accept(editor, c.pk, {})
+        again = {
+            **ROW,
+            "quote": "Touchdown purchased it on Oct. 9.",
+            "all_links": f"https://example.org/first {PAGE}",
+        }
+        counts, _, held = refresh([again], PRESS)
+        assert counts["not added"] == 1 and counts["added"] == 0
+        assert held and held[0].startswith("Cabool Enterprise ownership_change")
+
+    def test_a_row_twice_is_one_candidate(self):
+        counts, _, _ = refresh([ROW, ROW], PRESS)
+        assert counts["added"] == 1 and HistoryEventCandidate.objects.count() == 1
+
+    def test_a_bad_file_changes_nothing(self):
+        _candidate()
+        counts, errors, _ = refresh([{**ROW, "event_type": "hired"}], PRESS)
+        assert counts == {} and errors
+        assert refresh([ROW], "")[1] == [
+            "Name the publication the events were read from."
+        ]
+
+    def test_the_command(self, tmp_path):
+        _candidate()
+        path = tmp_path / "events.csv"
+        with open(path, "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=list(ROW))
+            w.writeheader()
+            w.writerow({**ROW, "mentions": "3"})
+        out = io.StringIO()
+        call_command(
+            "import_history_event_candidates",
+            str(path),
+            publication=PRESS,
+            refresh=True,
+            stdout=out,
+        )
+        assert "1 updated" in out.getvalue()
+        with open(path, "a", newline="") as fh:
+            csv.DictWriter(fh, fieldnames=list(ROW)).writerow({**ROW, "link": "x"})
+        with pytest.raises(CommandError, match="nothing changed"):
+            call_command(
+                "import_history_event_candidates",
+                str(path),
+                publication=PRESS,
+                refresh=True,
+            )
+
+    def test_the_command_names_what_it_did_not_add(self, tmp_path, editor):
+        c = _candidate(quote="Gary and Cheryl Ray sold the paper to Touchdown.")
+        accept(editor, c.pk, {})
+        path = tmp_path / "events.csv"
+        with open(path, "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=list(ROW))
+            w.writeheader()
+            w.writerow({**ROW, "quote": "Another reading.", "all_links": PAGE})
+        out = io.StringIO()
+        call_command(
+            "import_history_event_candidates",
+            str(path),
+            publication=PRESS,
+            refresh=True,
+            stdout=out,
+        )
+        assert "not added, already decided: Cabool Enterprise" in out.getvalue()

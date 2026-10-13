@@ -614,6 +614,13 @@ class HistoryEventCandidate(models.Model):
     #: "stated" -- the page gives the year; "first report" -- the year of the
     #: issue that first reported it, so the event is in or before it.
     year_basis = models.CharField(max_length=20, blank=True, default="")
+    #: The date the page gives, read against its issue ("Oct. 9" in the
+    #: December 2002 issue is 2002-10-09; "125 years ago" in 2002 is 1877),
+    #: to the day, the month or the year; blank when it gives none.
+    date = models.DateField(null=True, blank=True)
+    date_precision = models.CharField(max_length=5, blank=True, default="")
+    #: The page's own words for it ("Oct. 9", "last month").
+    date_stated = models.CharField(max_length=120, blank=True, default="")
     from_owner = models.CharField(max_length=300, blank=True, default="")
     to_owner = models.CharField(max_length=300, blank=True, default="")
     quote = models.TextField()

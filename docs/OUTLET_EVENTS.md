@@ -113,6 +113,7 @@ taken for a founding, or "the Herald" with no town.
 | `paper`, `town`, `county`, `names_in_press` | The paper as the press named it. |
 | `known_title`, `matched_to`, `match`, `outlet_id` | What it was matched to: the Historical Society's title list (`shsmo`) or the registry (`registry`, with its outlet id), and how. |
 | `event_type`, `year`, `year_basis` | The reading's event. `stated` is a year the page gives; `first report` is the year of the issue that reported it. |
+| `date`, `date_precision`, `date_stated` | The date the page gives, read against its issue, to the day, month or year, and the page's own words for it: "Oct. 9" in the December 2002 issue is 2002-10-09; "last month" the month before the issue; "125 years ago" or a "125th anniversary" the issue's year less 125. A month and day with no year fall in the year that puts them nearest the issue, at most two months after it. A year that is merely in the quote is not the event's date -- it is usually someone else's ("owned by the Dorsey family since 1919"). |
 | `from_owner`, `to_owner`, `quote` | The reading's parties, and the words on the page. |
 | `flags` | What the reading could not settle: a paper not placed in a town, a quote matched through OCR noise, a title the lists hold only in another town, a website. |
 | `status`, `reason`, `outlet_event`, `reviewed_by`, `reviewed_at` | The decision. |
@@ -124,10 +125,12 @@ quote and a link to the page.
 - **Accept** records an outlet event through the same rules as the form, with
   the reviewer's corrections, the page as its source and origin
   `Missouri Press News review`. Its note says what happened in one sentence
-  ("E. E. Swain, Sr. and Walter Ridgway bought the Kirksville Daily Express
-  in 1909."), then cites the page and quotes it: the quote's sentence and,
-  where the year is stated elsewhere, every sentence back to the one that
-  states it. It is history only: `sets_current` is off,
+  ("Touchdown Publications bought The Savannah Reporter from Gary and Cheryl
+  Ray on October 9, 2002."), then cites the page and quotes it: the quote's
+  sentence and, where the date is stated elsewhere, every sentence back to
+  the one that states it. A note left as offered is rewritten from what is
+  recorded, so a corrected date or owner is what it says; a note the
+  reviewer wrote stands. It is history only: `sets_current` is off,
   because the registry already holds what came after. A stated year is
   recorded at year precision; a first report is "on or before" the end of the
   issue's month.
@@ -150,4 +153,9 @@ like any other outlet event.
 Candidates are added with
 `manage.py import_history_event_candidates <events.csv> --publication "Missouri Press News"`.
 A reading already held is skipped, so a file can be loaded twice; a file with
-any bad row adds nothing.
+any bad row adds nothing. A later reading of the same pages is loaded with
+`--refresh`: candidates still waiting take its values, new readings are added,
+and waiting candidates it no longer holds (their reports now belong to another
+event) are removed. A decided candidate is never changed, and a new reading of
+an event already decided -- on its page, the same kind, the same paper -- is
+not added again; the command names each one it held back.
