@@ -19,6 +19,8 @@ the dialog, and without any JavaScript, because it is the ordinary page.
     <div><dt>Status</dt><dd><span class="chip" data-status="{{ article.status }}" title="{{ article.status }}">{{ article.status|status_label }}</span></dd></div>
     <div><dt>CIN label</dt><dd>{{ article.primary_label|default:"—" }}</dd></div>
     <div><dt>Label confidence</dt><dd>{% include "_confidence.html" with value=article.primary_label_confidence %}</dd></div>
+    <div><dt>Alternate label</dt><dd>{{ article.alternate_label|default:"—" }}</dd></div>
+    <div><dt>Alternate confidence</dt><dd>{% include "_confidence.html" with value=article.alternate_label_confidence %}</dd></div>
     <div><dt>URL</dt><dd>{% comment %}
     A new tab, because this page is usually open in a dialog over the
     review queue: following the link in place loses every decision marked

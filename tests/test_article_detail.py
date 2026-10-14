@@ -298,3 +298,25 @@ def test_raw_status_enums_are_not_shown_bare(client, viewer, article):
     content = _get(client, article.id)
     assert 'title="enriched"' in content
     assert ">Enriched<" in content
+
+
+def test_primary_and_alternate_labels_both_show_with_confidence(
+    client, viewer, article
+):
+    """The classifier assigns two CIN labels; the page shows each with its
+    own confidence, so a close second is visible beside the first."""
+    article.alternate_label = "education"
+    article.alternate_label_confidence = 0.42
+    article.save()
+    content = _get(client, article.id)
+    assert "<dt>CIN label</dt><dd>government</dd>" in content
+    assert "<dt>Alternate label</dt><dd>education</dd>" in content
+    assert "0.91" in content
+    assert "0.42" in content
+
+
+def test_a_missing_alternate_label_reads_as_absent(client, viewer, article):
+    content = _get(client, article.id)
+    assert "<dt>Alternate label</dt><dd>—</dd>" in content
+    after = content.split("<dt>Alternate confidence</dt>", 1)[1]
+    assert after.split("</dd>", 1)[0].strip().endswith('<span class="absent">—</span>')
