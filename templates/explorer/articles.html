@@ -133,7 +133,6 @@
       <input type="search" name="q" value="{{ params.q|default:'' }}" placeholder="contains…">
     </label>
     <noscript><button type="submit">Filter</button></noscript>
-    <a class="export-link" href="{% url 'review:export' %}?{{ params.urlencode }}">Export…</a>
   </form>
 
   {% url 'explorer:articles' as filters_endpoint %}
