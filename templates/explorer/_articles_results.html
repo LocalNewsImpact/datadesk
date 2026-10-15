@@ -1,9 +1,13 @@
 {% load datadesk %}
 {% if page is not None %}
-<p class="result-count">
-  <strong>{{ page.paginator.count }}</strong> article{{ page.paginator.count|pluralize }}
-  {% if page.paginator.num_pages > 1 %}· page {{ page.number }} of {{ page.paginator.num_pages }}{% endif %}
-</p>
+<div class="results-head">
+  <p class="result-count">
+    <strong>{{ page.paginator.count }}</strong> article{{ page.paginator.count|pluralize }}
+    {% if page.paginator.num_pages > 1 %}· page {{ page.number }} of {{ page.paginator.num_pages }}{% endif %}
+  </p>
+  {# In the results, not the filter form: this partial is re-rendered on every filter change, so the link always carries the filters the reader is looking at. #}
+  <a class="export-link" href="{% url 'review:export' %}?{{ params.urlencode }}">Export…</a>
+</div>
 <div class="table-viewport">
   <table class="grid">
     <thead>

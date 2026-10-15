@@ -454,7 +454,7 @@ input[type="checkbox"], input[type="radio"] {
 .filter-bar input[type="number"] { width: 5rem; min-width: 0; }
 .filter-bar select, .filter-bar input { min-width: 7rem; }
 
-.export-link { font-size: var(--fs-xs); align-self: end; padding-bottom: 0.3rem; }
+.export-link { font-size: var(--fs-xs); }
 
 /* Active filters, as removable chips. */
 .active-filters {
@@ -502,6 +502,17 @@ input[type="checkbox"], input[type="radio"] {
 }
 
 .result-count strong { color: var(--text); font-weight: 600; }
+
+/* The count on the left, Export… on the right, one line above the grid. */
+.results-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-2);
+}
+
+.results-head .result-count { margin: 0; }
 
 /* ===========================================================================
    Tables — the core surface
