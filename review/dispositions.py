@@ -216,6 +216,29 @@ RESTORE = "restore"
 #: invite typing.
 REJECT = "reject"
 REEXTRACT = "reextract"
+#: Fetch the page again. The body is missing or wrong because of how it was
+#: captured -- before a login worked, before the paywall decoder, behind a
+#: wall -- and the page itself is fine. Re-parsing the capture cannot help,
+#: because the capture IS the problem; only a new request can. Until this
+#: existed a row with no body offered Accept alone, and Accept keeps a real
+#: story out of the export.
+FETCH_AGAIN = "fetch_again"
+#: The same, for a publisher the crawler holds credentials for: the fetch is
+#: made as a subscriber. Offered instead of FETCH_AGAIN on those hosts, never
+#: beside it -- extraction logs in on every credentialed host and refuses to
+#: fetch one anonymously, so on such a host the two would be one request.
+FETCH_LOGGED_IN = "fetch_logged_in"
+FETCH_VERBS = (FETCH_AGAIN, FETCH_LOGGED_IN)
+
+#: The link status extraction reads for a rewound link, and the note it reads
+#: beside it (MizzouNewsCrawler src/pipeline/refetch.py: REFETCH, `mark`).
+#: The article keeps its id, labels and history; extraction replaces its body
+#: in place and the classify and enrich stages answer again from the new text.
+#:
+#: A cross-service fact restated here, like EXPORTED_STATUSES below: a
+#: candidate for lnic-contracts at its next release.
+REFETCH_LINK_STATUS = "refetch"
+REFETCH_META_KEY = "refetch"
 
 #: The statuses the export selects (MizzouNewsCrawler
 #: src/enrichment/repository.py EXPORTABLE_STATUSES). Stated here because
@@ -569,6 +592,54 @@ def can_reextract(article) -> bool:
     return bool((getattr(article, "raw_gcs_path", "") or "").strip())
 
 
+def _publisher_logs_in(article) -> bool:
+    """Whether the crawler signs in to this article's publisher."""
+    link = getattr(article, "candidate_link", None)
+    source = getattr(link, "source", None)
+    return bool(getattr(source, "requires_login", False))
+
+
+def can_fetch_again(article) -> bool:
+    """Is there a link to fetch, not already waiting to be fetched?"""
+    link = getattr(article, "candidate_link", None)
+    return link is not None and getattr(link, "status", None) != REFETCH_LINK_STATUS
+
+
+def fetch_verb_for(article):
+    """FETCH_LOGGED_IN on a publisher with credentials, else FETCH_AGAIN."""
+    return FETCH_LOGGED_IN if _publisher_logs_in(article) else FETCH_AGAIN
+
+
+def _ask_for_the_page_again(article, *, user, reason, logged_in):
+    """Rewind the article's link the way the crawler's `refetch.mark` does.
+
+    The link goes to `refetch`, which extraction selects; the note records who
+    asked, why and what the link was, so a replaced body is never a body
+    nobody asked for. Returns the note, for the article's metadata.
+    """
+    link = article.candidate_link
+    note = {
+        "by": _who(user),
+        "reason": (reason or "").strip()
+        or "a reviewer asked for the page to be fetched again",
+        "at": timezone.now().isoformat(),
+        "previous_link_status": link.status,
+        "requested_from": "datadesk review",
+        "logged_in": bool(logged_in),
+    }
+    link.status = REFETCH_LINK_STATUS
+    link.save(update_fields=["status"])
+    return note
+
+
+def _who(user) -> str:
+    if user is None:
+        return "datadesk"
+    return (
+        getattr(user, "email", "") or getattr(user, "get_username", lambda: "")()
+    ) or str(user)
+
+
 def verbs_for(article, stage):
     """Which decisions this row can actually carry out.
 
@@ -597,6 +668,12 @@ def verbs_for(article, stage):
         verbs.append(REJECT)
     elif can_reextract(article):
         verbs.append(REEXTRACT)
+    # Wherever the body may be the capture's fault rather than the page's,
+    # which is any row this queue asks about: a missing body, a wall, a
+    # teaser, a page judged furniture. Offered beside the others, never
+    # instead of them.
+    if can_fetch_again(article):
+        verbs.append(fetch_verb_for(article))
     return verbs
 
 
@@ -674,6 +751,11 @@ def record(
         # The disposition comes from the list, applied below. Rejecting
         # without one is refused before it reaches here.
         target = None
+    elif decision in FETCH_VERBS:
+        # The status stays. Extraction replaces the body in place and writes
+        # the status the new capture earns; setting one here would assert a
+        # verdict about a page nobody has fetched yet.
+        target = None
     elif decision == REEXTRACT:
         # Out of the pipeline rather than back into it: there is no status
         # meaning "re-parse me", and the one that looks like it --
@@ -695,6 +777,15 @@ def record(
         _metadata_of(article),
         _contract.build_decision(claim=claimed, stage=stage, decision=decision),
     )
+    refetch_note = None
+    if decision in FETCH_VERBS:
+        refetch_note = _ask_for_the_page_again(
+            article,
+            user=user,
+            reason=reason,
+            logged_in=decision == FETCH_LOGGED_IN,
+        )
+        answered = {**answered, REFETCH_META_KEY: refetch_note}
     article.metadata = answered
     written = ["metadata"]
 
@@ -790,6 +881,17 @@ def record(
                 # counting against a detector that keeps getting it
                 # wrong.
                 **({"content_type": said} if said else {}),
+                # What was asked of the crawler, so "what did I send back
+                # to be fetched" is a query rather than a memory.
+                **(
+                    {
+                        "link_status": REFETCH_LINK_STATUS,
+                        "logged_in": refetch_note["logged_in"],
+                        "previous_link_status": refetch_note["previous_link_status"],
+                    }
+                    if refetch_note
+                    else {}
+                ),
             },
             "reason": reason,
             "decided_by": user,
@@ -880,6 +982,20 @@ EXTRACTION_QUEUE = kernel.register(
                 label="Re-extract",
                 sublabel="Re-parse the capture",
                 past="sent for re-extraction",
+                tone="fix",
+            ),
+            kernel.Verb(
+                name=FETCH_AGAIN,
+                label="Fetch again",
+                sublabel="Fetch the page again on the next extraction run",
+                past="sent to be fetched again",
+                tone="fix",
+            ),
+            kernel.Verb(
+                name=FETCH_LOGGED_IN,
+                label="Fetch again, logged in",
+                sublabel="Fetch the page again as a subscriber",
+                past="sent to be fetched logged in",
                 tone="fix",
             ),
         ),
