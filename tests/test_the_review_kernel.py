@@ -127,6 +127,8 @@ def test_the_extraction_queue_is_registered():
         "restore",
         "reject",
         "reextract",
+        "fetch_again",
+        "fetch_logged_in",
     }
     # Reject carries the disposition itself, the way the sources queue's
     # Fix carries the value it writes.
