@@ -155,6 +155,61 @@ STORY_MAP_KIND = "storymap"
 OUTLET_MAP_KIND = "outletmap"
 #: Newsrooms and coverage with Census layers over them (docs/LAYERED_MAP.md).
 LAYER_MAP_KIND = "layermap"
+#: A town's civic interest area and its coverage density: a finished figure
+#: from a GCS source, drawn as it arrives (docs/CIVIC_INTEREST_MAPS.md).
+CIVIC_AREA_KIND = "civicarea"
+COVERAGE_MAP_KIND = "coveragemap"
+#: Two of those on one frame, cut by a divider. Its data is theirs.
+SWIPE_MAP_KIND = "swipemap"
+FIGURE_KINDS = (CIVIC_AREA_KIND, COVERAGE_MAP_KIND)
+
+
+def _figure_of(slug):
+    """The figure a swipe draws on one side: that visual's pinned snapshot,
+    else its latest -- the version its own readers see, frozen into the
+    swipe's snapshot when the swipe is refreshed."""
+    slug = (slug or "").strip()
+    if not slug:
+        raise DataSourceError("Choose a map for each side of the swipe.")
+    visual = Visual.objects.filter(slug=slug).first()
+    if visual is None:
+        raise DataSourceError(f"No visual called {slug}.")
+    kind = (visual.config or {}).get("kind")
+    if kind not in FIGURE_KINDS:
+        raise DataSourceError(
+            f"{slug} is not a civic interest area or coverage density map."
+        )
+    snapshot = visual.pinned_snapshot or visual.snapshots.order_by("-version").first()
+    if snapshot is None or not isinstance(snapshot.data, dict):
+        raise DataSourceError(f"{slug} has no figure yet.")
+    return {
+        "slug": slug,
+        "kind": kind,
+        "version": snapshot.version,
+        "config": {
+            k: v
+            for k, v in (visual.config or {}).items()
+            if k in ("news_ties", "breadth")
+        },
+        "figure": snapshot.data,
+    }
+
+
+def compose_swipe(config):
+    """Both sides of a swipe, checked to share one frame.
+
+    The divider only means something if a hexagon on the left sits under the
+    same hexagon on the right: the same area, drawn into the same frame."""
+    left = _figure_of(config.get("swipe_left"))
+    right = _figure_of(config.get("swipe_right"))
+    a, b = left["figure"], right["figure"]
+    same = all(a.get(k) == b.get(k) for k in ("region", "town", "rank", "W", "H"))
+    if not same:
+        raise DataSourceError(
+            "The two maps are not the same area on the same frame; a swipe "
+            "between them would line up nothing."
+        )
+    return {"swipe": 1, "left": left, "right": right}
 
 
 def _scope_key(scopes):
@@ -172,6 +227,9 @@ def fetch_source_data(visual, wait=True):
 
     `wait=False` is the feed's: a corpus answer another request is already
     computing raises `corpus.StillComputing` rather than sleeping for it."""
+    # A swipe's data is its two maps', whatever source it was made with.
+    if (visual.config or {}).get("kind") == SWIPE_MAP_KIND:
+        return compose_swipe(visual.config or {})
     if visual.source_kind == INLINE:
         raise DataSourceError(
             "Inline visuals refresh by uploading a new file in the builder."
@@ -316,6 +374,13 @@ def _rows_in(data):
     if isinstance(data, list):
         return len(data)
     if isinstance(data, dict):
+        # A swipe holds two figures, not lists: it has drawn something if
+        # either side has.
+        if data.get("swipe"):
+            return sum(
+                _rows_in((data.get(side) or {}).get("figure"))
+                for side in ("left", "right")
+            )
         return sum(len(v) for v in data.values() if isinstance(v, list))
     return 0
 

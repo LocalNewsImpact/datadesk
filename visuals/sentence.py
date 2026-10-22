@@ -113,6 +113,21 @@ def parts_for(visual, step=""):
                 out.append(("as of", as_of_period(config["as_of"])[2], "said"))
         return out
 
+    # A CIVIC INTEREST AREA OR COVERAGE DENSITY MAP is one finished figure:
+    # named by the file it is drawn from, with no dates or datasets to ask.
+    if chart and chart.id in ("civicarea", "coveragemap"):
+        name = (visual.bucket_path or "").rsplit("/", 1)[-1]
+        out.append(("from", name, "said") if name else gap("from", "a figure", "type"))
+        return out
+    # A SWIPE is named by the two maps it lays one over the other.
+    if chart and chart.id == "swipemap":
+        left, right = config.get("swipe_left") or "", config.get("swipe_right") or ""
+        out.append(("of", left, "said") if left else gap("of", "a map", "theme"))
+        out.append(
+            ("over", right, "said") if right else gap("over", "another map", "theme")
+        )
+        return out
+
     # A LAYERED MAP IS NAMED BY ITS LAYERS, then by the slice like a story
     # map: it shades by them, over stories from somewhere, some dates.
     if chart and chart.id == "layermap":

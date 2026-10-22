@@ -351,6 +351,25 @@
             <label data-kinds="outletmap layermap">As of
               <input type="text" name="as_of" placeholder="2026-03, or empty for now">
             </label>
+            <!-- Civic interest area, coverage density and swipe (docs/CIVIC_INTEREST_MAPS.md). -->
+            <label data-kinds="civicarea">News ties
+              <select name="news_ties">
+                <option value="">mark where news ties add 10% or more</option>
+                <option value="hide">travel shading only</option>
+              </select>
+            </label>
+            <label data-kinds="coveragemap">Breadth
+              <select name="breadth">
+                <option value="">size hexagons by breadth</option>
+                <option value="hide">stories a month only</option>
+              </select>
+            </label>
+            <label data-kinds="swipemap">Left map
+              <input type="text" name="swipe_left" placeholder="slug of a civic interest area or coverage map">
+            </label>
+            <label data-kinds="swipemap">Right map
+              <input type="text" name="swipe_right" placeholder="slug of the other map, same area">
+            </label>
             <label data-kinds="outletmap">Shade counties by
               <select name="shade_by">
                 <option value="">how many of the drawn outlets are located there</option>

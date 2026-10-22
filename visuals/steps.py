@@ -172,14 +172,21 @@ def steps_for(visual):
     on the way whose only content is that it is not for you.
     """
     from visuals.models import CORPUS
-    from visuals.services import LAYER_MAP_KIND, OUTLET_MAP_KIND
+    from visuals.services import (
+        FIGURE_KINDS,
+        LAYER_MAP_KIND,
+        OUTLET_MAP_KIND,
+        SWIPE_MAP_KIND,
+    )
 
     # AN OUTLET MAP DRAWS THE REGISTRY WHOLE. It has no slice of the corpus
     # to choose, no newsrooms to narrow to and no fields to fill: what an
     # author decides about it is on the Look step, with every other chart's
     # title, palette and source.
     kind = (visual.config or {}).get("kind")
-    if kind == OUTLET_MAP_KIND:
+    # A civic interest area, a coverage density map and a swipe of the two
+    # arrive finished (a figure, or two): nothing to slice or pick either.
+    if kind in (OUTLET_MAP_KIND, SWIPE_MAP_KIND, *FIGURE_KINDS):
         return tuple(s for s in STEPS if s.slug in ("type", "theme", "publish"))
     # A LAYERED MAP HAS NO FIELDS TO PICK: its shape is its layers, chosen
     # on a step of its own after the coverage slice is settled.

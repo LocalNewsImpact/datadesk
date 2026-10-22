@@ -510,6 +510,13 @@ def tables_in(data):
         return [("", data)] if data else []
     if not isinstance(data, dict):
         return []
+    # A FIGURE IS A DRAWING, NOT DATA. A civic interest area or coverage
+    # density map -- and a swipe of two -- carries shapes already projected
+    # into its frame; its lists are paths and labels, and the values on its
+    # hexagons are derived from licensed travel data that is not offered for
+    # download (docs/CIVIC_INTEREST_MAPS.md). Nothing to tabulate.
+    if data.get("figure") or data.get("swipe"):
+        return []
     return [(k, v) for k, v in data.items() if isinstance(v, list) and v]
 
 
