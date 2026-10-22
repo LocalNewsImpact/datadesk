@@ -155,8 +155,9 @@ STORY_MAP_KIND = "storymap"
 OUTLET_MAP_KIND = "outletmap"
 #: Newsrooms and coverage with Census layers over them (docs/LAYERED_MAP.md).
 LAYER_MAP_KIND = "layermap"
-#: A town's civic interest area and its coverage density: a finished figure
-#: from a GCS source, drawn as it arrives (docs/CIVIC_INTEREST_MAPS.md).
+#: A town's civic interest area and its coverage density, drawn here as
+#: figures: the area from an uploaded table, the coverage from the corpus
+#: (visuals/civic.py, docs/CIVIC_INTEREST_MAPS.md).
 CIVIC_AREA_KIND = "civicarea"
 COVERAGE_MAP_KIND = "coveragemap"
 #: Two of those on one frame, cut by a divider. Its data is theirs.
@@ -164,26 +165,35 @@ SWIPE_MAP_KIND = "swipemap"
 FIGURE_KINDS = (CIVIC_AREA_KIND, COVERAGE_MAP_KIND)
 
 
-def _figure_of(slug):
-    """The figure a swipe draws on one side: that visual's pinned snapshot,
-    else its latest -- the version its own readers see, frozen into the
-    swipe's snapshot when the swipe is refreshed."""
+def _snapshot_of(slug, what):
+    """The visual called `slug` and the data its readers see: its pinned
+    snapshot, else its latest."""
     slug = (slug or "").strip()
     if not slug:
-        raise DataSourceError("Choose a map for each side of the swipe.")
+        raise DataSourceError(f"Choose {what}.")
     visual = Visual.objects.filter(slug=slug).first()
     if visual is None:
         raise DataSourceError(f"No visual called {slug}.")
-    kind = (visual.config or {}).get("kind")
-    if kind not in FIGURE_KINDS:
-        raise DataSourceError(
-            f"{slug} is not a civic interest area or coverage density map."
-        )
     snapshot = visual.pinned_snapshot or visual.snapshots.order_by("-version").first()
+    return visual, snapshot
+
+
+def _figure_of(slug, kinds=FIGURE_KINDS):
+    """The figure a swipe draws on one side, or a coverage map is framed
+    by: that visual's pinned snapshot, else its latest -- the version its
+    own readers see, frozen into this visual's snapshot when it is
+    refreshed."""
+    visual, snapshot = _snapshot_of(slug, "a map for each side of the swipe")
+    kind = (visual.config or {}).get("kind")
+    if kind not in kinds:
+        raise DataSourceError(
+            f"{visual.slug} is not a civic interest area"
+            + (" or coverage density map." if COVERAGE_MAP_KIND in kinds else " map.")
+        )
     if snapshot is None or not isinstance(snapshot.data, dict):
-        raise DataSourceError(f"{slug} has no figure yet.")
+        raise DataSourceError(f"{visual.slug} has no figure yet.")
     return {
-        "slug": slug,
+        "slug": visual.slug,
         "kind": kind,
         "version": snapshot.version,
         "config": {
@@ -195,6 +205,67 @@ def _figure_of(slug):
     }
 
 
+def compose_area(config):
+    """A civic interest area, drawn from the uploaded table it names."""
+    from visuals.civic import CivicError, area_figure
+
+    visual, snapshot = _snapshot_of(
+        config.get("civic_table"), "the civic interest area table"
+    )
+    rows = snapshot.data if snapshot else None
+    if not isinstance(rows, list) or not rows:
+        raise DataSourceError(f"{visual.slug} holds no table rows.")
+    try:
+        return area_figure(rows, config.get("civic_town"), config.get("civic_area"))
+    except CivicError as exc:
+        raise DataSourceError(str(exc)) from exc
+
+
+def _months_label(spec):
+    from datetime import date
+
+    try:
+        a = date.fromisoformat(str(spec.get("from")))
+        b = date.fromisoformat(str(spec.get("to")))
+    except (TypeError, ValueError):
+        return ""
+    if (a.year, a.month) == (b.year, b.month):
+        return a.strftime("%B %Y")
+    return f"{a.strftime('%B %Y')} to {b.strftime('%B %Y')}"
+
+
+def compose_coverage(visual, wait=True):
+    """The coverage density of a civic interest area, computed from the
+    visual's slice of the corpus, on that area's frame."""
+    import hashlib
+
+    from visuals.civic import (
+        CivicError,
+        coverage_figure,
+        coverage_values,
+        months_in,
+        stories_for,
+    )
+    from visuals.corpus import answer_once
+
+    config, spec = visual.config or {}, visual.spec or {}
+    area = _figure_of(config.get("civic_map"), kinds=(CIVIC_AREA_KIND,))["figure"]
+    try:
+        months = months_in(spec)
+        footprint = area.get("footprint") or []
+        scopes = scopes_of(visual)
+        digest = hashlib.sha1(",".join(sorted(footprint)).encode()).hexdigest()
+        values, breadth = answer_once(
+            "visuals.civic_coverage",
+            [spec, _scope_key(scopes), digest],
+            lambda: coverage_values(*stories_for(spec, scopes), footprint, months),
+            wait=wait,
+        )
+        return coverage_figure(area, values, breadth, _months_label(spec))
+    except CivicError as exc:
+        raise DataSourceError(str(exc)) from exc
+
+
 def compose_swipe(config):
     """Both sides of a swipe, checked to share one frame.
 
@@ -203,7 +274,9 @@ def compose_swipe(config):
     left = _figure_of(config.get("swipe_left"))
     right = _figure_of(config.get("swipe_right"))
     a, b = left["figure"], right["figure"]
-    same = all(a.get(k) == b.get(k) for k in ("region", "town", "rank", "W", "H"))
+    same = all(
+        a.get(k) == b.get(k) for k in ("region", "town", "rank", "W", "H", "frame")
+    )
     if not same:
         raise DataSourceError(
             "The two maps are not the same area on the same frame; a swipe "
@@ -227,9 +300,16 @@ def fetch_source_data(visual, wait=True):
 
     `wait=False` is the feed's: a corpus answer another request is already
     computing raises `corpus.StillComputing` rather than sleeping for it."""
-    # A swipe's data is its two maps', whatever source it was made with.
-    if (visual.config or {}).get("kind") == SWIPE_MAP_KIND:
+    # A swipe's data is its two maps', whatever source it was made with;
+    # a civic interest area's is its table's; a coverage density map's is
+    # its slice of the corpus over its area's hexagons.
+    kind = (visual.config or {}).get("kind")
+    if kind == SWIPE_MAP_KIND:
         return compose_swipe(visual.config or {})
+    if kind == CIVIC_AREA_KIND:
+        return compose_area(visual.config or {})
+    if kind == COVERAGE_MAP_KIND:
+        return compose_coverage(visual, wait=wait)
     if visual.source_kind == INLINE:
         raise DataSourceError(
             "Inline visuals refresh by uploading a new file in the builder."

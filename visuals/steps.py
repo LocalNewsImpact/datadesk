@@ -173,7 +173,8 @@ def steps_for(visual):
     """
     from visuals.models import CORPUS
     from visuals.services import (
-        FIGURE_KINDS,
+        CIVIC_AREA_KIND,
+        COVERAGE_MAP_KIND,
         LAYER_MAP_KIND,
         OUTLET_MAP_KIND,
         SWIPE_MAP_KIND,
@@ -184,10 +185,14 @@ def steps_for(visual):
     # author decides about it is on the Look step, with every other chart's
     # title, palette and source.
     kind = (visual.config or {}).get("kind")
-    # A civic interest area, a coverage density map and a swipe of the two
-    # arrive finished (a figure, or two): nothing to slice or pick either.
-    if kind in (OUTLET_MAP_KIND, SWIPE_MAP_KIND, *FIGURE_KINDS):
+    # A civic interest area draws its uploaded table, and a swipe its two
+    # maps: what is chosen about either is on the Look step.
+    if kind in (OUTLET_MAP_KIND, SWIPE_MAP_KIND, CIVIC_AREA_KIND):
         return tuple(s for s in STEPS if s.slug in ("type", "theme", "publish"))
+    # A coverage density map counts a slice of the corpus -- its months and
+    # datasets, on the Data step -- over the hexagons of the area it names.
+    if kind == COVERAGE_MAP_KIND:
+        return tuple(s for s in STEPS if s.slug in ("type", "theme", "data", "publish"))
     # A LAYERED MAP HAS NO FIELDS TO PICK: its shape is its layers, chosen
     # on a step of its own after the coverage slice is settled.
     if kind == LAYER_MAP_KIND:

@@ -97,6 +97,10 @@ _STRING_KEYS = (
     "breadth",
     "swipe_left",
     "swipe_right",
+    "civic_table",
+    "civic_town",
+    "civic_area",
+    "civic_map",
     # A table's layout (types.ChartType("table")).
     "detail_columns",
     "filter_column",
@@ -268,7 +272,8 @@ CHART_LIBS = {
     # Counties from topojson and its own arcs and arrowheads in d3. Plot
     # draws none of it, so a flow map does not pay for Plot.
     "flowmap": ("d3", "topojson"),
-    # The figure arrives projected: d3 to draw it, no boundary files.
+    # The server projects the figure, county borders included: d3 to draw
+    # it, no boundary files.
     "civicarea": ("d3",),
     "coveragemap": ("d3",),
     "swipemap": ("d3",),

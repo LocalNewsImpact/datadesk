@@ -352,6 +352,22 @@
               <input type="text" name="as_of" placeholder="2026-03, or empty for now">
             </label>
             <!-- Civic interest area, coverage density and swipe (docs/CIVIC_INTEREST_MAPS.md). -->
+            <label data-kinds="civicarea">Table
+              <input type="text" name="civic_table" placeholder="slug of the uploaded civic interest area table">
+            </label>
+            <label data-kinds="civicarea">Town
+              <input type="text" name="civic_town" placeholder="as the table names it, e.g. Columbia">
+            </label>
+            <label data-kinds="civicarea">Area
+              <select name="civic_area">
+                <option value="">I</option>
+                <option value="2">II</option>
+                <option value="3">III</option>
+              </select>
+            </label>
+            <label data-kinds="coveragemap">Area map
+              <input type="text" name="civic_map" placeholder="slug of the civic interest area map">
+            </label>
             <label data-kinds="civicarea">News ties
               <select name="news_ties">
                 <option value="">mark where news ties add 10% or more</option>

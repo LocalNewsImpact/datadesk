@@ -692,10 +692,11 @@ CHART_TYPES = (
     # CIVIC INTEREST AREAS (docs/CIVIC_INTEREST_MAPS.md). A town's civic
     # interest area -- the places its residents share through their travel,
     # strengthened by news ties -- and the coverage density inside it, as 3 km
-    # hexagons. Neither is computed here: the travel model lives with the
-    # Advan data, and what arrives (a GCS source) is the finished figure,
-    # every shape already projected into the map's frame. That is also why
-    # the two maps of one area line up exactly under a swipe.
+    # hexagons. The travel model lives with the Advan data and hands over a
+    # table, uploaded as its own visual; the area map is drawn from that
+    # table, and the coverage map counts the corpus over the area's
+    # hexagons on the area's own frame -- which is why the two line up
+    # exactly under a swipe (visuals/civic.py).
     ChartType(
         "civicarea",
         "Civic interest area",
@@ -704,6 +705,19 @@ CHART_TYPES = (
         "strengthened by news ties, as 3 km hexagons; home = 100.",
         roles=(),
         options=(
+            Option(
+                "civic_table",
+                "Table",
+                "text",
+                note="The slug of the uploaded civic interest area table.",
+            ),
+            Option("civic_town", "Town", "text", note="As the table names it."),
+            Option(
+                "civic_area",
+                "Area",
+                "choice",
+                values=(("", "I"), ("2", "II"), ("3", "III")),
+            ),
             Option(
                 "news_ties",
                 "News ties",
@@ -727,6 +741,15 @@ CHART_TYPES = (
         "information they cover.",
         roles=(),
         options=(
+            Option(
+                "civic_map",
+                "Area map",
+                "text",
+                note=(
+                    "The slug of the civic interest area map whose hexagons "
+                    "and frame this counts coverage over."
+                ),
+            ),
             Option(
                 "breadth",
                 "Breadth",

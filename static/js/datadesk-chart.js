@@ -3970,10 +3970,11 @@
   // ---- CIVIC INTEREST AREAS (docs/CIVIC_INTEREST_MAPS.md) -----------------
   //
   // A civic interest area and its coverage density arrive as a FIGURE: every
-  // shape already projected into the map's W x H frame by the travel model's
-  // own page, with the values on the hexagons. Nothing here projects or
-  // selects; it draws, in the visual's theme. Two figures of one area share
-  // the frame, which is what lets the swipe lay one exactly over the other.
+  // shape already projected into the map's W x H frame on the server
+  // (visuals/civic.py), with the values on the hexagons. Nothing here
+  // projects or selects; it draws, in the visual's theme. Two figures of one
+  // area share the frame, which is what lets the swipe lay one exactly over
+  // the other.
 
   // The news-tie dot and the coverage ramp are this map's own colours, not a
   // theme slot: a warm dot that cannot be mistaken for a step of the blue
@@ -4089,7 +4090,9 @@
       .attr("x", (l) => l.x).attr("y", (l) => l.y).attr("text-anchor", (l) => l.anchor || "start")
       .attr("font-size", (l) => l.size).attr("font-weight", (l) => l.weight || 400)
       .attr("font-style", (l) => (l.italic ? "italic" : null))
-      .attr("fill", (l) => (l.muted ? t.muted : t.ink)).text((l) => l.text);
+      // The home town's name may sit wholly on its own dark hexagons, in
+      // the surface colour there.
+      .attr("fill", (l) => (l.on_dark ? t.surface : l.muted ? t.muted : t.ink)).text((l) => l.text);
     return svg.node();
   }
 
@@ -4159,7 +4162,9 @@
 
   function renderCivicMap(el, config, data, opts, t, width, measure) {
     if (!data || !Array.isArray(data.hexes) || !data.hexes.length) {
-      el.textContent = "No figure: this map reads a civic interest figure from its GCS source.";
+      el.textContent = measure === "coverage"
+        ? "Nothing to draw yet: name the civic interest area map on the Look step, and the months on the Data step."
+        : "Nothing to draw yet: name the table, town and area on the Look step.";
       return;
     }
     const box = document.createElement("div");
