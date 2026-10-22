@@ -113,11 +113,28 @@ def parts_for(visual, step=""):
                 out.append(("as of", as_of_period(config["as_of"])[2], "said"))
         return out
 
-    # A CIVIC INTEREST AREA OR COVERAGE DENSITY MAP is one finished figure:
-    # named by the file it is drawn from, with no dates or datasets to ask.
-    if chart and chart.id in ("civicarea", "coveragemap"):
-        name = (visual.bucket_path or "").rsplit("/", 1)[-1]
-        out.append(("from", name, "said") if name else gap("from", "a figure", "type"))
+    # A CIVIC INTEREST AREA is named by its town and the table it is drawn
+    # from; a COVERAGE DENSITY MAP by the area it counts over and its months.
+    if chart and chart.id == "civicarea":
+        town, table = config.get("civic_town") or "", config.get("civic_table") or ""
+        area = {"2": "II", "3": "III"}.get(str(config.get("civic_area") or ""), "I")
+        out.append(
+            ("for", f"{town} {area}", "said") if town else gap("for", "a town", "theme")
+        )
+        out.append(
+            ("from", table, "said") if table else gap("from", "a table", "theme")
+        )
+        return out
+    if chart and chart.id == "coveragemap":
+        area = config.get("civic_map") or ""
+        out.append(
+            ("over", area, "said") if area else gap("over", "an area map", "theme")
+        )
+        spec = visual.spec or {}
+        if spec.get("from") and spec.get("to"):
+            out.append(("from", f"{spec['from']} to {spec['to']}", "said"))
+        else:
+            out.append(gap("from", "some months", "data"))
         return out
     # A SWIPE is named by the two maps it lays one over the other.
     if chart and chart.id == "swipemap":

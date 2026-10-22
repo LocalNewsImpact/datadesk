@@ -1916,7 +1916,7 @@ WALKED_ELSEWHERE = {
     "outletmap": "tests/test_newsrooms_on_a_story_map.py::TestTheWalk",
     # Its walk has a Layers step of its own and no fields step.
     "layermap": "tests/test_layered_map.py::TestTheWalk",
-    # Finished figures from a GCS source, and a swipe of two: type, Look,
+    # Civic maps drawn from a table or the corpus, and a swipe of two: type, Look,
     # publish (docs/CIVIC_INTEREST_MAPS.md).
     "civicarea": "tests/test_civic_interest_maps.py::TestTheWalk",
     "coveragemap": "tests/test_civic_interest_maps.py::TestTheWalk",
