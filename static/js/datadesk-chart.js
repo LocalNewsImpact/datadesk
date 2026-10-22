@@ -4096,33 +4096,56 @@
   // The key under a civic map: the travel ramp and news-tie dots, or the
   // coverage gradient and the breadth sizes. Words at the ends, no counts.
   function civicLegend(fig, measure, cfg, t) {
+    // Built node by node: the tooltip is the runtime's one innerHTML writer.
     const pal = civicPalette(t);
+    const NS = "http://www.w3.org/2000/svg";
     const legend = document.createElement("div");
     legend.className = "dd-legend";
-    const strip = (stops) => `<span style="display:inline-block;width:72px;height:9px;vertical-align:middle;margin:0 5px;` +
-      `background:linear-gradient(to right,${stops.join(",")})"></span>`;
-    const hex = (x, r, fill) => {
-      const pts = [0, 1, 2, 3, 4, 5].map((i) => { const a = Math.PI / 180 * (60 * i - 30);
-        return `${(x + r * Math.cos(a)).toFixed(1)},${(7 + r * Math.sin(a)).toFixed(1)}`; }).join(" ");
-      return `<polygon points="${pts}" fill="${fill}"/>`; };
-    const item = (html) => { const s = document.createElement("span"); s.innerHTML = html; legend.appendChild(s); };
+    const strip = (stops) => {
+      const s = document.createElement("span");
+      Object.assign(s.style, { display: "inline-block", width: "72px", height: "9px",
+        verticalAlign: "middle", margin: "0 5px", background: `linear-gradient(to right,${stops.join(",")})` });
+      return s;
+    };
+    const glyphs = (width, shapes) => {
+      const svg = document.createElementNS(NS, "svg");
+      svg.setAttribute("width", width);
+      svg.setAttribute("height", 14);
+      svg.style.verticalAlign = "middle";
+      svg.style.margin = "0 4px";
+      for (const [tag, attrs] of shapes) {
+        const node = document.createElementNS(NS, tag);
+        for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+        svg.appendChild(node);
+      }
+      return svg;
+    };
+    const hex = (x, r, fill) => ["polygon", { fill, points: [0, 1, 2, 3, 4, 5].map((i) => {
+      const a = (Math.PI / 180) * (60 * i - 30);
+      return `${(x + r * Math.cos(a)).toFixed(1)},${(7 + r * Math.sin(a)).toFixed(1)}`; }).join(" ") }];
+    const item = (...parts) => {
+      const s = document.createElement("span");
+      s.append(...parts.map((p) => (typeof p === "string" ? document.createTextNode(p) : p)));
+      legend.appendChild(s);
+    };
     if (measure === "coverage") {
       const tone = global.d3.interpolateLab(pal.coverLow, pal.coverHigh);
-      item(`Stories a month: rarely${strip([0, 0.25, 0.5, 0.75, 1].map(tone))}several a week or more`);
+      item("Stories a month: rarely", strip([0, 0.25, 0.5, 0.75, 1].map(tone)), "several a week or more");
       if (cfg.breadth !== "hide") {
-        item(`Breadth <svg width="58" height="14" style="vertical-align:middle;margin:0 4px">` +
-          `${hex(7, 2.6, tone(1))}${hex(25, 4.3, tone(1))}${hex(47, 6.5, tone(1))}</svg>` +
-          `few kinds → 8+ of 10 kinds of civic information`);
+        item("Breadth", glyphs(58, [hex(7, 2.6, tone(1)), hex(25, 4.3, tone(1)), hex(47, 6.5, tone(1))]),
+          "few kinds \u2192 8+ of 10 kinds of civic information");
       }
     } else {
       const scale = fig.scale || { floor: 5, cuts: [10, 20, 40, 80] };
       const ramp = quantizeRamp(t.seqLow, t.seqHigh, scale.cuts.length + 2).slice(1);
-      item(`How local, home = 100: ${scale.floor}${strip(ramp)}${scale.cuts[scale.cuts.length - 1]}+`);
+      item(`How local, home = 100: ${scale.floor}`, strip(ramp), `${scale.cuts[scale.cuts.length - 1]}+`);
       if (cfg.news_ties !== "hide" && (fig.hexes || []).some((h) => h.lift >= 0.1)) {
-        item(`News ties add <svg width="72" height="14" style="vertical-align:middle;margin:0 4px">` +
-          [[8, 0.3, "10%"], [30, 0.5, "25%"], [54, 0.7, "50%+"]].map(([x, k]) =>
-            `${hex(x, 6, ramp[2])}<circle cx="${x}" cy="7" r="${(6 * k).toFixed(1)}" fill="${pal.lift}"/>`).join("") +
-          `</svg>10%, 25%, 50%+`);
+        const shapes = [];
+        for (const [x, k] of [[8, 0.3], [30, 0.5], [54, 0.7]]) {
+          shapes.push(hex(x, 6, ramp[2]));
+          shapes.push(["circle", { cx: x, cy: 7, r: (6 * k).toFixed(1), fill: pal.lift }]);
+        }
+        item("News ties add", glyphs(72, shapes), "10%, 25%, 50%+");
       }
     }
     return legend;
@@ -4173,7 +4196,7 @@
     sizer.style.paddingTop = `${(100 * right.figure.H) / right.figure.W}%`;
     stage.appendChild(sizer);
     layer(right);
-    const top = layer(left);
+    const upper = layer(left);
     const tag = (text, side) => {
       const s = document.createElement("span");
       s.textContent = text;
@@ -4196,7 +4219,7 @@
     stage.appendChild(divider);
     const place = () => {
       divider.style.left = `${at * 100}%`;
-      top.style.clipPath = `inset(0 ${(1 - at) * 100}% 0 0)`;
+      upper.style.clipPath = `inset(0 ${(1 - at) * 100}% 0 0)`;
       stage.setAttribute("aria-valuenow", String(Math.round(at * 100)));
       state.swipeAt = at;
     };
