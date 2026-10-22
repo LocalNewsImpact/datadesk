@@ -689,6 +689,88 @@ CHART_TYPES = (
         encoding=SHADING,
         functions=("Location", "Distribution"),
     ),
+    # CIVIC INTEREST AREAS (docs/CIVIC_INTEREST_MAPS.md). A town's civic
+    # interest area -- the places its residents share through their travel,
+    # strengthened by news ties -- and the coverage density inside it, as 3 km
+    # hexagons. Neither is computed here: the travel model lives with the
+    # Advan data, and what arrives (a GCS source) is the finished figure,
+    # every shape already projected into the map's frame. That is also why
+    # the two maps of one area line up exactly under a swipe.
+    ChartType(
+        "civicarea",
+        "Civic interest area",
+        SPATIAL,
+        "The places a town's residents share through their travel, "
+        "strengthened by news ties, as 3 km hexagons; home = 100.",
+        roles=(),
+        options=(
+            Option(
+                "news_ties",
+                "News ties",
+                "choice",
+                values=(
+                    ("", "Mark where news ties add 10% or more"),
+                    ("hide", "Travel shading only"),
+                ),
+            ),
+        ),
+        also=("activity space", "local market", "travel area"),
+        encoding=SHADING,
+        functions=("Location", "Distribution"),
+    ),
+    ChartType(
+        "coveragemap",
+        "Coverage density",
+        SPATIAL,
+        "The local news reaching each part of a civic interest area: colour "
+        "for stories a month, hexagon size for how many kinds of civic "
+        "information they cover.",
+        roles=(),
+        options=(
+            Option(
+                "breadth",
+                "Breadth",
+                "choice",
+                values=(
+                    ("", "Size hexagons by breadth (8+ of 10 kinds = full size)"),
+                    ("hide", "Stories a month only"),
+                ),
+            ),
+        ),
+        also=("news coverage map", "news desert map", "coverage gaps"),
+        encoding=SHADING,
+        functions=("Location", "Distribution"),
+    ),
+    ChartType(
+        "swipemap",
+        "Swipe compare",
+        SPATIAL,
+        "Two maps of one place on one frame, with a divider the reader "
+        "drags across them.",
+        # It draws two other visuals, frozen at the versions captured when
+        # this one is refreshed: the left over the right, cut at the divider.
+        roles=(),
+        options=(
+            Option(
+                "swipe_left",
+                "Left map",
+                "text",
+                note="The slug of a civic interest area or coverage density map.",
+            ),
+            Option(
+                "swipe_right",
+                "Right map",
+                "text",
+                note=(
+                    "The slug of the other map. Both must be the same area, "
+                    "on the same frame."
+                ),
+            ),
+        ),
+        also=("before and after", "compare maps", "slider map"),
+        encoding=SHADING,
+        functions=("Location",),
+    ),
     ChartType(
         "locator",
         "Locator map",

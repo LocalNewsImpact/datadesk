@@ -1219,12 +1219,19 @@ def _picks_columns(chart):
     way to say so at all, which meant the pivot refused it for having no
     dimensions and a table could not be built.
     """
-    from visuals.services import OUTLET_MAP_KIND, STORY_MAP_KIND
+    from visuals.services import (
+        FIGURE_KINDS,
+        OUTLET_MAP_KIND,
+        STORY_MAP_KIND,
+        SWIPE_MAP_KIND,
+    )
 
     return not chart.roles and chart.id not in (
         STORY_MAP_KIND,
         OUTLET_MAP_KIND,
         "layermap",
+        SWIPE_MAP_KIND,
+        *FIGURE_KINDS,
     )
 
 

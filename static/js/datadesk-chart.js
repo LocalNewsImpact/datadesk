@@ -402,7 +402,8 @@
     // every other form takes rows and needs at least one.
     // The three map kinds carry an object -- points, areas, layers -- not
     // a list of rows, so their emptiness is theirs to judge.
-    const objectPayload = kind === "storymap" || kind === "outletmap" || kind === "layermap";
+    const objectPayload = kind === "storymap" || kind === "outletmap" || kind === "layermap"
+      || kind === "civicarea" || kind === "coveragemap" || kind === "swipemap";
     if (!objectPayload && (!rows || !rows.length)) {
       el.textContent = "No data.";
       return;
@@ -425,6 +426,11 @@
     // Newsrooms and coverage with Census layers over them: the story
     // map's renderer under a switch (docs/LAYERED_MAP.md).
     if (kind === "layermap") return renderLayerMap(el, config, rows, opts, t, width);
+    // A civic interest area, its coverage density, and a swipe of the two
+    // (docs/CIVIC_INTEREST_MAPS.md): finished figures, drawn as they arrive.
+    if (kind === "civicarea") return renderCivicMap(el, config, rows, opts, t, width, "area");
+    if (kind === "coveragemap") return renderCivicMap(el, config, rows, opts, t, width, "coverage");
+    if (kind === "swipemap") return renderSwipe(el, config, rows, opts, t, width);
     if (kind === "donut") return renderDonut(el, config, rows, t, width);
     if (kind === "chord") return renderChord(el, config, rows, t, width);
     if (kind === "sankey") return renderSankey(el, config, rows, t, width);
@@ -819,6 +825,8 @@
   function tablesIn(data) {
     if (Array.isArray(data)) return data.length ? [{ name: "", rows: data }] : [];
     if (!data || typeof data !== "object") return [];
+    // A figure is a drawing, not data (visuals.views.tables_in says why).
+    if (data.figure || data.swipe) return [];
     return Object.entries(data)
       .filter(([, v]) => Array.isArray(v) && v.length)
       .map(([name, rows]) => ({ name, rows }));
@@ -3959,6 +3967,262 @@
     };
   }
 
+  // ---- CIVIC INTEREST AREAS (docs/CIVIC_INTEREST_MAPS.md) -----------------
+  //
+  // A civic interest area and its coverage density arrive as a FIGURE: every
+  // shape already projected into the map's W x H frame by the travel model's
+  // own page, with the values on the hexagons. Nothing here projects or
+  // selects; it draws, in the visual's theme. Two figures of one area share
+  // the frame, which is what lets the swipe lay one exactly over the other.
+
+  // The news-tie dot and the coverage ramp are this map's own colours, not a
+  // theme slot: a warm dot that cannot be mistaken for a step of the blue
+  // travel ramp, and a green that is not the area map's blue.
+  const CIVIC = {
+    light: { lift: "#b4501e", coverLow: "#f1efe7", coverHigh: "#2f6b2f", pale: "#f6f5f0" },
+    dark: { lift: "#e07a45", coverLow: "#30332d", coverHigh: "#8fd17a", pale: "#262824" },
+  };
+
+  function civicPalette(t) {
+    const rgb = [1, 3, 5].map((i) => parseInt((t.surface || "#ffffff").slice(i, i + 2), 16) / 255);
+    const lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+    return lum < 0.4 ? CIVIC.dark : CIVIC.light;
+  }
+
+  // The area map's band for a value: 0 below the floor, then one step per cut
+  // passed (floor 5, cuts 10 / 20 / 40 / 80: five steps).
+  function civicBand(v, scale) {
+    if (!(v >= scale.floor)) return 0;
+    let k = 1;
+    for (const c of scale.cuts) if (v >= c) k += 1;
+    return k;
+  }
+
+  // Coverage tone, 0..1: stories a month on a log scale that stops at the
+  // frequent tier (9+), so a city's hundreds read the same as a town's nine.
+  function coverageTone(v, cap) {
+    return Math.max(0, Math.min(1, Math.log1p(+v || 0) / Math.log1p(cap || 9)));
+  }
+
+  // Hexagon size for breadth: full at 8+ of the ten kinds of civic
+  // information, down to 40% with none.
+  function breadthScale(n, full) {
+    return 0.4 + 0.6 * Math.min(1, (+n || 0) / (full || 8));
+  }
+
+  // The vertices of a projected hexagon path ("M x,y L x,y ... Z").
+  function pathPoints(d) {
+    const nums = String(d).match(/-?\d+(?:\.\d+)?/g) || [];
+    const pts = [];
+    for (let i = 0; i + 1 < nums.length; i += 2) pts.push([+nums[i], +nums[i + 1]]);
+    return pts;
+  }
+
+  function scaledHex(d, c, k) {
+    return "M" + pathPoints(d).map(([x, y]) =>
+      `${(c[0] + (x - c[0]) * k).toFixed(1)},${(c[1] + (y - c[1]) * k).toFixed(1)}`).join("L") + "Z";
+  }
+
+  // Draw one figure into `parent` as an SVG that fills its width.
+  function drawCivicFigure(parent, fig, measure, cfg, t) {
+    const d3 = global.d3;
+    const pal = civicPalette(t);
+    const cover = measure === "coverage";
+    const svg = d3.select(parent).append("svg")
+      .attr("viewBox", `0 0 ${fig.W} ${fig.H}`).attr("width", "100%")
+      .attr("role", "img").style("display", "block").style("font-family", FONT);
+    const clip = uid("civic-clip");
+    svg.append("defs").append("clipPath").attr("id", clip)
+      .append("rect").attr("width", fig.W).attr("height", fig.H);
+    const g = svg.append("g").attr("clip-path", `url(#${clip})`);
+
+    // Hexagons first, borders over them, words on top.
+    g.append("g").selectAll("path").data(fig.ring || []).join("path").attr("d", (d) => d)
+      .attr("fill", "none").attr("stroke", t.grid).attr("stroke-width", 0.3);
+    const hexes = fig.hexes || [];
+    if (cover) {
+      const tone = d3.interpolateLab(pal.coverLow, pal.coverHigh);
+      const cap = (fig.scale && fig.scale.cap) || 9, full = (fig.scale && fig.scale.breadth_full) || 8;
+      const bySize = cfg.breadth !== "hide";
+      if (bySize) {
+        g.append("g").selectAll("path").data(hexes).join("path").attr("d", (h) => h.d)
+          .attr("fill", pal.pale).attr("stroke", t.surface).attr("stroke-width", 0.3);
+      }
+      g.append("g").selectAll("path").data(hexes).join("path")
+        .attr("d", (h) => (bySize ? scaledHex(h.d, h.c, breadthScale(h.n, full)) : h.d))
+        .attr("fill", (h) => tone(coverageTone(h.v, cap)))
+        .attr("stroke", t.surface).attr("stroke-width", 0.3)
+        .append("title").text((h) => `${(+h.v).toFixed(1)} stories a month; ${h.n || 0} of 10 kinds of civic information`);
+    } else {
+      const scale = fig.scale || { floor: 5, cuts: [10, 20, 40, 80] };
+      const ramp = quantizeRamp(t.seqLow, t.seqHigh, scale.cuts.length + 2);
+      g.append("g").selectAll("path").data(hexes).join("path").attr("d", (h) => h.d)
+        .attr("fill", (h) => (civicBand(h.v, scale) ? ramp[civicBand(h.v, scale)] : t.missing))
+        .attr("stroke", t.surface).attr("stroke-width", 0.3)
+        .append("title").text((h) => `How local: ${Math.round(h.v)} (home = 100)`);
+      if (cfg.news_ties !== "hide") {
+        const lifted = hexes.filter((h) => h.lift >= 0.1);
+        const r = lifted.length ? Math.hypot(...pathPoints(lifted[0].d)[0].map((v, i) => v - lifted[0].c[i])) : 0;
+        g.append("g").selectAll("circle").data(lifted).join("circle")
+          .attr("cx", (h) => h.c[0]).attr("cy", (h) => h.c[1])
+          .attr("r", (h) => r * (h.lift >= 0.5 ? 0.7 : h.lift >= 0.25 ? 0.5 : 0.3))
+          .attr("fill", pal.lift);
+      }
+    }
+    const homeD = (fig.counties || []).filter((c) => c.home).map((c) => c.d);
+    g.append("g").selectAll("path").data(fig.counties || []).join("path").attr("d", (c) => c.d)
+      .attr("fill", "none").attr("stroke", t.boundary).attr("stroke-width", cover ? 0.5 : 0.75);
+    if (fig.market) {
+      g.append("path").attr("d", fig.market).attr("fill", "none")
+        .attr("stroke", cover ? t.muted : t.ink).attr("stroke-width", cover ? 0.7 : 1.05)
+        .attr("stroke-dasharray", "3.4 2");
+    }
+    g.append("g").selectAll("path").data(homeD).join("path").attr("d", (d) => d)
+      .attr("fill", "none").attr("stroke", t.muted).attr("stroke-width", cover ? 0.8 : 1.1);
+    g.append("g").selectAll("line").data(fig.leaders || []).join("line")
+      .attr("x1", (l) => l[0]).attr("y1", (l) => l[1]).attr("x2", (l) => l[2]).attr("y2", (l) => l[3])
+      .attr("stroke", t.ink).attr("stroke-width", 0.5);
+    g.append("g").selectAll("circle").data(fig.dots || []).join("circle")
+      .attr("cx", (p) => p[0]).attr("cy", (p) => p[1]).attr("r", 1.1)
+      .attr("fill", (p) => (p[2] === "ink" ? t.ink : t.muted));
+    g.append("g").selectAll("text").data(fig.labels || []).join("text")
+      .attr("x", (l) => l.x).attr("y", (l) => l.y).attr("text-anchor", (l) => l.anchor || "start")
+      .attr("font-size", (l) => l.size).attr("font-weight", (l) => l.weight || 400)
+      .attr("font-style", (l) => (l.italic ? "italic" : null))
+      .attr("fill", (l) => (l.muted ? t.muted : t.ink)).text((l) => l.text);
+    return svg.node();
+  }
+
+  // The key under a civic map: the travel ramp and news-tie dots, or the
+  // coverage gradient and the breadth sizes. Words at the ends, no counts.
+  function civicLegend(fig, measure, cfg, t) {
+    const pal = civicPalette(t);
+    const legend = document.createElement("div");
+    legend.className = "dd-legend";
+    const strip = (stops) => `<span style="display:inline-block;width:72px;height:9px;vertical-align:middle;margin:0 5px;` +
+      `background:linear-gradient(to right,${stops.join(",")})"></span>`;
+    const hex = (x, r, fill) => {
+      const pts = [0, 1, 2, 3, 4, 5].map((i) => { const a = Math.PI / 180 * (60 * i - 30);
+        return `${(x + r * Math.cos(a)).toFixed(1)},${(7 + r * Math.sin(a)).toFixed(1)}`; }).join(" ");
+      return `<polygon points="${pts}" fill="${fill}"/>`; };
+    const item = (html) => { const s = document.createElement("span"); s.innerHTML = html; legend.appendChild(s); };
+    if (measure === "coverage") {
+      const tone = global.d3.interpolateLab(pal.coverLow, pal.coverHigh);
+      item(`Stories a month: rarely${strip([0, 0.25, 0.5, 0.75, 1].map(tone))}several a week or more`);
+      if (cfg.breadth !== "hide") {
+        item(`Breadth <svg width="58" height="14" style="vertical-align:middle;margin:0 4px">` +
+          `${hex(7, 2.6, tone(1))}${hex(25, 4.3, tone(1))}${hex(47, 6.5, tone(1))}</svg>` +
+          `few kinds → 8+ of 10 kinds of civic information`);
+      }
+    } else {
+      const scale = fig.scale || { floor: 5, cuts: [10, 20, 40, 80] };
+      const ramp = quantizeRamp(t.seqLow, t.seqHigh, scale.cuts.length + 2).slice(1);
+      item(`How local, home = 100: ${scale.floor}${strip(ramp)}${scale.cuts[scale.cuts.length - 1]}+`);
+      if (cfg.news_ties !== "hide" && (fig.hexes || []).some((h) => h.lift >= 0.1)) {
+        item(`News ties add <svg width="72" height="14" style="vertical-align:middle;margin:0 4px">` +
+          [[8, 0.3, "10%"], [30, 0.5, "25%"], [54, 0.7, "50%+"]].map(([x, k]) =>
+            `${hex(x, 6, ramp[2])}<circle cx="${x}" cy="7" r="${(6 * k).toFixed(1)}" fill="${pal.lift}"/>`).join("") +
+          `</svg>10%, 25%, 50%+`);
+      }
+    }
+    return legend;
+  }
+
+  function renderCivicMap(el, config, data, opts, t, width, measure) {
+    if (!data || !Array.isArray(data.hexes) || !data.hexes.length) {
+      el.textContent = "No figure: this map reads a civic interest figure from its GCS source.";
+      return;
+    }
+    const box = document.createElement("div");
+    box.className = "dd-civic";
+    el.appendChild(box);
+    drawCivicFigure(box, data, measure, config, t);
+    el.appendChild(civicLegend(data, measure, config, t));
+  }
+
+  // THE SWIPE. The right map underneath, the left over it, cut at the divider;
+  // the grip sits small at the divider's foot so it never covers the town at
+  // the centre of the frame. Drag anywhere, or use the arrow keys.
+  function renderSwipe(el, config, data, opts, t, width) {
+    const left = data && data.left, right = data && data.right;
+    if (!left || !right || !left.figure || !right.figure) {
+      el.textContent = "Choose a map for each side of the swipe.";
+      return;
+    }
+    const state = (opts && opts.state) || {};
+    let at = typeof state.swipeAt === "number" ? state.swipeAt : 0.5;
+    const measureOf = (side) => (side.kind === "coveragemap" ? "coverage" : "area");
+    const stage = document.createElement("div");
+    stage.className = "dd-swipe";
+    stage.tabIndex = 0;
+    stage.setAttribute("role", "slider");
+    stage.setAttribute("aria-label", "Swipe between the two maps");
+    Object.assign(stage.style, { position: "relative", overflow: "hidden", touchAction: "none",
+      userSelect: "none", cursor: "ew-resize", outline: "none" });
+    const layer = (side) => {
+      const div = document.createElement("div");
+      // Opaque: the right map must not show through the left one's gaps,
+      // or both maps' labels print on the same side of the divider.
+      Object.assign(div.style, { position: "absolute", inset: "0", background: t.surface });
+      drawCivicFigure(div, side.figure, measureOf(side), side.config || {}, t);
+      stage.appendChild(div);
+      return div;
+    };
+    // The stage takes the figure's shape: the layers are absolute.
+    const sizer = document.createElement("div");
+    sizer.style.paddingTop = `${(100 * right.figure.H) / right.figure.W}%`;
+    stage.appendChild(sizer);
+    layer(right);
+    const top = layer(left);
+    const tag = (text, side) => {
+      const s = document.createElement("span");
+      s.textContent = text;
+      Object.assign(s.style, { position: "absolute", top: "6px", [side]: "6px", font: `600 12px ${FONT}`,
+        background: t.surface, color: t.ink, padding: "2px 6px", border: `1px solid ${t.boundary}` });
+      stage.appendChild(s);
+    };
+    const name = (side) => (side.kind === "coveragemap" ? "Coverage density" : "Civic interest area");
+    tag(name(left), "left");
+    tag(name(right), "right");
+    const divider = document.createElement("div");
+    Object.assign(divider.style, { position: "absolute", top: "0", bottom: "0", width: "0",
+      borderLeft: `1.5px solid ${t.ink}` });
+    const grip = document.createElement("span");
+    grip.textContent = "⇆";
+    Object.assign(grip.style, { position: "absolute", bottom: "8px", left: "-10px", width: "18px", height: "18px",
+      borderRadius: "50%", background: t.surface, border: `1.5px solid ${t.ink}`, color: t.ink,
+      display: "grid", placeItems: "center", fontSize: "9px", lineHeight: "1" });
+    divider.appendChild(grip);
+    stage.appendChild(divider);
+    const place = () => {
+      divider.style.left = `${at * 100}%`;
+      top.style.clipPath = `inset(0 ${(1 - at) * 100}% 0 0)`;
+      stage.setAttribute("aria-valuenow", String(Math.round(at * 100)));
+      state.swipeAt = at;
+    };
+    let drag = false;
+    const move = (x) => { const r = stage.getBoundingClientRect(); at = Math.min(1, Math.max(0, (x - r.left) / r.width)); place(); };
+    stage.addEventListener("pointerdown", (e) => { drag = true; stage.setPointerCapture(e.pointerId); move(e.clientX); });
+    stage.addEventListener("pointermove", (e) => { if (drag) move(e.clientX); });
+    stage.addEventListener("pointerup", () => { drag = false; });
+    stage.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowLeft") { at = Math.max(0, at - 0.05); place(); e.preventDefault(); }
+      if (e.key === "ArrowRight") { at = Math.min(1, at + 0.05); place(); e.preventDefault(); }
+    });
+    el.appendChild(stage);
+    place();
+    const keys = document.createElement("div");
+    Object.assign(keys.style, { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" });
+    for (const side of [left, right]) {
+      const col = document.createElement("div");
+      const head = document.createElement("strong");
+      head.textContent = name(side);
+      col.append(head, civicLegend(side.figure, measureOf(side), side.config || {}, t));
+      keys.appendChild(col);
+    }
+    el.appendChild(keys);
+  }
+
   function renderLayerMap(el, config, data, opts, t, width) {
     const payload = data || {};
     const points = payload.points || [];
@@ -4580,6 +4844,6 @@
   // hues is a fact about these functions, not about the page.
   global.DatadeskChart = {
     render, mount, renderTable,
-    __test: { scaleColors, colorScale, theme, THEMES, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, storyMapLegend, spreadCoincident, spreadPoints, featuresOf, framedBy, FONT, fmtValue, scaleLabels, esc, tipRow, tipHead, fetchJSON, unavailable, undrawable, uid, layerState, paintedValues, storyMapBands, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf, swatchLegend, swatchItem, legend, svgRoot },
+    __test: { civicBand, coverageTone, breadthScale, pathPoints, scaledHex, civicPalette, scaleColors, colorScale, theme, THEMES, quantizeRamp, sankeyGraph, orderRows, stackRows, newsroomColours, newsroomRing, storyMapLegend, spreadCoincident, spreadPoints, featuresOf, framedBy, FONT, fmtValue, scaleLabels, esc, tipRow, tipHead, fetchJSON, unavailable, undrawable, uid, layerState, paintedValues, storyMapBands, cellLink, cellText, proseColumns, usDate, dateColumns, listItems, listColumns, columnsOf, swatchLegend, swatchItem, legend, svgRoot },
   };
 })(window);

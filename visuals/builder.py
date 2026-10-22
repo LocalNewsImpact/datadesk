@@ -25,6 +25,9 @@ CHART_KINDS = (
     "storymap",
     "outletmap",
     "layermap",
+    "civicarea",
+    "coveragemap",
+    "swipemap",
     "flowmap",
 )
 
@@ -88,6 +91,12 @@ _STRING_KEYS = (
     "colour_replica",
     "colour_social",
     "as_of",
+    # The civic interest area, coverage density and swipe maps
+    # (types.ChartType("civicarea"), "coveragemap", "swipemap").
+    "news_ties",
+    "breadth",
+    "swipe_left",
+    "swipe_right",
     # A table's layout (types.ChartType("table")).
     "detail_columns",
     "filter_column",
@@ -259,6 +268,10 @@ CHART_LIBS = {
     # Counties from topojson and its own arcs and arrowheads in d3. Plot
     # draws none of it, so a flow map does not pay for Plot.
     "flowmap": ("d3", "topojson"),
+    # The figure arrives projected: d3 to draw it, no boundary files.
+    "civicarea": ("d3",),
+    "coveragemap": ("d3",),
+    "swipemap": ("d3",),
 }
 
 #: Every library, for a kind this table does not know about. In load
