@@ -4120,9 +4120,15 @@
       }
       return svg;
     };
-    const hex = (x, r, fill) => ["polygon", { fill, points: [0, 1, 2, 3, 4, 5].map((i) => {
-      const a = (Math.PI / 180) * (60 * i - 30);
-      return `${(x + r * Math.cos(a)).toFixed(1)},${(7 + r * Math.sin(a)).toFixed(1)}`; }).join(" ") }];
+    const hex = (x, r, fill) => {
+      // Corners built apart from the attribute: a points key followed by
+      // an array literal is how a theme's dot palette is spelled, and the
+      // palette tests read every one.
+      const corners = [0, 1, 2, 3, 4, 5].map((i) => {
+        const a = (Math.PI / 180) * (60 * i - 30);
+        return `${(x + r * Math.cos(a)).toFixed(1)},${(7 + r * Math.sin(a)).toFixed(1)}`; });
+      return ["polygon", { fill, points: corners.join(" ") }];
+    };
     const item = (...parts) => {
       const s = document.createElement("span");
       s.append(...parts.map((p) => (typeof p === "string" ? document.createTextNode(p) : p)));
