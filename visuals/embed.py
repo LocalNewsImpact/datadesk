@@ -16,6 +16,11 @@ publisher pasted is what their page loads for good.
 EMBED_HOST = "data.localnewsimpact.org"
 
 
+def public_url(visual, host=EMBED_HOST, query=""):
+    """The page a reader without an account lands on, by uuid like the snippet."""
+    return f"https://{host}/visuals/{visual.uuid}/{query}"
+
+
 def snippet(visual, host=EMBED_HOST, version=None, theme=None):
     """The placeholder and the script, as plain text.
 
@@ -57,7 +62,7 @@ def snippet(visual, host=EMBED_HOST, version=None, theme=None):
     query = f"?{'&'.join(params)}" if params else ""
     return (
         f'<div class="datadesk-visual" data-visual="{visual.uuid}"{attrs}>'
-        f'<a href="https://{host}/visuals/{visual.uuid}/{query}">{visual.title}</a>'
+        f'<a href="{public_url(visual, host, query)}">{visual.title}</a>'
         f"</div>\n"
         f'<script src="https://{host}/static/js/datadesk-embed.js" async></script>'
     )

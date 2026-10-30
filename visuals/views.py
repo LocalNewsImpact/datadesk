@@ -642,11 +642,22 @@ def page(request, slug):
     visual = _get_visual(request, slug)
     acting = may_act_on(request.user, visual)
     credit = _credit_line(visual)
+    from visuals.embed import public_url
+
+    # A visual with its own renderer opens here, not in the builder, so the
+    # Publish step that hands out the address and the snippet never shows
+    # it: three published visuals had a public page nobody in the console
+    # could find. Only once published -- a draft's address is a 404.
+    published = visual.status == Visual.PUBLISHED
     return render(
         request,
         "visuals/page.html",
         {
             "visual": visual,
+            "public_url": public_url(visual) if published else None,
+            "snippets": (
+                _embed_choices(visual, visual.pinned_snapshot) if published else None
+            ),
             "renderer": f"visuals/renderers/{visual.template}.html",
             # A draft has no pinned snapshot, so this page asked for one
             # and got a 404 -- on the only page that shows a draft at all.

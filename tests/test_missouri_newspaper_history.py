@@ -209,3 +209,35 @@ def test_feeds_are_compressed_when_the_browser_accepts_it(client, visual):
     )
     assert r.status_code == 200
     assert r.get("Content-Encoding") == "gzip"
+
+
+def test_the_console_page_gives_the_public_address(client, visual, django_user_model):
+    """A visual with its own renderer opens on the console page, not in the
+    builder, so the Publish step that hands out its address never shows."""
+    from accounts.models import DATADESK, Grant
+    from visuals.embed import public_url
+
+    user = django_user_model.objects.create_user(
+        "viewer", email="viewer@localnewsimpact.org"
+    )
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="viewer")
+    client.force_login(user)
+    body = client.get("/visuals/missouri-newspaper-history/").content.decode()
+    assert public_url(visual) in body
+    assert f'data-visual="{visual.uuid}"' in body.replace("&quot;", '"')
+    assert "Fixed to v1" in body
+
+
+def test_a_draft_has_no_public_address_to_give(client, visual, django_user_model):
+    from accounts.models import DATADESK, Grant
+    from visuals.embed import public_url
+    from visuals.services import unpublish
+
+    unpublish(visual, visual.created_by)
+    user = django_user_model.objects.create_user(
+        "editor", email="editor@localnewsimpact.org"
+    )
+    Grant.objects.create(user=user, app=DATADESK, scope="", role="editor")
+    client.force_login(user)
+    body = client.get("/visuals/missouri-newspaper-history/").content.decode()
+    assert public_url(visual) not in body
