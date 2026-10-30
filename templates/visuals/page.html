@@ -9,5 +9,25 @@
   <p class="notice">Pinned at snapshot v{{ visual.pinned_snapshot.version }}
   ({{ visual.pinned_snapshot.created_at|date:"Y-m-d" }}).</p>
   {% endif %}
+  {% comment %}
+  The public address and the snippet, for a visual published outside the
+  builder: its Publish step is where these are handed out, and this page
+  is where every other visual opens. The same two snippets the public page
+  offers, from the same function.
+  {% endcomment %}
+  {% if public_url %}
+  <p class="notice">Public page: <a href="{{ public_url }}">{{ public_url }}</a></p>
+  {% if snippets %}
+  <details>
+    <summary>Embed this visual</summary>
+    <p class="notice"><strong>Follows what is published.</strong> Republish
+      this visual and the chart in the article changes with it.</p>
+    <pre class="embed-snippet"><code>{{ snippets.current }}</code></pre>
+    <p class="notice"><strong>Fixed to v{{ snippets.version }}.</strong> Stays
+      these exact numbers, whatever is published later.</p>
+    <pre class="embed-snippet"><code>{{ snippets.pinned }}</code></pre>
+  </details>
+  {% endif %}
+  {% endif %}
 </section>
 {% endblock %}
