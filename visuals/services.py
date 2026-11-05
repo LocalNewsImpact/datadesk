@@ -610,7 +610,6 @@ def duplicate(visual, actor):
         spec=dict(visual.spec or {}),
         datasets=list(visual.datasets or []),
         allow_live=visual.allow_live,
-        frame_ancestors=visual.frame_ancestors,
         created_by=actor,
     )
     if visual.source_kind == INLINE:

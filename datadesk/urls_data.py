@@ -84,9 +84,8 @@ def _to_uuid(route):
 # slug is -- so a slug route above these would swallow every canonical URL
 # and redirect it to itself.
 _visuals = [
-    # The embed and its data. Framing is decided per visual by the
-    # allowlist the console records, which is why the embed view stays the
-    # one the console already uses rather than a copy.
+    # The embed and its data. The embed view is the one the console already
+    # uses rather than a copy, so the two hosts cannot drift.
     path(
         "embed/<uuid:uuid>/",
         xframe_options_exempt(visuals.embed),

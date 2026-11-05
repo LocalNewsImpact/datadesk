@@ -2483,8 +2483,8 @@ Three forms are needed, because the constraint is the host, not the chart:
 - The embed page posts its height on load, on resize and whenever the visual
   redraws. `ResizeObserver` on the chart container rather than a timer.
 - `postMessage` with the visual's origin checked on both ends. The embed page
-  is already framed only by the allowlist (`visuals/views.py`); the height
-  channel must not be looser than the framing rule.
+  is frameable by any site (`visuals/views.py`), so the height channel is
+  the one place the framing site is identified.
 - The admin offers all three snippets, with the iframe form carrying a height
   measured from the visual rather than a constant.
 - A visual that fails to load must leave something readable in the placeholder

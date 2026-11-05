@@ -40,7 +40,6 @@ class VisualAdmin(admin.ModelAdmin):
             "Embed",
             {
                 "fields": (
-                    "frame_ancestors",
                     "allow_live",
                     "pinned_snapshot",
                     "published_at",

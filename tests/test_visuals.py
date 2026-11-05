@@ -113,7 +113,9 @@ def test_published_embed_and_feed_are_public(client, visual, author):
     # Any site, because that is what publishing a visual is for. This read
     # `'self'` and passed, while every snippet pasted into an article showed
     # a browser security refusal -- the only site permitted to frame the
-    # embed was the one already serving it.
+    # embed was the one already serving it. A per-visual allowlist came
+    # next and failed the same way one visual at a time, so the header is
+    # now a constant.
     assert embed["Content-Security-Policy"] == "frame-ancestors *"
     assert "X-Frame-Options" not in embed
     assert client.get("/visuals/story-geography/data.json").status_code == 200
@@ -226,20 +228,6 @@ def test_the_data_host_does_not_leak_a_draft(client, visual):
     """
     assert client.get(f"/visuals/{visual.uuid}/").status_code == 404
     assert client.get("/visuals/story-geography/").status_code == 404
-
-
-def test_frame_ancestors_come_from_the_visual(client, visual, author):
-    Visual.objects.filter(pk=visual.pk).update(
-        frame_ancestors="'self' https://www.localnewsimpact.org"
-    )
-    _snapshot(visual, author, ROWS_V1)
-    publish(visual, author)
-    visual.refresh_from_db()
-    embed = client.get("/embed/story-geography/")
-    assert (
-        embed["Content-Security-Policy"]
-        == "frame-ancestors 'self' https://www.localnewsimpact.org"
-    )
 
 
 def test_drafts_are_absent_for_the_public(client, visual, author):

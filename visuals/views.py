@@ -757,7 +757,16 @@ def public_page(request, slug=None, uuid=None):
 
 @xframe_options_exempt
 def embed(request, slug=None, uuid=None):
-    """The iframe-safe embed, framed only by the allowlist."""
+    """The iframe-safe embed, frameable by any site.
+
+    A published visual is public: its whole purpose is to sit in somebody
+    else's page. There used to be a per-visual allowlist here, and every
+    time one was narrowed by hand the embed came back as a browser
+    security refusal on the next site that tried to use it. Nothing is
+    protected by narrowing it -- the data front end carries no session,
+    no sign-in and no write at all (urls_data.py) -- so the header is a
+    constant.
+    """
     visual = _get_visual(request, slug=slug, uuid=uuid)
     asked = _asked_for_version(request)
     if asked is not None and not visual.snapshots.filter(version=asked).exists():
@@ -778,7 +787,7 @@ def embed(request, slug=None, uuid=None):
             "credit_href": credit[1],
         },
     )
-    response["Content-Security-Policy"] = f"frame-ancestors {visual.frame_ancestors}"
+    response["Content-Security-Policy"] = "frame-ancestors *"
     return _cache_for(response, visual, asked is not None)
 
 

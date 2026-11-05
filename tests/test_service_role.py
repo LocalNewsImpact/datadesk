@@ -20,6 +20,8 @@ wrong front end is served with no error at all.
 
 import importlib
 
+import pytest
+
 # A snapshot rather than the module: importlib.reload mutates the module
 # in place and returns the same object, so restoring the environment
 # afterwards would rewrite the very values under test.
@@ -466,14 +468,16 @@ def test_the_public_page_is_not_the_walled_one():
 def test_a_visual_may_be_framed_by_somebody_elses_site():
     """`'self'` as the default meant the only site allowed to frame an
     embed was the one serving it, so every pasted snippet showed a browser
-    security refusal instead of a chart."""
+    security refusal instead of a chart. A per-visual allowlist replaced
+    it and failed the same way one visual at a time: a list narrowed by
+    hand in the admin broke the next site that embedded the chart. There
+    is nothing per visual to narrow any more."""
+    from django.core.exceptions import FieldDoesNotExist
+
     from visuals.models import Visual
 
-    default = Visual._meta.get_field("frame_ancestors").get_default()
-    assert default == "*", (
-        f"frame_ancestors defaults to {default!r}; an embed nobody may "
-        "frame is not an embed"
-    )
+    with pytest.raises(FieldDoesNotExist):
+        Visual._meta.get_field("frame_ancestors")
 
 
 def test_a_bad_image_still_cannot_reach_a_second_console_untested():
