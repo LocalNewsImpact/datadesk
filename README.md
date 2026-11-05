@@ -31,7 +31,7 @@ Phase 3, visuals v1, is code-complete: the registry (a `Visual` is a
 renderer template in the repo plus a BigQuery query or bucket object,
 registered and published through the admin), `/visuals/<slug>/`,
 `/visuals/<slug>/data.json`, `/visuals/<slug>/data.csv`, and
-`/embed/<slug>/` with a per-visual frame-ancestors allowlist — the embed
+`/embed/<slug>/`, frameable by any site — the embed
 and the two feeds being the only public routes, for published visuals
 only; the same routes are served by UUID from the `datadesk-data` service
 on data.localnewsimpact.org (`SERVICE_ROLE=data`, `datadesk/urls_data.py`). Publishing pins a data snapshot;

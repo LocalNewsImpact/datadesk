@@ -153,8 +153,8 @@ template, and version. Views:
 - `/visuals/<slug>/` — the full page
 - `/visuals/<slug>/data.json` — the feed (cached; nightly-fresh via the
   BigQuery sync it reads)
-- `/embed/<slug>/` — iframe-safe embed with a frame-ancestors allowlist,
-  and an embed-code snippet in the admin
+- `/embed/<slug>/` — iframe-safe embed, frameable by any site (a
+  published visual is public), and an embed-code snippet in the admin
 
 Visuals are authored as code (a template plus a data query), registered and
 published through the admin. The March story-geography map is the first
