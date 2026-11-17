@@ -404,3 +404,63 @@ Draw instead:
 
 Re-measure pairwise agreement, not confidence: the question is whether
 the revised definitions let two people reach the same answer.
+
+---
+
+## Annotations, third pass: model against one coder
+
+Reported by a collaborator in November 2026, ahead of the codebook
+revision. The findings above stand; this adds the first measurement of
+the LLM classifier against a human coder.
+
+### Design
+
+One coder labeled a **random** sample of 50 stories from MNF's 2025
+stories, primary and alternate category, and the labels were compared
+with the LLM's output for the same stories.
+
+Kappa is reportable here, unlike in the review queue. The queue
+oversamples low-incidence categories, so its category mix is a sampling
+choice and a kappa against it moves with the sampling. A random draw has
+no such problem.
+
+### Results
+
+| label | agreement | Cohen's kappa | 95% interval, agreement | 95% interval, kappa (approx.) |
+| --- | ---: | ---: | ---: | ---: |
+| primary | 76% (38/50) | 0.71 | 63–86% | 0.57–0.85 |
+| alternate | 56% (28/50) | 0.40 | 42–69% | 0.21–0.59 |
+
+Intervals are computed here, not reported by the collaborator: Wilson
+for agreement, a normal approximation for kappa.
+
+**Primary: substantial.** 0.71 clears the 0.667 floor that the
+historical human pairs (0.583, cohorts A–D) fell below. The two are not
+a like-for-like comparison: different samples, different years, one
+coder against a model rather than two coders against each other. Read
+it as "the model agrees with a coder at least as well as coders agreed
+with each other", not as a ranking.
+
+**Alternate: moderate at best.** The second label is weak for people too
+(set overlap was the reason the first pass preferred set-based
+measures), so this is expected, but it is not strong enough to report
+alternate labels as a measured finding.
+
+### Open before this is cited
+
+1. **Blinding.** Whether the coder saw the LLM's labels while coding.
+   If so, agreement is inflated.
+2. **What an alternate "match" is.** Exact alternate-to-alternate
+   penalizes the same two categories in swapped order. A set-based
+   measure, consistent with the first pass, would score that as
+   agreement.
+3. **One coder.** This measures the model against one person, not a
+   consensus. A second coder on the same 50 would separate model error
+   from category ambiguity in the 24% primary disagreement.
+4. **Which model and prompt version** produced the labels, so the result
+   can be tied to a configuration rather than to "the LLM".
+
+### For the revision
+
+Re-run the same 50 under the revised definitions, blind, with a second
+coder. Same stories, so any change is attributable to the wording.
