@@ -6,8 +6,22 @@
   <h1>Agreement</h1>
 
   <p class="lede">
-    How often two coders reading the same story reached the same answer.
+    How often two coders reading the same story reached the same answer,
+    under codebook <strong>{{ version.name }}</strong>.
   </p>
+
+  {% comment %}
+  One codebook at a time. Answers given under different definitions are
+  never pooled: a rate over both is a rate under no codebook at all.
+  {% endcomment %}
+  {% if versions|length > 1 %}
+  <p class="quiet">
+    Codebook:
+    {% for v in versions %}
+    {% if v.pk == version.pk %}<strong>{{ v.name }}</strong>{% else %}<a href="?codebook={{ v.name|urlencode }}">{{ v.name }}</a>{% endif %}{% if not forloop.last %} &middot; {% endif %}
+    {% endfor %}
+  </p>
+  {% endif %}
 
   {% comment %}
   Measured over records that reached two coders, not over every decision
@@ -50,7 +64,7 @@
       <tbody>
         {% for row in categories %}
         <tr>
-          <th scope="row">{{ row.label }}</th>
+          <th scope="row">{{ row.shown }}</th>
           <td class="num">{{ row.rate }}%</td>
           <td class="num quiet">{{ row.pairs }}</td>
         </tr>

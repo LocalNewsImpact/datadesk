@@ -75,8 +75,8 @@
         Primary category
         <select name="primary" id="primary-category">
           <option value="">choose one…</option>
-          {% for label in labels %}
-          <option value="{{ label }}">{{ label }}</option>
+          {% for value, shown in labels %}
+          <option value="{{ value }}">{{ shown }}</option>
           {% endfor %}
         </select>
       </label>
@@ -89,8 +89,8 @@
         Secondary <span class="quiet">— only if you are confident</span>
         <select name="secondary">
           <option value="">none</option>
-          {% for label in labels %}
-          <option value="{{ label }}">{{ label }}</option>
+          {% for value, shown in labels %}
+          <option value="{{ value }}">{{ shown }}</option>
           {% endfor %}
         </select>
       </label>

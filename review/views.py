@@ -2441,12 +2441,10 @@ def classification_queue(request):
     """
     from explorer.models import Article
     from review.classification import (
-        CIN_LABELS,
         ClassificationAssignment,
         ClassificationCohort,
         ClassificationDecision,
-        CodebookSettings,
-        guidance,
+        CodebookVersion,
     )
 
     if request.method == "POST":
@@ -2475,6 +2473,10 @@ def classification_queue(request):
         body, truncated = _reading_window(article)
 
     done = ClassificationDecision.objects.filter(decided_by=request.user).count()
+    # Everything a coder is shown comes from the codebook version their
+    # cohort is coded under, so two cohorts under different definitions
+    # can be open at once and neither sees the other's.
+    codebook = assignment.cohort.codebook if assignment else CodebookVersion.current()
     return render(
         request,
         "review/classification.html",
@@ -2483,15 +2485,13 @@ def classification_queue(request):
             "article": article,
             "body": body,
             "truncated": truncated,
-            "labels": CIN_LABELS,
-            # What each category covers and the action test for it. The
-            # codebook was a PDF attachment; a coder deciding between
-            # Civic information and Civic Life cannot open a PDF
-            # attachment.
-            "guidance": guidance(),
-            # Edited under CIN > Codebook, not deployed.
-            "instructions": CodebookSettings.load().paragraphs(),
-            "rejections": ClassificationDecision.REJECTIONS,
+            # (stored, shown). The stored label is the model's class
+            # name; the version may show it under another.
+            "labels": codebook.label_choices(),
+            # What each category covers and the action test for it.
+            "guidance": codebook.guidance_rows(),
+            "instructions": codebook.paragraphs(),
+            "rejections": codebook.rejection_choices(),
             "remaining": outstanding.count(),
             "done": done,
             "reading_words": READING_WORDS,
@@ -2506,16 +2506,21 @@ def _submit_classification(request):
     from django.utils import timezone
 
     from review.classification import (
+        CIN_LABELS,
         ClassificationAssignment,
         ClassificationDecision,
         ClassificationSample,
     )
 
-    assignment = ClassificationAssignment.objects.filter(
-        pk=request.POST.get("assignment"),
-        assigned_to=request.user,
-        completed_at__isnull=True,
-    ).first()
+    assignment = (
+        ClassificationAssignment.objects.filter(
+            pk=request.POST.get("assignment"),
+            assigned_to=request.user,
+            completed_at__isnull=True,
+        )
+        .select_related("cohort")
+        .first()
+    )
     if assignment is None:
         # Somebody else's assignment, or one already answered. Not an
         # error worth a page: the queue simply moves on.
@@ -2533,6 +2538,17 @@ def _submit_classification(request):
     if reject:
         primary, secondary = "", ""
 
+    # Only what this cohort's codebook offers. A V1 cohort cannot record
+    # a rejection V2 added, and nothing outside the vocabulary is stored.
+    codebook = assignment.cohort.codebook
+    if (
+        (primary and primary not in CIN_LABELS)
+        or (secondary and secondary not in CIN_LABELS)
+        or (reject and reject not in codebook.rejections)
+    ):
+        messages.error(request, "That is not one of the choices offered.")
+        return redirect("review:classification")
+
     sample = ClassificationSample.objects.filter(
         cohort=assignment.cohort, article_id=assignment.article_id
     ).first()
@@ -2544,6 +2560,7 @@ def _submit_classification(request):
         primary_label=primary,
         secondary_label=secondary,
         reject_reason=reject,
+        codebook_version=codebook,
         stratum=getattr(sample, "stratum", ""),
         inclusion_probability=getattr(sample, "inclusion_probability", 1.0),
         dataset_id=getattr(sample, "dataset_id", ""),
@@ -2587,9 +2604,14 @@ def cin_reporting(request):
     agreement rate, and would read highest exactly when a cohort had
     been worked least.
     """
-    from review.classification import agreement_report
+    from review.classification import CodebookVersion, agreement_report
 
-    return render(request, "review/cin_reporting.html", agreement_report())
+    # One codebook at a time: answers under different definitions are
+    # never pooled into one rate.
+    version = CodebookVersion.objects.filter(
+        name=request.GET.get("codebook") or ""
+    ).first()
+    return render(request, "review/cin_reporting.html", agreement_report(version))
 
 
 @requires_admin
@@ -2713,25 +2735,79 @@ def cin_codebook(request):
     that put a day between a decision and its effect.
     """
     from review.classification import (
+        CIN_LABELS,
         DEFAULT_INSTRUCTIONS,
+        ClassificationDecision,
         CodebookSettings,
-        guidance,
+        CodebookVersion,
     )
 
     row = CodebookSettings.load()
-    saved = False
+    saved, frozen, error = False, None, ""
     if request.method == "POST":
+        # The whole draft is saved on either button, so Freeze freezes
+        # what is on the screen and not what was last saved.
         row.instructions = request.POST.get("instructions", "").strip()
+        row.guidance = {
+            label: [
+                (request.POST.get(f"covers-{i}") or "").strip(),
+                (request.POST.get(f"could-{i}") or "").strip(),
+            ]
+            for i, label in enumerate(CIN_LABELS)
+            if (request.POST.get(f"covers-{i}") or "").strip()
+        }
+        row.display_names = {
+            label: (request.POST.get(f"shown-{i}") or "").strip()
+            for i, label in enumerate(CIN_LABELS)
+            if (request.POST.get(f"shown-{i}") or "").strip() not in ("", label)
+        }
+        offered = set(request.POST.getlist("rejections"))
+        row.rejections = [
+            value for value, _ in ClassificationDecision.REJECTIONS if value in offered
+        ]
         row.updated_by = request.user
         row.save()
         saved = True
+        if request.POST.get("action") == "freeze":
+            name = (request.POST.get("name") or "").strip()
+            if not name:
+                error = "A version needs a name, such as V2.0."
+            elif CodebookVersion.objects.filter(name=name).exists():
+                # Asked rather than caught: an IntegrityError inside the
+                # request's transaction poisons every query after it.
+                error = f"There is already a version named {name}."
+            else:
+                frozen = row.freeze(name, request.user)
+
+    guide = row.draft_guidance()
+    offered = row.draft_rejections()
     return render(
         request,
         "review/cin_codebook.html",
         {
             "settings": row,
-            "guidance": guidance(),
+            "categories": [
+                {
+                    "index": i,
+                    "label": label,
+                    "shown": row.display_names.get(label, ""),
+                    "covers": guide[label][0],
+                    "reader_could": guide[label][1],
+                }
+                for i, label in enumerate(CIN_LABELS)
+            ],
+            "rejections": [
+                {"value": value, "label": text, "offered": value in offered}
+                for value, text in ClassificationDecision.REJECTIONS
+            ],
+            "versions": [
+                {"version": v, "cohorts": v.cohorts.count()}
+                for v in CodebookVersion.objects.all()
+            ],
+            "current": CodebookVersion.current(),
             "saved": saved,
+            "frozen": frozen,
+            "error": error,
             "default": DEFAULT_INSTRUCTIONS,
         },
     )

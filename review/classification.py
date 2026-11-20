@@ -205,6 +205,12 @@ class CodebookSettings(models.Model):
     #: text box that silently accepts HTML from an admin is a stored
     #: XSS waiting for the first person who pastes from Word.
     instructions = models.TextField(blank=True, default="")
+    #: The draft of everything else a version carries. Empty means "as
+    #: V1": the guidance in `CODING_GUIDE`, labels shown as stored, the
+    #: six original rejections.
+    guidance = models.JSONField(default=dict, blank=True)
+    display_names = models.JSONField(default=dict, blank=True)
+    rejections = models.JSONField(default=list, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -216,6 +222,32 @@ class CodebookSettings(models.Model):
 
     class Meta:
         verbose_name_plural = "codebook settings"
+
+    def draft_guidance(self):
+        """label -> [covers, reader_could], complete for every label."""
+        return {
+            label: list(self.guidance.get(label) or CODING_GUIDE[label])
+            for label in CIN_LABELS
+        }
+
+    def draft_rejections(self):
+        return list(self.rejections) or list(V1_REJECTIONS)
+
+    def freeze(self, name, user=None):
+        """Copy the draft into a new, immutable `CodebookVersion`.
+
+        The draft is what an admin edits; a version is what a cohort is
+        coded under. Editing the draft changes nothing a coder sees
+        until it is frozen and a cohort is opened under the result.
+        """
+        return CodebookVersion.objects.create(
+            name=name,
+            instructions=self.instructions,
+            guidance=self.draft_guidance(),
+            display_names={k: v for k, v in self.display_names.items() if v and v != k},
+            rejections=self.draft_rejections(),
+            frozen_by=user,
+        )
 
     def __str__(self):
         return f"codebook settings, updated {self.updated_at:%Y-%m-%d}"
@@ -234,6 +266,118 @@ class CodebookSettings(models.Model):
         Rendered as text rather than markup for the reason the field
         comment gives.
         """
+        blocks = [b.strip() for b in self.instructions.split("\n\n")]
+        return [" ".join(b.split()) for b in blocks if b.strip()]
+
+
+#: The rejections the original codebook and the first datadesk cohorts
+#: offered. V2 adds three; a version lists the ones it offers, so a V1
+#: cohort keeps exactly these.
+V1_REJECTIONS = (
+    "not_local",
+    "no_appropriate_category",
+    "too_short",
+    "technical_error",
+    "paywall_stub",
+    "garbage_text",
+)
+
+
+class CodebookVersion(models.Model):
+    """A frozen codebook: what coders in a cohort were actually shown.
+
+    Agreement is only comparable between answers given under the same
+    definitions. `CodebookSettings.updated_at` could say which wording
+    was live when a decision was made, but only by inference, and it
+    could not say what the category guidance or the menu was. A version
+    is the whole of what a coder saw -- instructions, per-category
+    guidance, the names in the menu, the rejections on offer -- and a
+    cohort names the one it was coded under.
+
+    Immutable. A change is a new version, because a version edited after
+    answers were given under it describes definitions nobody coded to.
+
+    `display_names` maps a stored label to the name shown. The stored
+    label is the model's class name (`lnic_contracts.cin_labels`), so
+    V2's rename of Civic Life to Community Life is a display name here
+    and not a change to what is stored: renaming the stored value would
+    misalign every existing label and the model trained on them.
+    """
+
+    name = models.CharField(max_length=20, unique=True)
+    instructions = models.TextField(blank=True, default="")
+    guidance = models.JSONField(default=dict)
+    display_names = models.JSONField(default=dict, blank=True)
+    rejections = models.JSONField(default=list)
+    frozen_at = models.DateTimeField(auto_now_add=True)
+    frozen_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+
+    class Meta:
+        ordering = ["-frozen_at", "-id"]
+
+    def __str__(self):
+        return self.name
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError(
+                f"codebook version {self.name} is frozen; freeze a new one"
+            )
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def v1(cls):
+        """The codebook every cohort before versions was coded under."""
+        row = cls.objects.filter(name="V1").first()
+        if row is None:
+            row = cls.objects.create(
+                name="V1",
+                instructions=DEFAULT_INSTRUCTIONS,
+                guidance={label: list(CODING_GUIDE[label]) for label in CIN_LABELS},
+                display_names={},
+                rejections=list(V1_REJECTIONS),
+            )
+        return row
+
+    @classmethod
+    def current(cls):
+        """The most recently frozen version: what a new cohort is opened
+        under unless told otherwise."""
+        return cls.objects.first() or cls.v1()
+
+    def shown(self, label):
+        """The name a coder sees for a stored label."""
+        return self.display_names.get(label) or label
+
+    def label_choices(self):
+        """(stored, shown) in menu order."""
+        return [(label, self.shown(label)) for label in CIN_LABELS]
+
+    def guidance_rows(self):
+        return [
+            {
+                "label": self.shown(label),
+                "covers": self.guidance[label][0],
+                "reader_could": self.guidance[label][1],
+            }
+            for label in CIN_LABELS
+            if label in self.guidance
+        ]
+
+    def rejection_choices(self):
+        return [
+            (value, label)
+            for value, label in ClassificationDecision.REJECTIONS
+            if value in self.rejections
+        ]
+
+    def paragraphs(self):
         blocks = [b.strip() for b in self.instructions.split("\n\n")]
         return [" ".join(b.split()) for b in blocks if b.strip()]
 
@@ -272,9 +416,22 @@ class ClassificationCohort(models.Model):
     #: predictable way this design fails, and it fails quietly.
     stale_after_days = models.PositiveSmallIntegerField(default=14)
     note = models.TextField(blank=True, default="")
+    #: The codebook this cohort is coded under. Null only on rows from
+    #: before versions existed, which `codebook` reads as V1.
+    codebook_version = models.ForeignKey(
+        CodebookVersion,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="cohorts",
+    )
 
     class Meta:
         ordering = ["-number"]
+
+    @property
+    def codebook(self):
+        return self.codebook_version or CodebookVersion.v1()
 
     def __str__(self):
         return f"cohort {self.number}"
@@ -417,6 +574,13 @@ class ClassificationDecision(models.Model):
     TECHNICAL_ERROR = "technical_error"
     PAYWALL_STUB = "paywall_stub"
     GARBAGE_TEXT = "garbage_text"
+    #: Added by codebook V2. The least-confident Civic Life and Civic
+    #: information labels in the original coding were mostly these three
+    #: kinds of story: with no way to say so, a coder reaches for the
+    #: broadest-sounding category.
+    OBITUARY = "obituary"
+    ADVERTORIAL = "advertorial"
+    SERVICE_COPY = "service_copy"
     REJECTIONS = [
         (NOT_LOCAL, "Not local — wire or other non-local content"),
         (NO_CATEGORY, "No appropriate category"),
@@ -424,6 +588,9 @@ class ClassificationDecision(models.Model):
         (TECHNICAL_ERROR, "Technical error — text missing or mismatched"),
         (PAYWALL_STUB, "Paywall stub"),
         (GARBAGE_TEXT, "Garbage text"),
+        (OBITUARY, "Obituary or death notice"),
+        (ADVERTORIAL, "Advertorial — sponsored or promotional content"),
+        (SERVICE_COPY, "Service or lifestyle copy — not about the community"),
     ]
 
     cohort = models.ForeignKey(
@@ -441,6 +608,15 @@ class ClassificationDecision(models.Model):
     secondary_label = models.CharField(max_length=64, blank=True, default="")
     reject_reason = models.CharField(
         max_length=32, choices=REJECTIONS, blank=True, default=""
+    )
+    #: Copied from the cohort, as `stratum` is from the sample: the
+    #: definitions an answer was given under travel with the answer.
+    codebook_version = models.ForeignKey(
+        CodebookVersion,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="decisions",
     )
     #: Copied from the sample so a decision can be weighted without
     #: joining back to a draw that may have been superseded.
@@ -510,8 +686,13 @@ def _agree(a, b):
     return a.reject_reason == b.reject_reason
 
 
-def agreement_report():
-    """Agreement overall, by dataset and by category.
+def agreement_report(codebook_version=None):
+    """Agreement overall, by dataset and by category, under ONE codebook.
+
+    Answers given under different definitions are never pooled: a rate
+    over V1 and V2 answers together is a rate under no codebook at all.
+    Defaults to the current version. Decisions from before versions
+    existed carry none and are read as V1.
 
     Percent agreement, and not kappa. Kappa needs a chance-agreement
     term over a fixed category distribution, and this queue oversamples
@@ -522,8 +703,14 @@ def agreement_report():
     over a fixed set, and is reported in the codebook annotations
     instead.
     """
+    version = codebook_version or CodebookVersion.current()
+    under = models.Q(codebook_version=version)
+    if version.name == "V1":
+        under |= models.Q(codebook_version__isnull=True)
     decisions = list(
-        ClassificationDecision.objects.select_related("cohort").order_by("article_id")
+        ClassificationDecision.objects.filter(under)
+        .select_related("cohort")
+        .order_by("article_id")
     )
     pairs = list(_pairs(decisions))
 
@@ -547,13 +734,20 @@ def agreement_report():
         return round(100 * hit / total, 1) if total else None
 
     return {
+        "version": version,
+        "versions": list(CodebookVersion.objects.all()),
         "pairs": len(pairs),
         "articles_multiply_coded": len({a.article_id for a, _ in pairs}),
         "decisions": len(decisions),
         "overall": rate(agreed, len(pairs)),
         "categories": sorted(
             (
-                {"label": label, "rate": rate(hit, total), "pairs": total}
+                {
+                    "label": label,
+                    "shown": version.shown(label),
+                    "rate": rate(hit, total),
+                    "pairs": total,
+                }
                 for label, (hit, total) in by_category.items()
             ),
             key=lambda row: row["rate"] if row["rate"] is not None else 101,
@@ -707,8 +901,12 @@ def _stratum_pool(stratum):
     return rows
 
 
-def draw_cohort(size, *, target_coders=3, note="", stale_after_days=14):
+def draw_cohort(
+    size, *, target_coders=3, note="", stale_after_days=14, codebook_version=None
+):
     """Open a cohort and draw `size` articles into it.
+
+    The cohort is coded under `codebook_version`, or the current one.
 
     Returns (cohort, drawn) where `drawn` maps each stratum to how many it
     actually contributed. A short stratum is reported rather than
@@ -734,6 +932,7 @@ def draw_cohort(size, *, target_coders=3, note="", stale_after_days=14):
             target_coders=target_coders,
             stale_after_days=stale_after_days,
             note=note,
+            codebook_version=codebook_version or CodebookVersion.current(),
         )
 
         drawn, samples = {}, []
