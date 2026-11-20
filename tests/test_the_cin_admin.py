@@ -102,11 +102,17 @@ def test_an_admin_can_change_what_coders_are_told(client):
     assert row.updated_by == admin
 
 
-def test_the_classifier_sees_the_edited_instructions(client):
-    CodebookSettings.load()
-    CodebookSettings.objects.update(instructions="Only this.")
+def test_the_classifier_sees_the_frozen_instructions(client):
+    """A draft is not what coders see. The edit reaches them when it is
+    frozen as a version, and not before."""
+    draft = CodebookSettings.load()
+    draft.instructions = "Only this."
+    draft.save()
     coder = _user("coder", CLASSIFIER, scope="cohort-1")
     client.force_login(coder)
+    body = client.get(reverse("review:classification")).content.decode()
+    assert "Only this." not in body
+    draft.freeze("V2.0")
     body = client.get(reverse("review:classification")).content.decode()
     assert "Only this." in body
 
@@ -114,8 +120,10 @@ def test_the_classifier_sees_the_edited_instructions(client):
 def test_markup_in_the_instructions_is_escaped(client):
     """A textarea an admin pastes into from Word is not a place to start
     trusting markup."""
-    CodebookSettings.load()
-    CodebookSettings.objects.update(instructions="<script>alert(1)</script>")
+    draft = CodebookSettings.load()
+    draft.instructions = "<script>alert(1)</script>"
+    draft.save()
+    draft.freeze("V2.0")
     coder = _user("coder", CLASSIFIER, scope="cohort-1")
     client.force_login(coder)
     body = client.get(reverse("review:classification")).content.decode()
@@ -175,14 +183,28 @@ def test_a_disagreement_counts_against_both_categories():
     assert named["Civic Life"]["rate"] == 0.0
 
 
-def test_two_rejections_for_the_same_reason_agree():
-    """They reached the same conclusion about the record. It also stops a
-    cohort of unreadable articles scoring as total disagreement."""
+def test_two_rejections_are_not_scored():
+    """A story neither coder would label is not a story to label, and
+    agreeing about that says nothing about the definitions. Counting it
+    as agreement let unreadable stories raise the figure the definitions
+    are judged by."""
     cohort = ClassificationCohort.objects.create(number=1, slug="cohort-1")
     one, two = _user("a", CLASSIFIER), _user("b", CLASSIFIER)
     _decide(cohort, "article-1", one, reject=ClassificationDecision.NOT_LOCAL)
     _decide(cohort, "article-1", two, reject=ClassificationDecision.NOT_LOCAL)
-    assert agreement_report()["overall"] == 100.0
+    report = agreement_report()
+    assert report["pairs"] == 0 and report["overall"] is None
+
+
+def test_a_category_against_a_rejection_is_a_mismatch():
+    """They disagreed about whether the story should be labelled at
+    all."""
+    cohort = ClassificationCohort.objects.create(number=1, slug="cohort-1")
+    one, two = _user("a", CLASSIFIER), _user("b", CLASSIFIER)
+    _decide(cohort, "article-1", one, "Sports")
+    _decide(cohort, "article-1", two, reject=ClassificationDecision.NOT_LOCAL)
+    report = agreement_report()
+    assert (report["pairs"], report["overall"]) == (1, 0.0)
 
 
 def test_the_worst_category_sorts_first():

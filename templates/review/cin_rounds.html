@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Rounds — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <h1>Rounds</h1>
+
+  <p class="lede">
+    What each run of coding is for, and how far it is from finished.
+  </p>
+
+  {% for kind, text in notices %}
+  <p class="notice {{ kind }}">{{ text }}</p>
+  {% endfor %}
+
+  {% if rounds %}
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Round</th>
+          <th scope="col">For</th>
+          <th scope="col">Codebook</th>
+          <th scope="col" class="num">Stories</th>
+          <th scope="col" class="num">Coders</th>
+          <th scope="col">Progress</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rounds %}
+        <tr>
+          <th scope="row">
+            <a href="{% url 'review:cin_round' row.round.pk %}">{{ row.round.name }}</a>
+          </th>
+          <td>{{ row.round.get_kind_display }}</td>
+          <td>{{ row.round.codebook_version.name }}</td>
+          <td class="num">{{ row.stories }}</td>
+          <td class="num">{{ row.coders|length }}</td>
+          <td>
+            {% if row.finished %}
+            Finished
+            {% elif row.round.is_practice %}
+            {% if row.coded %}Coded; review not yet held{% else %}Coding{% endif %}
+            {% elif row.categories %}
+            {{ row.binding.shown }}: {{ row.binding.count }} of {{ row.floor }}
+            {% else %}
+            {{ row.complete_stories }} of {{ row.stories }} stories fully coded
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="notice">No rounds yet.</p>
+  {% endif %}
+
+  <h2>Open a round</h2>
+  <form method="post" class="inline-form">
+    {% csrf_token %}
+    <div class="field">
+      <label for="name">Name</label>
+      <input type="text" id="name" name="name" maxlength="60" required
+             placeholder="V2 practice">
+    </div>
+    <div class="field">
+      <label for="kind">What it is for</label>
+      <select id="kind" name="kind" required>
+        {% for value, label in kinds %}
+        <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+      <span class="field-note quiet">
+        Practice answers are never counted, in agreement or in training.
+      </span>
+    </div>
+    <div class="field">
+      <label for="codebook">Codebook</label>
+      <select id="codebook" name="codebook" required>
+        {% for version in versions %}
+        <option value="{{ version.pk }}"
+                {% if version.pk == current.pk %}selected{% endif %}>{{ version.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="base_coders">Coders per story</label>
+      <input type="number" id="base_coders" name="base_coders" min="1" max="10"
+             value="3" required>
+      <span class="field-note quiet">
+        Ignored for practice, where every coder codes every story.
+      </span>
+    </div>
+    <div class="field">
+      <label class="check">
+        <input type="checkbox" name="third_on_split" value="1">
+        Add a third coder only where the first two differ
+      </label>
+    </div>
+    <div class="field">
+      <label for="per_category">Stories per category</label>
+      <input type="number" id="per_category" name="per_category" min="0"
+             placeholder="250">
+      <span class="field-note quiet">
+        Training rounds only: the round is finished when every category
+        reaches this, not when a total is reached.
+      </span>
+    </div>
+    <div class="field">
+      <label for="holdout">Of those, held back to test the model</label>
+      <input type="number" id="holdout" name="holdout" min="0" placeholder="50">
+      <span class="field-note quiet">
+        Marked when a story is drawn, before anybody has coded it, and
+        never trained on.
+      </span>
+    </div>
+    <div class="field">
+      <label for="question">The question it answers</label>
+      <input type="text" id="question" name="question" maxlength="300"
+             placeholder="Do coders agree under V2?">
+    </div>
+    <button type="submit" class="primary">Open round</button>
+  </form>
+</section>
+{% endblock %}

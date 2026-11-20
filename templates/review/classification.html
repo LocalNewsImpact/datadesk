@@ -33,30 +33,20 @@
     <h2 class="story-headline">{{ article.title|default:"(no headline)" }}</h2>
 
     {% comment %}
-    The URL as text, deliberately not a link. A coder who opens the
-    publisher's page is reading the live article — including whatever it
-    has become since capture — and is no longer labelling the row in
-    front of them.
+    Headline and text, and nothing else: no URL, date, photo, caption,
+    byline or publisher. That is what the V1 coders were given, so it is
+    what a V2 answer has to be given to be compared with theirs. A URL
+    in particular names the publisher and often the section
+    (/sports/prep_sports/), which is the answer.
     {% endcomment %}
-    <p class="story-url" aria-label="Original URL, for reference">
-      {{ article.url }}
-    </p>
 
     {% comment %}
-    About what the model reads: it sees title + body truncated at 512
-    BERT tokens, roughly 350-400 words. A window much larger than that
-    means some disagreement measures the truncation rather than the
-    model. Scrollable rather than clipped, so nothing is hidden.
+    The whole story, as the V1 coders read it. Scrollable rather than
+    clipped, so nothing is hidden.
     {% endcomment %}
     <div class="story-body" tabindex="0" role="region"
          aria-label="Article text, scrollable">
       {{ body|linebreaks }}
-      {% if truncated %}
-      <p class="quiet">
-        — first {{ reading_words }} words, which is about what the
-        classifier reads.
-      </p>
-      {% endif %}
     </div>
   </article>
 
@@ -75,8 +65,8 @@
         Primary category
         <select name="primary" id="primary-category">
           <option value="">choose one…</option>
-          {% for label in labels %}
-          <option value="{{ label }}">{{ label }}</option>
+          {% for value, shown in labels %}
+          <option value="{{ value }}">{{ shown }}</option>
           {% endfor %}
         </select>
       </label>
@@ -89,8 +79,8 @@
         Secondary <span class="quiet">— only if you are confident</span>
         <select name="secondary">
           <option value="">none</option>
-          {% for label in labels %}
-          <option value="{{ label }}">{{ label }}</option>
+          {% for value, shown in labels %}
+          <option value="{{ value }}">{{ shown }}</option>
           {% endfor %}
         </select>
       </label>

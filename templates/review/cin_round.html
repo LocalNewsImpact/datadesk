@@ -1,0 +1,323 @@
+{% extends "base.html" %}
+{% block title %}{{ round.name }} — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <p class="quiet"><a href="{% url 'review:cin_rounds' %}">Rounds</a></p>
+  <h1>{{ round.name }}</h1>
+
+  <p class="lede">
+    {{ round.get_kind_display }}, coded under
+    <strong>{{ round.codebook_version.name }}</strong>.
+    {% if round.question %}{{ round.question }}{% endif %}
+  </p>
+
+  {% for kind, text in notices %}
+  <p class="notice {{ kind }}">{{ text }}</p>
+  {% endfor %}
+
+  <dl class="stat-row">
+    <div><dt>Stories</dt><dd class="big">{{ stories }}</dd></div>
+    <div><dt>Coders</dt><dd class="big">{{ coders|length }}</dd></div>
+    <div><dt>Answers</dt><dd class="big">{{ decisions }}</dd></div>
+    <div><dt>Status</dt>
+      <dd class="big">{% if finished %}Finished{% else %}Open{% endif %}</dd></div>
+  </dl>
+
+  {% comment %}
+  Progress against how this kind of round finishes, never a bare total.
+  {% endcomment %}
+  <h2>Finish line</h2>
+  {% if round.is_practice %}
+  <p>
+    Every coder codes every story, then the lead reviews each
+    disagreement with them. These answers are never counted.
+  </p>
+  <ul class="plain">
+    <li>{% if coded %}Every coder has finished.{% else %}Waiting on:
+      {% for user in waiting_on %}{{ user }}{% if not forloop.last %}, {% endif %}{% empty %}no coders yet{% endfor %}.{% endif %}</li>
+    <li>{% if reviewed %}Review held {{ round.reviewed_at|date:"j M Y" }}
+      {% if round.reviewed_by %}by {{ round.reviewed_by }}{% endif %}.{% else %}Review not yet held.{% endif %}</li>
+  </ul>
+  {% elif categories %}
+  <p>
+    Finished when every category has {{ floor }} labelled stories. V1
+    records with a label count first; new stories count when two coders
+    agree.
+    {% if binding %}Furthest from it: <strong>{{ binding.shown }}</strong>,
+    {{ binding.count }} of {{ floor }}.{% endif %}
+  </p>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Category</th>
+          <th scope="col" class="num">Agreed stories</th>
+          <th scope="col" class="num">Of {{ floor }}</th>
+          <th scope="col" class="num"
+              title="Of the stories drawn for this category, the share coders placed in it. It sets how many more must be drawn.">Hit rate</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in categories %}
+        <tr>
+          <th scope="row">{{ row.shown }}</th>
+          <td class="num">{{ row.count }}</td>
+          <td class="num">{{ row.percent }}%</td>
+          <td class="num">{% if row.hit_rate is None %}&mdash;{% else %}{% widthratio row.hit_rate 1 100 %}%{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>
+    Finished when every story has {{ round.base_coders }} answers:
+    {{ complete_stories }} of {{ stories }}{% if percent is not None %} ({{ percent }}%){% endif %}.
+  </p>
+  {% endif %}
+
+  {% if not round.is_practice %}
+  <h2>Measured against the finish line</h2>
+  <p>
+    As it stands now:
+    <strong>{% if gate.outcome == "pass" %}pass{% elif gate.outcome == "fail" %}fail{% else %}not enough data yet{% endif %}</strong>.
+    {% if round.kind == "comparison" %}
+    Each figure is the share of stories on which the first two coders to
+    read it chose the same category. A category against a rejection is a
+    mismatch; two rejections are not scored.
+    {% endif %}
+  </p>
+  {% if round.kind == "comparison" %}
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Condition</th>
+          <th scope="col">Measured over</th>
+          <th scope="col" class="num">Stories</th>
+          <th scope="col" class="num">Now</th>
+          <th scope="col" class="num">95% interval</th>
+          <th scope="col" class="num">Needed</th>
+          <th scope="col" class="num">V1, same stories</th>
+          <th scope="col">Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in gate.conditions %}
+        <tr>
+          <th scope="row">{{ row.name }}</th>
+          <td class="quiet">{{ row.population }}</td>
+          <td class="num">{{ row.n }}</td>
+          <td class="num">{% if row.value is None %}&mdash;{% else %}{% widthratio row.value 1 100 %}%{% endif %}</td>
+          <td class="num">{% if row.low is None %}&mdash;{% else %}{% widthratio row.low 1 100 %}&ndash;{% widthratio row.high 1 100 %}%{% endif %}</td>
+          <td class="num">{% widthratio row.threshold 1 100 %}%</td>
+          <td class="num">{% if row.v1 is None %}&mdash;{% else %}{% widthratio row.v1 1 100 %}%{% endif %}</td>
+          <td>{% if row.outcome == "pass" %}Met{% elif row.outcome == "fail" %}Not met{% else %}No data{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <ul class="plain">
+    <li>Reliability (Krippendorff's alpha):
+      {% if gate.measures.alpha is None %}&mdash;{% else %}{{ gate.measures.alpha|floatformat:2 }}{% endif %},
+      against a target of {{ gate.measures.alpha_target|floatformat:2 }}.</li>
+    <li>Stories ending with a label two coders agreed on, or one coder's
+      first choice matching another's second:
+      {% if gate.measures.labelled_share is None %}&mdash;{% else %}{% widthratio gate.measures.labelled_share 1 100 %}%{% endif %}.</li>
+  </ul>
+  {% else %}
+  <p>
+    First two coders choosing the same category, this round:
+    {% if gate.measures.first_pair.rate is None %}&mdash;{% else %}{% widthratio gate.measures.first_pair.rate 1 100 %}%{% endif %}
+    of {{ gate.measures.first_pair.n }} stories. Below
+    {% widthratio gate.measures.first_pair_floor 1 100 %}%: pause and hold
+    another practice.
+  </p>
+  {% endif %}
+  {% if gate.measures.left_out %}
+  <p class="quiet">
+    Stories left with no label, counted against each category a coder
+    chose for them. A category with many is a sign its definition needs
+    work, not a list for somebody to decide:
+    {% for label, count in gate.measures.left_out.items %}{{ label }} {{ count }}{% if not forloop.last %}; {% endif %}{% endfor %}.
+  </p>
+  {% endif %}
+  <form method="post" class="inline">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="evaluate">
+    <button type="submit"
+            title="Writes these figures down as they stand. A record is never changed; evaluating again adds another.">Record this evaluation</button>
+  </form>
+  {% if gates %}
+  <ul class="plain">
+    {% for row in gates %}
+    <li>{{ row.evaluated_at|date:"j M Y, H:i" }}: {{ row.get_outcome_display }}{% if row.evaluated_by %} — {{ row.evaluated_by }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% endif %}
+
+  <h2>Coders</h2>
+  {% if coders %}
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Coder</th>
+          <th scope="col" class="num">Assigned</th>
+          <th scope="col" class="num">Done</th>
+          <th scope="col" class="num"
+              title="Share of stories on which this coder and the other first coder chose the same category. Never shown to coders.">Matches others</th>
+          <th scope="col" class="num">Median seconds</th>
+          <th scope="col" class="num"
+              title="Check stories have a known answer and are hidden among a coder's work. Judged once, at 40.">Check stories missed</th>
+          <th scope="col">Standing under {{ round.codebook_version.name }}</th>
+          <th scope="col">Change</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in coders %}
+        <tr>
+          <th scope="row">{{ row.user }}</th>
+          <td class="num">{{ row.assigned }}</td>
+          <td class="num">{{ row.done }}</td>
+          <td class="num">{% if row.figures.agreement.rate is None %}&mdash;{% else %}{% widthratio row.figures.agreement.rate 1 100 %}% <span class="quiet">of {{ row.figures.agreement.n }}</span>{% endif %}</td>
+          <td class="num">{{ row.figures.median_seconds|default:"—" }}</td>
+          <td class="num">{% if row.checks %}{{ row.checks.1 }} of {{ row.checks.0 }}{% else %}&mdash;{% endif %}</td>
+          <td>{% if row.standing %}{{ row.standing|capfirst }}{% else %}Not yet admitted{% endif %}</td>
+          <td>
+            <form method="post" class="inline">
+              {% csrf_token %}
+              <input type="hidden" name="user" value="{{ row.user.pk }}">
+              {% if row.standing != statuses.ADMITTED %}
+              <button type="submit" name="action" value="{{ statuses.ADMITTED }}"
+                      class="linklike"
+                      title="Admit to pilot and training rounds. Do this after the coder has finished the practice and its review.">admit</button>
+              {% endif %}
+              {% if row.standing != statuses.PAUSED and row.standing != statuses.REMOVED %}
+              <button type="submit" name="action" value="{{ statuses.PAUSED }}"
+                      class="linklike"
+                      title="No new stories; outstanding stories go to other coders. Answers already given are kept.">pause</button>
+              {% endif %}
+              {% if row.standing != statuses.REMOVED %}
+              <button type="submit" name="action" value="{{ statuses.REMOVED }}"
+                      class="linklike danger"
+                      title="As pause, and their answers are withdrawn: the stories are coded again by someone else.">remove</button>
+              {% endif %}
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="notice">Nobody is on this round yet.</p>
+  {% endif %}
+
+  {% if not round.is_practice %}
+  <p class="quiet">
+    Only admitted coders are given stories in this round. A coder is
+    admitted after finishing a practice round and its review.
+  </p>
+  {% endif %}
+
+  <form method="post" class="inline-form tight">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="invite">
+    <label for="email">Add a coder by email</label>
+    <input type="email" id="email" name="email" required
+           placeholder="name@example.edu">
+    <button type="submit">Add</button>
+  </form>
+
+  <h2>Batches</h2>
+  {% if cohorts %}
+  <ul class="plain">
+    {% for cohort in cohorts %}
+    <li>Batch {{ cohort.number }}{% if cohort.note %} — {{ cohort.note }}{% endif %}
+      {% if cohort.closed_at %}<span class="quiet">closed</span>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="quiet">No batches yet.</p>
+  {% endif %}
+  <form method="post" class="inline-form tight">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="batch">
+    <label for="size">{% if round.kind == "comparison" %}Other V1 stories, beside every civic one{% else %}Stories{% endif %}</label>
+    <input type="number" id="size" name="size" min="1" max="20000"
+           value="{% if round.is_practice %}20{% elif round.kind == "comparison" %}400{% else %}300{% endif %}" required>
+    <label for="note">Note</label>
+    <input type="text" id="note" name="note" maxlength="200">
+    <button type="submit">Open a batch</button>
+  </form>
+  <form method="post" class="inline">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="assign">
+    <button type="submit" class="linklike"
+            title="Hands out any stories not yet assigned. Safe to run again.">Assign unassigned stories</button>
+  </form>
+
+  {% if not round.is_practice %}
+  <h2>Labels for the retrain</h2>
+  <p>
+    Every story with a label under {{ round.codebook_version.name }}, from
+    every pilot and training round, with the V1 stories that kept a V1
+    label. Held-back stories are marked and are never training rows.
+  </p>
+  <p>
+    <a href="{% url 'review:cin_export' %}?codebook={{ round.codebook_version.name|urlencode }}">Download, with stored category names</a>
+    &middot;
+    <a href="{% url 'review:cin_export' %}?codebook={{ round.codebook_version.name|urlencode }}&amp;names=shown">with the names coders saw</a>
+  </p>
+  {% endif %}
+
+  {% if review %}
+  <h2>Practice review</h2>
+  {% if not review.ready %}
+  <p class="notice">
+    Opens when every coder has finished. Until then nobody, including
+    the lead, is shown the answers.
+  </p>
+  {% else %}
+  <p>
+    {{ review.differing }} of {{ review.rows|length }} stories were
+    answered differently. Go through each with the coders, against the
+    definitions shown.
+  </p>
+  {% for row in review.rows %}
+  <article class="story">
+    <h3>{{ row.title }}{% if not row.differ %} <span class="quiet">— all agreed</span>{% endif %}</h3>
+    <ul class="plain">
+      {% for answer in row.answers %}
+      <li><strong>{{ answer.coder }}</strong>: {{ answer.answer }}{% if answer.secondary %}
+        <span class="quiet">(secondary: {{ answer.secondary }})</span>{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% if row.differ %}
+    {% for definition in row.definitions %}
+    <p class="quiet"><strong>{{ definition.label }}</strong>: {{ definition.covers }}</p>
+    {% endfor %}
+    {% endif %}
+  </article>
+  {% endfor %}
+
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="review">
+    <label for="notes">What the review changed in the definitions</label>
+    <textarea id="notes" name="notes" rows="5" class="wide">{{ round.review_notes }}</textarea>
+    <div class="actions">
+      <button type="submit" class="primary">Record that the review was held</button>
+      <span class="quiet">
+        Admits every coder who has finished the practice.
+      </span>
+    </div>
+  </form>
+  {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

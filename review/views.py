@@ -2401,35 +2401,32 @@ def _submit_discovery_decisions(request):
 # The classification queue
 # --------------------------------------------------------------------
 
-#: How much of the body a coder reads. The model sees title + body
-#: truncated at 512 BERT tokens, roughly 350-400 words, and the
-#: historical cohorts showed a median article of 255 words. A window
-#: much larger than the model's input means some disagreement measures
-#: the truncation rather than the model.
-READING_WORDS = 250
 
+def _story_text(article):
+    """The whole cleaned body, paragraphs kept.
 
-def _reading_window(article):
-    """The first `READING_WORDS` of the body, and whether there is more.
+    The whole story, as the V1 coders read it: the pilot compares V2
+    answers with V1 answers on the same stories, and an answer given on
+    the first 250 words is not an answer on the same story. The queue
+    used to cut the body to about what the model reads (512 BERT tokens,
+    350-400 words); that measured the coder against the model's window
+    at the cost of measuring them against each other.
 
-    `text` is the cleaned body and `raw` the capture, in that
-    order: classifying the raw capture means classifying navigation
-    menus and cookie notices, which is how 3% of stored articles got a
-    CIN label derived from a list of section names.
+    `text` only, never `raw`. The raw capture is the whole page: dates,
+    photo captions, menus, cookie notices. A coder is given the headline
+    and the story text and nothing else, and a story with no cleaned
+    text is shown with none -- which the coder rejects as a technical
+    error rather than coding from page furniture. Classifying the raw
+    capture is also how 3% of stored articles got a CIN label derived
+    from a list of section names.
     """
-    body = ""
-    for field in ("text", "raw"):
-        value = getattr(article, field, None)
-        if isinstance(value, str) and value.strip():
-            body = value.strip()
-            break
-    words = body.split()
-    return " ".join(words[:READING_WORDS]), len(words) > READING_WORDS
+    value = getattr(article, "text", None)
+    return value.strip() if isinstance(value, str) else ""
 
 
 @requires(CLASSIFY)
 def classification_queue(request):
-    """One assigned story at a time: headline, URL, body, and a judgement.
+    """One assigned story at a time: headline, body, and a judgement.
 
     No filters. Not by dataset, not by date, not by publisher — choosing
     what to look at is how a sample stops being one, and the coder is
@@ -2439,14 +2436,12 @@ def classification_queue(request):
     confidence, no status, no wire flag. A label produced by somebody who
     has seen the model's answer cannot be used to score the model.
     """
-    from explorer.models import Article
     from review.classification import (
-        CIN_LABELS,
         ClassificationAssignment,
         ClassificationCohort,
         ClassificationDecision,
-        CodebookSettings,
-        guidance,
+        CodebookVersion,
+        stories_for,
     )
 
     if request.method == "POST":
@@ -2458,23 +2453,26 @@ def classification_queue(request):
     outstanding = (
         ClassificationAssignment.objects.filter(
             assigned_to=request.user, completed_at__isnull=True, cohort__in=cohorts
-        )
-        .select_related("cohort")
-        .order_by("assigned_at")
+        ).select_related("cohort")
+        # A random order, fixed when each assignment was made. Work made
+        # in one step -- a batch stored category by category, a set of
+        # check stories -- is then not met in the order it was made.
+        .order_by("position", "id")
     )
 
     assignment = outstanding.first()
     article = None
     if assignment is not None:
-        article = (
-            Article.objects.using("crawler").filter(id=assignment.article_id).first()
-        )
+        # A crawler article, or a story loaded from outside the crawler.
+        article = stories_for([assignment.article_id]).get(assignment.article_id)
 
-    body, truncated = ("", False)
-    if article is not None:
-        body, truncated = _reading_window(article)
+    body = _story_text(article) if article is not None else ""
 
     done = ClassificationDecision.objects.filter(decided_by=request.user).count()
+    # Everything a coder is shown comes from the codebook version their
+    # cohort is coded under, so two cohorts under different definitions
+    # can be open at once and neither sees the other's.
+    codebook = assignment.cohort.codebook if assignment else CodebookVersion.current()
     return render(
         request,
         "review/classification.html",
@@ -2482,19 +2480,15 @@ def classification_queue(request):
             "assignment": assignment,
             "article": article,
             "body": body,
-            "truncated": truncated,
-            "labels": CIN_LABELS,
-            # What each category covers and the action test for it. The
-            # codebook was a PDF attachment; a coder deciding between
-            # Civic information and Civic Life cannot open a PDF
-            # attachment.
-            "guidance": guidance(),
-            # Edited under CIN > Codebook, not deployed.
-            "instructions": CodebookSettings.load().paragraphs(),
-            "rejections": ClassificationDecision.REJECTIONS,
+            # (stored, shown). The stored label is the model's class
+            # name; the version may show it under another.
+            "labels": codebook.label_choices(),
+            # What each category covers and the action test for it.
+            "guidance": codebook.guidance_rows(),
+            "instructions": codebook.paragraphs(),
+            "rejections": codebook.rejection_choices(),
             "remaining": outstanding.count(),
             "done": done,
-            "reading_words": READING_WORDS,
         },
     )
 
@@ -2506,16 +2500,23 @@ def _submit_classification(request):
     from django.utils import timezone
 
     from review.classification import (
+        CIN_LABELS,
         ClassificationAssignment,
         ClassificationDecision,
         ClassificationSample,
+        add_third_coder,
+        judge_check_stories,
     )
 
-    assignment = ClassificationAssignment.objects.filter(
-        pk=request.POST.get("assignment"),
-        assigned_to=request.user,
-        completed_at__isnull=True,
-    ).first()
+    assignment = (
+        ClassificationAssignment.objects.filter(
+            pk=request.POST.get("assignment"),
+            assigned_to=request.user,
+            completed_at__isnull=True,
+        )
+        .select_related("cohort")
+        .first()
+    )
     if assignment is None:
         # Somebody else's assignment, or one already answered. Not an
         # error worth a page: the queue simply moves on.
@@ -2533,6 +2534,17 @@ def _submit_classification(request):
     if reject:
         primary, secondary = "", ""
 
+    # Only what this cohort's codebook offers. A V1 cohort cannot record
+    # a rejection V2 added, and nothing outside the vocabulary is stored.
+    codebook = assignment.cohort.codebook
+    if (
+        (primary and primary not in CIN_LABELS)
+        or (secondary and secondary not in CIN_LABELS)
+        or (reject and reject not in codebook.rejections)
+    ):
+        messages.error(request, "That is not one of the choices offered.")
+        return redirect("review:classification")
+
     sample = ClassificationSample.objects.filter(
         cohort=assignment.cohort, article_id=assignment.article_id
     ).first()
@@ -2544,6 +2556,8 @@ def _submit_classification(request):
         primary_label=primary,
         secondary_label=secondary,
         reject_reason=reject,
+        codebook_version=codebook,
+        is_check=assignment.is_check,
         stratum=getattr(sample, "stratum", ""),
         inclusion_probability=getattr(sample, "inclusion_probability", 1.0),
         dataset_id=getattr(sample, "dataset_id", ""),
@@ -2551,6 +2565,13 @@ def _submit_classification(request):
     )
     assignment.completed_at = timezone.now()
     assignment.save(update_fields=["completed_at"])
+    if assignment.is_check:
+        # Judged once, when a coder reaches their fortieth.
+        if assignment.cohort.round is not None:
+            judge_check_stories(assignment.cohort.round)
+    else:
+        # Where the first two coders differ, the round may ask for a third.
+        add_third_coder(assignment.cohort, assignment.article_id)
     return redirect("review:classification")
 
 
@@ -2587,9 +2608,14 @@ def cin_reporting(request):
     agreement rate, and would read highest exactly when a cohort had
     been worked least.
     """
-    from review.classification import agreement_report
+    from review.classification import CodebookVersion, agreement_report
 
-    return render(request, "review/cin_reporting.html", agreement_report())
+    # One codebook at a time: answers under different definitions are
+    # never pooled into one rate.
+    version = CodebookVersion.objects.filter(
+        name=request.GET.get("codebook") or ""
+    ).first()
+    return render(request, "review/cin_reporting.html", agreement_report(version))
 
 
 @requires_admin
@@ -2713,28 +2739,347 @@ def cin_codebook(request):
     that put a day between a decision and its effect.
     """
     from review.classification import (
+        CIN_LABELS,
         DEFAULT_INSTRUCTIONS,
+        ClassificationDecision,
         CodebookSettings,
-        guidance,
+        CodebookVersion,
     )
 
     row = CodebookSettings.load()
-    saved = False
+    saved, frozen, error = False, None, ""
     if request.method == "POST":
+        # The whole draft is saved on either button, so Freeze freezes
+        # what is on the screen and not what was last saved.
         row.instructions = request.POST.get("instructions", "").strip()
+        row.guidance = {
+            label: [
+                (request.POST.get(f"covers-{i}") or "").strip(),
+                (request.POST.get(f"could-{i}") or "").strip(),
+            ]
+            for i, label in enumerate(CIN_LABELS)
+            if (request.POST.get(f"covers-{i}") or "").strip()
+        }
+        row.display_names = {
+            label: (request.POST.get(f"shown-{i}") or "").strip()
+            for i, label in enumerate(CIN_LABELS)
+            if (request.POST.get(f"shown-{i}") or "").strip() not in ("", label)
+        }
+        offered = set(request.POST.getlist("rejections"))
+        row.rejections = [
+            value for value, _ in ClassificationDecision.REJECTIONS if value in offered
+        ]
         row.updated_by = request.user
         row.save()
         saved = True
+        if request.POST.get("action") == "freeze":
+            name = (request.POST.get("name") or "").strip()
+            if not name:
+                error = "A version needs a name, such as V2.0."
+            elif CodebookVersion.objects.filter(name=name).exists():
+                # Asked rather than caught: an IntegrityError inside the
+                # request's transaction poisons every query after it.
+                error = f"There is already a version named {name}."
+            else:
+                frozen = row.freeze(name, request.user)
+
+    guide = row.draft_guidance()
+    offered = row.draft_rejections()
     return render(
         request,
         "review/cin_codebook.html",
         {
             "settings": row,
-            "guidance": guidance(),
+            "categories": [
+                {
+                    "index": i,
+                    "label": label,
+                    "shown": row.display_names.get(label, ""),
+                    "covers": guide[label][0],
+                    "reader_could": guide[label][1],
+                }
+                for i, label in enumerate(CIN_LABELS)
+            ],
+            "rejections": [
+                {"value": value, "label": text, "offered": value in offered}
+                for value, text in ClassificationDecision.REJECTIONS
+            ],
+            "versions": [
+                {"version": v, "cohorts": v.cohorts.count()}
+                for v in CodebookVersion.objects.all()
+            ],
+            "current": CodebookVersion.current(),
             "saved": saved,
+            "frozen": frozen,
+            "error": error,
             "default": DEFAULT_INSTRUCTIONS,
         },
     )
+
+
+@requires_admin
+def cin_rounds(request):
+    """The rounds, and where a new one is opened.
+
+    A round says what a run of coding is for. Without it practice
+    answers, a test of new definitions and training data were one
+    undifferentiated pile of cohorts.
+    """
+    from review.classification import CodebookVersion, Round, open_round, round_report
+
+    notices = []
+    if request.method == "POST":
+        name = (request.POST.get("name") or "").strip()
+        kind = request.POST.get("kind") or ""
+        version = CodebookVersion.objects.filter(
+            pk=request.POST.get("codebook") or 0
+        ).first()
+        try:
+            base = int(request.POST.get("base_coders") or 3)
+            floor = int(request.POST.get("per_category") or 0)
+            held = int(request.POST.get("holdout") or 0)
+        except ValueError:
+            base, floor, held = 0, 0, 0
+        if not name:
+            notices.append(("bad", "A round needs a name."))
+        elif Round.objects.filter(name=name).exists():
+            notices.append(("bad", f"There is already a round named {name}."))
+        elif kind not in dict(Round.KINDS):
+            notices.append(("bad", "Choose what the round is for."))
+        elif version is None:
+            notices.append(("bad", "Choose the codebook the round is coded under."))
+        elif base < 1:
+            notices.append(("bad", "A story needs at least one coder."))
+        elif kind == Round.COLLECTION and floor < 1:
+            notices.append(
+                ("bad", "A training round needs a number of stories per category.")
+            )
+        else:
+            created = open_round(
+                name,
+                kind,
+                codebook_version=version,
+                question=(request.POST.get("question") or "").strip(),
+                base_coders=base,
+                third_on_split=bool(request.POST.get("third_on_split")),
+                finish_rule=(
+                    {"per_category": floor, "holdout": min(held, floor)}
+                    if floor
+                    else {}
+                ),
+            )
+            return redirect("review:cin_round", pk=created.pk)
+
+    return render(
+        request,
+        "review/cin_rounds.html",
+        {
+            "rounds": [round_report(row) for row in Round.objects.all()],
+            "kinds": Round.KINDS,
+            "versions": CodebookVersion.objects.all(),
+            "current": CodebookVersion.current(),
+            "notices": notices,
+        },
+    )
+
+
+@requires_admin
+def cin_round(request, pk):
+    """One round: its batches, its coders and their standing, and for a
+    practice round the review that ends it."""
+    from django.contrib.auth import get_user_model
+    from django.shortcuts import get_object_or_404
+
+    from review.classification import (
+        CoderStanding,
+        Round,
+        assign_cohort,
+        check_figures,
+        coder_figures,
+        draw_cohort,
+        draw_pilot,
+        draw_training_batch,
+        find_check_stories,
+        gate,
+        hide_check_stories,
+        hold_review,
+        invite_coder,
+        practice_review,
+        round_report,
+        set_standing,
+    )
+
+    this = get_object_or_404(Round, pk=pk)
+    notices = []
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "batch":
+            try:
+                size = int(request.POST.get("size") or 0)
+            except ValueError:
+                size = 0
+            if size < 1:
+                notices.append(("bad", "A batch needs at least one story."))
+            elif this.kind == Round.COMPARISON:
+                # The pilot is the V1 stories: every civic one, and
+                # `size` of the others.
+                cohort, drawn = draw_pilot(this, others=size)
+                if cohort is None:
+                    notices.append(
+                        (
+                            "bad",
+                            "No V1 stories to draw. Load them first with "
+                            "manage.py import_v1_stories, and note that a "
+                            "story is drawn into one batch only.",
+                        )
+                    )
+                else:
+                    made = assign_cohort(cohort)
+                    notices.append(
+                        (
+                            "good",
+                            f"Batch {cohort.number}: {drawn['civic']} civic and "
+                            f"{drawn['other']} other V1 stories; "
+                            f"{made} assignments made.",
+                        )
+                    )
+            elif this.kind == Round.COLLECTION:
+                cohort, plan = draw_training_batch(this, size)
+                if cohort is None:
+                    notices.append(
+                        ("warn", "Nothing drawn: every category is at its floor.")
+                    )
+                else:
+                    made = assign_cohort(cohort)
+                    find_check_stories(this.codebook_version)
+                    hidden = hide_check_stories(cohort)
+                    total = sum(row["drawn"] for row in plan)
+                    notices.append(
+                        (
+                            "good" if total >= size else "warn",
+                            f"Batch {cohort.number}: {total} stories drawn, "
+                            f"{made} assignments made, {hidden} check stories "
+                            "hidden among them.",
+                        )
+                    )
+            else:
+                cohort, drawn = draw_cohort(
+                    size, for_round=this, note=(request.POST.get("note") or "").strip()
+                )
+                made = assign_cohort(cohort)
+                total = sum(drawn.values())
+                notices.append(
+                    (
+                        "good" if total == size else "warn",
+                        f"Batch {cohort.number}: {total} of {size} stories drawn, "
+                        f"{made} assignments made.",
+                    )
+                )
+        elif action == "invite":
+            cohorts = list(this.cohorts.filter(closed_at__isnull=True))
+            if not cohorts:
+                notices.append(("bad", "Open a batch before inviting coders to it."))
+            else:
+                try:
+                    for cohort in cohorts:
+                        invite_coder(
+                            request.POST.get("email"), cohort, invited_by=request.user
+                        )
+                except ValueError as problem:
+                    notices.append(("bad", str(problem).capitalize() + "."))
+                else:
+                    made = sum(assign_cohort(cohort) for cohort in cohorts)
+                    notices.append(
+                        ("good", f"Added to the round; {made} assignments made.")
+                    )
+        elif action == "assign":
+            made = sum(
+                assign_cohort(cohort)
+                for cohort in this.cohorts.filter(closed_at__isnull=True)
+            )
+            notices.append(("good", f"{made} assignments made."))
+        elif action == "evaluate":
+            # Written down as it stood: the decision this supports has to
+            # be answerable later with the figures it was taken on.
+            result = gate(this, by=request.user, record=True)
+            notices.append(
+                (
+                    "good" if result["outcome"] == "pass" else "warn",
+                    "Recorded: " + result["record"].get_outcome_display().lower() + ".",
+                )
+            )
+        elif action == "review" and this.is_practice:
+            if not round_report(this).get("coded"):
+                notices.append(
+                    ("bad", "Not every coder has finished the practice stories.")
+                )
+            else:
+                admitted = hold_review(
+                    this,
+                    by=request.user,
+                    notes=(request.POST.get("notes") or "").strip(),
+                )
+                notices.append(
+                    (
+                        "good",
+                        f"Review recorded. {len(admitted)} coder(s) admitted under "
+                        f"{this.codebook_version.name}.",
+                    )
+                )
+        elif action in dict(CoderStanding.STATUSES):
+            user = get_user_model().objects.filter(pk=request.POST.get("user")).first()
+            if user is None:
+                notices.append(("bad", "No such user."))
+            else:
+                set_standing(
+                    user,
+                    this.codebook_version,
+                    action,
+                    by=request.user,
+                    note=(request.POST.get("note") or "").strip(),
+                )
+                notices.append(("good", f"{user}: {action}."))
+
+    context = round_report(this)
+    context["notices"] = notices
+    context["review"] = practice_review(this) if this.is_practice else None
+    context["statuses"] = CoderStanding
+    # As it stands now, unrecorded; and every evaluation recorded so far.
+    context["gate"] = gate(this)
+    context["gates"] = this.gates.select_related("evaluated_by")[:10]
+    figures = coder_figures(this)
+    checks = check_figures(this)
+    for row in context["coders"]:
+        row["figures"] = figures.get(row["user"].id)
+        row["checks"] = checks.get(row["user"].id)
+    return render(request, "review/cin_round.html", context)
+
+
+@requires_admin
+def cin_export(request):
+    """The labels for the retrain, as a CSV.
+
+    One row per story with a label under one codebook version. What is
+    left out is left out by `training_rows`, in one place: practice,
+    check stories, removed coders, rejections, and stories with no label.
+    """
+    import csv
+
+    from django.http import HttpResponse
+    from django.shortcuts import get_object_or_404
+
+    from review.classification import EXPORT_FIELDS, CodebookVersion, training_rows
+
+    version = get_object_or_404(CodebookVersion, name=request.GET.get("codebook"))
+    shown = request.GET.get("names") == "shown"
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = (
+        f'attachment; filename="cin-training-{version.name}.csv"'
+    )
+    writer = csv.DictWriter(response, fieldnames=EXPORT_FIELDS)
+    writer.writeheader()
+    writer.writerows(training_rows(version, shown_names=shown))
+    return response
 
 
 # --------------------------------------------------------------------

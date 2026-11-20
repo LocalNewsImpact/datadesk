@@ -86,24 +86,45 @@ def test_the_headline_and_body_are_shown(client, coder, assigned):
     assert "word0" in body
 
 
-def test_the_url_is_text_and_not_a_link(client, coder, assigned):
-    """A coder who opens the publisher's page is reading the live
-    article -- including whatever it has become since capture -- and is
-    no longer labelling the row in front of them."""
+def test_the_coder_sees_the_headline_and_text_and_nothing_else(client, coder, assigned):
+    """What the V1 coders were given, so what a V2 answer must be given
+    to be compared with theirs: no URL, publisher, date or model label.
+    A URL names the publisher and often the section, which is the
+    answer."""
     client.force_login(coder)
     body = client.get(URL).content.decode()
-    assert "https://a.example/one" in body
-    assert 'href="https://a.example/one"' not in body
+    assert "Council votes on the new library" in body
+    assert "word0" in body
+    assert "a.example" not in body
+    assert "A Paper" not in body
 
 
-def test_the_body_is_cut_to_about_what_the_model_reads(client, coder, assigned):
-    """The model sees title + body truncated at 512 BERT tokens, roughly
-    350-400 words. A window much larger means some disagreement measures
-    the truncation rather than the model."""
+def test_a_story_with_no_cleaned_text_shows_no_page_capture(
+    client, coder, assigned, crawler_schema
+):
+    """The raw capture is the whole page -- dates, captions, menus. A
+    story without cleaned text is shown with none, and the coder rejects
+    it as a technical error."""
+    from explorer.models import Article
+
+    Article.objects.using("crawler").filter(id="a-1").update(
+        text="", raw="Posted Nov 3 PHOTO CAPTION menu"
+    )
     client.force_login(coder)
     body = client.get(URL).content.decode()
-    assert "word249" in body
-    assert "word400" not in body
+    assert "PHOTO CAPTION" not in body
+    assert "Council votes on the new library" in body
+
+
+def test_the_coder_reads_the_whole_story(client, coder, assigned):
+    """As the V1 coders did. The pilot compares V2 answers with V1
+    answers on the same stories, and an answer given on the first 250
+    words is not an answer on the same story."""
+    client.force_login(coder)
+    body = client.get(URL).content.decode()
+    assert "word0" in body
+    assert "word599" in body
+    assert "about what the" not in body
 
 
 def test_the_models_own_answer_is_never_shown(client, coder, assigned):

@@ -410,8 +410,17 @@ class WorklistCount(models.Model):
 # they are a self-contained set with a long rationale, and imported here
 # because Django finds models through the app's `models` module.
 from review.classification import (  # noqa: E402,F401  (import for discovery)
+    CheckResult,
+    CheckStory,
     ClassificationAssignment,
     ClassificationCohort,
     ClassificationDecision,
     ClassificationSample,
+    ClassificationStory,
+    CodebookSettings,
+    CodebookVersion,
+    CoderStanding,
+    GateResult,
+    Round,
+    V1Decision,
 )
