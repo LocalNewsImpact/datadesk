@@ -2436,12 +2436,12 @@ def classification_queue(request):
     confidence, no status, no wire flag. A label produced by somebody who
     has seen the model's answer cannot be used to score the model.
     """
-    from explorer.models import Article
     from review.classification import (
         ClassificationAssignment,
         ClassificationCohort,
         ClassificationDecision,
         CodebookVersion,
+        stories_for,
     )
 
     if request.method == "POST":
@@ -2453,17 +2453,17 @@ def classification_queue(request):
     outstanding = (
         ClassificationAssignment.objects.filter(
             assigned_to=request.user, completed_at__isnull=True, cohort__in=cohorts
-        )
-        .select_related("cohort")
-        .order_by("assigned_at")
+        ).select_related("cohort")
+        # `id` settles the order within a batch, whose assignments are
+        # made in one statement at one time and in a shuffled order.
+        .order_by("assigned_at", "id")
     )
 
     assignment = outstanding.first()
     article = None
     if assignment is not None:
-        article = (
-            Article.objects.using("crawler").filter(id=assignment.article_id).first()
-        )
+        # A crawler article, or a story loaded from outside the crawler.
+        article = stories_for([assignment.article_id]).get(assignment.article_id)
 
     body = _story_text(article) if article is not None else ""
 
@@ -2879,6 +2879,8 @@ def cin_round(request, pk):
         Round,
         assign_cohort,
         draw_cohort,
+        draw_pilot,
+        draw_training_batch,
         hold_review,
         invite_coder,
         practice_review,
@@ -2897,6 +2899,45 @@ def cin_round(request, pk):
                 size = 0
             if size < 1:
                 notices.append(("bad", "A batch needs at least one story."))
+            elif this.kind == Round.COMPARISON:
+                # The pilot is the V1 stories: every civic one, and
+                # `size` of the others.
+                cohort, drawn = draw_pilot(this, others=size)
+                if cohort is None:
+                    notices.append(
+                        (
+                            "bad",
+                            "No V1 stories to draw. Load them first with "
+                            "manage.py import_v1_stories, and note that a "
+                            "story is drawn into one batch only.",
+                        )
+                    )
+                else:
+                    made = assign_cohort(cohort)
+                    notices.append(
+                        (
+                            "good",
+                            f"Batch {cohort.number}: {drawn['civic']} civic and "
+                            f"{drawn['other']} other V1 stories; "
+                            f"{made} assignments made.",
+                        )
+                    )
+            elif this.kind == Round.COLLECTION:
+                cohort, plan = draw_training_batch(this, size)
+                if cohort is None:
+                    notices.append(
+                        ("warn", "Nothing drawn: every category is at its floor.")
+                    )
+                else:
+                    made = assign_cohort(cohort)
+                    total = sum(row["drawn"] for row in plan)
+                    notices.append(
+                        (
+                            "good" if total >= size else "warn",
+                            f"Batch {cohort.number}: {total} stories drawn, "
+                            f"{made} assignments made.",
+                        )
+                    )
             else:
                 cohort, drawn = draw_cohort(
                     size, for_round=this, note=(request.POST.get("note") or "").strip()

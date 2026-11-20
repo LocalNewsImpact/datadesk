@@ -41,8 +41,9 @@
   </ul>
   {% elif categories %}
   <p>
-    Finished when every category has {{ floor }} stories two coders
-    agreed on.
+    Finished when every category has {{ floor }} labelled stories. V1
+    records with a label count first; new stories count when two coders
+    agree.
     {% if binding %}Furthest from it: <strong>{{ binding.shown }}</strong>,
     {{ binding.count }} of {{ floor }}.{% endif %}
   </p>
@@ -53,6 +54,8 @@
           <th scope="col">Category</th>
           <th scope="col" class="num">Agreed stories</th>
           <th scope="col" class="num">Of {{ floor }}</th>
+          <th scope="col" class="num"
+              title="Of the stories drawn for this category, the share coders placed in it. It sets how many more must be drawn.">Hit rate</th>
         </tr>
       </thead>
       <tbody>
@@ -61,6 +64,7 @@
           <th scope="row">{{ row.shown }}</th>
           <td class="num">{{ row.count }}</td>
           <td class="num">{{ row.percent }}%</td>
+          <td class="num">{% if row.hit_rate is None %}&mdash;{% else %}{% widthratio row.hit_rate 1 100 %}%{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -153,9 +157,9 @@
   <form method="post" class="inline-form tight">
     {% csrf_token %}
     <input type="hidden" name="action" value="batch">
-    <label for="size">Stories</label>
+    <label for="size">{% if round.kind == "comparison" %}Other V1 stories, beside every civic one{% else %}Stories{% endif %}</label>
     <input type="number" id="size" name="size" min="1" max="20000"
-           value="{% if round.is_practice %}20{% else %}300{% endif %}" required>
+           value="{% if round.is_practice %}20{% elif round.kind == "comparison" %}400{% else %}300{% endif %}" required>
     <label for="note">Note</label>
     <input type="text" id="note" name="note" maxlength="200">
     <button type="submit">Open a batch</button>

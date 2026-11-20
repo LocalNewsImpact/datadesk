@@ -414,8 +414,10 @@ from review.classification import (  # noqa: E402,F401  (import for discovery)
     ClassificationCohort,
     ClassificationDecision,
     ClassificationSample,
+    ClassificationStory,
     CodebookSettings,
     CodebookVersion,
     CoderStanding,
     Round,
+    V1Decision,
 )

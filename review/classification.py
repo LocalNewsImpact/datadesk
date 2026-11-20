@@ -587,7 +587,17 @@ class ClassificationSample(models.Model):
     UNCERTAIN = "uncertain"
     RANDOM = "random"
     UNLABELLED = "unlabelled"
-    STRATA = [(s, s) for s in (CONFIDENT, UNCERTAIN, RANDOM, UNLABELLED)]
+    #: Draws made by a round's own rule rather than the four above.
+    #: `civic` and `other` are the two groups of a pilot drawn from the
+    #: V1 stories; `category` is a training draw made for one category by
+    #: the model's label.
+    CIVIC = "civic"
+    OTHER = "other"
+    CATEGORY = "category"
+    STRATA = [
+        (s, s)
+        for s in (CONFIDENT, UNCERTAIN, RANDOM, UNLABELLED, CIVIC, OTHER, CATEGORY)
+    ]
 
     cohort = models.ForeignKey(
         ClassificationCohort, on_delete=models.CASCADE, related_name="samples"
@@ -782,6 +792,111 @@ class ClassificationDecision(models.Model):
 # What the CIN admin section answers. Kept here rather than in the view
 # because the agreement arithmetic is the substance -- a view should not
 # be where "do two coders agree" is decided.
+
+
+class ClassificationStory(models.Model):
+    """A story to code that is not in the crawler.
+
+    The queue read crawler articles and nothing else. The stories coded
+    in 2023 under the first codebook are not there: the crawler's
+    earliest extraction is September 2025, and none of them matches by
+    URL or id. Re-crawling them would change the text, hit paywalls and
+    push 2023 stories into the crawler's enrichment and export. They are
+    loaded here instead, with the headline and text the V1 coders read,
+    so that a V2 answer is an answer about the same thing.
+
+    The id carries a namespace (`v1:500`) so it can sit in the same
+    `article_id` columns as a crawler UUID and never collide with one.
+    """
+
+    V1 = "v1-2023"
+
+    #: What the V1 coding made of the story, by the thesis rule.
+    LABEL_09 = "label_09"
+    LABEL_07 = "label_07"
+    REJECTED = "rejected"
+    NO_LABEL = "none"
+    OUTCOMES = [
+        (LABEL_09, "Two coders chose the same primary"),
+        (LABEL_07, "One coder's primary is another's secondary"),
+        (REJECTED, "Two coders rejected it"),
+        (NO_LABEL, "No agreed label"),
+    ]
+
+    id = models.CharField(max_length=64, primary_key=True)
+    origin = models.CharField(max_length=20, default=V1)
+    headline = models.TextField(blank=True, default="")
+    body = models.TextField(blank=True, default="")
+    url = models.TextField(blank=True, default="")
+    host = models.CharField(max_length=200, blank=True, default="")
+    source_hash = models.CharField(max_length=64, blank=True, default="")
+    v1_outcome = models.CharField(
+        max_length=12, choices=OUTCOMES, blank=True, default=""
+    )
+    v1_label = models.CharField(max_length=64, blank=True, default="")
+    #: Any V1 coder put it in Civic information or Civic Life, primary
+    #: or secondary: the stories the V2 definitions are tested on.
+    civic = models.BooleanField(default=False)
+
+    def __str__(self):
+        return self.id
+
+    # The two names the queue reads from a crawler article.
+    @property
+    def title(self):
+        return self.headline
+
+    @property
+    def text(self):
+        return self.body
+
+
+class V1Decision(models.Model):
+    """What one V1 coder said about one story.
+
+    Not a `ClassificationDecision`: the V1 coders are not users here,
+    and their answers are the baseline V2 is measured against rather
+    than answers given in this queue.
+    """
+
+    story = models.ForeignKey(
+        ClassificationStory, on_delete=models.CASCADE, related_name="v1_decisions"
+    )
+    group = models.CharField(max_length=1)
+    primary_label = models.CharField(max_length=64, blank=True, default="")
+    secondary_label = models.CharField(max_length=64, blank=True, default="")
+    reject_reason = models.CharField(max_length=32, blank=True, default="")
+    also_present = models.TextField(blank=True, default="")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["story", "group"], name="one_v1_decision_per_group_per_story"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.story_id} group {self.group}"
+
+
+def stories_for(article_ids):
+    """id -> something with `.title` and `.text`, wherever the story is.
+
+    A namespaced id (`v1:500`) is a `ClassificationStory`; anything else
+    is a crawler article. One lookup, so the queue and the practice
+    review cannot disagree about where a story lives.
+    """
+    from explorer.models import Article
+
+    ids = list(article_ids)
+    ours = [i for i in ids if ":" in i]
+    theirs = [i for i in ids if ":" not in i]
+    found = {}
+    if ours:
+        found.update(ClassificationStory.objects.in_bulk(ours))
+    if theirs:
+        found.update(Article.objects.using("crawler").in_bulk(theirs))
+    return found
 
 
 def standings(version):
@@ -1055,14 +1170,53 @@ UNCERTAIN_BELOW = 0.5
 #: What the crawler considers classifiable -- the same statuses
 #: `analysis.py` feeds the model, so the queue reviews the population the
 #: model actually sees rather than a wider one.
-CLASSIFIABLE_STATUSES = ("cleaned", "local")
+#:
+#: `labeled` and `enriched` are where a story goes once the model has
+#: labelled it: about 100,500 stories, against 321 still in `cleaned`.
+#: A draw limited to the first two statuses saw almost none of the
+#: corpus and none of what the model had already answered.
+CLASSIFIABLE_STATUSES = ("cleaned", "local", "labeled", "enriched")
+
+#: The datasets stories are drawn from. Vermont is left out: student
+#: newspapers, not fully collected or labelled.
+DRAW_DATASETS = (
+    "Mizzou-Missouri-State",
+    "WSU-Washington-State",
+    "Penn-State-Lehigh",
+)
+#: Missouri is 96% of labelled stories. Drawn without regard to state, a
+#: training set is Missouri alone and the model is then used on all
+#: three. So each category takes up to this many from each of the two
+#: smaller datasets, and the rest from Missouri.
+SMALL_DATASETS = ("WSU-Washington-State", "Penn-State-Lehigh")
+PER_SMALL_DATASET = 60
+
+
+def draw_dataset_ids():
+    """slug -> id for the datasets a draw may use, where they exist."""
+    from explorer.models import Dataset
+
+    return dict(
+        Dataset.objects.using("crawler")
+        .filter(slug__in=DRAW_DATASETS)
+        .values_list("slug", "id")
+    )
+
+
+def _pool():
+    """Every crawler story a draw may take."""
+    from explorer.models import Article
+
+    rows = Article.objects.using("crawler").filter(status__in=CLASSIFIABLE_STATUSES)
+    # Where none of the named datasets exists -- another installation, a
+    # test corpus -- there is nothing to restrict to.
+    ids = list(draw_dataset_ids().values())
+    return rows.filter(dataset_id__in=ids) if ids else rows
 
 
 def _stratum_pool(stratum):
     """The articles a stratum may draw from, as an unordered queryset."""
-    from explorer.models import Article
-
-    rows = Article.objects.using("crawler").filter(status__in=CLASSIFIABLE_STATUSES)
+    rows = _pool()
     if stratum == ClassificationSample.CONFIDENT:
         return rows.filter(primary_label_confidence__gte=CONFIDENT_AT_OR_ABOVE)
     if stratum == ClassificationSample.UNCERTAIN:
@@ -1276,6 +1430,14 @@ def assign_cohort(cohort):
         .order_by("id")
         .values_list("article_id", flat=True)
     )
+    # Shuffled, the same way every time for one cohort. Samples are
+    # stored group by group -- a pilot's civic stories, then the others;
+    # a training batch category by category -- and a coder who meets
+    # forty Education stories in a row has been told what the next one
+    # is. A queue is worked in the order assignments were made.
+    import random
+
+    random.Random(cohort.pk).shuffle(article_ids)
     for article_id in article_ids:
         already = existing.get(article_id, set())
         # Rotate the starting point per article so the same pair does not
@@ -1457,11 +1619,8 @@ def round_report(round):
         )
     else:
         floor = int(round.finish_rule.get("per_category") or 0)
-        counts = dict.fromkeys(CIN_LABELS, 0)
-        for made in by_story.values():
-            label = _agreed_label(made)
-            if label in counts:
-                counts[label] += 1
+        counts = training_counts(round)
+        hits = hit_rates(round)
         rows = [
             {
                 "label": label,
@@ -1469,6 +1628,7 @@ def round_report(round):
                 "count": counts[label],
                 "floor": floor,
                 "percent": round_percent(min(counts[label], floor), floor),
+                "hit_rate": hits.get(label),
             }
             for label in CIN_LABELS
         ]
@@ -1498,8 +1658,6 @@ def practice_review(round):
     definitions. Empty until every coder has finished -- a coder who
     sees the others' answers first is no longer practising.
     """
-    from explorer.models import Article
-
     report = round_report(round)
     if not report.get("coded"):
         return {"ready": False, "rows": [], "report": report}
@@ -1513,11 +1671,7 @@ def practice_review(round):
     by_story = {}
     for decision in decisions:
         by_story.setdefault(decision.article_id, []).append(decision)
-    titles = dict(
-        Article.objects.using("crawler")
-        .filter(id__in=list(by_story))
-        .values_list("id", "title")
-    )
+    titles = {key: story.title for key, story in stories_for(by_story).items()}
     guide = {row["label"]: row for row in version.guidance_rows()}
     rows = []
     for article_id, made in by_story.items():
@@ -1577,3 +1731,254 @@ def hold_review(round, *, by, notes=""):
             )
             admitted.append(row["user"])
     return admitted
+
+
+# ------------------------------------------------------------ round draws
+
+
+def _open_batch(for_round, samples, note):
+    """A cohort in a round holding exactly these samples."""
+    from django.db import transaction
+
+    with transaction.atomic():
+        number = (
+            ClassificationCohort.objects.aggregate(models.Max("number"))["number__max"]
+            or 0
+        ) + 1
+        cohort = ClassificationCohort.objects.create(
+            number=number,
+            slug=ClassificationCohort.slug_for(number),
+            target_coders=for_round.base_coders,
+            note=note,
+            codebook_version=for_round.codebook_version,
+            round=for_round,
+        )
+        for sample in samples:
+            sample.cohort = cohort
+        ClassificationSample.objects.bulk_create(samples, batch_size=500)
+    for user in round_coders(for_round):
+        grant_cohort(user, cohort)
+    return cohort
+
+
+def draw_pilot(for_round, *, others=400, seed=0):
+    """The pilot's stories: every civic V1 story, and `others` of the rest.
+
+    All from the V1 coding, so a V2 answer is compared with the V1
+    answers on the same story. The stories two V1 coders rejected are
+    left out -- they are not stories to label -- and the ones V1 coders
+    never agreed on stay in: they are what the old definitions failed
+    on, and leaving them out would flatter V1.
+
+    The civic stories are taken whole. The others are a random draw,
+    there so the round reads as ordinary local news and no coder has a
+    reason to expect one category; the chance each had of being drawn is
+    recorded with it.
+    """
+    import random
+
+    taken = set(ClassificationSample.objects.values_list("article_id", flat=True))
+    usable = ClassificationStory.objects.filter(origin=ClassificationStory.V1).exclude(
+        v1_outcome=ClassificationStory.REJECTED
+    )
+    civic = [s.id for s in usable.filter(civic=True) if s.id not in taken]
+    rest = sorted(s.id for s in usable.filter(civic=False) if s.id not in taken)
+    chosen = random.Random(seed).sample(rest, min(others, len(rest)))
+    probability = (len(chosen) / len(rest)) if rest else 1.0
+    samples = [
+        ClassificationSample(
+            article_id=story_id,
+            stratum=ClassificationSample.CIVIC,
+            inclusion_probability=1.0,
+            dataset_id=ClassificationStory.V1,
+        )
+        for story_id in civic
+    ] + [
+        ClassificationSample(
+            article_id=story_id,
+            stratum=ClassificationSample.OTHER,
+            inclusion_probability=probability,
+            dataset_id=ClassificationStory.V1,
+        )
+        for story_id in chosen
+    ]
+    if not samples:
+        return None, {"civic": 0, "other": 0}
+    cohort = _open_batch(for_round, samples, "pilot: V1 stories")
+    return cohort, {"civic": len(civic), "other": len(chosen)}
+
+
+def training_counts(for_round):
+    """label -> stories that count toward a training round's floor.
+
+    V1 records count first, and only those with a label: the label V2
+    coders agreed on where the story was in a pilot under this codebook,
+    else the label V1 coders agreed on. A V1 story that was rejected, or
+    has no agreed label, is not training data and is not counted. Then
+    the round's own stories two coders agreed on.
+    """
+    version = for_round.codebook_version
+    counts = dict.fromkeys(CIN_LABELS, 0)
+    by_story = {}
+    for decision in counted_decisions(version):
+        by_story.setdefault(decision.article_id, []).append(decision)
+
+    piloted = set(
+        ClassificationSample.objects.filter(
+            cohort__round__kind=Round.COMPARISON, cohort__codebook_version=version
+        ).values_list("article_id", flat=True)
+    )
+    for story in ClassificationStory.objects.filter(origin=ClassificationStory.V1):
+        if story.id in piloted:
+            label = _agreed_label(by_story.get(story.id, []))
+        elif story.v1_outcome in (
+            ClassificationStory.LABEL_09,
+            ClassificationStory.LABEL_07,
+        ):
+            label = story.v1_label
+        else:
+            label = None
+        if label in counts:
+            counts[label] += 1
+
+    ours = set(
+        ClassificationSample.objects.filter(cohort__round=for_round).values_list(
+            "article_id", flat=True
+        )
+    )
+    for story_id in ours:
+        label = _agreed_label(by_story.get(story_id, []))
+        if label in counts:
+            counts[label] += 1
+    return counts
+
+
+def hit_rates(for_round):
+    """label -> the share of stories drawn for a category that coders
+    placed in it, or None where nothing has been settled yet.
+
+    Stories are drawn by the model's label and the model is not always
+    right, so reaching a floor takes more draws than the floor. How many
+    more is measured here, from stories that have two answers.
+    """
+    version = for_round.codebook_version
+    by_story = {}
+    for decision in counted_decisions(version).filter(cohort__round=for_round):
+        by_story.setdefault(decision.article_id, []).append(decision)
+    drawn, hit = {}, {}
+    for story_id, label in ClassificationSample.objects.filter(
+        cohort__round=for_round, stratum=ClassificationSample.CATEGORY
+    ).values_list("article_id", "model_label"):
+        made = by_story.get(story_id, [])
+        if len(made) < 2:
+            continue
+        drawn[label] = drawn.get(label, 0) + 1
+        hit[label] = hit.get(label, 0) + (_agreed_label(made) == label)
+    return {
+        label: (hit.get(label, 0) / drawn[label] if drawn.get(label) else None)
+        for label in CIN_LABELS
+    }
+
+
+#: A category whose measured hit rate is zero would ask for unbounded
+#: draws. Below this it is treated as this.
+LOWEST_HIT_RATE = 0.05
+
+
+def training_plan(for_round, size):
+    """How a batch of `size` is divided between the categories.
+
+    Each category needs (floor - what it has) more labels, and gets them
+    at its hit rate, so it needs that many divided by the rate in draws.
+    The batch is shared in proportion to those. Before anything has been
+    measured every rate is taken as 1, which makes the first batch a
+    plain division by need -- and that batch is what measures the rates.
+    """
+    import math
+
+    floor = int(for_round.finish_rule.get("per_category") or 0)
+    have = training_counts(for_round)
+    rates = hit_rates(for_round)
+    rows = []
+    for label in CIN_LABELS:
+        need = max(0, floor - have[label])
+        rate = rates[label]
+        wanted = need / max(rate if rate is not None else 1.0, LOWEST_HIT_RATE)
+        rows.append(
+            {
+                "label": label,
+                "have": have[label],
+                "need": need,
+                "rate": rate,
+                "wanted": wanted,
+            }
+        )
+    total = sum(row["wanted"] for row in rows)
+    for row in rows:
+        share = size * row["wanted"] / total if total else 0
+        row["draw"] = min(math.ceil(row["wanted"]), int(share + 0.5))
+    return rows
+
+
+def draw_training_batch(for_round, size=300):
+    """A batch of new stories, by category and by state.
+
+    Each category's share (`training_plan`) is taken from the model's
+    label. Within it, up to `PER_SMALL_DATASET` stories over the whole
+    round come from each of the smaller datasets, a third of the share
+    at a time, and the rest from Missouri; where a dataset has fewer
+    than that in a category, all of them.
+    """
+    import math
+
+    plan = training_plan(for_round, size)
+    datasets = draw_dataset_ids()
+    small = [datasets[slug] for slug in SMALL_DATASETS if slug in datasets]
+    taken = set(ClassificationSample.objects.values_list("article_id", flat=True))
+    already = {}
+    for label, dataset_id in ClassificationSample.objects.filter(
+        cohort__round=for_round, stratum=ClassificationSample.CATEGORY
+    ).values_list("model_label", "dataset_id"):
+        already[(label, dataset_id)] = already.get((label, dataset_id), 0) + 1
+
+    samples = []
+    for row in plan:
+        label, want = row["label"], row["draw"]
+        row["drawn"] = 0
+        if not want:
+            continue
+        pool = _pool().filter(primary_label=label).exclude(id__in=taken)
+        parts = []
+        for dataset_id in small:
+            quota = PER_SMALL_DATASET - already.get((label, dataset_id), 0)
+            parts.append(
+                (pool.filter(dataset_id=dataset_id), min(math.ceil(want / 3), quota))
+            )
+        for rows, limit in parts + [(pool.exclude(dataset_id__in=small), None)]:
+            limit = want - row["drawn"] if limit is None else limit
+            limit = max(0, min(limit, want - row["drawn"]))
+            if not limit:
+                continue
+            total = rows.count()
+            picked = list(
+                rows.order_by("?").values_list(
+                    "id", "dataset_id", "primary_label_confidence"
+                )[:limit]
+            )
+            probability = (len(picked) / total) if total else 1.0
+            for article_id, dataset_id, confidence in picked:
+                taken.add(article_id)
+                samples.append(
+                    ClassificationSample(
+                        article_id=article_id,
+                        stratum=ClassificationSample.CATEGORY,
+                        inclusion_probability=probability,
+                        dataset_id=dataset_id or "",
+                        model_label=label,
+                        model_confidence=confidence,
+                    )
+                )
+            row["drawn"] += len(picked)
+    if not samples:
+        return None, plan
+    return _open_batch(for_round, samples, "training batch"), plan

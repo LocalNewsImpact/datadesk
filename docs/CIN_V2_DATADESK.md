@@ -160,6 +160,11 @@ Source files: Groups A, C, E in `~/Downloads/Archive Excel/`; B, D in
 iCloud `Documents/Mizzou/LNIC/`. 1,000 stories, 2,246 answers; text
 present for every civic story (median 359 words).
 
+Four Group A answers use an earlier form wording, `NONE PRESENT
+(including technical issues)`; they load as `no_appropriate_category`.
+Any other value outside the ten categories and the four rejections
+stops the import.
+
 The V1 files' `bart_label` is an older topic model's label set (Roads
 and Car Crashes, Weather, Crime…), not CIN. It cannot stand in for the
 current model's label.
