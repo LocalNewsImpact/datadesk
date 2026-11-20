@@ -405,3 +405,13 @@ All admin only.
     coder used Civic Information is "not enough data", not a pass.
 16. **A pilot is coded under a version that is already frozen**, so a
     pass makes that version final; nothing is frozen at the gate.
+17. **Check stories are hidden 10 at a time**, each time a training
+    batch is opened, until a coder has 40. A coder is judged once the
+    other coders have answered at least 40 between them.
+18. **Held-back stories are marked when drawn**, a random 50-in-250
+    share of each category's draws, before anybody has coded them. The
+    count that ends up held back per category is therefore close to 50,
+    not exactly 50.
+19. **A coder's queue is in a random order** fixed when each assignment
+    is made, so a batch stored category by category, or a set of check
+    stories, is not met in the order it was made.

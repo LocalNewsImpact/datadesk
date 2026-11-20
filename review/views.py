@@ -2454,9 +2454,10 @@ def classification_queue(request):
         ClassificationAssignment.objects.filter(
             assigned_to=request.user, completed_at__isnull=True, cohort__in=cohorts
         ).select_related("cohort")
-        # `id` settles the order within a batch, whose assignments are
-        # made in one statement at one time and in a shuffled order.
-        .order_by("assigned_at", "id")
+        # A random order, fixed when each assignment was made. Work made
+        # in one step -- a batch stored category by category, a set of
+        # check stories -- is then not met in the order it was made.
+        .order_by("position", "id")
     )
 
     assignment = outstanding.first()
@@ -2503,6 +2504,8 @@ def _submit_classification(request):
         ClassificationAssignment,
         ClassificationDecision,
         ClassificationSample,
+        add_third_coder,
+        judge_check_stories,
     )
 
     assignment = (
@@ -2554,6 +2557,7 @@ def _submit_classification(request):
         secondary_label=secondary,
         reject_reason=reject,
         codebook_version=codebook,
+        is_check=assignment.is_check,
         stratum=getattr(sample, "stratum", ""),
         inclusion_probability=getattr(sample, "inclusion_probability", 1.0),
         dataset_id=getattr(sample, "dataset_id", ""),
@@ -2561,6 +2565,13 @@ def _submit_classification(request):
     )
     assignment.completed_at = timezone.now()
     assignment.save(update_fields=["completed_at"])
+    if assignment.is_check:
+        # Judged once, when a coder reaches their fortieth.
+        if assignment.cohort.round is not None:
+            judge_check_stories(assignment.cohort.round)
+    else:
+        # Where the first two coders differ, the round may ask for a third.
+        add_third_coder(assignment.cohort, assignment.article_id)
     return redirect("review:classification")
 
 
@@ -2826,8 +2837,9 @@ def cin_rounds(request):
         try:
             base = int(request.POST.get("base_coders") or 3)
             floor = int(request.POST.get("per_category") or 0)
+            held = int(request.POST.get("holdout") or 0)
         except ValueError:
-            base, floor = 0, 0
+            base, floor, held = 0, 0, 0
         if not name:
             notices.append(("bad", "A round needs a name."))
         elif Round.objects.filter(name=name).exists():
@@ -2850,7 +2862,11 @@ def cin_rounds(request):
                 question=(request.POST.get("question") or "").strip(),
                 base_coders=base,
                 third_on_split=bool(request.POST.get("third_on_split")),
-                finish_rule={"per_category": floor} if floor else {},
+                finish_rule=(
+                    {"per_category": floor, "holdout": min(held, floor)}
+                    if floor
+                    else {}
+                ),
             )
             return redirect("review:cin_round", pk=created.pk)
 
@@ -2878,11 +2894,14 @@ def cin_round(request, pk):
         CoderStanding,
         Round,
         assign_cohort,
+        check_figures,
         coder_figures,
         draw_cohort,
         draw_pilot,
         draw_training_batch,
+        find_check_stories,
         gate,
+        hide_check_stories,
         hold_review,
         invite_coder,
         practice_review,
@@ -2932,12 +2951,15 @@ def cin_round(request, pk):
                     )
                 else:
                     made = assign_cohort(cohort)
+                    find_check_stories(this.codebook_version)
+                    hidden = hide_check_stories(cohort)
                     total = sum(row["drawn"] for row in plan)
                     notices.append(
                         (
                             "good" if total >= size else "warn",
                             f"Batch {cohort.number}: {total} stories drawn, "
-                            f"{made} assignments made.",
+                            f"{made} assignments made, {hidden} check stories "
+                            "hidden among them.",
                         )
                     )
             else:
@@ -3026,9 +3048,38 @@ def cin_round(request, pk):
     context["gate"] = gate(this)
     context["gates"] = this.gates.select_related("evaluated_by")[:10]
     figures = coder_figures(this)
+    checks = check_figures(this)
     for row in context["coders"]:
         row["figures"] = figures.get(row["user"].id)
+        row["checks"] = checks.get(row["user"].id)
     return render(request, "review/cin_round.html", context)
+
+
+@requires_admin
+def cin_export(request):
+    """The labels for the retrain, as a CSV.
+
+    One row per story with a label under one codebook version. What is
+    left out is left out by `training_rows`, in one place: practice,
+    check stories, removed coders, rejections, and stories with no label.
+    """
+    import csv
+
+    from django.http import HttpResponse
+    from django.shortcuts import get_object_or_404
+
+    from review.classification import EXPORT_FIELDS, CodebookVersion, training_rows
+
+    version = get_object_or_404(CodebookVersion, name=request.GET.get("codebook"))
+    shown = request.GET.get("names") == "shown"
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = (
+        f'attachment; filename="cin-training-{version.name}.csv"'
+    )
+    writer = csv.DictWriter(response, fieldnames=EXPORT_FIELDS)
+    writer.writeheader()
+    writer.writerows(training_rows(version, shown_names=shown))
+    return response
 
 
 # --------------------------------------------------------------------

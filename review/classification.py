@@ -27,6 +27,8 @@ thing being measured.
 See docs/CLASSIFICATION_REVIEW_QUEUE.md.
 """
 
+import random
+
 from django.conf import settings
 from django.db import models
 from lnic_contracts import cin_labels
@@ -667,6 +669,10 @@ class ClassificationSample(models.Model):
     #: be computed without re-reading a table that keeps changing.
     model_label = models.CharField(max_length=64, blank=True, default="")
     model_confidence = models.FloatField(null=True, blank=True)
+    #: Held back to test the retrained model, and so never trained on.
+    #: Decided when the story is drawn, before anybody has coded it: a
+    #: test set chosen after the labels are known is chosen by them.
+    holdout = models.BooleanField(default=False)
     drawn_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -679,6 +685,11 @@ class ClassificationSample(models.Model):
 
     def __str__(self):
         return f"{self.article_id} in {self.cohort}"
+
+
+def queue_position():
+    """Where a new assignment falls in its coder's queue: anywhere."""
+    return random.random()
 
 
 class ClassificationAssignment(models.Model):
@@ -707,6 +718,14 @@ class ClassificationAssignment(models.Model):
     #: cohort will not finish on time needs throughput history, and
     #: history cannot be collected retrospectively.
     completed_at = models.DateTimeField(null=True, blank=True)
+    #: A check story: one with a known answer, hidden among a coder's
+    #: real work to see whether they are reading. Its answer is scored
+    #: against the known one and counted nowhere else.
+    is_check = models.BooleanField(default=False)
+    #: Where it falls in the coder's queue. Random, so that work made in
+    #: one step -- a batch, a set of check stories -- is not met in the
+    #: order it was made, which would announce what it is.
+    position = models.FloatField(default=queue_position)
     #: Why this assignment exists, where it replaced a stale one. Kept
     #: rather than overwritten: a coder whose assignments are routinely
     #: reassigned is a fact worth knowing, and so is a cohort that needed
@@ -808,6 +827,9 @@ class ClassificationDecision(models.Model):
     stratum = models.CharField(max_length=20, blank=True, default="")
     inclusion_probability = models.FloatField(default=1.0)
     dataset_id = models.CharField(max_length=64, blank=True, default="")
+    #: Given on a check story. Left out of every agreement figure and of
+    #: the training export: it measures the coder, not the story.
+    is_check = models.BooleanField(default=False)
     #: How long the coder spent, in seconds. The only defence against a
     #: coder who is clicking through, short of the seeded check records,
     #: and it costs nothing to record.
@@ -841,6 +863,65 @@ class ClassificationDecision(models.Model):
 # What the CIN admin section answers. Kept here rather than in the view
 # because the agreement arithmetic is the substance -- a view should not
 # be where "do two coders agree" is decided.
+
+
+class CheckStory(models.Model):
+    """A story with a known answer, for checking that a coder is reading.
+
+    Agreement between coders cannot catch a coder who is not reading:
+    two who both click the first option agree perfectly. A check story
+    can, and it costs about one story in fifty. The known answer is the
+    category every coder in a pilot chose under the same codebook, so it
+    is the codebook's answer and nobody's opinion.
+    """
+
+    codebook_version = models.ForeignKey(
+        "CodebookVersion", on_delete=models.PROTECT, related_name="check_stories"
+    )
+    article_id = models.CharField(max_length=64)
+    answer = models.CharField(max_length=64)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["codebook_version", "article_id"],
+                name="one_check_answer_per_story_per_codebook",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.article_id}: {self.answer}"
+
+
+class CheckResult(models.Model):
+    """A coder's check stories, judged once.
+
+    At 40 check stories a coder is paused if they missed more than a
+    coder working normally would by chance 1 time in 100, where normal
+    is the other coders' combined miss rate on check stories. Judged
+    once and written down with the figures it was judged on: a rule
+    looked at after every story pauses careful coders by accident.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    round = models.ForeignKey(
+        "Round", on_delete=models.PROTECT, related_name="check_results"
+    )
+    stories = models.PositiveIntegerField()
+    misses = models.PositiveIntegerField()
+    normal_miss_rate = models.FloatField()
+    threshold = models.PositiveIntegerField()
+    paused = models.BooleanField(default=False)
+    judged_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "round"], name="one_check_result_per_coder_per_round"
+            )
+        ]
 
 
 class ClassificationStory(models.Model):
@@ -984,7 +1065,8 @@ def set_standing(user, version, status, *, by=None, note=""):
 
 def counted_decisions(version):
     """The decisions that count toward agreement and training under one
-    codebook: not practice, and not from a removed coder.
+    codebook: not practice, not a check story, and not from a removed
+    coder.
 
     One place, so no figure can be computed over answers another figure
     leaves out. Decisions from before versions existed carry none and
@@ -999,7 +1081,7 @@ def counted_decisions(version):
         if status == CoderStanding.REMOVED
     ]
     return (
-        ClassificationDecision.objects.filter(under)
+        ClassificationDecision.objects.filter(under, is_check=False)
         .exclude(cohort__round__kind=Round.PRACTICE)
         .exclude(decided_by_id__in=removed)
     )
@@ -1505,7 +1587,7 @@ def assign_cohort(cohort):
     }
     existing = {}
     for user_id, article_id in ClassificationAssignment.objects.filter(
-        cohort=cohort
+        cohort=cohort, is_check=False
     ).values_list("assigned_to_id", "article_id"):
         if user_id not in removed:
             existing.setdefault(article_id, set()).add(user_id)
@@ -1672,7 +1754,9 @@ def round_report(round):
 
     decisions = [
         d
-        for d in ClassificationDecision.objects.filter(cohort__in=cohorts)
+        for d in ClassificationDecision.objects.filter(
+            cohort__in=cohorts, is_check=False
+        )
         if d.decided_by_id not in removed
     ]
     by_story = {}
@@ -2008,7 +2092,9 @@ def draw_training_batch(for_round, size=300):
     """A batch of new stories, by category and by state.
 
     Each category's share (`training_plan`) is taken from the model's
-    label. Within it, up to `PER_SMALL_DATASET` stories over the whole
+    label, and the round's held-back share of them (`holdout` over
+    `per_category` in its finish rule) is marked as it is drawn. Within
+    it, up to `PER_SMALL_DATASET` stories over the whole
     round come from each of the smaller datasets, a third of the share
     at a time, and the rest from Missouri; where a dataset has fewer
     than that in a category, all of them.
@@ -2016,6 +2102,9 @@ def draw_training_batch(for_round, size=300):
     import math
 
     plan = training_plan(for_round, size)
+    floor = int(for_round.finish_rule.get("per_category") or 0)
+    held_back = int(for_round.finish_rule.get("holdout") or 0) / floor if floor else 0.0
+    holdout = random.Random(for_round.pk * 1000 + for_round.cohorts.count())
     datasets = draw_dataset_ids()
     small = [datasets[slug] for slug in SMALL_DATASETS if slug in datasets]
     taken = set(ClassificationSample.objects.values_list("article_id", flat=True))
@@ -2060,6 +2149,9 @@ def draw_training_batch(for_round, size=300):
                         dataset_id=dataset_id or "",
                         model_label=label,
                         model_confidence=confidence,
+                        # Already in random order, so the share held
+                        # back is a random share.
+                        holdout=holdout.random() < held_back,
                     )
                 )
             row["drawn"] += len(picked)
@@ -2303,3 +2395,332 @@ def coder_figures(for_round):
         coder: {**pace.get(coder, {}), "agreement": agreement.get(coder)}
         for coder in set(pace) | set(agreement)
     }
+
+
+# ------------------------------------------------------ third on a split
+
+
+def add_third_coder(cohort, article_id):
+    """Give a story a third coder where its first two disagreed.
+
+    In a round that asks for it, a story is read by two coders, and by a
+    third only when those two chose differently -- a category against
+    another category, or against a rejection. Two who both reject it
+    have agreed it is not a story to label, and it gets nobody else.
+
+    The third is an admitted coder who has not seen the story, the one
+    with the least outstanding work. Returns the new assignment, or None
+    where there is nothing to do. Safe to call again.
+    """
+    for_round = cohort.round
+    if for_round is None or not for_round.third_on_split or for_round.is_practice:
+        return None
+    decisions = list(
+        counted_decisions(cohort.codebook).filter(cohort=cohort, article_id=article_id)
+    )
+    if len(decisions) != 2 or _agree(*decisions) is not False:
+        return None
+    on_story = set(
+        ClassificationAssignment.objects.filter(
+            cohort=cohort, article_id=article_id, is_check=False
+        ).values_list("assigned_to_id", flat=True)
+    )
+    if len(on_story) > 2:
+        return None
+    standing = standings(cohort.codebook)
+    seen = set(
+        ClassificationDecision.objects.filter(article_id=article_id).values_list(
+            "decided_by_id", flat=True
+        )
+    )
+    free = [
+        user
+        for user in coders_for(cohort)
+        if standing.get(user.id) == CoderStanding.ADMITTED
+        and user.id not in on_story
+        and user.id not in seen
+    ]
+    if not free:
+        return None
+    load = {}
+    for user_id in ClassificationAssignment.objects.filter(
+        assigned_to__in=free, completed_at__isnull=True
+    ).values_list("assigned_to_id", flat=True):
+        load[user_id] = load.get(user_id, 0) + 1
+    third = min(free, key=lambda user: (load.get(user.id, 0), user.username))
+    return ClassificationAssignment.objects.create(
+        cohort=cohort, article_id=article_id, assigned_to=third
+    )
+
+
+# ------------------------------------------------------------ check stories
+
+#: How many check stories a coder is judged on, and how many are hidden
+#: in their queue each time a batch is opened until they have that many.
+CHECK_STORIES = 40
+CHECK_STORIES_PER_BATCH = 10
+
+
+def find_check_stories(version):
+    """Record the pilot stories every coder agreed on as check stories.
+
+    From pilot rounds under this codebook: a story is a check story when
+    it has all its coders' answers and every one chose the same
+    category. Idempotent; returns how many there are.
+    """
+    pilots = Round.objects.filter(kind=Round.COMPARISON, codebook_version=version)
+    base = {pilot.pk: pilot.base_coders for pilot in pilots}
+    by_story = {}
+    for decision in counted_decisions(version).filter(cohort__round__in=pilots):
+        by_story.setdefault((decision.article_id, decision.cohort.round_id), []).append(
+            decision.primary_label
+        )
+    known = set(
+        CheckStory.objects.filter(codebook_version=version).values_list(
+            "article_id", flat=True
+        )
+    )
+    made = [
+        CheckStory(codebook_version=version, article_id=story, answer=labels[0])
+        for (story, pilot), labels in by_story.items()
+        if story not in known
+        and len(labels) >= base[pilot]
+        and labels[0]
+        and len(set(labels)) == 1
+    ]
+    CheckStory.objects.bulk_create(made)
+    return len(known) + len(made)
+
+
+def hide_check_stories(cohort, per_coder=CHECK_STORIES_PER_BATCH):
+    """Hide check stories among each coder's work in a batch.
+
+    Up to `per_coder` each, until a coder has `CHECK_STORIES` in the
+    round, and only stories that coder has never coded: no coder codes a
+    story twice, so a pilot coder is given check stories from the part
+    of the pilot they were not assigned. A queue is worked in a random
+    order, so a check story looks like any other.
+    """
+    for_round = cohort.round
+    if for_round is None or for_round.kind != Round.COLLECTION:
+        return 0
+    version = cohort.codebook
+    pool = list(
+        CheckStory.objects.filter(codebook_version=version).values_list(
+            "article_id", flat=True
+        )
+    )
+    if not pool:
+        return 0
+    standing = standings(version)
+    made = []
+    for user in coders_for(cohort):
+        if standing.get(user.id) != CoderStanding.ADMITTED:
+            continue
+        have = ClassificationAssignment.objects.filter(
+            cohort__round=for_round, assigned_to=user, is_check=True
+        ).count()
+        want = min(per_coder, CHECK_STORIES - have)
+        if want <= 0:
+            continue
+        seen = set(
+            ClassificationDecision.objects.filter(decided_by=user).values_list(
+                "article_id", flat=True
+            )
+        ) | set(
+            ClassificationAssignment.objects.filter(assigned_to=user).values_list(
+                "article_id", flat=True
+            )
+        )
+        fresh = [story for story in pool if story not in seen]
+        chooser = random.Random(f"{cohort.pk}-{user.pk}")
+        for story in chooser.sample(fresh, min(want, len(fresh))):
+            made.append(
+                ClassificationAssignment(
+                    cohort=cohort, article_id=story, assigned_to=user, is_check=True
+                )
+            )
+    ClassificationAssignment.objects.bulk_create(made)
+    return len(made)
+
+
+def check_figures(for_round):
+    """coder id -> (check stories answered, misses) in a round."""
+    answers = dict(
+        CheckStory.objects.filter(
+            codebook_version=for_round.codebook_version
+        ).values_list("article_id", "answer")
+    )
+    out = {}
+    for user_id, story, label in ClassificationDecision.objects.filter(
+        cohort__round=for_round, is_check=True
+    ).values_list("decided_by_id", "article_id", "primary_label"):
+        done, misses = out.get(user_id, (0, 0))
+        out[user_id] = (done + 1, misses + (label != answers.get(story)))
+    return out
+
+
+def judge_check_stories(for_round, *, by=None):
+    """Judge every coder who has reached `CHECK_STORIES` and has not
+    been judged, and pause those over the threshold.
+
+    The normal miss rate is the OTHER coders' combined rate, so a coder
+    is not compared with themselves. A coder is not judged until the
+    others have answered at least `CHECK_STORIES` check stories between
+    them: a rate from a handful of answers is not a rate.
+    """
+    figures = check_figures(for_round)
+    judged = set(
+        CheckResult.objects.filter(round=for_round).values_list("user_id", flat=True)
+    )
+    results = []
+    for user_id, (done, misses) in figures.items():
+        if user_id in judged or done < CHECK_STORIES:
+            continue
+        others_done = sum(d for u, (d, _) in figures.items() if u != user_id)
+        others_missed = sum(x for u, (_, x) in figures.items() if u != user_id)
+        if others_done < CHECK_STORIES:
+            continue
+        normal = others_missed / others_done
+        threshold = cin_metrics.pause_threshold(done, normal)
+        paused = misses >= threshold
+        result = CheckResult.objects.create(
+            user_id=user_id,
+            round=for_round,
+            stories=done,
+            misses=misses,
+            normal_miss_rate=normal,
+            threshold=threshold,
+            paused=paused,
+        )
+        if paused:
+            set_standing(
+                result.user,
+                for_round.codebook_version,
+                CoderStanding.PAUSED,
+                by=by,
+                note=(
+                    f"check stories: {misses} missed of {done}; paused at "
+                    f"{threshold}, the others missing {normal:.0%}"
+                ),
+            )
+        results.append(result)
+    return results
+
+
+# ------------------------------------------------------- training export
+
+EXPORT_FIELDS = (
+    "story_id",
+    "source",
+    "label",
+    "secondary",
+    "confidence",
+    "weight",
+    "secondary_weight",
+    "n_coders",
+    "codebook_version",
+    "round",
+    "stratum",
+    "inclusion_probability",
+    "split",
+)
+
+
+def training_rows(version, *, shown_names=False):
+    """One row per story with a label, for the retrain.
+
+    The stories coded under this codebook in pilot and training rounds
+    that settled on a label, and the V1 stories that were not in a pilot
+    and came out of V1 with one. Never practice answers, check stories,
+    a removed coder's answers, rejected stories, or stories left with no
+    label.
+
+    `split` is `holdout` for a story held back when it was drawn, and
+    `train` otherwise. With `shown_names` the labels are the names the
+    codebook shows (Community Life) rather than the stored ones, for a
+    retrain that changes the model's label set.
+    """
+    name = version.shown if shown_names else (lambda label: label)
+    decisions = list(
+        counted_decisions(version)
+        .filter(cohort__round__kind__in=(Round.COMPARISON, Round.COLLECTION))
+        .select_related("cohort__round")
+    )
+    by_story, rounds = {}, {}
+    for decision in sorted(decisions, key=lambda d: (d.decided_at, d.pk)):
+        by_story.setdefault(decision.article_id, []).append(decision)
+        rounds[decision.article_id] = decision.cohort.round
+    samples = {
+        sample.article_id: sample
+        for sample in ClassificationSample.objects.filter(
+            article_id__in=list(by_story), cohort__codebook_version=version
+        )
+    }
+    rows = []
+    for story, made in by_story.items():
+        confidence, label = cin_metrics.settled_label([as_answer(d) for d in made])
+        if not label:
+            continue
+        secondary = next(
+            (
+                d.secondary_label
+                for d in made
+                if d.primary_label == label
+                and d.secondary_label
+                and d.secondary_label != label
+            ),
+            "",
+        )
+        sample = samples.get(story)
+        rows.append(
+            {
+                "story_id": story,
+                "source": "v1" if ":" in story else "crawler",
+                "label": name(label),
+                "secondary": name(secondary) if secondary else "",
+                "confidence": confidence,
+                "weight": 1.0,
+                "secondary_weight": 0.5 if secondary else "",
+                "n_coders": len(made),
+                "codebook_version": version.name,
+                "round": rounds[story].name,
+                "stratum": sample.stratum if sample else "",
+                "inclusion_probability": sample.inclusion_probability if sample else "",
+                "split": "holdout" if sample and sample.holdout else "train",
+            }
+        )
+
+    piloted = set(
+        ClassificationSample.objects.filter(
+            cohort__round__kind=Round.COMPARISON, cohort__codebook_version=version
+        ).values_list("article_id", flat=True)
+    )
+    coders = {}
+    for story_id in V1Decision.objects.values_list("story_id", flat=True):
+        coders[story_id] = coders.get(story_id, 0) + 1
+    for story in ClassificationStory.objects.filter(
+        origin=ClassificationStory.V1,
+        v1_outcome__in=(ClassificationStory.LABEL_09, ClassificationStory.LABEL_07),
+    ).exclude(id__in=piloted):
+        rows.append(
+            {
+                "story_id": story.id,
+                "source": "v1",
+                "label": name(story.v1_label),
+                "secondary": "",
+                "confidence": (
+                    0.9 if story.v1_outcome == ClassificationStory.LABEL_09 else 0.7
+                ),
+                "weight": 1.0,
+                "secondary_weight": "",
+                "n_coders": coders.get(story.id, 0),
+                "codebook_version": "V1",
+                "round": "",
+                "stratum": "",
+                "inclusion_probability": "",
+                "split": "train",
+            }
+        )
+    rows.sort(key=lambda row: row["story_id"])
+    return rows

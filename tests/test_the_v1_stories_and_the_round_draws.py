@@ -227,7 +227,7 @@ def test_a_coders_queue_does_not_run_group_by_group(v1):
     assign_cohort(cohort)
     order = list(
         ClassificationAssignment.objects.filter(assigned_to=coder)
-        .order_by("assigned_at", "id")
+        .order_by("position", "id")
         .values_list("article_id", flat=True)
     )
     strata = dict(cohort.samples.values_list("article_id", "stratum"))

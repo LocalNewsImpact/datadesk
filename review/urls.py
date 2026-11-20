@@ -19,6 +19,7 @@ urlpatterns = [
     path("cin/codebook/", views.cin_codebook, name="cin_codebook"),
     path("cin/rounds/", views.cin_rounds, name="cin_rounds"),
     path("cin/rounds/<int:pk>/", views.cin_round, name="cin_round"),
+    path("cin/export/", views.cin_export, name="cin_export"),
     path(
         "extraction-problems/",
         views.extraction_problems,

@@ -108,6 +108,14 @@
       </span>
     </div>
     <div class="field">
+      <label for="holdout">Of those, held back to test the model</label>
+      <input type="number" id="holdout" name="holdout" min="0" placeholder="50">
+      <span class="field-note quiet">
+        Marked when a story is drawn, before anybody has coded it, and
+        never trained on.
+      </span>
+    </div>
+    <div class="field">
       <label for="question">The question it answers</label>
       <input type="text" id="question" name="question" maxlength="300"
              placeholder="Do coders agree under V2?">

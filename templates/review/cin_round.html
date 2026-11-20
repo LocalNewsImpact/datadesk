@@ -171,6 +171,8 @@
           <th scope="col" class="num"
               title="Share of stories on which this coder and the other first coder chose the same category. Never shown to coders.">Matches others</th>
           <th scope="col" class="num">Median seconds</th>
+          <th scope="col" class="num"
+              title="Check stories have a known answer and are hidden among a coder's work. Judged once, at 40.">Check stories missed</th>
           <th scope="col">Standing under {{ round.codebook_version.name }}</th>
           <th scope="col">Change</th>
         </tr>
@@ -183,6 +185,7 @@
           <td class="num">{{ row.done }}</td>
           <td class="num">{% if row.figures.agreement.rate is None %}&mdash;{% else %}{% widthratio row.figures.agreement.rate 1 100 %}% <span class="quiet">of {{ row.figures.agreement.n }}</span>{% endif %}</td>
           <td class="num">{{ row.figures.median_seconds|default:"—" }}</td>
+          <td class="num">{% if row.checks %}{{ row.checks.1 }} of {{ row.checks.0 }}{% else %}&mdash;{% endif %}</td>
           <td>{% if row.standing %}{{ row.standing|capfirst }}{% else %}Not yet admitted{% endif %}</td>
           <td>
             <form method="post" class="inline">
@@ -257,6 +260,20 @@
     <button type="submit" class="linklike"
             title="Hands out any stories not yet assigned. Safe to run again.">Assign unassigned stories</button>
   </form>
+
+  {% if not round.is_practice %}
+  <h2>Labels for the retrain</h2>
+  <p>
+    Every story with a label under {{ round.codebook_version.name }}, from
+    every pilot and training round, with the V1 stories that kept a V1
+    label. Held-back stories are marked and are never training rows.
+  </p>
+  <p>
+    <a href="{% url 'review:cin_export' %}?codebook={{ round.codebook_version.name|urlencode }}">Download, with stored category names</a>
+    &middot;
+    <a href="{% url 'review:cin_export' %}?codebook={{ round.codebook_version.name|urlencode }}&amp;names=shown">with the names coders saw</a>
+  </p>
+  {% endif %}
 
   {% if review %}
   <h2>Practice review</h2>
