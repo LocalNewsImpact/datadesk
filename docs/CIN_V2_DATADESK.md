@@ -71,7 +71,7 @@ categories. **No story is decided by one person.**
 
 | Procedure needs | Datadesk today | Gap |
 | --- | --- | --- |
-| Coders see headline and text only, as V1 coders did: no URL, publisher, date, byline, photo, caption | Queue printed the URL and fell back to the raw page capture when cleaned text was missing | Fixed with WP1: no URL; `text` only, never `raw`. Captions or datelines inside the stored text are an extraction matter the queue cannot see |
+| Coders see headline and text only, as V1 coders did: no URL, publisher, date, byline, photo, caption | Queue printed the URL and fell back to the raw page capture when cleaned text was missing | Fixed with WP1: no URL; the whole `text`, never `raw`, no 250-word cut. Captions or datelines inside the stored text are an extraction matter the queue cannot see |
 | V1 and V2 answers never pooled | One `CodebookSettings` row; per-category guidance hard-coded in `CODING_GUIDE` | No codebook version on cohorts or decisions |
 | "Community Life" on screen, "Civic Life" stored | Labels shown as stored | No display map |
 | Rejections: Obituary, Advertorial, Service or lifestyle copy | Six rejections | Three missing |
@@ -393,9 +393,5 @@ All admin only.
     Pennsylvania, the rest from Missouri.
 13. **Coders see the headline and the story text only**: no URL,
     publisher, date, byline, photo or caption, as in V1.
-
-## 6. Open
-
-1. **How much text a coder sees.** The queue shows the first 250 words;
-   V1 coders saw the whole story (median 359 words). For the pilot's
-   same-story comparison the two must match.
+14. **Coders read the whole story**, as V1 coders did, not the first 250
+    words.

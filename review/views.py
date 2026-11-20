@@ -2401,30 +2401,27 @@ def _submit_discovery_decisions(request):
 # The classification queue
 # --------------------------------------------------------------------
 
-#: How much of the body a coder reads. The model sees title + body
-#: truncated at 512 BERT tokens, roughly 350-400 words, and the
-#: historical cohorts showed a median article of 255 words. A window
-#: much larger than the model's input means some disagreement measures
-#: the truncation rather than the model.
-READING_WORDS = 250
 
+def _story_text(article):
+    """The whole cleaned body, paragraphs kept.
 
-def _reading_window(article):
-    """The first `READING_WORDS` of the cleaned body, and whether there
-    is more.
+    The whole story, as the V1 coders read it: the pilot compares V2
+    answers with V1 answers on the same stories, and an answer given on
+    the first 250 words is not an answer on the same story. The queue
+    used to cut the body to about what the model reads (512 BERT tokens,
+    350-400 words); that measured the coder against the model's window
+    at the cost of measuring them against each other.
 
     `text` only, never `raw`. The raw capture is the whole page: dates,
     photo captions, menus, cookie notices. A coder is given the headline
-    and the story text and nothing else, as the V1 coders were, and a
-    story with no cleaned text is shown with none -- which the coder
-    rejects as a technical error rather than coding from page furniture.
-    Classifying the raw capture is also how 3% of stored articles got a
-    CIN label derived from a list of section names.
+    and the story text and nothing else, and a story with no cleaned
+    text is shown with none -- which the coder rejects as a technical
+    error rather than coding from page furniture. Classifying the raw
+    capture is also how 3% of stored articles got a CIN label derived
+    from a list of section names.
     """
     value = getattr(article, "text", None)
-    body = value.strip() if isinstance(value, str) else ""
-    words = body.split()
-    return " ".join(words[:READING_WORDS]), len(words) > READING_WORDS
+    return value.strip() if isinstance(value, str) else ""
 
 
 @requires(CLASSIFY)
@@ -2468,9 +2465,7 @@ def classification_queue(request):
             Article.objects.using("crawler").filter(id=assignment.article_id).first()
         )
 
-    body, truncated = ("", False)
-    if article is not None:
-        body, truncated = _reading_window(article)
+    body = _story_text(article) if article is not None else ""
 
     done = ClassificationDecision.objects.filter(decided_by=request.user).count()
     # Everything a coder is shown comes from the codebook version their
@@ -2484,7 +2479,6 @@ def classification_queue(request):
             "assignment": assignment,
             "article": article,
             "body": body,
-            "truncated": truncated,
             # (stored, shown). The stored label is the model's class
             # name; the version may show it under another.
             "labels": codebook.label_choices(),
@@ -2494,7 +2488,6 @@ def classification_queue(request):
             "rejections": codebook.rejection_choices(),
             "remaining": outstanding.count(),
             "done": done,
-            "reading_words": READING_WORDS,
         },
     )
 

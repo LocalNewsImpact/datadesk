@@ -41,20 +41,12 @@
     {% endcomment %}
 
     {% comment %}
-    About what the model reads: it sees title + body truncated at 512
-    BERT tokens, roughly 350-400 words. A window much larger than that
-    means some disagreement measures the truncation rather than the
-    model. Scrollable rather than clipped, so nothing is hidden.
+    The whole story, as the V1 coders read it. Scrollable rather than
+    clipped, so nothing is hidden.
     {% endcomment %}
     <div class="story-body" tabindex="0" role="region"
          aria-label="Article text, scrollable">
       {{ body|linebreaks }}
-      {% if truncated %}
-      <p class="quiet">
-        — first {{ reading_words }} words, which is about what the
-        classifier reads.
-      </p>
-      {% endif %}
     </div>
   </article>
 
