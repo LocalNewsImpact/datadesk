@@ -2410,26 +2410,26 @@ READING_WORDS = 250
 
 
 def _reading_window(article):
-    """The first `READING_WORDS` of the body, and whether there is more.
+    """The first `READING_WORDS` of the cleaned body, and whether there
+    is more.
 
-    `text` is the cleaned body and `raw` the capture, in that
-    order: classifying the raw capture means classifying navigation
-    menus and cookie notices, which is how 3% of stored articles got a
+    `text` only, never `raw`. The raw capture is the whole page: dates,
+    photo captions, menus, cookie notices. A coder is given the headline
+    and the story text and nothing else, as the V1 coders were, and a
+    story with no cleaned text is shown with none -- which the coder
+    rejects as a technical error rather than coding from page furniture.
+    Classifying the raw capture is also how 3% of stored articles got a
     CIN label derived from a list of section names.
     """
-    body = ""
-    for field in ("text", "raw"):
-        value = getattr(article, field, None)
-        if isinstance(value, str) and value.strip():
-            body = value.strip()
-            break
+    value = getattr(article, "text", None)
+    body = value.strip() if isinstance(value, str) else ""
     words = body.split()
     return " ".join(words[:READING_WORDS]), len(words) > READING_WORDS
 
 
 @requires(CLASSIFY)
 def classification_queue(request):
-    """One assigned story at a time: headline, URL, body, and a judgement.
+    """One assigned story at a time: headline, body, and a judgement.
 
     No filters. Not by dataset, not by date, not by publisher — choosing
     what to look at is how a sample stops being one, and the coder is

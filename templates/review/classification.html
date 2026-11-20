@@ -33,14 +33,12 @@
     <h2 class="story-headline">{{ article.title|default:"(no headline)" }}</h2>
 
     {% comment %}
-    The URL as text, deliberately not a link. A coder who opens the
-    publisher's page is reading the live article — including whatever it
-    has become since capture — and is no longer labelling the row in
-    front of them.
+    Headline and text, and nothing else: no URL, date, photo, caption,
+    byline or publisher. That is what the V1 coders were given, so it is
+    what a V2 answer has to be given to be compared with theirs. A URL
+    in particular names the publisher and often the section
+    (/sports/prep_sports/), which is the answer.
     {% endcomment %}
-    <p class="story-url" aria-label="Original URL, for reference">
-      {{ article.url }}
-    </p>
 
     {% comment %}
     About what the model reads: it sees title + body truncated at 512
