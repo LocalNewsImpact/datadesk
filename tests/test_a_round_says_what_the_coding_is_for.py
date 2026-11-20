@@ -1,0 +1,385 @@
+"""A round says what a run of coding is for, and who may do it.
+
+Practice answers are never counted. A pilot or training round gives
+stories only to coders who have finished a practice and its review. A
+paused coder gives back what they had; a removed coder's answers are
+withdrawn and their stories coded again.
+
+See docs/CIN_V2_DATADESK.md, WP2 and WP6.
+"""
+
+import pytest
+from django.contrib.auth.models import User
+from django.urls import reverse
+
+from accounts.models import DATADESK, Grant
+from accounts.privileges import ADMIN, CLASSIFIER
+from review.classification import (
+    ClassificationAssignment,
+    ClassificationCohort,
+    ClassificationDecision,
+    ClassificationSample,
+    CodebookVersion,
+    CoderStanding,
+    Round,
+    agreement_report,
+    assign_cohort,
+    hold_review,
+    open_round,
+    practice_review,
+    round_report,
+    set_standing,
+    standings,
+)
+
+pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
+
+_numbers = iter(range(1, 1000))
+
+
+def _coder(name):
+    return User.objects.create_user(name, email=f"{name}@localnewsimpact.org")
+
+
+def _batch(round, stories, coders, target=None):
+    number = next(_numbers)
+    cohort = ClassificationCohort.objects.create(
+        number=number,
+        slug=f"cohort-{number}",
+        round=round,
+        codebook_version=round.codebook_version,
+        target_coders=target or round.base_coders,
+    )
+    for story in stories:
+        ClassificationSample.objects.create(
+            cohort=cohort, article_id=story, stratum="random"
+        )
+    for user in coders:
+        Grant.objects.create(
+            user=user, app=DATADESK, scope=cohort.slug, role=CLASSIFIER
+        )
+    return cohort
+
+
+def _answer(cohort, user, story, label):
+    ClassificationDecision.objects.create(
+        cohort=cohort,
+        article_id=story,
+        decided_by=user,
+        primary_label=label,
+        codebook_version=cohort.codebook_version,
+    )
+    ClassificationAssignment.objects.filter(
+        cohort=cohort, article_id=story, assigned_to=user
+    ).update(completed_at="2026-11-20T00:00:00Z")
+
+
+def _assigned(cohort, user):
+    return set(
+        ClassificationAssignment.objects.filter(
+            cohort=cohort, assigned_to=user
+        ).values_list("article_id", flat=True)
+    )
+
+
+@pytest.fixture
+def version(db):
+    return CodebookVersion.v1()
+
+
+@pytest.fixture
+def practice(version):
+    return open_round("Practice", Round.PRACTICE, codebook_version=version)
+
+
+@pytest.fixture
+def pilot(version):
+    return open_round(
+        "Pilot", Round.COMPARISON, codebook_version=version, base_coders=3
+    )
+
+
+# --------------------------------------------------------------- practice
+
+
+def test_in_practice_every_coder_codes_every_story(practice):
+    coders = [_coder(n) for n in "abcd"]
+    cohort = _batch(practice, ["p1", "p2", "p3"], coders)
+    assert assign_cohort(cohort) == 12
+    for user in coders:
+        assert _assigned(cohort, user) == {"p1", "p2", "p3"}
+
+
+def test_a_coder_who_joins_later_gets_the_same_practice_stories(practice):
+    first = [_coder(n) for n in "abc"]
+    cohort = _batch(practice, ["p1", "p2"], first)
+    assign_cohort(cohort)
+    late = _coder("late")
+    Grant.objects.create(user=late, app=DATADESK, scope=cohort.slug, role=CLASSIFIER)
+    assert assign_cohort(cohort) == 2
+    assert _assigned(cohort, late) == {"p1", "p2"}
+
+
+def test_practice_answers_are_not_counted_in_agreement(practice, pilot, version):
+    a, b = _coder("a"), _coder("b")
+    rehearsal = _batch(practice, ["p1"], [a, b])
+    assign_cohort(rehearsal)
+    _answer(rehearsal, a, "p1", "Sports")
+    _answer(rehearsal, b, "p1", "Health")
+    assert agreement_report(version)["pairs"] == 0
+
+    for user in (a, b):
+        set_standing(user, version, CoderStanding.ADMITTED)
+    real = _batch(pilot, ["s1"], [a, b])
+    assign_cohort(real)
+    _answer(real, a, "s1", "Sports")
+    _answer(real, b, "s1", "Sports")
+    report = agreement_report(version)
+    assert (report["pairs"], report["overall"]) == (1, 100.0)
+
+
+def test_the_review_is_closed_until_every_coder_has_finished(practice):
+    a, b = _coder("a"), _coder("b")
+    cohort = _batch(practice, ["p1"], [a, b])
+    assign_cohort(cohort)
+    _answer(cohort, a, "p1", "Sports")
+    review = practice_review(practice)
+    assert review["ready"] is False and review["rows"] == []
+
+
+def test_the_review_puts_the_answers_side_by_side(practice, crawler_schema):
+    a, b = _coder("a"), _coder("b")
+    cohort = _batch(practice, ["p1", "p2"], [a, b])
+    assign_cohort(cohort)
+    _answer(cohort, a, "p1", "Sports")
+    _answer(cohort, b, "p1", "Health")
+    _answer(cohort, a, "p2", "Education")
+    _answer(cohort, b, "p2", "Education")
+    review = practice_review(practice)
+    assert review["ready"] and review["differing"] == 1
+    # The stories they answered differently come first.
+    first = review["rows"][0]
+    assert first["article_id"] == "p1" and first["differ"]
+    assert {x["answer"] for x in first["answers"]} == {"Sports", "Health"}
+    assert {d["label"] for d in first["definitions"]} == {"Sports", "Health"}
+
+
+def test_holding_the_review_admits_those_who_finished(practice, version):
+    a, b = _coder("a"), _coder("b")
+    lead = _coder("lead")
+    cohort = _batch(practice, ["p1"], [a, b])
+    assign_cohort(cohort)
+    _answer(cohort, a, "p1", "Sports")
+    assert round_report(practice)["finished"] is False
+    _answer(cohort, b, "p1", "Sports")
+    admitted = hold_review(practice, by=lead, notes="Narrowed Civic Information.")
+    assert set(admitted) == {a, b}
+    assert standings(version) == {
+        a.id: CoderStanding.ADMITTED,
+        b.id: CoderStanding.ADMITTED,
+    }
+    practice.refresh_from_db()
+    assert practice.reviewed_by == lead and "Narrowed" in practice.review_notes
+    assert round_report(practice)["finished"] is True
+
+
+# ------------------------------------------------------ admission to pilot
+
+
+def test_a_pilot_gives_stories_only_to_admitted_coders(pilot, version):
+    ready, new = _coder("ready"), _coder("new")
+    set_standing(ready, version, CoderStanding.ADMITTED)
+    cohort = _batch(pilot, ["s1", "s2"], [ready, new], target=2)
+    assign_cohort(cohort)
+    assert _assigned(cohort, ready) == {"s1", "s2"}
+    assert _assigned(cohort, new) == set()
+    # Admitted later, they are topped up without starting again.
+    set_standing(new, version, CoderStanding.ADMITTED)
+    assign_cohort(cohort)
+    assert _assigned(cohort, new) == {"s1", "s2"}
+
+
+def test_a_cohort_outside_any_round_is_assigned_as_before(version):
+    user = _coder("old")
+    cohort = ClassificationCohort.objects.create(number=900, slug="cohort-900")
+    ClassificationSample.objects.create(cohort=cohort, article_id="x", stratum="random")
+    Grant.objects.create(user=user, app=DATADESK, scope=cohort.slug, role=CLASSIFIER)
+    assert assign_cohort(cohort) == 1
+
+
+# ------------------------------------------------------- pause and remove
+
+
+def test_pausing_hands_outstanding_stories_to_someone_else(pilot, version):
+    a, b, c = (_coder(n) for n in "abc")
+    for user in (a, b, c):
+        set_standing(user, version, CoderStanding.ADMITTED)
+    cohort = _batch(pilot, ["s1", "s2", "s3"], [a, b, c], target=2)
+    assign_cohort(cohort)
+    done = sorted(_assigned(cohort, a))[0]
+    _answer(cohort, a, done, "Sports")
+
+    set_standing(a, version, CoderStanding.PAUSED, note="slow")
+
+    # What they had finished stays theirs; the rest is given back.
+    assert _assigned(cohort, a) == {done}
+    for story in ("s1", "s2", "s3"):
+        holders = ClassificationAssignment.objects.filter(
+            cohort=cohort, article_id=story
+        ).count()
+        assert holders == 2
+    assert agreement_report(version)["decisions"] == 1
+
+
+def test_removing_withdraws_answers_and_the_story_is_coded_again(pilot, version):
+    a, b, c = (_coder(n) for n in "abc")
+    for user in (a, b, c):
+        set_standing(user, version, CoderStanding.ADMITTED)
+    cohort = _batch(pilot, ["s1"], [a, b, c], target=2)
+    assign_cohort(cohort)
+    first, second = (
+        ClassificationAssignment.objects.get(pk=pk).assigned_to
+        for pk in ClassificationAssignment.objects.filter(cohort=cohort)
+        .order_by("id")
+        .values_list("pk", flat=True)
+    )
+    spare = ({a, b, c} - {first, second}).pop()
+    _answer(cohort, first, "s1", "Sports")
+    _answer(cohort, second, "s1", "Health")
+    assert agreement_report(version)["pairs"] == 1
+
+    set_standing(first, version, CoderStanding.REMOVED, note="clicking through")
+
+    # Their answer leaves every figure, and the story has a new coder.
+    assert agreement_report(version)["pairs"] == 0
+    assert agreement_report(version)["decisions"] == 1
+    assert _assigned(cohort, spare) == {"s1"}
+    assert round_report(pilot)["decisions"] == 1
+
+
+# -------------------------------------------------------------- progress
+
+
+def test_a_pilot_is_finished_when_every_story_has_its_coders(pilot, version):
+    coders = [_coder(n) for n in "abc"]
+    for user in coders:
+        set_standing(user, version, CoderStanding.ADMITTED)
+    cohort = _batch(pilot, ["s1", "s2"], coders)
+    assign_cohort(cohort)
+    for user in coders:
+        _answer(cohort, user, "s1", "Sports")
+    report = round_report(pilot)
+    assert (report["complete_stories"], report["finished"]) == (1, False)
+    for user in coders:
+        _answer(cohort, user, "s2", "Health")
+    assert round_report(pilot)["finished"] is True
+
+
+def test_a_training_round_is_finished_by_its_rarest_category(version):
+    training = open_round(
+        "Training",
+        Round.COLLECTION,
+        codebook_version=version,
+        base_coders=2,
+        finish_rule={"per_category": 1},
+    )
+    a, b = _coder("a"), _coder("b")
+    for user in (a, b):
+        set_standing(user, version, CoderStanding.ADMITTED)
+    cohort = _batch(training, ["s1", "s2"], [a, b])
+    assign_cohort(cohort)
+    _answer(cohort, a, "s1", "Sports")
+    _answer(cohort, b, "s1", "Sports")
+    # Two coders who differ have not produced a label.
+    _answer(cohort, a, "s2", "Health")
+    _answer(cohort, b, "s2", "Education")
+    report = round_report(training)
+    counts = {row["label"]: row["count"] for row in report["categories"]}
+    assert counts["Sports"] == 1 and counts["Health"] == 0
+    assert report["finished"] is False
+    assert report["binding"]["count"] == 0
+
+
+def test_a_batch_opened_in_a_round_takes_the_rounds_rules(
+    pilot, version, crawler_schema
+):
+    """Its codebook, its coders per story, and the coders already on the
+    round: a second batch is not a fresh round of invitations."""
+    from review.classification import draw_cohort
+
+    a, b = _coder("a"), _coder("b")
+    first = _batch(pilot, ["s1"], [a, b])
+    second, _ = draw_cohort(4, for_round=pilot, target_coders=9)
+    assert second.round == pilot
+    assert second.codebook_version == version
+    assert second.target_coders == pilot.base_coders
+    granted = set(
+        Grant.objects.filter(scope=second.slug, role=CLASSIFIER).values_list(
+            "user__username", flat=True
+        )
+    )
+    assert granted == {"a", "b"}
+    assert first.round == pilot
+
+
+# ------------------------------------------------------------- the pages
+
+
+@pytest.fixture
+def admin(client, db):
+    user = User.objects.create_user("admin", password="x")
+    Grant.objects.create(user=user, app=DATADESK, role=ADMIN, scope="")
+    client.force_login(user)
+    return user
+
+
+def test_an_admin_opens_a_round(client, admin, version):
+    response = client.post(
+        reverse("review:cin_rounds"),
+        {
+            "name": "V2 practice",
+            "kind": Round.PRACTICE,
+            "codebook": version.pk,
+            "base_coders": "3",
+        },
+    )
+    created = Round.objects.get(name="V2 practice")
+    assert response.status_code == 302
+    assert created.is_practice and created.codebook_version == version
+    body = client.get(reverse("review:cin_rounds")).content.decode()
+    assert "V2 practice" in body
+
+
+def test_a_training_round_needs_its_floor(client, admin, version):
+    body = client.post(
+        reverse("review:cin_rounds"),
+        {"name": "T", "kind": Round.COLLECTION, "codebook": version.pk},
+    ).content.decode()
+    assert "number of stories per category" in body
+    assert not Round.objects.exists()
+
+
+def test_the_round_page_records_the_review_and_admits(
+    client, admin, practice, version, crawler_schema
+):
+    a, b = _coder("a"), _coder("b")
+    cohort = _batch(practice, ["p1"], [a, b])
+    assign_cohort(cohort)
+    url = reverse("review:cin_round", args=[practice.pk])
+    assert "Opens when every coder has finished" in client.get(url).content.decode()
+    _answer(cohort, a, "p1", "Sports")
+    _answer(cohort, b, "p1", "Health")
+    body = client.post(url, {"action": "review", "notes": "ok"}).content.decode()
+    assert "2 coder(s) admitted" in body
+    assert standings(version)[a.id] == CoderStanding.ADMITTED
+
+
+def test_a_coder_cannot_reach_the_rounds_pages(client, practice):
+    user = _coder("coder")
+    Grant.objects.create(user=user, app=DATADESK, role=CLASSIFIER, scope="cohort-1")
+    client.force_login(user)
+    assert client.get(reverse("review:cin_rounds")).status_code in (302, 403)
+    assert client.get(reverse("review:cin_round", args=[practice.pk])).status_code in (
+        302,
+        403,
+    )

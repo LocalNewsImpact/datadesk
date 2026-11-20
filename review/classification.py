@@ -382,6 +382,126 @@ class CodebookVersion(models.Model):
         return [" ".join(b.split()) for b in blocks if b.strip()]
 
 
+class Round(models.Model):
+    """What a run of coding is for, and when it is finished.
+
+    A cohort is a batch of work and carries no reason. Practice coding,
+    a test of new definitions and the collection of training data were
+    indistinguishable, so nothing could say what counted toward
+    agreement or when the work was done. A round owns the cohorts opened
+    for one purpose, names the codebook they are coded under, and says
+    how many coders read each story. See docs/CIN_ROUNDS.md and
+    docs/CIN_V2_DATADESK.md (WP2).
+
+    Three kinds, because they finish differently and count differently:
+
+    practice    every coder codes every story, the lead reviews the
+                disagreements with them, and none of it is counted --
+                not in agreement, not in training.
+    comparison  the pilot: do coders agree under this codebook?
+    collection  training data, finished when every category has enough.
+    """
+
+    PRACTICE = "practice"
+    COMPARISON = "comparison"
+    COLLECTION = "collection"
+    KINDS = [
+        (PRACTICE, "Practice — not counted"),
+        (COMPARISON, "Pilot — do coders agree?"),
+        (COLLECTION, "Training — collect labels"),
+    ]
+
+    name = models.CharField(max_length=60, unique=True)
+    kind = models.CharField(max_length=12, choices=KINDS)
+    codebook_version = models.ForeignKey(
+        "CodebookVersion", on_delete=models.PROTECT, related_name="rounds"
+    )
+    question = models.TextField(blank=True, default="")
+    #: Coders per story. Ignored by a practice round, where every coder
+    #: codes every story.
+    base_coders = models.PositiveSmallIntegerField(default=3)
+    #: A third coder only where the first two differ. Recorded here;
+    #: acted on by the assignment step that adds it (WP5).
+    third_on_split = models.BooleanField(default=False)
+    #: How stories are chosen (WP4) and when the round is finished. JSON
+    #: because the rules differ by kind; `per_category` is the floor a
+    #: collection round must reach in every category.
+    draw_rule = models.JSONField(default=dict, blank=True)
+    finish_rule = models.JSONField(default=dict, blank=True)
+    opened_at = models.DateTimeField(auto_now_add=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    #: A practice round ends with the lead going through every
+    #: disagreement with the coders. That the meeting was held, and what
+    #: it changed in the definitions, is part of the record.
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    review_notes = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-opened_at", "-id"]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def is_practice(self):
+        return self.kind == self.PRACTICE
+
+
+class CoderStanding(models.Model):
+    """Whether a coder may be given counted work under a codebook.
+
+    Append-only: the latest row for a coder and a codebook version is
+    their standing, and the earlier rows are how they got there -- who
+    admitted them and when, who paused them and why.
+
+    A coder is ADMITTED after finishing the practice and its review.
+    Until then they are given practice stories and nothing else, because
+    answers from somebody who has not been through the definitions are
+    measuring the onboarding and not the codebook.
+
+    PAUSED takes no new work and gives back what is outstanding.
+    REMOVED does the same and also withdraws the answers already given:
+    they leave every agreement figure and the training export, and the
+    stories go back to be coded by someone else.
+    """
+
+    ADMITTED = "admitted"
+    PAUSED = "paused"
+    REMOVED = "removed"
+    STATUSES = [(ADMITTED, "Admitted"), (PAUSED, "Paused"), (REMOVED, "Removed")]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    codebook_version = models.ForeignKey(
+        "CodebookVersion", on_delete=models.PROTECT, related_name="standings"
+    )
+    status = models.CharField(max_length=10, choices=STATUSES)
+    changed_at = models.DateTimeField(auto_now_add=True)
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    note = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-changed_at", "-id"]
+        indexes = [models.Index(fields=["codebook_version", "user"])]
+
+    def __str__(self):
+        return f"{self.user} {self.status} under {self.codebook_version}"
+
+
 class ClassificationCohort(models.Model):
     """A batch of records drawn together and worked as a unit.
 
@@ -428,6 +548,12 @@ class ClassificationCohort(models.Model):
 
     class Meta:
         ordering = ["-number"]
+
+    #: The round this batch belongs to. Null on cohorts opened before
+    #: rounds existed, which behave as they always did.
+    round = models.ForeignKey(
+        Round, null=True, blank=True, on_delete=models.PROTECT, related_name="cohorts"
+    )
 
     @property
     def codebook(self):
@@ -658,6 +784,63 @@ class ClassificationDecision(models.Model):
 # be where "do two coders agree" is decided.
 
 
+def standings(version):
+    """user id -> current standing under a codebook version."""
+    latest = {}
+    for row in CoderStanding.objects.filter(codebook_version=version).order_by(
+        "changed_at", "id"
+    ):
+        latest[row.user_id] = row.status
+    return latest
+
+
+def set_standing(user, version, status, *, by=None, note=""):
+    """Record a coder's standing, and do what it implies.
+
+    Pausing or removing gives back the coder's outstanding work in every
+    counted cohort under this codebook, and hands it to somebody else:
+    a cohort otherwise waits forever on a coder who will not be back.
+    Removing also withdraws their answers, so those stories are short a
+    coder again and are topped up in the same step.
+    """
+    row = CoderStanding.objects.create(
+        user=user, codebook_version=version, status=status, changed_by=by, note=note
+    )
+    if status in (CoderStanding.PAUSED, CoderStanding.REMOVED):
+        cohorts = ClassificationCohort.objects.filter(
+            codebook_version=version, round__isnull=False
+        ).exclude(round__kind=Round.PRACTICE)
+        ClassificationAssignment.objects.filter(
+            cohort__in=cohorts, assigned_to=user, completed_at__isnull=True
+        ).delete()
+        for cohort in cohorts.filter(closed_at__isnull=True):
+            assign_cohort(cohort)
+    return row
+
+
+def counted_decisions(version):
+    """The decisions that count toward agreement and training under one
+    codebook: not practice, and not from a removed coder.
+
+    One place, so no figure can be computed over answers another figure
+    leaves out. Decisions from before versions existed carry none and
+    are read as V1.
+    """
+    under = models.Q(codebook_version=version)
+    if version.name == "V1":
+        under |= models.Q(codebook_version__isnull=True)
+    removed = [
+        user_id
+        for user_id, status in standings(version).items()
+        if status == CoderStanding.REMOVED
+    ]
+    return (
+        ClassificationDecision.objects.filter(under)
+        .exclude(cohort__round__kind=Round.PRACTICE)
+        .exclude(decided_by_id__in=removed)
+    )
+
+
 def _pairs(decisions):
     """Every unordered pair of decisions on the same article."""
     from itertools import combinations
@@ -691,8 +874,8 @@ def agreement_report(codebook_version=None):
 
     Answers given under different definitions are never pooled: a rate
     over V1 and V2 answers together is a rate under no codebook at all.
-    Defaults to the current version. Decisions from before versions
-    existed carry none and are read as V1.
+    Defaults to the current version. Practice rounds and removed
+    coders are left out (`counted_decisions`).
 
     Percent agreement, and not kappa. Kappa needs a chance-agreement
     term over a fixed category distribution, and this queue oversamples
@@ -704,13 +887,8 @@ def agreement_report(codebook_version=None):
     instead.
     """
     version = codebook_version or CodebookVersion.current()
-    under = models.Q(codebook_version=version)
-    if version.name == "V1":
-        under |= models.Q(codebook_version__isnull=True)
     decisions = list(
-        ClassificationDecision.objects.filter(under)
-        .select_related("cohort")
-        .order_by("article_id")
+        counted_decisions(version).select_related("cohort").order_by("article_id")
     )
     pairs = list(_pairs(decisions))
 
@@ -902,11 +1080,21 @@ def _stratum_pool(stratum):
 
 
 def draw_cohort(
-    size, *, target_coders=3, note="", stale_after_days=14, codebook_version=None
+    size,
+    *,
+    target_coders=3,
+    note="",
+    stale_after_days=14,
+    codebook_version=None,
+    for_round=None,
 ):
     """Open a cohort and draw `size` articles into it.
 
     The cohort is coded under `codebook_version`, or the current one.
+    Opened for a round (`for_round`, not `round`: the draw needs the
+    builtin) it takes the round's codebook and its coders
+    per story, and the coders already on the round's other batches are
+    granted this one, so a batch is not a fresh round of invitations.
 
     Returns (cohort, drawn) where `drawn` maps each stratum to how many it
     actually contributed. A short stratum is reported rather than
@@ -920,6 +1108,9 @@ def draw_cohort(
     """
     from django.db import transaction
 
+    if for_round is not None:
+        codebook_version = for_round.codebook_version
+        target_coders = for_round.base_coders
     taken = set(ClassificationSample.objects.values_list("article_id", flat=True))
     with transaction.atomic():
         number = (
@@ -933,6 +1124,7 @@ def draw_cohort(
             stale_after_days=stale_after_days,
             note=note,
             codebook_version=codebook_version or CodebookVersion.current(),
+            round=for_round,
         )
 
         drawn, samples = {}, []
@@ -965,6 +1157,9 @@ def draw_cohort(
             drawn[stratum] = len(rows)
 
         ClassificationSample.objects.bulk_create(samples, batch_size=500)
+    if for_round is not None:
+        for user in round_coders(for_round):
+            grant_cohort(user, cohort)
     return cohort, drawn
 
 
@@ -1033,20 +1228,48 @@ def assign_cohort(cohort):
 
     Idempotent. Re-running after granting a fourth coder tops the cohort
     up to target rather than starting again.
+
+    Inside a round, who is assigned depends on the round's kind and each
+    coder's standing; see `CoderStanding`.
     """
     from django.db import transaction
 
     coders = coders_for(cohort)
+    standing = standings(cohort.codebook)
+    practice = cohort.round is not None and cohort.round.is_practice
+    # A paused or removed coder takes no new work anywhere. In a counted
+    # round -- a pilot or training -- a coder also has to have been
+    # admitted, which means the practice and its review are behind them.
+    coders = [
+        user
+        for user in coders
+        if standing.get(user.id) not in (CoderStanding.PAUSED, CoderStanding.REMOVED)
+        and (
+            cohort.round is None
+            or practice
+            or standing.get(user.id) == CoderStanding.ADMITTED
+        )
+    ]
     if not coders:
         return 0
 
+    # A removed coder's answers are withdrawn, so their assignments do
+    # not count toward a story's coders and the story is topped up.
+    removed = {
+        user_id
+        for user_id, status in standing.items()
+        if status == CoderStanding.REMOVED
+    }
     existing = {}
     for user_id, article_id in ClassificationAssignment.objects.filter(
         cohort=cohort
     ).values_list("assigned_to_id", "article_id"):
-        existing.setdefault(article_id, set()).add(user_id)
+        if user_id not in removed:
+            existing.setdefault(article_id, set()).add(user_id)
 
-    wanted = min(cohort.target_coders, len(coders))
+    # Practice is every coder on every story: the review goes through
+    # each disagreement with the people who made it.
+    wanted = len(coders) if practice else min(cohort.target_coders, len(coders))
     made, offset = [], 0
     article_ids = list(
         ClassificationSample.objects.filter(cohort=cohort)
@@ -1123,3 +1346,234 @@ def invite_coder(email, cohort, *, invited_by=None):
         },
     )
     return "invited", invitation
+
+
+# ------------------------------------------------------------------ rounds
+
+
+def round_coders(round):
+    """Everybody granted any batch of the round, in a stable order."""
+    seen, out = set(), []
+    for cohort in round.cohorts.order_by("number"):
+        for user in coders_for(cohort):
+            if user.id not in seen:
+                seen.add(user.id)
+                out.append(user)
+    return sorted(out, key=lambda user: user.username)
+
+
+def open_round(
+    name, kind, *, codebook_version=None, question="", base_coders=3, **rules
+):
+    return Round.objects.create(
+        name=name,
+        kind=kind,
+        codebook_version=codebook_version or CodebookVersion.current(),
+        question=question,
+        base_coders=base_coders,
+        third_on_split=bool(rules.get("third_on_split")),
+        draw_rule=rules.get("draw_rule") or {},
+        finish_rule=rules.get("finish_rule") or {},
+    )
+
+
+def _agreed_label(decisions):
+    """The primary two coders share, or None. The first half of the
+    thesis rule (0.9); the 0.7 case and the scoring of rejections belong
+    with the metrics (WP7)."""
+    counts = {}
+    for decision in decisions:
+        if decision.primary_label:
+            counts[decision.primary_label] = counts.get(decision.primary_label, 0) + 1
+    best = max(counts.items(), key=lambda item: item[1], default=None)
+    return best[0] if best and best[1] >= 2 else None
+
+
+def round_report(round):
+    """How far a round has got, measured against how it finishes.
+
+    Never a bare total: a practice round is finished when every coder
+    has coded every story and the review is held; a pilot when every
+    story has its coders; a training round when every category has
+    reached its floor, which a total reaches long before the rare
+    categories do.
+    """
+    cohorts = list(round.cohorts.order_by("number"))
+    version = round.codebook_version
+    standing = standings(version)
+    removed = {u for u, st in standing.items() if st == CoderStanding.REMOVED}
+    stories = ClassificationSample.objects.filter(cohort__in=cohorts).count()
+    assignments = list(
+        ClassificationAssignment.objects.filter(cohort__in=cohorts).values_list(
+            "assigned_to_id", "article_id", "completed_at"
+        )
+    )
+    per_coder = {}
+    for user_id, _, completed in assignments:
+        given, done = per_coder.get(user_id, (0, 0))
+        per_coder[user_id] = (given + 1, done + (completed is not None))
+    coders = [
+        {
+            "user": user,
+            "assigned": per_coder.get(user.id, (0, 0))[0],
+            "done": per_coder.get(user.id, (0, 0))[1],
+            "standing": standing.get(user.id, ""),
+            "finished": bool(per_coder.get(user.id, (0, 0))[0])
+            and per_coder.get(user.id, (0, 0))[0] == per_coder.get(user.id, (0, 0))[1],
+        }
+        for user in round_coders(round)
+    ]
+
+    decisions = [
+        d
+        for d in ClassificationDecision.objects.filter(cohort__in=cohorts)
+        if d.decided_by_id not in removed
+    ]
+    by_story = {}
+    for decision in decisions:
+        by_story.setdefault(decision.article_id, []).append(decision)
+
+    report = {
+        "round": round,
+        "cohorts": cohorts,
+        "stories": stories,
+        "coders": coders,
+        "decisions": len(decisions),
+    }
+    if round.is_practice:
+        everyone = bool(coders) and all(row["finished"] for row in coders)
+        report.update(
+            coded=everyone,
+            reviewed=round.reviewed_at is not None,
+            finished=everyone and round.reviewed_at is not None,
+            waiting_on=[row["user"] for row in coders if not row["finished"]],
+        )
+    elif round.kind == Round.COMPARISON:
+        full = sum(1 for made in by_story.values() if len(made) >= round.base_coders)
+        report.update(
+            complete_stories=full,
+            percent=round_percent(full, stories),
+            finished=bool(stories) and full == stories,
+        )
+    else:
+        floor = int(round.finish_rule.get("per_category") or 0)
+        counts = dict.fromkeys(CIN_LABELS, 0)
+        for made in by_story.values():
+            label = _agreed_label(made)
+            if label in counts:
+                counts[label] += 1
+        rows = [
+            {
+                "label": label,
+                "shown": version.shown(label),
+                "count": counts[label],
+                "floor": floor,
+                "percent": round_percent(min(counts[label], floor), floor),
+            }
+            for label in CIN_LABELS
+        ]
+        binding = min(rows, key=lambda row: row["count"]) if rows else None
+        report.update(
+            categories=rows,
+            floor=floor,
+            binding=binding,
+            finished=bool(floor) and all(row["count"] >= floor for row in rows),
+        )
+    return report
+
+
+def round_percent(part, whole):
+    return round_half(100 * part / whole) if whole else None
+
+
+def round_half(value):
+    return int(value + 0.5)
+
+
+def practice_review(round):
+    """Every practice story with each coder's answer side by side.
+
+    For the meeting that ends a practice round: the lead and the coders
+    go through each story they answered differently, against the
+    definitions. Empty until every coder has finished -- a coder who
+    sees the others' answers first is no longer practising.
+    """
+    from explorer.models import Article
+
+    report = round_report(round)
+    if not report.get("coded"):
+        return {"ready": False, "rows": [], "report": report}
+    version = round.codebook_version
+    rejections = dict(ClassificationDecision.REJECTIONS)
+    decisions = (
+        ClassificationDecision.objects.filter(cohort__in=report["cohorts"])
+        .select_related("decided_by")
+        .order_by("article_id", "decided_by__username")
+    )
+    by_story = {}
+    for decision in decisions:
+        by_story.setdefault(decision.article_id, []).append(decision)
+    titles = dict(
+        Article.objects.using("crawler")
+        .filter(id__in=list(by_story))
+        .values_list("id", "title")
+    )
+    guide = {row["label"]: row for row in version.guidance_rows()}
+    rows = []
+    for article_id, made in by_story.items():
+        answers = [
+            {
+                "coder": d.decided_by,
+                "answer": (
+                    version.shown(d.primary_label)
+                    if d.primary_label
+                    else rejections.get(d.reject_reason, d.reject_reason)
+                ),
+                "secondary": (
+                    version.shown(d.secondary_label) if d.secondary_label else ""
+                ),
+                "rejected": not d.primary_label,
+            }
+            for d in made
+        ]
+        distinct = sorted({a["answer"] for a in answers})
+        rows.append(
+            {
+                "article_id": article_id,
+                "title": titles.get(article_id) or "(no headline)",
+                "answers": answers,
+                "differ": len(distinct) > 1,
+                "definitions": [guide[name] for name in distinct if name in guide],
+            }
+        )
+    rows.sort(key=lambda row: (not row["differ"], row["title"]))
+    return {
+        "ready": True,
+        "rows": rows,
+        "differing": sum(row["differ"] for row in rows),
+        "report": report,
+    }
+
+
+def hold_review(round, *, by, notes=""):
+    """Record that the practice review was held, and admit the coders
+    who had finished the practice when it was."""
+    from django.utils import timezone
+
+    report = round_report(round)
+    round.reviewed_at = timezone.now()
+    round.reviewed_by = by
+    round.review_notes = notes
+    round.save(update_fields=["reviewed_at", "reviewed_by", "review_notes"])
+    admitted = []
+    for row in report["coders"]:
+        if row["finished"] and row["standing"] != CoderStanding.ADMITTED:
+            set_standing(
+                row["user"],
+                round.codebook_version,
+                CoderStanding.ADMITTED,
+                by=by,
+                note=f"practice reviewed: {round.name}",
+            )
+            admitted.append(row["user"])
+    return admitted

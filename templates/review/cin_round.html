@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% block title %}{{ round.name }} — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide">
+  <p class="quiet"><a href="{% url 'review:cin_rounds' %}">Rounds</a></p>
+  <h1>{{ round.name }}</h1>
+
+  <p class="lede">
+    {{ round.get_kind_display }}, coded under
+    <strong>{{ round.codebook_version.name }}</strong>.
+    {% if round.question %}{{ round.question }}{% endif %}
+  </p>
+
+  {% for kind, text in notices %}
+  <p class="notice {{ kind }}">{{ text }}</p>
+  {% endfor %}
+
+  <dl class="stat-row">
+    <div><dt>Stories</dt><dd class="big">{{ stories }}</dd></div>
+    <div><dt>Coders</dt><dd class="big">{{ coders|length }}</dd></div>
+    <div><dt>Answers</dt><dd class="big">{{ decisions }}</dd></div>
+    <div><dt>Status</dt>
+      <dd class="big">{% if finished %}Finished{% else %}Open{% endif %}</dd></div>
+  </dl>
+
+  {% comment %}
+  Progress against how this kind of round finishes, never a bare total.
+  {% endcomment %}
+  <h2>Finish line</h2>
+  {% if round.is_practice %}
+  <p>
+    Every coder codes every story, then the lead reviews each
+    disagreement with them. These answers are never counted.
+  </p>
+  <ul class="plain">
+    <li>{% if coded %}Every coder has finished.{% else %}Waiting on:
+      {% for user in waiting_on %}{{ user }}{% if not forloop.last %}, {% endif %}{% empty %}no coders yet{% endfor %}.{% endif %}</li>
+    <li>{% if reviewed %}Review held {{ round.reviewed_at|date:"j M Y" }}
+      {% if round.reviewed_by %}by {{ round.reviewed_by }}{% endif %}.{% else %}Review not yet held.{% endif %}</li>
+  </ul>
+  {% elif categories %}
+  <p>
+    Finished when every category has {{ floor }} stories two coders
+    agreed on.
+    {% if binding %}Furthest from it: <strong>{{ binding.shown }}</strong>,
+    {{ binding.count }} of {{ floor }}.{% endif %}
+  </p>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Category</th>
+          <th scope="col" class="num">Agreed stories</th>
+          <th scope="col" class="num">Of {{ floor }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in categories %}
+        <tr>
+          <th scope="row">{{ row.shown }}</th>
+          <td class="num">{{ row.count }}</td>
+          <td class="num">{{ row.percent }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>
+    Finished when every story has {{ round.base_coders }} answers:
+    {{ complete_stories }} of {{ stories }}{% if percent is not None %} ({{ percent }}%){% endif %}.
+  </p>
+  {% endif %}
+
+  <h2>Coders</h2>
+  {% if coders %}
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Coder</th>
+          <th scope="col" class="num">Assigned</th>
+          <th scope="col" class="num">Done</th>
+          <th scope="col">Standing under {{ round.codebook_version.name }}</th>
+          <th scope="col">Change</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in coders %}
+        <tr>
+          <th scope="row">{{ row.user }}</th>
+          <td class="num">{{ row.assigned }}</td>
+          <td class="num">{{ row.done }}</td>
+          <td>{% if row.standing %}{{ row.standing|capfirst }}{% else %}Not yet admitted{% endif %}</td>
+          <td>
+            <form method="post" class="inline">
+              {% csrf_token %}
+              <input type="hidden" name="user" value="{{ row.user.pk }}">
+              {% if row.standing != statuses.ADMITTED %}
+              <button type="submit" name="action" value="{{ statuses.ADMITTED }}"
+                      class="linklike"
+                      title="Admit to pilot and training rounds. Do this after the coder has finished the practice and its review.">admit</button>
+              {% endif %}
+              {% if row.standing != statuses.PAUSED and row.standing != statuses.REMOVED %}
+              <button type="submit" name="action" value="{{ statuses.PAUSED }}"
+                      class="linklike"
+                      title="No new stories; outstanding stories go to other coders. Answers already given are kept.">pause</button>
+              {% endif %}
+              {% if row.standing != statuses.REMOVED %}
+              <button type="submit" name="action" value="{{ statuses.REMOVED }}"
+                      class="linklike danger"
+                      title="As pause, and their answers are withdrawn: the stories are coded again by someone else.">remove</button>
+              {% endif %}
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="notice">Nobody is on this round yet.</p>
+  {% endif %}
+
+  {% if not round.is_practice %}
+  <p class="quiet">
+    Only admitted coders are given stories in this round. A coder is
+    admitted after finishing a practice round and its review.
+  </p>
+  {% endif %}
+
+  <form method="post" class="inline-form tight">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="invite">
+    <label for="email">Add a coder by email</label>
+    <input type="email" id="email" name="email" required
+           placeholder="name@example.edu">
+    <button type="submit">Add</button>
+  </form>
+
+  <h2>Batches</h2>
+  {% if cohorts %}
+  <ul class="plain">
+    {% for cohort in cohorts %}
+    <li>Batch {{ cohort.number }}{% if cohort.note %} — {{ cohort.note }}{% endif %}
+      {% if cohort.closed_at %}<span class="quiet">closed</span>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="quiet">No batches yet.</p>
+  {% endif %}
+  <form method="post" class="inline-form tight">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="batch">
+    <label for="size">Stories</label>
+    <input type="number" id="size" name="size" min="1" max="20000"
+           value="{% if round.is_practice %}20{% else %}300{% endif %}" required>
+    <label for="note">Note</label>
+    <input type="text" id="note" name="note" maxlength="200">
+    <button type="submit">Open a batch</button>
+  </form>
+  <form method="post" class="inline">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="assign">
+    <button type="submit" class="linklike"
+            title="Hands out any stories not yet assigned. Safe to run again.">Assign unassigned stories</button>
+  </form>
+
+  {% if review %}
+  <h2>Practice review</h2>
+  {% if not review.ready %}
+  <p class="notice">
+    Opens when every coder has finished. Until then nobody, including
+    the lead, is shown the answers.
+  </p>
+  {% else %}
+  <p>
+    {{ review.differing }} of {{ review.rows|length }} stories were
+    answered differently. Go through each with the coders, against the
+    definitions shown.
+  </p>
+  {% for row in review.rows %}
+  <article class="story">
+    <h3>{{ row.title }}{% if not row.differ %} <span class="quiet">— all agreed</span>{% endif %}</h3>
+    <ul class="plain">
+      {% for answer in row.answers %}
+      <li><strong>{{ answer.coder }}</strong>: {{ answer.answer }}{% if answer.secondary %}
+        <span class="quiet">(secondary: {{ answer.secondary }})</span>{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% if row.differ %}
+    {% for definition in row.definitions %}
+    <p class="quiet"><strong>{{ definition.label }}</strong>: {{ definition.covers }}</p>
+    {% endfor %}
+    {% endif %}
+  </article>
+  {% endfor %}
+
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="review">
+    <label for="notes">What the review changed in the definitions</label>
+    <textarea id="notes" name="notes" rows="5" class="wide">{{ round.review_notes }}</textarea>
+    <div class="actions">
+      <button type="submit" class="primary">Record that the review was held</button>
+      <span class="quiet">
+        Admits every coder who has finished the practice.
+      </span>
+    </div>
+  </form>
+  {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

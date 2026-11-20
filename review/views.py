@@ -2806,6 +2806,172 @@ def cin_codebook(request):
     )
 
 
+@requires_admin
+def cin_rounds(request):
+    """The rounds, and where a new one is opened.
+
+    A round says what a run of coding is for. Without it practice
+    answers, a test of new definitions and training data were one
+    undifferentiated pile of cohorts.
+    """
+    from review.classification import CodebookVersion, Round, open_round, round_report
+
+    notices = []
+    if request.method == "POST":
+        name = (request.POST.get("name") or "").strip()
+        kind = request.POST.get("kind") or ""
+        version = CodebookVersion.objects.filter(
+            pk=request.POST.get("codebook") or 0
+        ).first()
+        try:
+            base = int(request.POST.get("base_coders") or 3)
+            floor = int(request.POST.get("per_category") or 0)
+        except ValueError:
+            base, floor = 0, 0
+        if not name:
+            notices.append(("bad", "A round needs a name."))
+        elif Round.objects.filter(name=name).exists():
+            notices.append(("bad", f"There is already a round named {name}."))
+        elif kind not in dict(Round.KINDS):
+            notices.append(("bad", "Choose what the round is for."))
+        elif version is None:
+            notices.append(("bad", "Choose the codebook the round is coded under."))
+        elif base < 1:
+            notices.append(("bad", "A story needs at least one coder."))
+        elif kind == Round.COLLECTION and floor < 1:
+            notices.append(
+                ("bad", "A training round needs a number of stories per category.")
+            )
+        else:
+            created = open_round(
+                name,
+                kind,
+                codebook_version=version,
+                question=(request.POST.get("question") or "").strip(),
+                base_coders=base,
+                third_on_split=bool(request.POST.get("third_on_split")),
+                finish_rule={"per_category": floor} if floor else {},
+            )
+            return redirect("review:cin_round", pk=created.pk)
+
+    return render(
+        request,
+        "review/cin_rounds.html",
+        {
+            "rounds": [round_report(row) for row in Round.objects.all()],
+            "kinds": Round.KINDS,
+            "versions": CodebookVersion.objects.all(),
+            "current": CodebookVersion.current(),
+            "notices": notices,
+        },
+    )
+
+
+@requires_admin
+def cin_round(request, pk):
+    """One round: its batches, its coders and their standing, and for a
+    practice round the review that ends it."""
+    from django.contrib.auth import get_user_model
+    from django.shortcuts import get_object_or_404
+
+    from review.classification import (
+        CoderStanding,
+        Round,
+        assign_cohort,
+        draw_cohort,
+        hold_review,
+        invite_coder,
+        practice_review,
+        round_report,
+        set_standing,
+    )
+
+    this = get_object_or_404(Round, pk=pk)
+    notices = []
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "batch":
+            try:
+                size = int(request.POST.get("size") or 0)
+            except ValueError:
+                size = 0
+            if size < 1:
+                notices.append(("bad", "A batch needs at least one story."))
+            else:
+                cohort, drawn = draw_cohort(
+                    size, for_round=this, note=(request.POST.get("note") or "").strip()
+                )
+                made = assign_cohort(cohort)
+                total = sum(drawn.values())
+                notices.append(
+                    (
+                        "good" if total == size else "warn",
+                        f"Batch {cohort.number}: {total} of {size} stories drawn, "
+                        f"{made} assignments made.",
+                    )
+                )
+        elif action == "invite":
+            cohorts = list(this.cohorts.filter(closed_at__isnull=True))
+            if not cohorts:
+                notices.append(("bad", "Open a batch before inviting coders to it."))
+            else:
+                try:
+                    for cohort in cohorts:
+                        invite_coder(
+                            request.POST.get("email"), cohort, invited_by=request.user
+                        )
+                except ValueError as problem:
+                    notices.append(("bad", str(problem).capitalize() + "."))
+                else:
+                    made = sum(assign_cohort(cohort) for cohort in cohorts)
+                    notices.append(
+                        ("good", f"Added to the round; {made} assignments made.")
+                    )
+        elif action == "assign":
+            made = sum(
+                assign_cohort(cohort)
+                for cohort in this.cohorts.filter(closed_at__isnull=True)
+            )
+            notices.append(("good", f"{made} assignments made."))
+        elif action == "review" and this.is_practice:
+            if not round_report(this).get("coded"):
+                notices.append(
+                    ("bad", "Not every coder has finished the practice stories.")
+                )
+            else:
+                admitted = hold_review(
+                    this,
+                    by=request.user,
+                    notes=(request.POST.get("notes") or "").strip(),
+                )
+                notices.append(
+                    (
+                        "good",
+                        f"Review recorded. {len(admitted)} coder(s) admitted under "
+                        f"{this.codebook_version.name}.",
+                    )
+                )
+        elif action in dict(CoderStanding.STATUSES):
+            user = get_user_model().objects.filter(pk=request.POST.get("user")).first()
+            if user is None:
+                notices.append(("bad", "No such user."))
+            else:
+                set_standing(
+                    user,
+                    this.codebook_version,
+                    action,
+                    by=request.user,
+                    note=(request.POST.get("note") or "").strip(),
+                )
+                notices.append(("good", f"{user}: {action}."))
+
+    context = round_report(this)
+    context["notices"] = notices
+    context["review"] = practice_review(this) if this.is_practice else None
+    context["statuses"] = CoderStanding
+    return render(request, "review/cin_round.html", context)
+
+
 # --------------------------------------------------------------------
 # The geography queue
 # --------------------------------------------------------------------

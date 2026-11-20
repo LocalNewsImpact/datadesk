@@ -187,6 +187,15 @@ SECTION_GROUPS = (
                 ),
             },
             {
+                "url": "review:cin_rounds",
+                "label": "Rounds",
+                "requires": ADMIN,
+                "note": (
+                    "Practice, pilot and training rounds: what each is for, "
+                    "who is admitted to it, and how far it is from finished."
+                ),
+            },
+            {
                 "url": "review:cin_coders",
                 "label": "Coders",
                 "requires": ADMIN,
