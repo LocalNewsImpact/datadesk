@@ -34,17 +34,22 @@ The pilot recodes V1 stories so V2 answers are compared with V1 answers
 **on the same stories**. "Civic stories" are the 378 V1 stories any V1
 coder put in Civic information or Civic Life, primary or secondary.
 
-Round 2 pass conditions, all four required. V1 figures are scored by
-the rule in WP7 (M1), cohorts A–D:
+Round 2 pass conditions, all four required. Each is first-pair
+agreement (M2): the share of stories on which the first two coders chose
+the same primary. Each is a fixed threshold on the observed rate; the
+95% margin at these sizes is about 4 points and is reported beside it.
+V1 figures are scored by the same rule, cohorts A–D:
 
-1. The 378 civic stories: agreement above V1's 32% on the same stories, 95% interval of the difference excluding 0.
+1. The 378 civic stories: at least 83% (V1: 32%).
 2. Civic Information and Community Life, each: at least 71% (V1: 11%,
    30%). 71% is the per-category rate implied by condition 4: a matched
    story counts once for its category and a mismatched story counts
    against two, so at 83% overall the average category sits at
    0.83 / (0.83 + 2 × 0.17) = 71%.
-3. The other pilot stories, pooled: not below V1 on the same stories (70%).
-4. First two coders choose the same primary on at least 83% of stories, weighted to the full V1 mix (V1: 55%).
+3. The other pilot stories: at least 83% (V1: 70%). "Not below 70%"
+   contradicted condition 4: at 70% here, no result on the civic
+   stories brings the weighted total to 83%.
+4. All stories, weighted to the full V1 mix (378 civic in 1,000): at least 83% (V1: 55%).
 
 The target is a reliability (Krippendorff's alpha) of 0.80. Chance
 agreement across the ten categories is about 0.15, from the V1 data
