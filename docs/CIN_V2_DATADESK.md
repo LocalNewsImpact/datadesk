@@ -27,11 +27,13 @@ Builds on, rather than replaces:
 | Round | Stories | Coders per story | Coders | Finished when |
 | --- | --- | --- | --- | --- |
 | 1. Practice | 20, same for every coder | all | 4, then each new coder | all coded; review meeting held |
-| 2. Pilot | ~780 V1 stories: the 378 civic stories + ~400 of the other 622 | 3 | 4 (each codes ~585) | every story has 3 answers; 4 pass conditions met or failed |
-| 3. Training | ≥ 2,500 new | 2, +1 on a split | 6–9 | every category has 250 labels: 200 to train, 50 held back |
+| 2. Pilot | ~770 V1 stories: the 367 civic stories + ~400 of the other 567 | 3 | 4 (each codes ~575) | every story has 3 answers; 4 pass conditions met or failed |
+| 3. Training | new stories to bring every category to 250 labels, V1 records counted first (~1,500 new labels) | 2, +1 on a split | 6–9 | every category has 250 labels: 200 to train, 50 held back |
 
 The pilot recodes V1 stories so V2 answers are compared with V1 answers
-**on the same stories**. "Civic stories" are the 378 V1 stories any V1
+**on the same stories**. The 66 stories V1 coders agreed to reject are
+left out of the pilot; the 157 they never agreed on stay in. "Civic
+stories" are the 367 remaining V1 stories any V1
 coder put in Civic information or Civic Life, primary or secondary.
 
 Round 2 pass conditions, all four required. Each is first-pair
@@ -40,16 +42,16 @@ the same primary. Each is a fixed threshold on the observed rate; the
 95% margin at these sizes is about 4 points and is reported beside it.
 V1 figures are scored by the same rule, cohorts A–D:
 
-1. The 378 civic stories: at least 83% (V1: 32%).
+1. The 367 civic stories: at least 83% (V1: 33%).
 2. Civic Information and Community Life, each: at least 71% (V1: 11%,
-   30%). 71% is the per-category rate implied by condition 4: a matched
+   33%). 71% is the per-category rate implied by condition 4: a matched
    story counts once for its category and a mismatched story counts
    against two, so at 83% overall the average category sits at
    0.83 / (0.83 + 2 × 0.17) = 71%.
-3. The other pilot stories: at least 83% (V1: 70%). "Not below 70%"
-   contradicted condition 4: at 70% here, no result on the civic
+3. The other pilot stories: at least 83% (V1: 72%). "Not below V1"
+   contradicted condition 4: at 72% here, no result on the civic
    stories brings the weighted total to 83%.
-4. All stories, weighted to the full V1 mix (378 civic in 1,000): at least 83% (V1: 55%).
+4. All stories, weighted to the V1 mix (367 civic in 934): at least 83% (V1: 57%).
 
 The target is a reliability (Krippendorff's alpha) of 0.80. Chance
 agreement across the ten categories is about 0.15, from the V1 data
@@ -73,7 +75,7 @@ categories. **No story is decided by one person.**
 | "Community Life" on screen, "Civic Life" stored | Labels shown as stored | No display map |
 | Rejections: Obituary, Advertorial, Service or lifestyle copy | Six rejections | Three missing |
 | Practice, pilot and training rounds with finish rules | Cohorts only; `note` is free text nothing reads | Round model (`CIN_ROUNDS.md`) not built |
-| Pilot on ~780 V1 stories, civic and other shuffled, mix hidden from coders | Fixed 25% × 4 strata from the crawler | No fixed-list draw; no per-round draw rule |
+| Pilot on ~770 V1 stories, civic and other shuffled, mix hidden from coders | Fixed 25% × 4 strata from the crawler | No fixed-list draw; no per-round draw rule |
 | V1 stories with their 2023 text | Queue reads crawler `articles` only; crawler starts 2025-09-21; 0/378 match by URL or ID | No non-crawler story source |
 | V1 answers as the baseline | V1 answers live in five JotForm CSVs | Not loaded |
 | 2 coders, third only on a split | Fixed `target_coders` | No conditional third |
@@ -147,19 +149,21 @@ enrichment and BigQuery export. They load into datadesk instead.
   `one_classification_per_coder_per_article` would not apply.
 - **`import_v1_stories`** management command: reads the five
   `Missouri_News_Labeling (Group A–E)` CSVs, loads all 1,000 stories'
-  V1 answers, and the text for every story. Flags the 378 civic stories
-  (any coder chose Civic information or Civic Life, primary or
-  secondary). Idempotent.
+  V1 answers, and the text for every story. Records each story's V1
+  outcome by the thesis rule: label at 0.9 (649), label at 0.7 (128),
+  rejected by two coders (66), or no agreed label (157). Flags the 367
+  civic stories among the 934 not rejected (any coder chose Civic
+  information or Civic Life, primary or secondary). Idempotent.
 
 Source files: Groups A, C, E in `~/Downloads/Archive Excel/`; B, D in
 iCloud `Documents/Mizzou/LNIC/`. 1,000 stories, 2,246 answers; text
-present for all 378 (median 359 words).
+present for every civic story (median 359 words).
 
 The V1 files' `bart_label` is an older topic model's label set (Roads
 and Car Crashes, Weather, Crime…), not CIN. It cannot stand in for the
 current model's label.
 
-Done when: 1,000 stories and 2,246 V1 answers load; the 378 are
+Done when: 1,000 stories and 2,246 V1 answers load; the 367 are
 selectable as a fixed list; a coder assigned `v1:500` sees its 2023
 headline and text in the queue.
 
@@ -169,19 +173,36 @@ headline and text in the queue.
 writing `inclusion_probability` per sample as it does now.
 
 - **Practice**: a fixed list of 20, reused for every new coder.
-- **Pilot**: a fixed list. The 378 civic V1 stories plus about 400 drawn
-  at random from the other 622, with the draw's inclusion probability
+- **Pilot**: a fixed list. The 367 civic V1 stories plus about 400 drawn
+  at random from the other 567 (V1-rejected stories excluded), with the draw's inclusion probability
   recorded.
-- **Training**: per-category floor 200 by model label, oversampling the
-  rare ones. The model's `Civic information` is a catch-all, so the
-  draws needed per category are unknown: the first batch of 300 measures
-  the hit rate per category (share of draws coders place in the
-  category drawn for) and the round page restates the expected total.
+- **Training**: every category is brought to 250 labels, V1 records
+  counted first. A V1 story counts when it has a label: its V2 label
+  from the pilot, or its V1 label (0.9 or 0.7) if it was not in the
+  pilot. V1 has 272 Emergencies but 39 Education, so new draws go where
+  V1 is thin: about 1,500 new labels in all, none for Emergencies.
+- **Sources**: the Missouri, Washington and Pennsylvania datasets.
+  Vermont is excluded (student newspapers, not fully collected or
+  labeled). Per category by model label: up to 60 from Washington, up
+  to 60 from Pennsylvania, the rest from Missouri; where a state has
+  fewer than 60, all of them. Missouri is 96% of labeled stories, and an
+  unstratified draw would train a Missouri-only model for use in three
+  states. Thin spots: Pennsylvania has 22 Economic Development and 22
+  Sports stories; Washington 53 and 68.
+- **Pool statuses**: `CLASSIFIABLE_STATUSES` is `("cleaned", "local")`,
+  which holds 321 stories. The labeled corpus is in `labeled` and
+  `enriched` (about 100,500 across the three datasets). The draw pool
+  becomes those four statuses.
+- **Hit rate**: the model's label is not always the coders', so more
+  than 1,500 stories are handed out. The first batch of 300 measures,
+  per category, the share of draws coders place in the category drawn
+  for; the remaining draws per category are then
+  (250 − labels so far) ÷ hit rate.
 - **Order**: a coder's queue is shuffled within a batch, so civic
   stories never arrive as a run. The mix of a round is shown to admins
   only.
 
-Done when: the pilot list holds 378 civic and ~400 other stories,
+Done when: the pilot list holds 367 civic and ~400 other stories,
 interleaved in every coder's queue; inclusion probabilities sum
 correctly per stratum; the training round page shows hit rate per
 category after its first batch.
@@ -255,7 +276,7 @@ V1/V2 comparison is like for like.
 | --- | --- | --- | --- | --- | --- |
 | M1 | Pairwise agreement | Share of scored coder pairs with the same primary among the ten categories. A category against a rejection is a mismatch. Two rejections are not scored. **Changes `_agree`**, which counts two identical rejections as agreement today. In a third-on-split round, first-pair decisions only: third-coder pairs exist only where two coders already disagreed | overall, category (pairs where either chose it), round, batch, stratum, dataset | 95%, bootstrap over stories (pairs on one story are not independent) | gates 1–3; monitoring |
 | M2 | First-pair agreement | Share of stories whose first two decisions (by `decided_at`) match on primary | round, batch, category | 95% bootstrap | gate 4 |
-| M3 | V2 − V1 change | M1 under V2 minus M1 under V1 on the same stories, for the 378 civic stories and for the other pilot stories | story group, category | 95% paired bootstrap over stories | gates 1 and 3 |
+| M3 | V2 − V1 change | M1 under V2 minus M1 under V1 on the same stories, for the 367 civic stories and for the other pilot stories | story group, category | 95% paired bootstrap over stories | gates 1 and 3 |
 | M4 | Krippendorff's alpha (nominal) | Overall and per category (one category vs the rest); random stratum only; handles a varying number of coders | round, dataset | 95% bootstrap | gate target 0.80 |
 | M5 | Cohen's kappa | Model vs the human label on the holdout; coder vs coder where exactly two coded | category | 95% bootstrap | model evaluation |
 | M6 | Label confidence | Thesis rule per story: 0.9, 0.7, or none | category, batch | n/a | share at 0.9 (about 94% expected at the gate); training export |
@@ -269,9 +290,10 @@ Bootstrap: 2,000 resamples of stories, seeded, so a figure recomputed
 from the same decisions is identical.
 
 Done when: each metric has a unit test against a hand-computed fixture;
-M1 over the V1 import, cohorts A–D, gives 952 scored pairs: all stories
-55.4%; the 378 civic stories 32.2%; the other 622 stories 70.5%; Civic
-information 11.2%; Civic Life 30.5%. With every rejection pair dropped
+M2 over the 934 V1 stories kept, cohorts A–D, gives: all stories 56.9%
+(923 scored); the 367 civic stories 33.2%; the other 567 stories 72.4%;
+Civic information 11.3%; Civic Life 32.6%. M1 over all 1,000 gives 952
+scored pairs at 55.4%. With every rejection pair dropped
 instead (817 pairs) it gives the published 11.9% and 38.7%, which
 confirms the import against the earlier analysis. M6 over all five
 groups gives 71.5% of stories at 0.9.
@@ -287,9 +309,9 @@ groups gives 71.5% of stories at 0.9.
   - Round 1: every coder coded all 20; review held; definition changes
     logged.
   - Round 2: the four conditions in §1.
-  - Round 3: every category has ≥ 250 stories at 0.9 or 0.7; per-batch
-    M2 not below the pilot result (a drop pauses the round and offers a
-    practice round).
+  - Round 3: every category has ≥ 250 stories at 0.9 or 0.7, V1 records
+    and new stories together; per-batch M2 below 83% pauses the round
+    and offers a practice round.
 - **Coder acceptance record**: every WP6 status change, with who, when
   and the M8 value behind it.
 - **Round page**: the gate panel, its history, M1/M2/M6/M7 tables, the
@@ -346,7 +368,9 @@ All admin only.
 1. **Scoring.** Only answers within the ten categories are scored. A
    category against a rejection is a mismatch. Two rejections are not
    scored.
-2. **Pilot.** About 780 V1 stories, 4 coders, 3 per story.
+2. **Pilot.** About 770 V1 stories, 4 coders, 3 per story. The 66
+   stories V1 coders agreed to reject are out; the 157 they never
+   agreed on are in.
 3. **A failed pilot** is rerun on the same stories by four new coders.
    `one_classification_per_coder_per_article` stays: no coder codes a
    story twice.
@@ -360,3 +384,9 @@ All admin only.
    it is the point of the retraining.
 9. **Pause rule** for check stories: binomial, 1 in 100, 40 stories
    (WP6).
+10. **Stories come from** the Missouri, Washington and Pennsylvania
+    datasets plus the V1 records. Vermont is excluded.
+11. **V1 records count toward each category's 250**, and only those with
+    a label. Rejected and unlabeled V1 stories are never training data.
+12. **State split**: up to 60 per category from each of Washington and
+    Pennsylvania, the rest from Missouri.
