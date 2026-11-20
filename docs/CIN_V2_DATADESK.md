@@ -28,7 +28,7 @@ Builds on, rather than replaces:
 | --- | --- | --- | --- | --- |
 | 1. Practice | 20, same for every coder | all | 4, then each new coder | all coded; review meeting held |
 | 2. Pilot | ~780 V1 stories: the 378 civic stories + ~400 of the other 622 | 3 | 4 (each codes ~585) | every story has 3 answers; 4 pass conditions met or failed |
-| 3. Training | ≥ 2,000 new | 2, +1 on a split | 6–9 | every category has 200 labels |
+| 3. Training | ≥ 2,500 new | 2, +1 on a split | 6–9 | every category has 250 labels: 200 to train, 50 held back |
 
 The pilot recodes V1 stories so V2 answers are compared with V1 answers
 **on the same stories**. "Civic stories" are the 378 V1 stories any V1
@@ -61,7 +61,7 @@ categories. **No story is decided by one person.**
 | 2 coders, third only on a split | Fixed `target_coders` | No conditional third |
 | Civic and other pilot stories interleaved | Queue serves oldest assignment first | Order reveals the block |
 | Coders admitted only after practice | Any granted coder is assigned | No onboarding state |
-| First-50 coder check; pause or repeat practice | `coder_report` counts done/outstanding | No per-coder agreement; no pause |
+| Hidden check stories per coder; pause or repeat practice | `coder_report` counts done/outstanding | No check stories; no per-coder accuracy; no pause |
 | Agreement with intervals, first-pair agreement, alpha, kappa, label confidence | `agreement_report`: exact primary %, by category and cohort, no intervals | Most metrics missing |
 | Gate decisions on record | Nothing | No gate record |
 | Training file | None (`CLASSIFICATION_REVIEW_QUEUE.md` Phase 5, undesigned) | No export |
@@ -137,9 +137,6 @@ Source files: Groups A, C, E in `~/Downloads/Archive Excel/`; B, D in
 iCloud `Documents/Mizzou/LNIC/`. 1,000 stories, 2,246 answers; text
 present for all 378 (median 359 words).
 
-The same path loads the 50 MNF 2025 stories and the collaborator's
-labels if they are not in the crawler.
-
 The V1 files' `bart_label` is an older topic model's label set (Roads
 and Car Crashes, Weather, Crime…), not CIN. It cannot stand in for the
 current model's label.
@@ -202,20 +199,21 @@ reviewed → admitted` and, later, `paused` or `removed`.
   `CodebookVersion` draft.
 - **New coders** joining Round 3 get the same practice list and the same
   review before admission.
-- **First-50 check**: after a coder's first 50 decisions on shared
-  stories, their agreement with the others on those stories is computed
-  (WP7, first-pair assignments only). Below the threshold → `paused`: no new assignments, outstanding
-  ones released to other coders, practice repeated. The release step is
-  new: `ClassificationAssignment.reassigned_from` records a reassignment
-  but nothing performs one today. The same step serves the 14-day
-  `stale_after_days` rule.
-- **Removal**: a removed coder's decisions are withdrawn from metrics
-  and export, and their stories return to the queue
-  (`CLASSIFICATION_REVIEW_QUEUE.md` §7c's safer answer).
+- **Check stories** (§7c, decided): about 20 stories with known answers
+  are seeded into every Round 3 coder's queue, indistinguishable from
+  the rest. They are pilot stories on which all three V2 coders chose
+  the same primary, and which that coder has not coded. Per-coder
+  accuracy against them is M11 (WP7). A coder clearly below the others →
+  `paused`: no new assignments, outstanding ones released to other
+  coders, practice repeated. The release step is new:
+  `ClassificationAssignment.reassigned_from` records a reassignment but
+  nothing performs one today. The same step serves the 14-day
+  `stale_after_days` rule. Check-story decisions are excluded from
+  agreement metrics and from the export.
+- **Removal** (decided): a removed coder's decisions are withdrawn from
+  metrics and export, and their stories return to the queue.
 - **Never shown to coders**: their own or anyone's agreement, or other
   answers on a story (§7a).
-- **Embedded check stories** (§7c) are a later step; practice stories
-  with settled answers can seed them.
 
 Done when: an un-admitted coder receives nothing outside practice; the
 review page lists every practice disagreement; a coder below threshold
@@ -235,11 +233,12 @@ V1/V2 comparison is like for like.
 | M2 | First-pair agreement | Share of stories whose first two decisions (by `decided_at`) match on primary | round, batch, category | 95% bootstrap | gate 4 |
 | M3 | V2 − V1 change | M1 under V2 minus M1 under V1 on the same stories, for the 378 civic stories and for the other pilot stories | story group, category | 95% paired bootstrap over stories | gates 1 and 3 |
 | M4 | Krippendorff's alpha (nominal) | Overall and per category (one category vs the rest); random stratum only; handles a varying number of coders | round, dataset | 95% bootstrap | reported reliability; 0.667 tentative, 0.80 reportable |
-| M5 | Cohen's kappa | Model vs coder on the MNF 50; coder vs coder where exactly two coded | category | 95% bootstrap | model check |
+| M5 | Cohen's kappa | Model vs the human label on the holdout; coder vs coder where exactly two coded | category | 95% bootstrap | model evaluation |
 | M6 | Label confidence | Thesis rule per story: 0.9, 0.7, or none | category, batch | n/a | share at 0.9 (target 9 in 10); training export |
 | M7 | Left-out stories | Stories with no 0.9 or 0.7 label, counted against every category any coder chose | category, batch | n/a | definition signal |
-| M8 | Per-coder agreement | M1 restricted to first pairs that include the coder (never tiebreak assignments, which are all on split stories) | coder, category | 95% bootstrap | first-50 check; removal |
+| M8 | Per-coder agreement | M1 restricted to first pairs that include the coder (never tiebreak assignments, which are all on split stories) | coder, category | 95% bootstrap | coder review; removal |
 | M9 | Per-coder pace | Median `seconds_spent`, stories per day, rejection rate | coder | n/a | onboarding, workload |
+| M11 | Check-story accuracy | Share of a coder's check stories where their primary equals the known answer | coder | 95% Wilson | pause; removal |
 | M10 | Round size | Two-proportion sample size (`CIN_ROUNDS.md` formula) from baseline, target, confidence, power | round | n/a | shown before a round opens |
 
 Bootstrap: 2,000 resamples of stories, seeded, so a figure recomputed
@@ -264,7 +263,7 @@ groups gives 71.5% of stories at 0.9.
   - Round 1: every coder coded all 20; review held; definition changes
     logged.
   - Round 2: the four conditions in §1.
-  - Round 3: every category has ≥ 200 stories at 0.9 or 0.7; per-batch
+  - Round 3: every category has ≥ 250 stories at 0.9 or 0.7; per-batch
     M2 not below the pilot result (a drop pauses the round and offers a
     practice round).
 - **Coder acceptance record**: every WP6 status change, with who, when
@@ -292,9 +291,8 @@ One row per story with a label:
 - **V1 stories not in the pilot** (about 220) are exported with their V1
   labels by the same rule, `codebook_version = V1`. Pilot stories carry
   their V2 labels.
-- **Holdout**: flagged at draw time and never exported as `train`.
-  Stratified by category: a 200-story random holdout would hold about 8
-  Education stories, too few to compare models per category.
+- **Holdout** (decided): 50 stories per category, 500 in all, flagged at
+  draw time and never exported as `train`.
 - Label names: as stored by default; with `--label-contract <version>`
   mapped to that contract's names (Community Life), for the retrain.
 
@@ -317,30 +315,26 @@ All admin only.
 | --- | --- | --- |
 | 1 | WP1, WP2, WP6 (practice and admission), WP10 (Rounds, Codebook) | Round 1 |
 | 2 | WP3, WP7, WP4 (pilot), WP8 | Round 2: the pilot's stories and its V1 baseline both come from the V1 import |
-| 3 | WP4 (training), WP5, WP6 (first-50 check), WP9 | Round 3 |
-| 4 | Embedded check stories | Large-group quality (§7c) |
+| 3 | WP4 (training), WP5, WP6 (check stories), WP9 | Round 3 |
 
-## 5. Open questions
+## 5. Decided
 
-1. **First-50 threshold.** Proposed: paused when a coder's M8 is more
-   than 15 points below the group median over at least 50 shared
-   stories. Fifty stories gives about ±14 points, so this threshold is
-   inside the noise and would pause coders at random. Options: 150
-   stories before the check, or embedded check stories with known
-   answers.
-2. **Removal.** Withdraw a removed coder's decisions (proposed, §7c) or
-   keep them.
-3. **Holdout size per category.**
-4. **MNF 50.** Whether the stories are in the crawler or load through
-   WP3, and where the collaborator's labels are. The collaborator coded
-   under V1; a second coder under V2 would confound coder and codebook.
-   Both codings need the same version.
-5. **One decision per coder per story, across all rounds**
-   (`one_classification_per_coder_per_article`). Kept as is: it means a
-   coder can never recode a story they saw in an earlier round, so any
-   recode (MNF 50) needs a coder who has not seen it. A failed pilot
-   therefore needs four new coders, or a second pilot on the ~220 V1
-   stories the first did not use.
-6. **Gate condition 4 is demanding.** With the other stories at V1's
+1. **Scoring.** Only answers within the ten categories are scored. A
+   category against a rejection is a mismatch. Two rejections are not
+   scored.
+2. **Pilot.** About 780 V1 stories, 4 coders, 3 per story.
+3. **A failed pilot** is rerun on the same stories by four new coders.
+   `one_classification_per_coder_per_article` stays: no coder codes a
+   story twice.
+4. **Coder quality** is checked with hidden check stories, not a
+   first-50 agreement check.
+5. **Removed coders'** decisions are withdrawn.
+6. **Holdout** is 50 per category.
+7. **The 50 MNF stories** coded earlier at WSU are out of scope.
+
+## 6. Open
+
+1. **Gate condition 4 is demanding.** With the other stories at V1's
    70%, 7 in 10 at the V1 mix needs the civic stories to rise from 32%
    to about 70%.
+2. **The check-story threshold** for pausing a coder.
