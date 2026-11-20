@@ -26,16 +26,21 @@ Builds on, rather than replaces:
 
 | Round | Stories | Coders per story | Coders | Finished when |
 | --- | --- | --- | --- | --- |
-| 1. Practice | 20, same for every coder | all | 3, then each new coder | all coded; review meeting held |
-| 2. Pilot | ~200, batches of 30 added | 3 | 3 | enough civic stories to tell; 4 pass conditions met or failed |
-| 3. Training | 378 V1 stories + ≥ 2,000 new | V1 stories 3; new 2, +1 on a split | 6–9 | all 378 have 3 answers; every category has 200 labels |
+| 1. Practice | 20, same for every coder | all | 4, then each new coder | all coded; review meeting held |
+| 2. Pilot | ~780 V1 stories: the 378 civic stories + ~400 of the other 622 | 3 | 4 (each codes ~585) | every story has 3 answers; 4 pass conditions met or failed |
+| 3. Training | ≥ 2,000 new | 2, +1 on a split | 6–9 | every category has 200 labels |
 
-Round 2 pass conditions, all four required:
+The pilot recodes V1 stories so V2 answers are compared with V1 answers
+**on the same stories**. "Civic stories" are the 378 V1 stories any V1
+coder put in Civic information or Civic Life, primary or secondary.
 
-1. Civic Information agreement rises from V1 (12%), 95% interval excluding no change.
-2. Community Life agreement at least 39% (V1 Civic Life).
-3. Every other category within its V1 interval.
-4. First two coders choose the same primary on at least 7 stories in 10 (V1: 59.8%).
+Round 2 pass conditions, all four required. V1 figures are scored by
+the rule in WP7 (M1), cohorts A–D:
+
+1. The 378 civic stories: agreement above V1's 32% on the same stories, 95% interval of the difference excluding 0.
+2. Civic Information and Community Life, each: not below V1 (11%, 30%).
+3. The other pilot stories, pooled: not below V1 on the same stories (70%).
+4. First two coders choose the same primary on at least 7 stories in 10, weighted to the full V1 mix (V1: 55%).
 
 Final label rule (thesis, unchanged): two coders' primaries match →
 label at 0.9; one coder's primary is another's secondary → label at
@@ -50,11 +55,11 @@ categories. **No story is decided by one person.**
 | "Community Life" on screen, "Civic Life" stored | Labels shown as stored | No display map |
 | Rejections: Obituary, Advertorial, Service or lifestyle copy | Six rejections | Three missing |
 | Practice, pilot and training rounds with finish rules | Cohorts only; `note` is free text nothing reads | Round model (`CIN_ROUNDS.md`) not built |
-| Pilot mix: ⅓ civic, ⅔ spread over other 8, hidden from coders | Fixed 25% × 4 strata | No per-round draw rule |
-| 378 V1 stories with their 2023 text | Queue reads crawler `articles` only; crawler starts 2025-09-21; 0/378 match by URL or ID | No non-crawler story source |
+| Pilot on ~780 V1 stories, civic and other shuffled, mix hidden from coders | Fixed 25% × 4 strata from the crawler | No fixed-list draw; no per-round draw rule |
+| V1 stories with their 2023 text | Queue reads crawler `articles` only; crawler starts 2025-09-21; 0/378 match by URL or ID | No non-crawler story source |
 | V1 answers as the baseline | V1 answers live in five JotForm CSVs | Not loaded |
 | 2 coders, third only on a split | Fixed `target_coders` | No conditional third |
-| V1 stories mixed into new batches | Queue serves oldest assignment first | Order reveals the block |
+| Civic and other pilot stories interleaved | Queue serves oldest assignment first | Order reveals the block |
 | Coders admitted only after practice | Any granted coder is assigned | No onboarding state |
 | First-50 coder check; pause or repeat practice | `coder_report` counts done/outstanding | No per-coder agreement; no pause |
 | Agreement with intervals, first-pair agreement, alpha, kappa, label confidence | `agreement_report`: exact primary %, by category and cohort, no intervals | Most metrics missing |
@@ -109,7 +114,7 @@ its own finish rule.
 
 ### WP3. Stories from outside the crawler: the V1 import
 
-The 378 Round 3 stories are 2023 stories coded in V1. The crawler has
+The pilot's stories are 2023 stories coded in V1. The crawler has
 none of them. Re-crawling would change the text, hit paywalls
 (stltoday, kansascity) and push 2023 stories into the crawler's
 enrichment and BigQuery export. They load into datadesk instead.
@@ -124,9 +129,9 @@ enrichment and BigQuery export. They load into datadesk instead.
   `one_classification_per_coder_per_article` would not apply.
 - **`import_v1_stories`** management command: reads the five
   `Missouri_News_Labeling (Group A–E)` CSVs, loads all 1,000 stories'
-  V1 answers, and the text for every story. Selects the 378 where any
-  coder chose Civic information or Civic Life, primary or secondary.
-  Idempotent.
+  V1 answers, and the text for every story. Flags the 378 civic stories
+  (any coder chose Civic information or Civic Life, primary or
+  secondary). Idempotent.
 
 Source files: Groups A, C, E in `~/Downloads/Archive Excel/`; B, D in
 iCloud `Documents/Mizzou/LNIC/`. 1,000 stories, 2,246 answers; text
@@ -134,6 +139,10 @@ present for all 378 (median 359 words).
 
 The same path loads the 50 MNF 2025 stories and the collaborator's
 labels if they are not in the crawler.
+
+The V1 files' `bart_label` is an older topic model's label set (Roads
+and Car Crashes, Weather, Crime…), not CIN. It cannot stand in for the
+current model's label.
 
 Done when: 1,000 stories and 2,246 V1 answers load; the 378 are
 selectable as a fixed list; a coder assigned `v1:500` sees its 2023
@@ -145,23 +154,27 @@ headline and text in the queue.
 writing `inclusion_probability` per sample as it does now.
 
 - **Practice**: a fixed list of 20, reused for every new coder.
-- **Pilot**: ⅓ stories whose model label is `Civic information` or
-  `Civic Life`; ⅔ split evenly across the other eight model labels.
-  Batches of 30 until the finish rule is met.
+- **Pilot**: a fixed list. The 378 civic V1 stories plus about 400 drawn
+  at random from the other 622, with the draw's inclusion probability
+  recorded.
 - **Training**: per-category floor 200 by model label, oversampling the
-  rare ones, plus the 378 V1 stories as a fixed list.
-- **Order**: a coder's queue is shuffled within a batch, so V1 stories
-  and civic stories never arrive as a run. The mix of a round is shown
-  to admins only.
+  rare ones. The model's `Civic information` is a catch-all, so the
+  draws needed per category are unknown: the first batch of 300 measures
+  the hit rate per category (share of draws coders place in the
+  category drawn for) and the round page restates the expected total.
+- **Order**: a coder's queue is shuffled within a batch, so civic
+  stories never arrive as a run. The mix of a round is shown to admins
+  only.
 
-Done when: a pilot batch of 30 comes out ≈10 civic / 20 other; a
-training batch interleaves V1 and new stories in every coder's queue;
-inclusion probabilities sum correctly per stratum.
+Done when: the pilot list holds 378 civic and ~400 other stories,
+interleaved in every coder's queue; inclusion probabilities sum
+correctly per stratum; the training round page shows hit rate per
+category after its first batch.
 
 ### WP5. Two coders, a third on a split
 
-- `coders_rule` = base 2 + third on split (training, new stories);
-  base 3 (pilot; V1 stories).
+- `coders_rule` = base 2 + third on split (training); base 3 (pilot,
+  spread round-robin over its 4 coders).
 - When a story's second decision lands and the two primaries differ (or
   the two rejection reasons differ), `assign_cohort` adds one assignment
   to an admitted coder not already on the story, round-robin, in the
@@ -191,7 +204,7 @@ reviewed → admitted` and, later, `paused` or `removed`.
   review before admission.
 - **First-50 check**: after a coder's first 50 decisions on shared
   stories, their agreement with the others on those stories is computed
-  (WP7). Below the threshold → `paused`: no new assignments, outstanding
+  (WP7, first-pair assignments only). Below the threshold → `paused`: no new assignments, outstanding
   ones released to other coders, practice repeated. The release step is
   new: `ClassificationAssignment.reassigned_from` records a reassignment
   but nothing performs one today. The same step serves the 14-day
@@ -218,14 +231,14 @@ V1/V2 comparison is like for like.
 
 | # | Metric | Definition | Cut by | Interval | Used for |
 | --- | --- | --- | --- | --- | --- |
-| M1 | Pairwise agreement | Share of coder pairs on a story with the same primary; two identical rejections agree (`_agree`, unchanged) | overall, category (pairs where either chose it), round, batch, stratum, dataset | 95%, bootstrap over stories (pairs on one story are not independent) | gates 1–3; monitoring |
+| M1 | Pairwise agreement | Share of scored coder pairs with the same primary among the ten categories. A category against a rejection is a mismatch. Two rejections are not scored. **Changes `_agree`**, which counts two identical rejections as agreement today. In a third-on-split round, first-pair decisions only: third-coder pairs exist only where two coders already disagreed | overall, category (pairs where either chose it), round, batch, stratum, dataset | 95%, bootstrap over stories (pairs on one story are not independent) | gates 1–3; monitoring |
 | M2 | First-pair agreement | Share of stories whose first two decisions (by `decided_at`) match on primary | round, batch, category | 95% bootstrap | gate 4 |
-| M3 | V2 − V1 change | M1 per category, V2 minus V1, on the same kind of story (civic third vs the rest) | category | 95% bootstrap of the difference | gate 1 "clear of chance" |
+| M3 | V2 − V1 change | M1 under V2 minus M1 under V1 on the same stories, for the 378 civic stories and for the other pilot stories | story group, category | 95% paired bootstrap over stories | gates 1 and 3 |
 | M4 | Krippendorff's alpha (nominal) | Overall and per category (one category vs the rest); random stratum only; handles a varying number of coders | round, dataset | 95% bootstrap | reported reliability; 0.667 tentative, 0.80 reportable |
 | M5 | Cohen's kappa | Model vs coder on the MNF 50; coder vs coder where exactly two coded | category | 95% bootstrap | model check |
 | M6 | Label confidence | Thesis rule per story: 0.9, 0.7, or none | category, batch | n/a | share at 0.9 (target 9 in 10); training export |
 | M7 | Left-out stories | Stories with no 0.9 or 0.7 label, counted against every category any coder chose | category, batch | n/a | definition signal |
-| M8 | Per-coder agreement | M1 restricted to pairs that include the coder, over shared stories | coder, category | 95% bootstrap | first-50 check; removal |
+| M8 | Per-coder agreement | M1 restricted to first pairs that include the coder (never tiebreak assignments, which are all on split stories) | coder, category | 95% bootstrap | first-50 check; removal |
 | M9 | Per-coder pace | Median `seconds_spent`, stories per day, rejection rate | coder | n/a | onboarding, workload |
 | M10 | Round size | Two-proportion sample size (`CIN_ROUNDS.md` formula) from baseline, target, confidence, power | round | n/a | shown before a round opens |
 
@@ -233,10 +246,12 @@ Bootstrap: 2,000 resamples of stories, seeded, so a figure recomputed
 from the same decisions is identical.
 
 Done when: each metric has a unit test against a hand-computed fixture;
-the V1 import reproduces the published V1 figures: M1 over cohorts A–D
-(813 comparable pairs: Civic information 12%, Civic Life 39%, Sports
-94%); M2 and M6 over all five groups (first pair 59.8%; 71.5% of
-stories at 0.9).
+M1 over the V1 import, cohorts A–D, gives 952 scored pairs: all stories
+55.4%; the 378 civic stories 32.2%; the other 622 stories 70.5%; Civic
+information 11.2%; Civic Life 30.5%. With every rejection pair dropped
+instead (817 pairs) it gives the published 11.9% and 38.7%, which
+confirms the import against the earlier analysis. M6 over all five
+groups gives 71.5% of stories at 0.9.
 
 ### WP8. Gates and acceptance records
 
@@ -249,9 +264,9 @@ stories at 0.9).
   - Round 1: every coder coded all 20; review held; definition changes
     logged.
   - Round 2: the four conditions in §1.
-  - Round 3: all 378 V1 stories have 3 answers; every category has ≥ 200
-    stories at 0.9 or 0.7; per-batch M1 not below the pilot result
-    (a drop pauses the round and offers a practice round).
+  - Round 3: every category has ≥ 200 stories at 0.9 or 0.7; per-batch
+    M2 not below the pilot result (a drop pauses the round and offers a
+    practice round).
 - **Coder acceptance record**: every WP6 status change, with who, when
   and the M8 value behind it.
 - **Round page**: the gate panel, its history, M1/M2/M6/M7 tables, the
@@ -274,8 +289,12 @@ One row per story with a label:
 
 - Excludes practice rounds, removed coders, rejections and left-out
   stories.
-- **Holdout**: a random-stratum set flagged at draw time and never
-  exported as `train`. Proposed size: 200 stories.
+- **V1 stories not in the pilot** (about 220) are exported with their V1
+  labels by the same rule, `codebook_version = V1`. Pilot stories carry
+  their V2 labels.
+- **Holdout**: flagged at draw time and never exported as `train`.
+  Stratified by category: a 200-story random holdout would hold about 8
+  Education stories, too few to compare models per category.
 - Label names: as stored by default; with `--label-contract <version>`
   mapped to that contract's names (Community Life), for the retrain.
 
@@ -297,21 +316,31 @@ All admin only.
 | Order | Packages | Unblocks |
 | --- | --- | --- |
 | 1 | WP1, WP2, WP6 (practice and admission), WP10 (Rounds, Codebook) | Round 1 |
-| 2 | WP3 (V1 answers), WP7, WP4 (pilot), WP8 | Round 2: the gate needs the V1 baseline, so V1 answers load before the pilot opens |
-| 3 | WP3 (V1 text), WP4 (training), WP5, WP6 (first-50 check), WP9 | Round 3 |
+| 2 | WP3, WP7, WP4 (pilot), WP8 | Round 2: the pilot's stories and its V1 baseline both come from the V1 import |
+| 3 | WP4 (training), WP5, WP6 (first-50 check), WP9 | Round 3 |
 | 4 | Embedded check stories | Large-group quality (§7c) |
 
 ## 5. Open questions
 
 1. **First-50 threshold.** Proposed: paused when a coder's M8 is more
    than 15 points below the group median over at least 50 shared
-   stories.
+   stories. Fifty stories gives about ±14 points, so this threshold is
+   inside the noise and would pause coders at random. Options: 150
+   stories before the check, or embedded check stories with known
+   answers.
 2. **Removal.** Withdraw a removed coder's decisions (proposed, §7c) or
    keep them.
-3. **Holdout size.** Proposed 200 random-stratum stories.
+3. **Holdout size per category.**
 4. **MNF 50.** Whether the stories are in the crawler or load through
-   WP3, and where the collaborator's labels are.
+   WP3, and where the collaborator's labels are. The collaborator coded
+   under V1; a second coder under V2 would confound coder and codebook.
+   Both codings need the same version.
 5. **One decision per coder per story, across all rounds**
    (`one_classification_per_coder_per_article`). Kept as is: it means a
    coder can never recode a story they saw in an earlier round, so any
-   recode (MNF 50) needs a coder who has not seen it.
+   recode (MNF 50) needs a coder who has not seen it. A failed pilot
+   therefore needs four new coders, or a second pilot on the ~220 V1
+   stories the first did not use.
+6. **Gate condition 4 is demanding.** With the other stories at V1's
+   70%, 7 in 10 at the V1 mix needs the civic stories to rise from 32%
+   to about 70%.
