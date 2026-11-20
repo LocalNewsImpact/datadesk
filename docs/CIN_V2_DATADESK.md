@@ -199,12 +199,18 @@ reviewed → admitted` and, later, `paused` or `removed`.
   `CodebookVersion` draft.
 - **New coders** joining Round 3 get the same practice list and the same
   review before admission.
-- **Check stories** (§7c, decided): about 20 stories with known answers
+- **Check stories** (§7c, decided): 40 stories with known answers
   are seeded into every Round 3 coder's queue, indistinguishable from
   the rest. They are pilot stories on which all three V2 coders chose
   the same primary, and which that coder has not coded. Per-coder
-  accuracy against them is M11 (WP7). A coder clearly below the others →
-  `paused`: no new assignments, outstanding ones released to other
+  accuracy against them is M11 (WP7). **Pause rule**: a coder is paused
+  when their misses reach the smallest k with
+  P(X ≥ k | n, p₀) ≤ 0.01, X binomial, n their check stories coded, p₀
+  the other coders' pooled miss rate on check stories. At p₀ = 0.10 and
+  n = 40, k = 10: a normal coder is paused 0.5% of the time, a coder
+  missing 30% is caught 80% of the time, one missing 40%, 98%. Twenty
+  check stories would catch the 30% coder only 39% of the time, which is
+  why the count is 40. Evaluated once, at n = 40. Paused → no new assignments, outstanding ones released to other
   coders, practice repeated. The release step is new:
   `ClassificationAssignment.reassigned_from` records a reassignment but
   nothing performs one today. The same step serves the 14-day
@@ -331,10 +337,7 @@ All admin only.
 5. **Removed coders'** decisions are withdrawn.
 6. **Holdout** is 50 per category.
 7. **The 50 MNF stories** coded earlier at WSU are out of scope.
-
-## 6. Open
-
-1. **Gate condition 4 is demanding.** With the other stories at V1's
-   70%, 7 in 10 at the V1 mix needs the civic stories to rise from 32%
-   to about 70%.
-2. **The check-story threshold** for pausing a coder.
+8. **Gate condition 4 stays** at 7 in 10. It is the point of the
+   retraining.
+9. **Pause rule** for check stories: binomial, 1 in 100, 40 stories
+   (WP6).
