@@ -77,6 +77,88 @@
   </p>
   {% endif %}
 
+  {% if not round.is_practice %}
+  <h2>Measured against the finish line</h2>
+  <p>
+    As it stands now:
+    <strong>{% if gate.outcome == "pass" %}pass{% elif gate.outcome == "fail" %}fail{% else %}not enough data yet{% endif %}</strong>.
+    {% if round.kind == "comparison" %}
+    Each figure is the share of stories on which the first two coders to
+    read it chose the same category. A category against a rejection is a
+    mismatch; two rejections are not scored.
+    {% endif %}
+  </p>
+  {% if round.kind == "comparison" %}
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Condition</th>
+          <th scope="col">Measured over</th>
+          <th scope="col" class="num">Stories</th>
+          <th scope="col" class="num">Now</th>
+          <th scope="col" class="num">95% interval</th>
+          <th scope="col" class="num">Needed</th>
+          <th scope="col" class="num">V1, same stories</th>
+          <th scope="col">Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in gate.conditions %}
+        <tr>
+          <th scope="row">{{ row.name }}</th>
+          <td class="quiet">{{ row.population }}</td>
+          <td class="num">{{ row.n }}</td>
+          <td class="num">{% if row.value is None %}&mdash;{% else %}{% widthratio row.value 1 100 %}%{% endif %}</td>
+          <td class="num">{% if row.low is None %}&mdash;{% else %}{% widthratio row.low 1 100 %}&ndash;{% widthratio row.high 1 100 %}%{% endif %}</td>
+          <td class="num">{% widthratio row.threshold 1 100 %}%</td>
+          <td class="num">{% if row.v1 is None %}&mdash;{% else %}{% widthratio row.v1 1 100 %}%{% endif %}</td>
+          <td>{% if row.outcome == "pass" %}Met{% elif row.outcome == "fail" %}Not met{% else %}No data{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <ul class="plain">
+    <li>Reliability (Krippendorff's alpha):
+      {% if gate.measures.alpha is None %}&mdash;{% else %}{{ gate.measures.alpha|floatformat:2 }}{% endif %},
+      against a target of {{ gate.measures.alpha_target|floatformat:2 }}.</li>
+    <li>Stories ending with a label two coders agreed on, or one coder's
+      first choice matching another's second:
+      {% if gate.measures.labelled_share is None %}&mdash;{% else %}{% widthratio gate.measures.labelled_share 1 100 %}%{% endif %}.</li>
+  </ul>
+  {% else %}
+  <p>
+    First two coders choosing the same category, this round:
+    {% if gate.measures.first_pair.rate is None %}&mdash;{% else %}{% widthratio gate.measures.first_pair.rate 1 100 %}%{% endif %}
+    of {{ gate.measures.first_pair.n }} stories. Below
+    {% widthratio gate.measures.first_pair_floor 1 100 %}%: pause and hold
+    another practice.
+  </p>
+  {% endif %}
+  {% if gate.measures.left_out %}
+  <p class="quiet">
+    Stories left with no label, counted against each category a coder
+    chose for them. A category with many is a sign its definition needs
+    work, not a list for somebody to decide:
+    {% for label, count in gate.measures.left_out.items %}{{ label }} {{ count }}{% if not forloop.last %}; {% endif %}{% endfor %}.
+  </p>
+  {% endif %}
+  <form method="post" class="inline">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="evaluate">
+    <button type="submit"
+            title="Writes these figures down as they stand. A record is never changed; evaluating again adds another.">Record this evaluation</button>
+  </form>
+  {% if gates %}
+  <ul class="plain">
+    {% for row in gates %}
+    <li>{{ row.evaluated_at|date:"j M Y, H:i" }}: {{ row.get_outcome_display }}{% if row.evaluated_by %} — {{ row.evaluated_by }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% endif %}
+
   <h2>Coders</h2>
   {% if coders %}
   <div class="table-scroll">
@@ -86,6 +168,9 @@
           <th scope="col">Coder</th>
           <th scope="col" class="num">Assigned</th>
           <th scope="col" class="num">Done</th>
+          <th scope="col" class="num"
+              title="Share of stories on which this coder and the other first coder chose the same category. Never shown to coders.">Matches others</th>
+          <th scope="col" class="num">Median seconds</th>
           <th scope="col">Standing under {{ round.codebook_version.name }}</th>
           <th scope="col">Change</th>
         </tr>
@@ -96,6 +181,8 @@
           <th scope="row">{{ row.user }}</th>
           <td class="num">{{ row.assigned }}</td>
           <td class="num">{{ row.done }}</td>
+          <td class="num">{% if row.figures.agreement.rate is None %}&mdash;{% else %}{% widthratio row.figures.agreement.rate 1 100 %}% <span class="quiet">of {{ row.figures.agreement.n }}</span>{% endif %}</td>
+          <td class="num">{{ row.figures.median_seconds|default:"—" }}</td>
           <td>{% if row.standing %}{{ row.standing|capfirst }}{% else %}Not yet admitted{% endif %}</td>
           <td>
             <form method="post" class="inline">

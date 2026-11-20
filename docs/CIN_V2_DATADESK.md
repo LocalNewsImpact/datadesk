@@ -48,8 +48,8 @@ V1 figures are scored by the same rule, cohorts A–D:
    story counts once for its category and a mismatched story counts
    against two, so at 83% overall the average category sits at
    0.83 / (0.83 + 2 × 0.17) = 71%.
-3. The other pilot stories: at least 83% (V1: 72%). "Not below V1"
-   contradicted condition 4: at 72% here, no result on the civic
+3. The other pilot stories: at least 83% (V1: 73%). "Not below V1"
+   contradicted condition 4: at 73% here, no result on the civic
    stories brings the weighted total to 83%.
 4. All stories, weighted to the V1 mix (367 civic in 934): at least 83% (V1: 57%).
 
@@ -157,7 +157,8 @@ enrichment and BigQuery export. They load into datadesk instead.
   information or Civic Life, primary or secondary). Idempotent.
 
 Source files: Groups A, C, E in `~/Downloads/Archive Excel/`; B, D in
-iCloud `Documents/Mizzou/LNIC/`. 1,000 stories, 2,246 answers; text
+iCloud `Documents/Mizzou/LNIC/`. 1,000 stories, 2,246 answers (2,245 once story 222's duplicate Group D
+submission is dropped); text
 present for every civic story (median 359 words).
 
 Four Group A answers use an earlier form wording, `NONE PRESENT
@@ -169,7 +170,7 @@ The V1 files' `bart_label` is an older topic model's label set (Roads
 and Car Crashes, Weather, Crime…), not CIN. It cannot stand in for the
 current model's label.
 
-Done when: 1,000 stories and 2,246 V1 answers load; the 367 are
+Done when: 1,000 stories and 2,245 V1 answers load; the 367 are
 selectable as a fixed list; a coder assigned `v1:500` sees its 2023
 headline and text in the queue.
 
@@ -296,8 +297,8 @@ Bootstrap: 2,000 resamples of stories, seeded, so a figure recomputed
 from the same decisions is identical.
 
 Done when: each metric has a unit test against a hand-computed fixture;
-M2 over the 934 V1 stories kept, cohorts A–D, gives: all stories 56.9%
-(923 scored); the 367 civic stories 33.2%; the other 567 stories 72.4%;
+M2 over the 934 V1 stories kept, cohorts A–D, gives: all stories 57.0%;
+the 367 civic stories 33.2%; the other 567 stories 72.7%;
 Civic information 11.3%; Civic Life 32.6%. M1 over all 1,000 gives 952
 scored pairs at 55.4%. With every rejection pair dropped
 instead (817 pairs) it gives the published 11.9% and 38.7%, which
@@ -400,3 +401,7 @@ All admin only.
     publisher, date, byline, photo or caption, as in V1.
 14. **Coders read the whole story**, as V1 coders did, not the first 250
     words.
+15. **A category nobody chose cannot be passed.** A pilot in which no
+    coder used Civic Information is "not enough data", not a pass.
+16. **A pilot is coded under a version that is already frozen**, so a
+    pass makes that version final; nothing is frozen at the gate.

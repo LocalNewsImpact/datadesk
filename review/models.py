@@ -418,6 +418,7 @@ from review.classification import (  # noqa: E402,F401  (import for discovery)
     CodebookSettings,
     CodebookVersion,
     CoderStanding,
+    GateResult,
     Round,
     V1Decision,
 )

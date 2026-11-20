@@ -32,6 +32,7 @@ from django.db import models
 from lnic_contracts import cin_labels
 
 from accounts.privileges import CLASSIFIER
+from review import cin_metrics
 
 #: The ten Critical Information Needs categories, in the order the
 #: codebook introduces them -- which is the order a person reads them in
@@ -502,6 +503,54 @@ class CoderStanding(models.Model):
         return f"{self.user} {self.status} under {self.codebook_version}"
 
 
+class GateResult(models.Model):
+    """A round measured against its finish line, as it stood then.
+
+    Whether new definitions passed their pilot is the decision the whole
+    programme turns on, and it must be possible to say afterwards what
+    the figures were when it was taken. So an evaluation is written
+    down -- every condition with its value, its interval, its threshold
+    and its outcome -- and never changed. Evaluating again adds a row.
+
+    Three outcomes, because "not yet" is not "no": a round that has not
+    been coded far enough to judge is NOT_ENOUGH, and is never shown as
+    a failure.
+    """
+
+    PASS = "pass"
+    FAIL = "fail"
+    NOT_ENOUGH = "not_enough"
+    OUTCOMES = [(PASS, "Pass"), (FAIL, "Fail"), (NOT_ENOUGH, "Not enough data")]
+
+    round = models.ForeignKey(Round, on_delete=models.PROTECT, related_name="gates")
+    evaluated_at = models.DateTimeField(auto_now_add=True)
+    evaluated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    outcome = models.CharField(max_length=12, choices=OUTCOMES)
+    #: One entry per condition: name, population, value, low, high, n,
+    #: threshold, the V1 figure on the same stories, outcome.
+    conditions = models.JSONField(default=list)
+    #: What was measured beside the conditions: the change from V1,
+    #: alpha, the share of stories with a label, stories left out.
+    measures = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-evaluated_at", "-id"]
+
+    def __str__(self):
+        return f"{self.round}: {self.outcome}"
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError("a gate result is a record; evaluate again instead")
+        super().save(*args, **kwargs)
+
+
 class ClassificationCohort(models.Model):
     """A batch of records drawn together and worked as a unit.
 
@@ -967,21 +1016,60 @@ def _pairs(decisions):
         yield from combinations(made, 2)
 
 
+def as_answer(decision):
+    """A decision as `cin_metrics` reads one."""
+    return {
+        "coder": decision.decided_by_id,
+        "label": decision.primary_label,
+        "secondary": decision.secondary_label,
+    }
+
+
+def answers_by_story(decisions):
+    """story id -> its answers in the order they were given."""
+    by_story = {}
+    for decision in sorted(decisions, key=lambda d: (d.decided_at, d.pk)):
+        by_story.setdefault(decision.article_id, []).append(as_answer(decision))
+    return by_story
+
+
+def v1_answers(story_ids=None):
+    """The 2023 V1 coding as answers, for the same calculations.
+
+    Groups A to D only, in that order. Group E was a third coder brought
+    in on stories the first two disagreed about, so its pairs exist only
+    where there was already a disagreement.
+    """
+    rows = V1Decision.objects.exclude(group="E").order_by("story_id", "group")
+    if story_ids is not None:
+        rows = rows.filter(story_id__in=list(story_ids))
+    by_story = {}
+    for row in rows:
+        by_story.setdefault(row.story_id, []).append(
+            {
+                "coder": f"v1-{row.group}",
+                "label": row.primary_label,
+                "secondary": row.secondary_label,
+            }
+        )
+    return by_story
+
+
 def _agree(a, b):
-    """Whether two coders said the same thing.
+    """Whether two coders matched, by the scoring rule: True, False, or
+    None where the pair is not scored.
 
     Exact agreement on the primary label. Not set overlap: the primary
     is what the model is trained on, and a pair matching only on
     secondaries has not agreed about what the story is.
 
-    A rejection is a real answer, so two coders who both said "not
-    local" agree. That is the honest reading -- they reached the same
-    conclusion about the record -- and it is also the one that keeps a
-    cohort of unreadable articles from scoring as total disagreement.
+    A category against a rejection is a mismatch. Two rejections are not
+    scored either way: a story neither coder would label is not a story
+    to label. This used to count two matching rejections as agreement,
+    which let a batch of unreadable stories raise the figure the
+    definitions are judged by. See `cin_metrics`.
     """
-    if a.primary_label or b.primary_label:
-        return a.primary_label == b.primary_label
-    return a.reject_reason == b.reject_reason
+    return cin_metrics.score(as_answer(a), as_answer(b))
 
 
 def agreement_report(codebook_version=None):
@@ -1005,7 +1093,8 @@ def agreement_report(codebook_version=None):
     decisions = list(
         counted_decisions(version).select_related("cohort").order_by("article_id")
     )
-    pairs = list(_pairs(decisions))
+    # Scored pairs only: two rejections are not a pair to score.
+    pairs = [(a, b) for a, b in _pairs(decisions) if _agree(a, b) is not None]
 
     by_category, by_cohort = {}, {}
     agreed = 0
@@ -1540,15 +1629,10 @@ def open_round(
 
 
 def _agreed_label(decisions):
-    """The primary two coders share, or None. The first half of the
-    thesis rule (0.9); the 0.7 case and the scoring of rejections belong
-    with the metrics (WP7)."""
-    counts = {}
-    for decision in decisions:
-        if decision.primary_label:
-            counts[decision.primary_label] = counts.get(decision.primary_label, 0) + 1
-    best = max(counts.items(), key=lambda item: item[1], default=None)
-    return best[0] if best and best[1] >= 2 else None
+    """The label a story's answers settle on, or None: two coders with
+    the same category, or one coder's category as another's secondary
+    (`cin_metrics.settled_label`)."""
+    return cin_metrics.settled_label([as_answer(d) for d in decisions])[1]
 
 
 def round_report(round):
@@ -1982,3 +2066,240 @@ def draw_training_batch(for_round, size=300):
     if not samples:
         return None, plan
     return _open_batch(for_round, samples, "training batch"), plan
+
+
+# ------------------------------------------------------------------- gates
+
+#: The reliability the pilot has to show, and what that means in the
+#: terms coders are scored in. Chance agreement across the ten categories
+#: is about 0.15, from the V1 coding (64.5% raw agreement at kappa 0.583),
+#: so an alpha of 0.80 needs the first two coders to match on 83% of
+#: stories; and at 83% overall the average category sits at 71%.
+RELIABILITY_TARGET = 0.80
+CHANCE_AGREEMENT = 0.15
+GATE_FIRST_PAIR = round(
+    cin_metrics.raw_agreement_for_alpha(RELIABILITY_TARGET, CHANCE_AGREEMENT), 2
+)
+GATE_PER_CATEGORY = round(cin_metrics.per_category_floor(GATE_FIRST_PAIR), 2)
+#: The two categories the V2 definitions were written to separate.
+GATE_CATEGORIES = ("Civic information", "Civic Life")
+
+
+def _condition(name, population, measured, threshold, before=None):
+    rate = measured.get("rate")
+    return {
+        "name": name,
+        "population": population,
+        "value": rate,
+        "low": measured.get("low"),
+        "high": measured.get("high"),
+        "n": measured.get("n", 0),
+        "threshold": threshold,
+        "v1": before,
+        "outcome": (
+            GateResult.NOT_ENOUGH
+            if rate is None
+            else (GateResult.PASS if rate >= threshold else GateResult.FAIL)
+        ),
+    }
+
+
+def round_answers(for_round):
+    """story id -> counted answers in a round, in the order given."""
+    return answers_by_story(
+        counted_decisions(for_round.codebook_version).filter(cohort__round=for_round)
+    )
+
+
+def _pilot_conditions(for_round, stories):
+    """The four numbers a pilot has to reach.
+
+    Each is first-pair agreement: the share of stories on which the
+    first two coders to read it chose the same category. Each is a fixed
+    threshold on the observed rate, with its interval reported beside
+    it. A pilot drawn from the V1 stories is scored in its two groups,
+    and each is shown against what V1 coders did on the same stories.
+    """
+    version = for_round.codebook_version
+    strata = dict(
+        ClassificationSample.objects.filter(cohort__round=for_round).values_list(
+            "article_id", "stratum"
+        )
+    )
+    before = v1_answers(strata)
+    groups = {}
+    for name in (ClassificationSample.CIVIC, ClassificationSample.OTHER):
+        ids = {story for story, stratum in strata.items() if stratum == name}
+        if ids:
+            groups[name] = (
+                {k: v for k, v in stories.items() if k in ids},
+                {k: v for k, v in before.items() if k in ids},
+                len(ids),
+            )
+
+    def v1_rate(subset, label=None):
+        rate = cin_metrics.first_pair_agreement(subset, label)["rate"]
+        return rate if subset else None
+
+    conditions = []
+    if ClassificationSample.CIVIC in groups:
+        now, then, size = groups[ClassificationSample.CIVIC]
+        conditions.append(
+            _condition(
+                "The civic stories",
+                f"{size} V1 stories a V1 coder put in either civic category",
+                cin_metrics.first_pair_agreement(now),
+                GATE_FIRST_PAIR,
+                v1_rate(then),
+            )
+        )
+    for label in GATE_CATEGORIES:
+        conditions.append(
+            _condition(
+                version.shown(label),
+                "stories either of the first two coders put in it",
+                cin_metrics.first_pair_agreement(stories, label),
+                GATE_PER_CATEGORY,
+                v1_rate(before, label),
+            )
+        )
+    if ClassificationSample.OTHER in groups:
+        now, then, size = groups[ClassificationSample.OTHER]
+        conditions.append(
+            _condition(
+                "The other stories",
+                f"{size} other V1 stories",
+                cin_metrics.first_pair_agreement(now),
+                GATE_FIRST_PAIR,
+                v1_rate(then),
+            )
+        )
+
+    if len(groups) == 2:
+        # Counted at the civic stories' share of the V1 stories kept, not
+        # their larger share of the pilot, which holds all of them.
+        kept = ClassificationStory.objects.filter(
+            origin=ClassificationStory.V1
+        ).exclude(v1_outcome=ClassificationStory.REJECTED)
+        share = kept.filter(civic=True).count() / (kept.count() or 1)
+        civic, other = groups[ClassificationSample.CIVIC], groups["other"]
+        overall = cin_metrics.weighted_agreement(
+            [(civic[0], share), (other[0], 1 - share)]
+        )
+        then = cin_metrics.weighted_agreement(
+            [(civic[1], share), (other[1], 1 - share)]
+        )["rate"]
+        population = f"civic stories counted at {share:.0%} of the whole"
+    else:
+        overall = cin_metrics.first_pair_agreement(stories)
+        then = v1_rate(before)
+        population = "every story in the round"
+    conditions.append(
+        _condition("All stories", population, overall, GATE_FIRST_PAIR, then)
+    )
+    return conditions, groups
+
+
+def gate(for_round, *, by=None, record=False):
+    """Measure a round against its finish line. With `record`, write it
+    down as a `GateResult`.
+
+    The outcome is NOT_ENOUGH while the round is unfinished -- stories
+    still short of their coders, a review not yet held -- however the
+    figures look so far: a rate over the stories coded first is a rate
+    over the easy ones.
+    """
+    report = round_report(for_round)
+    stories = round_answers(for_round)
+    measures = {}
+
+    if for_round.is_practice:
+        conditions = [
+            {
+                "name": "Every coder has coded every story",
+                "outcome": (
+                    GateResult.PASS if report["coded"] else GateResult.NOT_ENOUGH
+                ),
+            },
+            {
+                "name": "The review has been held",
+                "outcome": (
+                    GateResult.PASS if report["reviewed"] else GateResult.NOT_ENOUGH
+                ),
+            },
+        ]
+    elif for_round.kind == Round.COMPARISON:
+        conditions, groups = _pilot_conditions(for_round, stories)
+        labelled = sum(
+            1 for answers in stories.values() if cin_metrics.settled_label(answers)[1]
+        )
+        coded = sum(1 for answers in stories.values() if len(answers) >= 2)
+        measures = {
+            "alpha": cin_metrics.krippendorff_alpha(stories),
+            "alpha_target": RELIABILITY_TARGET,
+            "labelled_share": labelled / coded if coded else None,
+            "left_out": cin_metrics.left_out(stories),
+        }
+        if record and ClassificationSample.CIVIC in groups:
+            now, then, _ = groups[ClassificationSample.CIVIC]
+            measures["civic_change"] = cin_metrics.paired_change(now, then)
+    else:
+        conditions = [
+            {
+                "name": row["shown"],
+                "population": "labelled stories, V1 records counted first",
+                "value": row["count"],
+                "threshold": row["floor"],
+                "outcome": (
+                    GateResult.PASS
+                    if row["floor"] and row["count"] >= row["floor"]
+                    else GateResult.NOT_ENOUGH
+                ),
+            }
+            for row in report["categories"]
+        ]
+        measures = {
+            "first_pair": cin_metrics.first_pair_agreement(stories),
+            "first_pair_floor": GATE_FIRST_PAIR,
+            "left_out": cin_metrics.left_out(stories),
+        }
+
+    outcomes = {c["outcome"] for c in conditions}
+    unfinished = for_round.kind == Round.COMPARISON and not report.get("finished")
+    if unfinished or GateResult.NOT_ENOUGH in outcomes:
+        outcome = GateResult.NOT_ENOUGH
+    elif GateResult.FAIL in outcomes:
+        outcome = GateResult.FAIL
+    else:
+        outcome = GateResult.PASS
+
+    result = {"outcome": outcome, "conditions": conditions, "measures": measures}
+    if record:
+        result["record"] = GateResult.objects.create(
+            round=for_round,
+            evaluated_by=by,
+            outcome=outcome,
+            conditions=conditions,
+            measures=measures,
+        )
+    return result
+
+
+def coder_figures(for_round):
+    """Per coder in a round: agreement with the others on first pairs,
+    and pace. For admins. A coder is never shown theirs or anyone's: a
+    coder who can watch their agreement codes toward the others."""
+    decisions = list(
+        counted_decisions(for_round.codebook_version).filter(cohort__round=for_round)
+    )
+    agreement = cin_metrics.coder_agreement(answers_by_story(decisions))
+    rows = {}
+    for decision in decisions:
+        rows.setdefault(decision.decided_by_id, []).append(
+            (decision.seconds_spent, not decision.primary_label)
+        )
+    pace = cin_metrics.coder_pace(rows)
+    return {
+        coder: {**pace.get(coder, {}), "agreement": agreement.get(coder)}
+        for coder in set(pace) | set(agreement)
+    }

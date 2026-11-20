@@ -2878,9 +2878,11 @@ def cin_round(request, pk):
         CoderStanding,
         Round,
         assign_cohort,
+        coder_figures,
         draw_cohort,
         draw_pilot,
         draw_training_batch,
+        gate,
         hold_review,
         invite_coder,
         practice_review,
@@ -2974,6 +2976,16 @@ def cin_round(request, pk):
                 for cohort in this.cohorts.filter(closed_at__isnull=True)
             )
             notices.append(("good", f"{made} assignments made."))
+        elif action == "evaluate":
+            # Written down as it stood: the decision this supports has to
+            # be answerable later with the figures it was taken on.
+            result = gate(this, by=request.user, record=True)
+            notices.append(
+                (
+                    "good" if result["outcome"] == "pass" else "warn",
+                    "Recorded: " + result["record"].get_outcome_display().lower() + ".",
+                )
+            )
         elif action == "review" and this.is_practice:
             if not round_report(this).get("coded"):
                 notices.append(
@@ -3010,6 +3022,12 @@ def cin_round(request, pk):
     context["notices"] = notices
     context["review"] = practice_review(this) if this.is_practice else None
     context["statuses"] = CoderStanding
+    # As it stands now, unrecorded; and every evaluation recorded so far.
+    context["gate"] = gate(this)
+    context["gates"] = this.gates.select_related("evaluated_by")[:10]
+    figures = coder_figures(this)
+    for row in context["coders"]:
+        row["figures"] = figures.get(row["user"].id)
     return render(request, "review/cin_round.html", context)
 
 

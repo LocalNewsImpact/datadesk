@@ -183,14 +183,28 @@ def test_a_disagreement_counts_against_both_categories():
     assert named["Civic Life"]["rate"] == 0.0
 
 
-def test_two_rejections_for_the_same_reason_agree():
-    """They reached the same conclusion about the record. It also stops a
-    cohort of unreadable articles scoring as total disagreement."""
+def test_two_rejections_are_not_scored():
+    """A story neither coder would label is not a story to label, and
+    agreeing about that says nothing about the definitions. Counting it
+    as agreement let unreadable stories raise the figure the definitions
+    are judged by."""
     cohort = ClassificationCohort.objects.create(number=1, slug="cohort-1")
     one, two = _user("a", CLASSIFIER), _user("b", CLASSIFIER)
     _decide(cohort, "article-1", one, reject=ClassificationDecision.NOT_LOCAL)
     _decide(cohort, "article-1", two, reject=ClassificationDecision.NOT_LOCAL)
-    assert agreement_report()["overall"] == 100.0
+    report = agreement_report()
+    assert report["pairs"] == 0 and report["overall"] is None
+
+
+def test_a_category_against_a_rejection_is_a_mismatch():
+    """They disagreed about whether the story should be labelled at
+    all."""
+    cohort = ClassificationCohort.objects.create(number=1, slug="cohort-1")
+    one, two = _user("a", CLASSIFIER), _user("b", CLASSIFIER)
+    _decide(cohort, "article-1", one, "Sports")
+    _decide(cohort, "article-1", two, reject=ClassificationDecision.NOT_LOCAL)
+    report = agreement_report()
+    assert (report["pairs"], report["overall"]) == (1, 0.0)
 
 
 def test_the_worst_category_sorts_first():

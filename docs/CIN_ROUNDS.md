@@ -33,16 +33,16 @@ The author states the effect worth detecting and the confidence wanted.
 | 12% → 30% | 80 |
 | 12% → 25% | 139 |
 | 12% → 20% | 329 |
-| 65% → 75% | 305 |
-| 65% → 70% | 1,184 |
-| 65% → 68% | 3,034 |
+| 65% → 75% | 329 |
+| 65% → 70% | 1,377 |
+| 65% → 68% | 3,885 |
 
 Two-proportion comparison at 95% confidence and 80% power, over
 double-coded articles.
 
 The table is the argument for deriving rather than typing. Testing the
 Civic Information revision is 139 articles — a weekend. Chasing three
-points on the overall rate is 3,034, which is a different project
+points on the overall rate is 3,885, which is a different project
 requiring a different decision. A number somebody types cannot tell them
 that; a number the interface derives says it before any coder is asked
 for anything.

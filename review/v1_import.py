@@ -116,6 +116,11 @@ def collect(paths):
             # The first file to carry text for a story supplies it.
             if not entry["story"]["body"] and row["body"]:
                 entry["story"] = row
+            # One answer per group per story. Story 222 was submitted
+            # twice by Group D; counted twice, one coder would read as
+            # two coders agreeing.
+            if any(a["group"] == row["group"] for a in entry["answers"]):
+                continue
             entry["answers"].append(row)
     return stories
 
