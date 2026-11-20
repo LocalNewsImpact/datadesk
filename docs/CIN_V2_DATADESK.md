@@ -38,7 +38,12 @@ Round 2 pass conditions, all four required. V1 figures are scored by
 the rule in WP7 (M1), cohorts A–D:
 
 1. The 378 civic stories: agreement above V1's 32% on the same stories, 95% interval of the difference excluding 0.
-2. Civic Information and Community Life, each: not below V1 (11%, 30%).
+2. Civic Information and Community Life, each: at least 54% (V1: 11%,
+   30%). 54% is the per-category rate implied by condition 4: a matched
+   story counts once for its category and a mismatched story counts
+   against two, so at 7 in 10 overall the average category sits at
+   0.7 / (0.7 + 2 × 0.3) = 54%. "Not below V1" would pass both
+   categories unchanged.
 3. The other pilot stories, pooled: not below V1 on the same stories (70%).
 4. First two coders choose the same primary on at least 7 stories in 10, weighted to the full V1 mix (V1: 55%).
 
