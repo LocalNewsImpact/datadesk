@@ -38,14 +38,22 @@ Round 2 pass conditions, all four required. V1 figures are scored by
 the rule in WP7 (M1), cohorts A–D:
 
 1. The 378 civic stories: agreement above V1's 32% on the same stories, 95% interval of the difference excluding 0.
-2. Civic Information and Community Life, each: at least 54% (V1: 11%,
-   30%). 54% is the per-category rate implied by condition 4: a matched
+2. Civic Information and Community Life, each: at least 71% (V1: 11%,
+   30%). 71% is the per-category rate implied by condition 4: a matched
    story counts once for its category and a mismatched story counts
-   against two, so at 7 in 10 overall the average category sits at
-   0.7 / (0.7 + 2 × 0.3) = 54%. "Not below V1" would pass both
-   categories unchanged.
+   against two, so at 83% overall the average category sits at
+   0.83 / (0.83 + 2 × 0.17) = 71%.
 3. The other pilot stories, pooled: not below V1 on the same stories (70%).
-4. First two coders choose the same primary on at least 7 stories in 10, weighted to the full V1 mix (V1: 55%).
+4. First two coders choose the same primary on at least 83% of stories, weighted to the full V1 mix (V1: 55%).
+
+The target is a reliability (Krippendorff's alpha) of 0.80. Chance
+agreement across the ten categories is about 0.15, from the V1 data
+(64.5% raw agreement, kappa 0.583), so alpha 0.80 needs
+0.80 + 0.20 × 0.15 = 83% raw agreement. At 83%, with a third coder
+settling about 63% of splits as in V1, about 94% of stories end with a
+label two coders agreed on. The earlier 7-in-10 bar gave about 89%
+settled labels but an alpha near 0.65, below the 0.667 floor for even
+tentative conclusions.
 
 Final label rule (thesis, unchanged): two coders' primaries match →
 label at 0.9; one coder's primary is another's secondary → label at
@@ -243,9 +251,9 @@ V1/V2 comparison is like for like.
 | M1 | Pairwise agreement | Share of scored coder pairs with the same primary among the ten categories. A category against a rejection is a mismatch. Two rejections are not scored. **Changes `_agree`**, which counts two identical rejections as agreement today. In a third-on-split round, first-pair decisions only: third-coder pairs exist only where two coders already disagreed | overall, category (pairs where either chose it), round, batch, stratum, dataset | 95%, bootstrap over stories (pairs on one story are not independent) | gates 1–3; monitoring |
 | M2 | First-pair agreement | Share of stories whose first two decisions (by `decided_at`) match on primary | round, batch, category | 95% bootstrap | gate 4 |
 | M3 | V2 − V1 change | M1 under V2 minus M1 under V1 on the same stories, for the 378 civic stories and for the other pilot stories | story group, category | 95% paired bootstrap over stories | gates 1 and 3 |
-| M4 | Krippendorff's alpha (nominal) | Overall and per category (one category vs the rest); random stratum only; handles a varying number of coders | round, dataset | 95% bootstrap | reported reliability; 0.667 tentative, 0.80 reportable |
+| M4 | Krippendorff's alpha (nominal) | Overall and per category (one category vs the rest); random stratum only; handles a varying number of coders | round, dataset | 95% bootstrap | gate target 0.80 |
 | M5 | Cohen's kappa | Model vs the human label on the holdout; coder vs coder where exactly two coded | category | 95% bootstrap | model evaluation |
-| M6 | Label confidence | Thesis rule per story: 0.9, 0.7, or none | category, batch | n/a | share at 0.9 (target 9 in 10); training export |
+| M6 | Label confidence | Thesis rule per story: 0.9, 0.7, or none | category, batch | n/a | share at 0.9 (about 94% expected at the gate); training export |
 | M7 | Left-out stories | Stories with no 0.9 or 0.7 label, counted against every category any coder chose | category, batch | n/a | definition signal |
 | M8 | Per-coder agreement | M1 restricted to first pairs that include the coder (never tiebreak assignments, which are all on split stories) | coder, category | 95% bootstrap | coder review; removal |
 | M9 | Per-coder pace | Median `seconds_spent`, stories per day, rejection rate | coder | n/a | onboarding, workload |
@@ -342,7 +350,8 @@ All admin only.
 5. **Removed coders'** decisions are withdrawn.
 6. **Holdout** is 50 per category.
 7. **The 50 MNF stories** coded earlier at WSU are out of scope.
-8. **Gate condition 4 stays** at 7 in 10. It is the point of the
-   retraining.
+8. **The gate targets reliability 0.80**: 83% first-pair agreement and
+   71% per category for Civic Information and Community Life. Reaching
+   it is the point of the retraining.
 9. **Pause rule** for check stories: binomial, 1 in 100, 40 stories
    (WP6).
