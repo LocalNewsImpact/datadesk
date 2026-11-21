@@ -2441,12 +2441,17 @@ def classification_queue(request):
         ClassificationCohort,
         ClassificationDecision,
         CodebookVersion,
+        give_a_coder_their_stories,
         stories_for,
     )
 
     if request.method == "POST":
         return _submit_classification(request)
 
+    # A coder added before they had ever signed in has a grant from
+    # their first sign-in and no stories. They get them here, not when
+    # an admin remembers to press a button.
+    give_a_coder_their_stories(request.user)
     cohorts = ClassificationCohort.objects.filter(
         slug__in=scopes_for(request.user, CLASSIFY) or []
     )
@@ -2825,21 +2830,41 @@ def cin_rounds(request):
     answers, a test of new definitions and training data were one
     undifferentiated pile of cohorts.
     """
-    from review.classification import CodebookVersion, Round, open_round, round_report
+    from review.classification import (
+        ROUND_DEFAULTS,
+        CodebookVersion,
+        Round,
+        round_report,
+        start_round,
+    )
 
     notices = []
     if request.method == "POST":
         name = (request.POST.get("name") or "").strip()
         kind = request.POST.get("kind") or ""
-        version = CodebookVersion.objects.filter(
-            pk=request.POST.get("codebook") or 0
-        ).first()
-        try:
-            base = int(request.POST.get("base_coders") or 2)
-            floor = int(request.POST.get("per_category") or 0)
-            held = int(request.POST.get("holdout") or 0)
-        except ValueError:
-            base, floor, held = 0, 0, 0
+        # Blank means the current codebook, and blank numbers mean the
+        # procedure's: starting a round is a name, a kind and the coders.
+        version = (
+            CodebookVersion.objects.filter(pk=request.POST.get("codebook")).first()
+            if request.POST.get("codebook")
+            else CodebookVersion.current()
+        )
+        emails = [
+            part
+            for part in (request.POST.get("coders") or "")
+            .replace(",", " ")
+            .replace(";", " ")
+            .split()
+            if part
+        ]
+
+        def number(field):
+            try:
+                return max(0, int(request.POST.get(field) or 0))
+            except ValueError:
+                return 0
+
+        floor, held = number("per_category"), number("holdout")
         if not name:
             notices.append(("bad", "A round needs a name."))
         elif Round.objects.filter(name=name).exists():
@@ -2848,26 +2873,23 @@ def cin_rounds(request):
             notices.append(("bad", "Choose what the round is for."))
         elif version is None:
             notices.append(("bad", "Choose the codebook the round is coded under."))
-        elif base < 1:
-            notices.append(("bad", "A story needs at least one coder."))
-        elif kind == Round.COLLECTION and floor < 1:
-            notices.append(
-                ("bad", "A training round needs a number of stories per category.")
-            )
         else:
-            created = open_round(
-                name,
-                kind,
-                codebook_version=version,
-                question=(request.POST.get("question") or "").strip(),
-                base_coders=base,
-                third_on_split=bool(request.POST.get("third_on_split")),
-                finish_rule=(
-                    {"per_category": floor, "holdout": min(held, floor)}
-                    if floor
-                    else {}
-                ),
+            changes = {
+                "base_coders": number("base_coders"),
+                "stories": number("stories"),
+                "question": (request.POST.get("question") or "").strip(),
+            }
+            if kind == Round.COLLECTION and floor:
+                usual = ROUND_DEFAULTS[kind]["finish_rule"]["holdout"]
+                changes["finish_rule"] = {
+                    "per_category": floor,
+                    "holdout": min(held or usual, floor),
+                }
+            created, made = start_round(
+                name, kind, emails, codebook_version=version, by=request.user, **changes
             )
+            # Shown on the round's page, where the redirect lands.
+            request.session["cin_round_notices"] = [list(row) for row in made]
             return redirect("review:cin_round", pk=created.pk)
 
     return render(
@@ -2876,6 +2898,7 @@ def cin_rounds(request):
         {
             "rounds": [round_report(row) for row in Round.objects.all()],
             "kinds": Round.KINDS,
+            "defaults": ROUND_DEFAULTS,
             "versions": CodebookVersion.objects.all(),
             "current": CodebookVersion.current(),
             "notices": notices,
@@ -2897,14 +2920,10 @@ def cin_round(request, pk):
         assign_cohort,
         check_figures,
         coder_figures,
-        draw_cohort,
-        draw_pilot,
-        draw_training_batch,
-        find_check_stories,
+        coder_notices,
         gate,
-        hide_check_stories,
         hold_review,
-        pilot_new_plan,
+        open_batch,
         practice_review,
         record_lead_decision,
         round_report,
@@ -2912,7 +2931,8 @@ def cin_round(request, pk):
     )
 
     this = get_object_or_404(Round, pk=pk)
-    notices = []
+    # What starting the round did, carried over the redirect here.
+    notices = [tuple(row) for row in request.session.pop("cin_round_notices", [])]
     if request.method == "POST":
         action = request.POST.get("action")
         if action == "batch":
@@ -2922,79 +2942,15 @@ def cin_round(request, pk):
                 size = 0
             if size < 1:
                 notices.append(("bad", "A batch needs at least one story."))
-            elif this.kind != Round.COLLECTION and this.cohorts.exists():
-                # A practice round is one list of stories every coder
-                # codes, and a pilot is one draw. A second press of the
-                # button -- the first is slow -- doubled a practice list.
-                notices.append(
-                    (
-                        "bad",
-                        "This round already has its stories. Only a "
-                        "training round takes more than one batch.",
-                    )
-                )
-            elif this.kind == Round.COMPARISON:
-                # A pilot is V1 stories -- every civic one and `size`
-                # of the others, or the ones an earlier pilot held --
-                # and new stories by the model's label.
-                cohort, drawn = draw_pilot(this, others=size, new=pilot_new_plan())
-                if cohort is None:
-                    notices.append(
-                        (
-                            "bad",
-                            "No stories to draw. Load the V1 stories first "
-                            "with manage.py import_v1_stories.",
-                        )
-                    )
-                else:
-                    made = assign_cohort(cohort)
-                    notices.append(
-                        (
-                            "good",
-                            f"Batch {cohort.number}: {drawn['civic']} civic and "
-                            f"{drawn['other']} other V1 stories"
-                            + (
-                                ", the ones an earlier pilot held that enough "
-                                "admitted coders have not read"
-                                if drawn["repeat"]
-                                else ""
-                            )
-                            + f", and {drawn['new']} new stories"
-                            + f"; {made} assignments made.",
-                        )
-                    )
-            elif this.kind == Round.COLLECTION:
-                cohort, plan = draw_training_batch(this, size)
-                if cohort is None:
-                    notices.append(
-                        ("warn", "Nothing drawn: every category is at its floor.")
-                    )
-                else:
-                    made = assign_cohort(cohort)
-                    find_check_stories(this.codebook_version)
-                    hidden = hide_check_stories(cohort)
-                    total = sum(row["drawn"] for row in plan)
-                    notices.append(
-                        (
-                            "good" if total >= size else "warn",
-                            f"Batch {cohort.number}: {total} stories drawn, "
-                            f"{made} assignments made, {hidden} check stories "
-                            "hidden among them.",
-                        )
-                    )
             else:
-                cohort, drawn = draw_cohort(
-                    size, for_round=this, note=(request.POST.get("note") or "").strip()
+                cohort, level, message = open_batch(
+                    this, size, note=(request.POST.get("note") or "").strip()
                 )
-                made = assign_cohort(cohort)
-                total = sum(drawn.values())
                 notices.append(
-                    (
-                        "good" if total == size else "warn",
-                        f"Batch {cohort.number}: {total} of {size} stories drawn, "
-                        f"{made} assignments made.",
-                    )
+                    (level, (f"Batch {cohort.number}: " if cohort else "") + message)
                 )
+                if cohort is not None:
+                    notices += coder_notices(this)
         elif action == "invite":
             try:
                 kind = add_coder_to_round(
@@ -3017,18 +2973,9 @@ def cin_round(request, pk):
                         for cohort in this.cohorts.filter(closed_at__isnull=True)
                     )
                     notices.append(
-                        (
-                            "good",
-                            f"Added to the round; {made} assignments made."
-                            + (
-                                " They have not signed in to datadesk before, "
-                                "so their stories are assigned when they do "
-                                "and you press Assign unassigned stories."
-                                if kind == "invited"
-                                else ""
-                            ),
-                        )
+                        ("good", f"Added to the round; {made} assignments made.")
                     )
+                    notices += coder_notices(this)
         elif action == "assign":
             made = sum(
                 assign_cohort(cohort)

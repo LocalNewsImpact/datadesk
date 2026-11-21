@@ -333,30 +333,113 @@ def admin(client, db):
     return user
 
 
-def test_an_admin_opens_a_round(client, admin, version):
+def _stories(count):
+    """Crawler stories a draw can take."""
+    from explorer.models import Article
+
+    for n in range(count):
+        Article.objects.using("crawler").create(
+            id=f"s-{n}",
+            url=f"https://example.com/{n}",
+            title=f"story {n}",
+            text="word " * 150,
+            status="labeled",
+            wire_check_status="complete",
+            primary_label="Sports",
+            primary_label_confidence=0.9,
+        )
+
+
+def test_starting_a_round_is_one_step(client, admin, version, crawler_schema):
+    """It was six steps on three pages: open a round, open a batch, add
+    a coder, invite them, admit them, assign. A name, what the round is
+    for and the coders' addresses is the whole of it."""
+    from accounts.models import Invitation
+
+    _stories(30)
+    known = User.objects.create_user("known", email="known@localnewsimpact.org")
     response = client.post(
         reverse("review:cin_rounds"),
         {
             "name": "V2 practice",
             "kind": Round.PRACTICE,
-            "codebook": version.pk,
-            "base_coders": "3",
+            "coders": (
+                "Known@localnewsimpact.org\nnew.person@example.edu, not-an-address"
+            ),
         },
+        follow=True,
     )
+    body = response.content.decode()
     created = Round.objects.get(name="V2 practice")
-    assert response.status_code == 302
-    assert created.is_practice and created.codebook_version == version
-    body = client.get(reverse("review:cin_rounds")).content.decode()
-    assert "V2 practice" in body
+    # No codebook chosen: the current one. No numbers: the procedure's.
+    assert created.is_practice and created.codebook_version == CodebookVersion.current()
+    cohort = created.cohorts.get()
+    drawn = cohort.samples.count()
+    assert drawn == 20
+    # Somebody who has used datadesk has their stories already.
+    assert ClassificationAssignment.objects.filter(assigned_to=known).count() == drawn
+    # Somebody who has not is waiting for a first sign-in, and the page
+    # says that nothing else needs doing.
+    assert Invitation.objects.filter(email="new.person@example.edu").exists()
+    assert "new.person@example.edu" in body and "Nothing else needs doing" in body
+    assert "not-an-address: that is not an address" in body
+    assert "20 of 20 stories drawn" in body and "Coders with stories now: 1" in body
+    assert "V2 practice" in client.get(reverse("review:cin_rounds")).content.decode()
 
 
-def test_a_training_round_needs_its_floor(client, admin, version):
+def test_a_new_coder_gets_their_stories_when_they_first_open_the_queue(
+    client, version, crawler_schema
+):
+    """The grant is made at a first sign-in, and assigning the stories
+    used to wait for an admin to notice and press a button."""
+    from review.classification import start_round
+
+    _stories(30)
+    created, _ = start_round("Practice", Round.PRACTICE, ["late@example.edu"])
+    cohort = created.cohorts.get()
+    late = User.objects.create_user("late", email="late@example.edu")
+    # What the sign-in adapter does with the invitation.
+    Grant.objects.create(user=late, app=DATADESK, role=CLASSIFIER, scope=cohort.slug)
+    assert not ClassificationAssignment.objects.filter(assigned_to=late).exists()
+    client.force_login(late)
+    assert client.get(reverse("review:classification")).status_code == 200
+    assert ClassificationAssignment.objects.filter(assigned_to=late).count() == 20
+
+
+def test_a_pilot_started_with_coders_who_have_not_practised_says_so(
+    client, admin, version, crawler_schema
+):
+    from review.classification import ClassificationStory
+
+    for n in range(4):
+        ClassificationStory.objects.create(
+            id=f"v1:{n}", headline="h", body="b", civic=n < 2, v1_outcome="none"
+        )
+    ready = User.objects.create_user("ready", email="ready@localnewsimpact.org")
+    User.objects.create_user("fresh", email="fresh@localnewsimpact.org")
+    set_standing(ready, CodebookVersion.current(), CoderStanding.ADMITTED)
     body = client.post(
         reverse("review:cin_rounds"),
-        {"name": "T", "kind": Round.COLLECTION, "codebook": version.pk},
+        {
+            "name": "Pilot",
+            "kind": Round.COMPARISON,
+            "coders": "ready@localnewsimpact.org fresh@localnewsimpact.org",
+        },
+        follow=True,
     ).content.decode()
-    assert "number of stories per category" in body
-    assert not Round.objects.exists()
+    created = Round.objects.get(name="Pilot")
+    assert created.base_coders == 2
+    assert "have not finished a practice round" in body and "fresh" in body
+    assert ClassificationAssignment.objects.filter(assigned_to=ready).exists()
+
+
+def test_a_training_round_starts_with_the_procedures_numbers(
+    client, admin, version, crawler_schema
+):
+    client.post(reverse("review:cin_rounds"), {"name": "T", "kind": Round.COLLECTION})
+    created = Round.objects.get(name="T")
+    assert created.finish_rule == {"per_category": 250, "holdout": 50}
+    assert created.base_coders == 2 and created.third_on_split
 
 
 def test_the_round_page_records_the_review_and_admits(
