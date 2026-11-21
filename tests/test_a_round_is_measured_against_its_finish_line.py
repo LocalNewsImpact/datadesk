@@ -351,7 +351,9 @@ def test_a_training_round_passes_when_every_category_has_its_number(coders):
     result = gate(training)
     assert result["outcome"] == GateResult.NOT_ENOUGH
     assert len(result["conditions"]) == 10
-    assert result["measures"]["first_pair_floor"] == 0.83
+    # Watched against the alpha a pilot passes on, not a percentage.
+    assert result["measures"]["alpha_target"] == 0.80
+    assert set(result["measures"]["alpha"]) == {"rate", "low", "high", "n"}
 
 
 def test_an_admin_records_an_evaluation_from_the_round_page(client, coders):

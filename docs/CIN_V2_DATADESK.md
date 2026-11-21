@@ -320,7 +320,7 @@ groups gives 71.5% of stories at 0.9.
     logged.
   - Round 2: the four conditions in §1.
   - Round 3: every category has ≥ 250 stories at 0.9 or 0.7, V1 records
-    and new stories together; per-batch M2 below 83% (alpha 0.80 at V1's chance rate) pauses the round
+    and new stories together; per-batch alpha below 0.80, over the first two coders on each story, pauses the round
     and offers a practice round.
 - **Coder acceptance record**: every WP6 status change, with who, when
   and the M8 value behind it.
