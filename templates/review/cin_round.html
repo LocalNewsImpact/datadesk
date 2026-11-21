@@ -424,8 +424,8 @@
 
   <h2>Step 1. Stories</h2>
   <p class="quiet">
-    Open a batch first: it draws the round's stories. Coders are added
-    to a batch, so there has to be one.
+    Opening a batch draws the round's stories and hands them to the
+    coders on the round.
     {% if round.kind == "comparison" %}A pilot batch is every civic V1
     story, the number of other V1 stories entered below, and 230 new
     stories.{% endif %}
@@ -460,7 +460,7 @@
   <h2>Step 2. Coders</h2>
   <p class="quiet">
     Add each coder by the Google address they sign in with, using the
-    box under the table. Somebody who has signed in before is added at
+    box under the table, before or after opening a batch. Somebody who has signed in before is added at
     once and given their stories. Somebody new is added when they first
     sign in; press &ldquo;Assign unassigned stories&rdquo; above after
     they have.
@@ -523,7 +523,7 @@
     </table>
   </div>
   {% else %}
-  <p class="notice">Nobody is on this round yet.</p>
+  <p class="notice">Nobody has been given stories in this round yet.</p>
   {% endif %}
 
   {% if not round.is_practice %}
@@ -533,6 +533,12 @@
   </p>
   {% endif %}
 
+  {% if round.waiting_coders %}
+  <p>
+    Added, and waiting for a batch to be opened:
+    {{ round.waiting_coders|join:", " }}.
+  </p>
+  {% endif %}
   <form method="post" class="inline-form tight">
     {% csrf_token %}
     <input type="hidden" name="action" value="invite">

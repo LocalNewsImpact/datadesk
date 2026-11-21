@@ -431,6 +431,10 @@ class Round(models.Model):
     #: collection round must reach in every category.
     draw_rule = models.JSONField(default=dict, blank=True)
     finish_rule = models.JSONField(default=dict, blank=True)
+    #: Addresses added to the round before it had a batch. A coder is
+    #: granted batches, not rounds, so until one exists there is nothing
+    #: to grant; they wait here and are granted the first batch opened.
+    waiting_coders = models.JSONField(default=list, blank=True)
     opened_at = models.DateTimeField(auto_now_add=True)
     closed_at = models.DateTimeField(null=True, blank=True)
     #: A practice round ends with the lead going through every
@@ -1557,6 +1561,7 @@ def draw_cohort(
     if for_round is not None:
         for user in round_coders(for_round):
             grant_cohort(user, cohort)
+        admit_waiting_coders(for_round, cohort)
     return cohort, drawn
 
 
@@ -1769,6 +1774,38 @@ def invite_coder(email, cohort, *, invited_by=None):
 
 
 # ------------------------------------------------------------------ rounds
+
+
+def add_coder_to_round(for_round, email, *, invited_by=None):
+    """Add somebody to a round by address. Returns "added" where they
+    were granted its open batches, "invited" where that waits for their
+    first sign-in, and "waiting" where the round has no batch yet and
+    they will be granted the first one opened."""
+    email = (email or "").strip().lower()
+    if "@" not in email:
+        raise ValueError("that is not an address")
+    cohorts = list(for_round.cohorts.filter(closed_at__isnull=True))
+    if not cohorts:
+        if email not in for_round.waiting_coders:
+            for_round.waiting_coders = [*for_round.waiting_coders, email]
+            for_round.save(update_fields=["waiting_coders"])
+        return "waiting"
+    kinds = {
+        invite_coder(email, cohort, invited_by=invited_by)[0] for cohort in cohorts
+    }
+    return "added" if kinds == {"granted"} else "invited"
+
+
+def admit_waiting_coders(for_round, cohort):
+    """Grant a round's waiting coders the batch that has just opened."""
+    if not for_round.waiting_coders:
+        return 0
+    waiting = list(for_round.waiting_coders)
+    for email in waiting:
+        invite_coder(email, cohort)
+    for_round.waiting_coders = []
+    for_round.save(update_fields=["waiting_coders"])
+    return len(waiting)
 
 
 def round_coders(round):
@@ -2013,6 +2050,7 @@ def _open_batch(for_round, samples, note):
         ClassificationSample.objects.bulk_create(samples, batch_size=500)
     for user in round_coders(for_round):
         grant_cohort(user, cohort)
+    admit_waiting_coders(for_round, cohort)
     return cohort
 
 

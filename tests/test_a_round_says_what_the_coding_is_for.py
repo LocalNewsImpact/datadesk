@@ -383,3 +383,54 @@ def test_a_coder_cannot_reach_the_rounds_pages(client, practice):
         302,
         403,
     )
+
+
+def test_a_coder_can_be_added_before_the_round_has_any_stories(client, db):
+    """A coder is granted batches, and a new round has none. Adding
+    somebody then used to answer with an error that was easy to miss and
+    add nobody. They wait on the round and are given the first batch."""
+    from django.contrib.auth import get_user_model
+    from django.urls import reverse
+
+    from accounts.models import DATADESK, Grant
+    from accounts.privileges import ADMIN
+    from review.classification import (
+        ClassificationSample,
+        _open_batch,
+        add_coder_to_round,
+        coders_for,
+        open_round,
+    )
+
+    User = get_user_model()
+    admin = User.objects.create_user("admin", email="admin@localnewsimpact.org")
+    Grant.objects.create(user=admin, app=DATADESK, role=ADMIN, scope="")
+    client.force_login(admin)
+    practice = open_round("Practice", Round.PRACTICE)
+    url = reverse("review:cin_round", args=[practice.pk])
+    body = client.post(
+        url, {"action": "invite", "email": "Admin@LocalNewsImpact.org"}
+    ).content.decode()
+    assert "they are given theirs when a batch is opened" in body
+    assert "waiting for a batch to be opened" in body
+    practice.refresh_from_db()
+    assert practice.waiting_coders == ["admin@localnewsimpact.org"]
+    # Twice is once, and something that is not an address is refused.
+    assert add_coder_to_round(practice, "admin@localnewsimpact.org") == "waiting"
+    practice.refresh_from_db()
+    assert len(practice.waiting_coders) == 1
+    body = client.post(url, {"action": "invite", "email": "nobody"}).content.decode()
+    assert "That is not an address." in body
+
+    cohort = _open_batch(
+        practice,
+        [ClassificationSample(article_id="a-1", stratum="random")],
+        "practice",
+    )
+    practice.refresh_from_db()
+    assert practice.waiting_coders == []
+    assert coders_for(cohort) == [admin]
+    # With a batch open, adding somebody grants it at once.
+    other = User.objects.create_user("b", email="b@localnewsimpact.org")
+    assert add_coder_to_round(practice, other.email) == "added"
+    assert set(coders_for(cohort)) == {admin, other}
