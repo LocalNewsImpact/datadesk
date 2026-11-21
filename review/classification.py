@@ -1480,6 +1480,26 @@ def _stratum_pool(stratum):
     return rows
 
 
+def _one_batch_at_a_time():
+    """Hold every other batch being opened until this one is written.
+
+    A batch takes the next cohort number, read as the highest so far
+    plus one. Two opened at once read the same number and the second
+    failed on the unique constraint: a server error for whoever pressed
+    the button again while a slow draw was still running. The lock is
+    released when the transaction ends.
+    """
+    from django.db import connection
+
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(%s)", [BATCH_LOCK])
+
+
+#: Any fixed number; it names the lock.
+BATCH_LOCK = 20261121
+
+
 def draw_cohort(
     size,
     *,
@@ -1514,6 +1534,7 @@ def draw_cohort(
         target_coders = for_round.base_coders
     taken = set(ClassificationSample.objects.values_list("article_id", flat=True))
     with transaction.atomic():
+        _one_batch_at_a_time()
         number = (
             ClassificationCohort.objects.aggregate(models.Max("number"))["number__max"]
             or 0
@@ -2033,6 +2054,7 @@ def _open_batch(for_round, samples, note):
     from django.db import transaction
 
     with transaction.atomic():
+        _one_batch_at_a_time()
         number = (
             ClassificationCohort.objects.aggregate(models.Max("number"))["number__max"]
             or 0

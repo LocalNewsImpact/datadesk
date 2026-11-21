@@ -2922,6 +2922,17 @@ def cin_round(request, pk):
                 size = 0
             if size < 1:
                 notices.append(("bad", "A batch needs at least one story."))
+            elif this.kind != Round.COLLECTION and this.cohorts.exists():
+                # A practice round is one list of stories every coder
+                # codes, and a pilot is one draw. A second press of the
+                # button -- the first is slow -- doubled a practice list.
+                notices.append(
+                    (
+                        "bad",
+                        "This round already has its stories. Only a "
+                        "training round takes more than one batch.",
+                    )
+                )
             elif this.kind == Round.COMPARISON:
                 # A pilot is V1 stories -- every civic one and `size`
                 # of the others, or the ones an earlier pilot held --
