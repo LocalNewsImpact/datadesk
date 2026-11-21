@@ -1426,6 +1426,15 @@ UNCERTAIN_BELOW = 0.5
 #: which are not local news stories to label.
 CLASSIFIABLE_STATUSES = ("labeled", "enriched", "enrichment_skipped")
 
+#: Missouri is drawn only where a story has been through enrichment:
+#: the March 2026 set, about 15,900 stories, which is the part of that
+#: dataset that has been fully collected, cleaned and reconciled. Its
+#: other 80,000 labelled stories have a model label and nothing more.
+#: A dataset not named here is drawn in every classifiable status.
+DATASET_STATUSES = {
+    "Mizzou-Missouri-State": ("enriched", "enrichment_skipped"),
+}
+
 #: The datasets stories are drawn from. Vermont is left out: student
 #: newspapers, not fully collected or labelled.
 DRAW_DATASETS = (
@@ -1433,7 +1442,7 @@ DRAW_DATASETS = (
     "WSU-Washington-State",
     "Penn-State-Lehigh",
 )
-#: Missouri is 96% of labelled stories. Drawn without regard to state, a
+#: Missouri is most of the stories that can be drawn. Drawn without regard to state, a
 #: training set is Missouri alone and the model is then used on all
 #: three. So each category takes up to this many from each of the two
 #: smaller datasets, and the rest from Missouri.
@@ -1470,8 +1479,16 @@ def _pool():
     )
     # Where none of the named datasets exists -- another installation, a
     # test corpus -- there is nothing to restrict to.
-    ids = list(draw_dataset_ids().values())
-    return rows.filter(dataset_id__in=ids) if ids else rows
+    datasets = draw_dataset_ids()
+    if not datasets:
+        return rows
+    rows = rows.filter(dataset_id__in=list(datasets.values()))
+    for slug, statuses in DATASET_STATUSES.items():
+        if slug in datasets:
+            rows = rows.exclude(
+                models.Q(dataset_id=datasets[slug]) & ~models.Q(status__in=statuses)
+            )
+    return rows
 
 
 def _stratum_pool(stratum):
