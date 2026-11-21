@@ -296,7 +296,7 @@ def test_a_pilot_holds_new_stories_by_the_models_label(v1, crawler_schema):
             url=link.url,
             title="T",
             status="labeled",
-            text="w",
+            text="w " * 150,
             primary_label="Civic Life" if n < 100 else "Sports",
             primary_label_confidence=0.9,
         )
@@ -388,7 +388,7 @@ def _article(n, label, dataset="", status="labeled"):
         url=link.url,
         title=f"Story {n}",
         status=status,
-        text="word " * 50,
+        text="word " * 150,
         primary_label=label,
         primary_label_confidence=0.9,
         dataset_id=dataset or None,

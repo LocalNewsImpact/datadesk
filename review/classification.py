@@ -1415,24 +1415,33 @@ CONFIDENT_AT_OR_ABOVE = 0.7
 UNCERTAIN_BELOW = 0.5
 
 #: The statuses a story can be drawn in: the ones a local story ends
-#: in. `labeled` is a story the model has labelled, `enriched` and
-#: `enrichment_skipped` what becomes of one after that. About 100,000
-#: stories across the three datasets.
+#: in. `labeled` is a story the model has labelled, `enriched` what
+#: becomes of one after that.
 #:
 #: Not `cleaned` or `local`, which are stages a story passes through: a
 #: story drawn there can still become wire, an obituary or not an
-#: article after a coder has read it. And not the statuses a story is
-#: set aside in (`wire`, `obituary`, `opinion`, `paywall` and the rest),
-#: which are not local news stories to label.
-CLASSIFIABLE_STATUSES = ("labeled", "enriched", "enrichment_skipped")
+#: article after a coder has read it. Not `enrichment_skipped`: those
+#: are paywall stubs, a median of 39 words. And not the statuses a story
+#: is set aside in (`wire`, `obituary`, `opinion`, `paywall` and the
+#: rest), which are not local news stories to label.
+CLASSIFIABLE_STATUSES = ("labeled", "enriched")
+
+#: The fewest words a story can have and be drawn. Enrichment checks a
+#: story for a paywall or a teaser before it runs; a story that has not
+#: been enriched has had no such check, and a status says nothing about
+#: how much text there is. The number is from the V1 coding: of the 68
+#: answers that rejected a story as too short to evaluate, 66 (97%) were
+#: on stories under 100 words. Applied to every story, enriched or not:
+#: one in ten enriched Missouri stories is under it too.
+MIN_WORDS = 100
 
 #: Missouri is drawn only where a story has been through enrichment:
-#: the March 2026 set, about 15,900 stories, which is the part of that
+#: the March 2026 set, about 14,800 stories, which is the part of that
 #: dataset that has been fully collected, cleaned and reconciled. Its
 #: other 80,000 labelled stories have a model label and nothing more.
 #: A dataset not named here is drawn in every classifiable status.
 DATASET_STATUSES = {
-    "Mizzou-Missouri-State": ("enriched", "enrichment_skipped"),
+    "Mizzou-Missouri-State": ("enriched",),
 }
 
 #: The datasets stories are drawn from. Vermont is left out: student
@@ -1462,7 +1471,8 @@ def draw_dataset_ids():
 
 
 def _pool():
-    """Every crawler story a draw may take: local, and finished.
+    """Every crawler story a draw may take: local, finished, and long
+    enough to read (`MIN_WORDS`).
 
     A status is not the whole of it. The wire check can find syndication
     on a story whose status was never moved to `wire` -- about 1,400 of
@@ -1475,7 +1485,18 @@ def _pool():
         Article.objects.using("crawler")
         .filter(status__in=CLASSIFIABLE_STATUSES)
         .exclude(wire_check_status="wire")
-        .extra(where=["(wire IS NULL OR wire::text IN ('null', '[]', '{}'))"])
+        .extra(
+            where=[
+                "(wire IS NULL OR wire::text IN ('null', '[]', '{}'))",
+                # Words, counted as the queue counts them: runs of
+                # anything between whitespace.
+                "array_length(regexp_split_to_array("
+                "btrim(coalesce(articles.text, ''),"
+                " ' ' || chr(9) || chr(10) || chr(13)),"
+                " '\\s+'), 1) >= %s",
+            ],
+            params=[MIN_WORDS],
+        )
     )
     # Where none of the named datasets exists -- another installation, a
     # test corpus -- there is nothing to restrict to.

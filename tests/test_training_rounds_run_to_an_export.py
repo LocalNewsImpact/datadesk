@@ -463,7 +463,7 @@ def test_a_training_draw_holds_back_its_share(crawler_schema, db):
             url=link.url,
             title="T",
             status="labeled",
-            text="w",
+            text="w " * 150,
             primary_label="Education",
             primary_label_confidence=0.9,
         )
