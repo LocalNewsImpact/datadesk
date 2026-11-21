@@ -422,7 +422,53 @@
   {% endif %}
   {% endif %}
 
-  <h2>Coders</h2>
+  <h2>Step 1. Stories</h2>
+  <p class="quiet">
+    Open a batch first: it draws the round's stories. Coders are added
+    to a batch, so there has to be one.
+    {% if round.kind == "comparison" %}A pilot batch is every civic V1
+    story, the number of other V1 stories entered below, and 230 new
+    stories.{% endif %}
+  </p>
+  {% if cohorts %}
+  <ul class="plain">
+    {% for cohort in cohorts %}
+    <li>Batch {{ cohort.number }}{% if cohort.note %} — {{ cohort.note }}{% endif %}
+      {% if cohort.closed_at %}<span class="quiet">closed</span>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="quiet">No batches yet.</p>
+  {% endif %}
+  <form method="post" class="inline-form tight">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="batch">
+    <label for="size">{% if round.kind == "comparison" %}Other V1 stories, beside every civic one{% else %}Stories{% endif %}</label>
+    <input type="number" id="size" name="size" min="1" max="20000"
+           value="{% if round.is_practice %}20{% elif round.kind == "comparison" %}400{% else %}300{% endif %}" required>
+    <label for="note">Note</label>
+    <input type="text" id="note" name="note" maxlength="200">
+    <button type="submit">Open a batch</button>
+  </form>
+  <form method="post" class="inline">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="assign">
+    <button type="submit" class="linklike"
+            title="Hands out any stories not yet assigned. Safe to run again.">Assign unassigned stories</button>
+  </form>
+
+  <h2>Step 2. Coders</h2>
+  <p class="quiet">
+    Add each coder by the Google address they sign in with, using the
+    box under the table. Somebody who has signed in before is added at
+    once and given their stories. Somebody new is added when they first
+    sign in; press &ldquo;Assign unassigned stories&rdquo; above after
+    they have.
+    {% if round.is_practice %}Every coder gets every practice story.
+    {% else %}A coder gets stories here only once admitted. Recording
+    the review on their practice round admits them, or use
+    &ldquo;admit&rdquo; in the table.{% endif %}
+  </p>
   {% if coders %}
   <div class="table-scroll">
     <table>
@@ -496,33 +542,6 @@
     <button type="submit">Add</button>
   </form>
 
-  <h2>Batches</h2>
-  {% if cohorts %}
-  <ul class="plain">
-    {% for cohort in cohorts %}
-    <li>Batch {{ cohort.number }}{% if cohort.note %} — {{ cohort.note }}{% endif %}
-      {% if cohort.closed_at %}<span class="quiet">closed</span>{% endif %}</li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <p class="quiet">No batches yet.</p>
-  {% endif %}
-  <form method="post" class="inline-form tight">
-    {% csrf_token %}
-    <input type="hidden" name="action" value="batch">
-    <label for="size">{% if round.kind == "comparison" %}Other V1 stories, beside every civic one{% else %}Stories{% endif %}</label>
-    <input type="number" id="size" name="size" min="1" max="20000"
-           value="{% if round.is_practice %}20{% elif round.kind == "comparison" %}400{% else %}300{% endif %}" required>
-    <label for="note">Note</label>
-    <input type="text" id="note" name="note" maxlength="200">
-    <button type="submit">Open a batch</button>
-  </form>
-  <form method="post" class="inline">
-    {% csrf_token %}
-    <input type="hidden" name="action" value="assign">
-    <button type="submit" class="linklike"
-            title="Hands out any stories not yet assigned. Safe to run again.">Assign unassigned stories</button>
-  </form>
 
   {% if not round.is_practice %}
   <h2>Labels for the retrain</h2>

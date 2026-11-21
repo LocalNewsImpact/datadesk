@@ -2987,7 +2987,13 @@ def cin_round(request, pk):
         elif action == "invite":
             cohorts = list(this.cohorts.filter(closed_at__isnull=True))
             if not cohorts:
-                notices.append(("bad", "Open a batch before inviting coders to it."))
+                notices.append(
+                    (
+                        "bad",
+                        "Open a batch first (Step 1). A coder is added to "
+                        "a batch of stories.",
+                    )
+                )
             else:
                 try:
                     for cohort in cohorts:
@@ -3060,7 +3066,22 @@ def cin_round(request, pk):
                     by=request.user,
                     note=(request.POST.get("note") or "").strip(),
                 )
-                notices.append(("good", f"{user}: {action}."))
+                # An admitted coder is given their stories at once: an
+                # admin who has just pressed "admit" should not also
+                # have to know to press "assign".
+                made = 0
+                if action == CoderStanding.ADMITTED:
+                    made = sum(
+                        assign_cohort(cohort)
+                        for cohort in this.cohorts.filter(closed_at__isnull=True)
+                    )
+                notices.append(
+                    (
+                        "good",
+                        f"{user}: {action}."
+                        + (f" {made} assignments made." if made else ""),
+                    )
+                )
 
     context = round_report(this)
     context["notices"] = notices
