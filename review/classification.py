@@ -28,6 +28,7 @@ See docs/CLASSIFICATION_REVIEW_QUEUE.md.
 """
 
 import random
+import re
 
 from django.conf import settings
 from django.db import models
@@ -1174,6 +1175,54 @@ def _pairs(decisions):
         yield from combinations(made, 2)
 
 
+#: Where stored text has no line breaks at all, how many sentences make
+#: a paragraph on the page. Four in ten stories in the pool are stored
+#: as one unbroken line.
+SENTENCES_PER_PARAGRAPH = 3
+
+_TAG = re.compile(r"<[^>]{1,300}>")
+#: The end of a sentence: a full stop, question or exclamation mark,
+#: any closing quote or bracket, then space and the start of the next.
+_SENTENCE_END = re.compile(r"(?<=[.!?])[\"'”’)\]]*\s+(?=[\"“‘(\[]?[A-Z0-9])")
+
+
+def readable_text(text):
+    """A story's text as paragraphs a person can read.
+
+    Presentation only; no word is added, dropped or reordered beyond
+    markup. Leftover tags are removed and character entities turned back
+    into characters (`<a href=...>`, `&rsquo;`), which is what the
+    extraction should have done. Text stored with line breaks keeps
+    them. Text stored as one line is broken every
+    `SENTENCES_PER_PARAGRAPH` sentences: where the original paragraphs
+    fell is not recorded, and a 1,000-word line cannot be read.
+    """
+    import html
+
+    value = html.unescape(_TAG.sub("", text or "")).replace("\r\n", "\n").strip()
+    if not value:
+        return ""
+    if "\n" in value:
+        blocks = [" ".join(block.split()) for block in re.split(r"\n\s*", value)]
+        return "\n\n".join(block for block in blocks if block)
+    sentences = [part.strip() for part in _SENTENCE_END.split(value) if part.strip()]
+    step = SENTENCES_PER_PARAGRAPH
+    return "\n\n".join(
+        " ".join(sentences[i : i + step]) for i in range(0, len(sentences), step)
+    )
+
+
+#: Text that is the page around a story, not the story: a comment form,
+#: a paywall overlay. A story whose stored text carries any of these was
+#: not extracted cleanly, and is not drawn. About 170 of 17,600.
+FURNITURE = (
+    "Watch this discussion",
+    "Post a comment as",
+    "This page requires Javascript",
+    "Recommended for you",
+)
+
+
 def as_answer(decision):
     """A decision as `cin_metrics` reads one."""
     return {
@@ -1470,6 +1519,14 @@ def draw_dataset_ids():
     )
 
 
+def _furniture():
+    """Matches a story whose text carries page furniture."""
+    found = models.Q()
+    for phrase in FURNITURE:
+        found |= models.Q(text__contains=phrase)
+    return found
+
+
 def _pool():
     """Every crawler story a draw may take: local, finished, and long
     enough to read (`MIN_WORDS`).
@@ -1485,6 +1542,7 @@ def _pool():
         Article.objects.using("crawler")
         .filter(status__in=CLASSIFIABLE_STATUSES)
         .exclude(wire_check_status="wire")
+        .exclude(_furniture())
         .extra(
             where=[
                 "(wire IS NULL OR wire::text IN ('null', '[]', '{}'))",

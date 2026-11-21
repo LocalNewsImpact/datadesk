@@ -200,6 +200,20 @@ def test_a_story_too_short_to_read_is_not_drawn(crawler_schema):
     assert drawn == {f"00000000-0000-0000-0000-{n:012d}" for n in (4, 5)}
 
 
+def test_a_story_carrying_page_furniture_is_not_drawn(crawler_schema):
+    """A comment form or a paywall overlay in the stored text means the
+    page was not extracted cleanly. A coder is not given it."""
+    from review.classification import FURNITURE
+
+    clean = _article(crawler_schema, 1, confidence=0.95)
+    for n, phrase in enumerate(FURNITURE, 2):
+        article = _article(crawler_schema, n, confidence=0.95)
+        article.text = "word " * 150 + phrase + " and so on."
+        article.save()
+    cohort, _ = draw_cohort(12)
+    assert set(cohort.samples.values_list("article_id", flat=True)) == {clean.id}
+
+
 def test_a_paywall_stub_is_not_drawn(crawler_schema):
     """`enrichment_skipped` is where a story goes when enrichment finds
     a teaser or a login wall where the story should be."""
