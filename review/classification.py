@@ -1559,8 +1559,15 @@ def draw_cohort(
     stale_after_days=14,
     codebook_version=None,
     for_round=None,
+    shares=None,
 ):
     """Open a cohort and draw `size` articles into it.
+
+    `shares` is stratum -> share of the draw, `STRATUM_SHARE` unless
+    given. A practice round gives one stratum, random: its stories are
+    for learning the definitions on, and a draw that reserves a quarter
+    for stories the model has not labelled comes up short where there
+    are almost none.
 
     The cohort is coded under `codebook_version`, or the current one.
     Opened for a round (`for_round`, not `round`: the draw needs the
@@ -1601,7 +1608,7 @@ def draw_cohort(
         )
 
         drawn, samples = {}, []
-        for stratum, share in STRATUM_SHARE.items():
+        for stratum, share in (shares or STRATUM_SHARE).items():
             want = int(round(size * share))
             available = _stratum_pool(stratum).exclude(id__in=taken)
             # Counted before the slice: the chance a row in this stratum
@@ -1904,6 +1911,201 @@ def open_round(
         draw_rule=rules.get("draw_rule") or {},
         finish_rule=rules.get("finish_rule") or {},
     )
+
+
+#: What a round is opened with where nothing else is said: the
+#: procedure's own numbers, so starting one is a name, a kind and the
+#: coders.
+ROUND_DEFAULTS = {
+    "practice": {"base_coders": 1, "stories": 20},
+    "comparison": {"base_coders": 2, "stories": 400},
+    "collection": {
+        "base_coders": 2,
+        "third_on_split": True,
+        "finish_rule": {"per_category": 250, "holdout": 50},
+        "stories": 300,
+    },
+}
+
+
+def open_batch(for_round, size=None, note=""):
+    """Draw a round's next batch of stories and hand them out.
+
+    What is drawn depends on what the round is for: practice stories at
+    random, a pilot's V1 and new stories, a training batch by category.
+    `size` is the practice or training batch's stories, or a pilot's
+    other V1 stories beside every civic one; left out, it is the
+    procedure's number. Returns (cohort or None, level, message).
+    """
+    size = size or ROUND_DEFAULTS[for_round.kind]["stories"]
+    if for_round.kind != Round.COLLECTION and for_round.cohorts.exists():
+        # A practice round is one list of stories every coder codes,
+        # and a pilot is one draw.
+        return (
+            None,
+            "bad",
+            "This round already has its stories. Only a training round "
+            "takes more than one batch.",
+        )
+    if for_round.kind == Round.COMPARISON:
+        cohort, drawn = draw_pilot(for_round, others=size, new=pilot_new_plan())
+        if cohort is None:
+            return (
+                None,
+                "bad",
+                "No stories to draw. Load the V1 stories first with "
+                "manage.py import_v1_stories.",
+            )
+        made = assign_cohort(cohort)
+        return (
+            cohort,
+            "good",
+            f"{drawn['civic']} civic and {drawn['other']} other V1 stories"
+            + (
+                ", the ones an earlier pilot held that enough admitted "
+                "coders have not read"
+                if drawn["repeat"]
+                else ""
+            )
+            + f", and {drawn['new']} new stories; {made} assignments made.",
+        )
+    if for_round.kind == Round.COLLECTION:
+        cohort, plan = draw_training_batch(for_round, size)
+        if cohort is None:
+            return None, "warn", "Nothing drawn: every category is at its floor."
+        made = assign_cohort(cohort)
+        find_check_stories(for_round.codebook_version)
+        hidden = hide_check_stories(cohort)
+        total = sum(row["drawn"] for row in plan)
+        return (
+            cohort,
+            "good" if total >= size else "warn",
+            f"{total} stories drawn, {made} assignments made, {hidden} "
+            "check stories hidden among them.",
+        )
+    cohort, drawn = draw_cohort(
+        size,
+        for_round=for_round,
+        note=note,
+        shares={ClassificationSample.RANDOM: 1.0},
+    )
+    made = assign_cohort(cohort)
+    total = sum(drawn.values())
+    return (
+        cohort,
+        "good" if total == size else "warn",
+        f"{total} of {size} stories drawn, {made} assignments made.",
+    )
+
+
+def start_round(name, kind, emails, *, codebook_version=None, by=None, **changes):
+    """Open a round, draw its stories, and put its coders on it.
+
+    One step, because it was six on three pages: open the round, open a
+    batch, add each coder, invite the ones who had never signed in,
+    admit them, assign. `emails` are the coders' sign-in addresses.
+    `changes` override `ROUND_DEFAULTS` (base_coders, third_on_split,
+    finish_rule, stories, question).
+
+    Returns (round, [(level, message)]). A coder who cannot be given
+    stories yet is named with the reason, not left out silently.
+    """
+    settings_for = {**ROUND_DEFAULTS[kind], **{k: v for k, v in changes.items() if v}}
+    stories = settings_for.pop("stories")
+    question = settings_for.pop("question", "")
+    created = open_round(
+        name, kind, codebook_version=codebook_version, question=question, **settings_for
+    )
+    notices = []
+    added = []
+    for email in emails:
+        try:
+            add_coder_to_round(created, email, invited_by=by)
+            added.append(email.strip().lower())
+        except ValueError:
+            notices.append(("bad", f"{email}: that is not an address. Not added."))
+    cohort, level, message = open_batch(created, stories)
+    notices.append((level, "Stories: " + message))
+    if cohort is not None:
+        notices += coder_notices(created)
+    return created, notices
+
+
+def coder_notices(for_round):
+    """What stands between each coder on a round and their stories, as
+    [(level, message)]: nothing, a first sign-in, or admission."""
+    from accounts.models import Invitation
+
+    cohorts = list(for_round.cohorts.filter(closed_at__isnull=True))
+    slugs = [cohort.slug for cohort in cohorts]
+    waiting = list(
+        Invitation.objects.filter(scope__in=slugs, accepted_at__isnull=True)
+        .values_list("email", flat=True)
+        .distinct()
+    )
+    notices = []
+    if waiting:
+        notices.append(
+            (
+                "warn",
+                "Not signed in to datadesk yet: "
+                + ", ".join(sorted(waiting))
+                + ". Each gets their stories the first time they sign in "
+                "with that Google address and open Classification. Nothing "
+                "else needs doing.",
+            )
+        )
+    if not for_round.is_practice:
+        standing = standings(for_round.codebook_version)
+        short = sorted(
+            str(user)
+            for user in round_coders(for_round)
+            if standing.get(user.id) != CoderStanding.ADMITTED
+        )
+        if short:
+            notices.append(
+                (
+                    "warn",
+                    "No stories yet, because they have not finished a "
+                    f"practice round under {for_round.codebook_version.name}: "
+                    + ", ".join(short)
+                    + ". Recording the practice round's review admits them; "
+                    "or press admit beside their name on this round.",
+                )
+            )
+    have = (
+        ClassificationAssignment.objects.filter(cohort__in=cohorts)
+        .values("assigned_to")
+        .distinct()
+        .count()
+    )
+    notices.append(("good", f"Coders with stories now: {have}."))
+    return notices
+
+
+def give_a_coder_their_stories(user):
+    """Assign stories in any round batch a coder has been granted and
+    has nothing from yet. Returns how many assignments were made.
+
+    For the coder who was added before they had ever signed in. The
+    grant is made at their first sign-in, and assigning used to wait for
+    an admin to notice and press a button. Called when they open the
+    queue.
+    """
+    from accounts.models import DATADESK, Grant
+
+    slugs = Grant.objects.filter(user=user, app=DATADESK, role=CLASSIFIER).values_list(
+        "scope", flat=True
+    )
+    made = 0
+    for cohort in ClassificationCohort.objects.filter(
+        slug__in=list(slugs), closed_at__isnull=True, round__isnull=False
+    ):
+        if not ClassificationAssignment.objects.filter(
+            cohort=cohort, assigned_to=user
+        ).exists():
+            made += assign_cohort(cohort)
+    return made
 
 
 def _agreed_label(decisions):

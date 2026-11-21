@@ -56,7 +56,12 @@
   <p class="notice">No rounds yet.</p>
   {% endif %}
 
-  <h2>Open a round</h2>
+  <h2>Start a round</h2>
+  <p class="quiet">
+    One step. Starting a round draws its stories, puts these coders on
+    it and hands the stories out. Nothing else has to be done on any
+    other page.
+  </p>
   <form method="post" class="inline-form">
     {% csrf_token %}
     <div class="field">
@@ -72,57 +77,71 @@
         {% endfor %}
       </select>
       <span class="field-note quiet">
-        Practice answers are never counted, in agreement or in training.
+        Practice: 20 stories, every coder codes all of them, answers are
+        never counted. Pilot: about 770 V1 stories and 230 new ones, two
+        coders on each. Training: batches of 300, two coders on each and
+        a third where they differ, until every category has 250.
       </span>
     </div>
     <div class="field">
-      <label for="codebook">Codebook</label>
-      <select id="codebook" name="codebook" required>
-        {% for version in versions %}
-        <option value="{{ version.pk }}"
-                {% if version.pk == current.pk %}selected{% endif %}>{{ version.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="field">
-      <label for="base_coders">Coders per story</label>
-      <input type="number" id="base_coders" name="base_coders" min="1" max="10"
-             value="2" required>
+      <label for="coders">Coders</label>
+      <textarea id="coders" name="coders" rows="5" class="wide"
+                placeholder="one Google address per line"></textarea>
       <span class="field-note quiet">
-        Ignored for practice, where every coder codes every story. With
-        four coders and two per story, a pilot can be repeated once by
-        the same coders without anyone reading a story twice.
+        The address each coder signs in to Google with. Somebody who has
+        never used datadesk gets their stories the first time they sign
+        in; there is no separate invitation to send from here. In a
+        pilot or training round, a coder gets stories only after
+        finishing a practice round under the same codebook. More coders
+        can be added later on the round's page.
       </span>
     </div>
-    <div class="field">
-      <label class="check">
-        <input type="checkbox" name="third_on_split" value="1">
-        Add a third coder only where the first two differ
-      </label>
-    </div>
-    <div class="field">
-      <label for="per_category">Stories per category</label>
-      <input type="number" id="per_category" name="per_category" min="0"
-             placeholder="250">
-      <span class="field-note quiet">
-        Training rounds only: the round is finished when every category
-        reaches this, not when a total is reached.
-      </span>
-    </div>
-    <div class="field">
-      <label for="holdout">Of those, held back to test the model</label>
-      <input type="number" id="holdout" name="holdout" min="0" placeholder="50">
-      <span class="field-note quiet">
-        Marked when a story is drawn, before anybody has coded it, and
-        never trained on.
-      </span>
-    </div>
-    <div class="field">
-      <label for="question">The question it answers</label>
-      <input type="text" id="question" name="question" maxlength="300"
-             placeholder="Do coders agree under V2?">
-    </div>
-    <button type="submit" class="primary">Open round</button>
+    <details>
+      <summary>Change the defaults</summary>
+      <div class="field">
+        <label for="codebook">Codebook</label>
+        <select id="codebook" name="codebook">
+          {% for version in versions %}
+          <option value="{{ version.pk }}"
+                  {% if version.pk == current.pk %}selected{% endif %}>{{ version.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="stories">Stories in the first batch</label>
+        <input type="number" id="stories" name="stories" min="1" max="20000"
+               placeholder="20, 400 or 300">
+        <span class="field-note quiet">
+          Practice 20. Pilot 400: the other V1 stories, beside every
+          civic one and the 230 new ones. Training 300.
+        </span>
+      </div>
+      <div class="field">
+        <label for="base_coders">Coders per story</label>
+        <input type="number" id="base_coders" name="base_coders" min="1" max="10"
+               placeholder="2">
+        <span class="field-note quiet">
+          Ignored for practice. With four coders and two per story, a
+          pilot can be repeated once by the same coders without anyone
+          reading a story twice.
+        </span>
+      </div>
+      <div class="field">
+        <label for="per_category">Training: stories per category</label>
+        <input type="number" id="per_category" name="per_category" min="0"
+               placeholder="250">
+      </div>
+      <div class="field">
+        <label for="holdout">Training: of those, held back to test the model</label>
+        <input type="number" id="holdout" name="holdout" min="0" placeholder="50">
+      </div>
+      <div class="field">
+        <label for="question">The question it answers</label>
+        <input type="text" id="question" name="question" maxlength="300"
+               placeholder="Do coders agree under V2?">
+      </div>
+    </details>
+    <button type="submit" class="primary">Start the round</button>
   </form>
 </section>
 {% endblock %}

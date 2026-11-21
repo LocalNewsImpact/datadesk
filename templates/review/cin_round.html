@@ -422,7 +422,7 @@
   {% endif %}
   {% endif %}
 
-  <h2>Step 1. Stories</h2>
+  <h2>Stories</h2>
   <p class="quiet">
     Opening a batch draws the round's stories and hands them to the
     coders on the round.
@@ -459,17 +459,16 @@
             title="Hands out any stories not yet assigned. Safe to run again.">Assign unassigned stories</button>
   </form>
 
-  <h2>Step 2. Coders</h2>
+  <h2>Coders</h2>
   <p class="quiet">
-    Add each coder by the Google address they sign in with, using the
-    box under the table, before or after opening a batch. Somebody who has signed in before is added at
-    once and given their stories. Somebody new is added when they first
-    sign in; press &ldquo;Assign unassigned stories&rdquo; above after
-    they have.
-    {% if round.is_practice %}Every coder gets every practice story.
-    {% else %}A coder gets stories here only once admitted. Recording
-    the review on their practice round admits them, or use
-    &ldquo;admit&rdquo; in the table.{% endif %}
+    To add a coder, type the Google address they sign in with in the
+    box under the table. That is all: somebody who has used datadesk
+    before gets their stories at once, and somebody new gets them the
+    first time they sign in.
+    {% if not round.is_practice %}In this round a coder gets stories
+    only after finishing a practice round under
+    {{ round.codebook_version.name }}. Recording that practice round's
+    review admits them, or press &ldquo;admit&rdquo; in the table.{% endif %}
   </p>
   {% if coders %}
   <div class="table-scroll">

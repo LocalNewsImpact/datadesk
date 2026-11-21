@@ -196,15 +196,6 @@ SECTION_GROUPS = (
                 ),
             },
             {
-                "url": "review:cin_coders",
-                "label": "Coders",
-                "requires": ADMIN,
-                "note": (
-                    "Who can classify, which cohort each is granted, and "
-                    "how much each has done."
-                ),
-            },
-            {
                 "url": "review:cin_codebook",
                 "label": "Codebook",
                 "requires": ADMIN,
