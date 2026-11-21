@@ -475,7 +475,7 @@ def test_each_category_takes_from_the_smaller_states_first(crawler_schema, db):
     ):
         Dataset.objects.using("crawler").create(id=key, slug=slug, label=slug)
     for n in range(30):
-        _article(n, "Education", "mo")
+        _article(n, "Education", "mo", status="enriched")
     for n in range(30, 40):
         _article(n, "Education", "wa")
     for n in range(40, 42):
@@ -539,7 +539,7 @@ def test_cohorts_outside_a_round_also_leave_vermont_out(crawler_schema, db):
         id="vt", slug="VT-Community-News", label="vt"
     )
     for n in range(8):
-        _article(n, "Sports", "mo")
+        _article(n, "Sports", "mo", status="enriched")
     for n in range(8, 40):
         _article(n, "Sports", "vt")
     cohort, _ = draw_cohort(8)

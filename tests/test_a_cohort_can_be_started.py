@@ -182,6 +182,34 @@ def test_a_story_the_wire_check_flagged_is_not_drawn(crawler_schema):
     assert drawn == {empty.id, local.id}
 
 
+def test_missouri_is_drawn_only_where_it_has_been_enriched(crawler_schema):
+    """Only the March set of the Missouri dataset is fit to code, and it
+    is the part that has been through enrichment. The other datasets are
+    drawn in every finished status."""
+    from explorer.models import Dataset
+
+    crawler = Dataset.objects.using("crawler")
+    crawler.create(id="d-mo", slug="Mizzou-Missouri-State", label="Missouri")
+    crawler.create(id="d-pa", slug="Penn-State-Lehigh", label="Pennsylvania")
+    wanted = set()
+    cases = (
+        ("d-mo", "labeled", False),
+        ("d-mo", "enriched", True),
+        ("d-mo", "enrichment_skipped", True),
+        ("d-pa", "labeled", True),
+        ("d-pa", "enriched", True),
+        ("mizzou", "enriched", False),  # not a dataset a draw uses
+    )
+    for n, (dataset, status, drawn) in enumerate(cases):
+        article = _article(crawler_schema, n, confidence=0.95, status=status)
+        article.dataset_id = dataset
+        article.save()
+        if drawn:
+            wanted.add(article.id)
+    cohort, _ = draw_cohort(10)
+    assert set(cohort.samples.values_list("article_id", flat=True)) == wanted
+
+
 def test_the_cohort_number_increments(crawler_schema):
     _article(crawler_schema, 1, confidence=0.95)
     first, _ = draw_cohort(1)
