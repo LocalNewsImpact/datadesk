@@ -2835,7 +2835,7 @@ def cin_rounds(request):
             pk=request.POST.get("codebook") or 0
         ).first()
         try:
-            base = int(request.POST.get("base_coders") or 3)
+            base = int(request.POST.get("base_coders") or 2)
             floor = int(request.POST.get("per_category") or 0)
             held = int(request.POST.get("holdout") or 0)
         except ValueError:
@@ -2939,8 +2939,13 @@ def cin_round(request, pk):
                         (
                             "good",
                             f"Batch {cohort.number}: {drawn['civic']} civic and "
-                            f"{drawn['other']} other V1 stories; "
-                            f"{made} assignments made.",
+                            f"{drawn['other']} other V1 stories"
+                            + (
+                                f", the stories of {drawn['repeat_of']}"
+                                if drawn.get("repeat_of")
+                                else ""
+                            )
+                            + f"; {made} assignments made.",
                         )
                     )
             elif this.kind == Round.COLLECTION:

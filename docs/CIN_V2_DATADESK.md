@@ -27,7 +27,7 @@ Builds on, rather than replaces:
 | Round | Stories | Coders per story | Coders | Finished when |
 | --- | --- | --- | --- | --- |
 | 1. Practice | 20, same for every coder | all | 4, then each new coder | all coded; review meeting held |
-| 2. Pilot | ~770 V1 stories: the 367 civic stories + ~400 of the other 567 | 3 | 4 (each codes ~575) | every story has 3 answers; 4 pass conditions met or failed |
+| 2. Pilot | ~770 V1 stories: the 367 civic stories + ~400 of the other 567 | 2 | 4 (each codes ~385) | every story has 2 answers; 3 pass conditions met or failed |
 | 3. Training | new stories to bring every category to 250 labels, V1 records counted first (~1,500 new labels) | 2, +1 on a split | 6–9 | every category has 250 labels: 200 to train, 50 held back |
 
 The pilot recodes V1 stories so V2 answers are compared with V1 answers
@@ -36,31 +36,32 @@ left out of the pilot; the 157 they never agreed on stay in. "Civic
 stories" are the 367 remaining V1 stories any V1
 coder put in Civic information or Civic Life, primary or secondary.
 
-Round 2 pass conditions, all four required. Each is first-pair
-agreement (M2): the share of stories on which the first two coders chose
-the same primary. Each is a fixed threshold on the observed rate; the
-95% margin at these sizes is about 4 points and is reported beside it.
-V1 figures are scored by the same rule, cohorts A–D:
+Round 2 pass conditions, all three required. Each is Krippendorff's
+alpha for nominal data (M4), over every coder on a story, at least 0.80.
+A story every coder rejected is left out. Each is a fixed threshold on
+the observed figure, reported with a 95% bootstrap interval over
+stories. V1 figures are the same calculation on the 921 kept V1 stories
+with two answers:
 
-1. The 367 civic stories: at least 83% (V1: 33%).
-2. Civic Information and Community Life, each: at least 71% (V1: 11%,
-   33%). 71% is the per-category rate implied by condition 4: a matched
-   story counts once for its category and a mismatched story counts
-   against two, so at 83% overall the average category sits at
-   0.83 / (0.83 + 2 × 0.17) = 71%.
-3. The other pilot stories: at least 83% (V1: 73%). "Not below V1"
-   contradicted condition 4: at 73% here, no result on the civic
-   stories brings the weighted total to 83%.
-4. All stories, weighted to the V1 mix (367 civic in 934): at least 83% (V1: 57%).
+1. All pilot stories: alpha at least 0.80 (V1: 0.50).
+2. Civic Information against every other answer: at least 0.80
+   (V1: 0.12).
+3. Community Life against every other answer: at least 0.80 (V1: 0.44).
 
-The target is a reliability (Krippendorff's alpha) of 0.80. Chance
-agreement across the ten categories is about 0.15, from the V1 data
-(64.5% raw agreement, kappa 0.583), so alpha 0.80 needs
-0.80 + 0.20 × 0.15 = 83% raw agreement. At 83%, with a third coder
-settling about 63% of splits as in V1, about 94% of stories end with a
-label two coders agreed on. The earlier 7-in-10 bar gave about 89%
-settled labels but an alpha near 0.65, below the 0.667 floor for even
-tentative conclusions.
+0.80 is the usual standard for a reliable variable in content analysis
+(Krippendorff 2004); 0.667 to 0.80 supports only tentative conclusions.
+Alpha is computed on the pilot as drawn. The pilot holds every civic
+story and only some of the others, so it is harder than the V1 stories
+as a whole and the figure errs low.
+
+The conditions were first written as percent agreement between the first
+two coders: 83% on the civic stories, the other stories and all stories,
+and 71% in each civic category. 83% is what alpha 0.80 comes to at V1's
+chance agreement of about 0.15 (0.80 + 0.20 × 0.15). That made the pass
+depend on a chance rate measured under V1, and on two of a story's three
+coders. Those percentages are still shown beside the conditions, by
+group and against V1 (civic stories 33%, other stories 73%, all stories
+57%, Civic Information 11%, Community Life 33%), and decide nothing.
 
 Final label rule (thesis, unchanged): two coders' primaries match →
 label at 0.9; one coder's primary is another's secondary → label at
@@ -216,8 +217,10 @@ category after its first batch.
 
 ### WP5. Two coders, a third on a split
 
-- `coders_rule` = base 2 + third on split (training); base 3 (pilot,
+- `coders_rule` = base 2 + third on split (training); base 2 (pilot,
   spread round-robin over its 4 coders).
+- A story is never assigned to a coder who was given it in another
+  cohort.
 - When a story's second decision lands and the two primaries differ (or
   the two rejection reasons differ), `assign_cohort` adds one assignment
   to an admitted coder not already on the story, round-robin, in the
@@ -317,7 +320,7 @@ groups gives 71.5% of stories at 0.9.
     logged.
   - Round 2: the four conditions in §1.
   - Round 3: every category has ≥ 250 stories at 0.9 or 0.7, V1 records
-    and new stories together; per-batch M2 below 83% pauses the round
+    and new stories together; per-batch M2 below 83% (alpha 0.80 at V1's chance rate) pauses the round
     and offers a practice round.
 - **Coder acceptance record**: every WP6 status change, with who, when
   and the M8 value behind it.
@@ -375,20 +378,23 @@ All admin only.
 1. **Scoring.** Only answers within the ten categories are scored. A
    category against a rejection is a mismatch. Two rejections are not
    scored.
-2. **Pilot.** About 770 V1 stories, 4 coders, 3 per story. The 66
+2. **Pilot.** About 770 V1 stories, 4 coders, 2 per story. The 66
    stories V1 coders agreed to reject are out; the 157 they never
    agreed on are in.
-3. **A failed pilot** is rerun on the same stories by four new coders.
-   `one_classification_per_coder_per_article` stays: no coder codes a
-   story twice.
+3. **A failed pilot** is repeated once on the same stories by the same
+   four coders, after retraining on the revised definitions. Each story
+   goes to the two coders who have not read it; no coder codes a story
+   twice. A second repeat needs four new coders. Two coders per story,
+   not three, is what leaves two who have not read it.
 4. **Coder quality** is checked with hidden check stories, not a
    first-50 agreement check.
 5. **Removed coders'** decisions are withdrawn.
 6. **Holdout** is 50 per category.
 7. **The 50 MNF stories** coded earlier at WSU are out of scope.
-8. **The gate targets reliability 0.80**: 83% first-pair agreement and
-   71% per category for Civic Information and Community Life. Reaching
-   it is the point of the retraining.
+8. **The pilot passes on Krippendorff's alpha of 0.80**, over all
+   stories and for Civic Information and Community Life each. Percent
+   agreement between the first two coders is reported beside it.
+   Reaching it is the point of the retraining.
 9. **Pause rule** for check stories: binomial, 1 in 100, 40 stories
    (WP6).
 10. **Stories come from** the Missouri, Washington and Pennsylvania

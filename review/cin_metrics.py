@@ -218,6 +218,39 @@ def krippendorff_alpha(stories, label=None):
     return 1 - disagreement / expected
 
 
+def alpha_with_interval(stories, label=None, *, resamples=500, seed=0):
+    """M4 with a 95% interval: {rate, low, high, n}.
+
+    The interval is a bootstrap over stories, the unit alpha is computed
+    over. `n` is the stories with two or more answers, not all of them
+    rejections: the ones alpha can use.
+    """
+    keys = [
+        key
+        for key, answers in stories.items()
+        if len(answers) >= 2 and any(a["label"] for a in answers)
+    ]
+    point = krippendorff_alpha({k: stories[k] for k in keys}, label)
+    if point is None:
+        return {"rate": None, "low": None, "high": None, "n": len(keys)}
+    rng = random.Random(seed)
+    draws = []
+    for _ in range(resamples):
+        sample = {i: stories[k] for i, k in enumerate(rng.choices(keys, k=len(keys)))}
+        value = krippendorff_alpha(sample, label)
+        if value is not None:
+            draws.append(value)
+    draws.sort()
+    if not draws:
+        return {"rate": point, "low": None, "high": None, "n": len(keys)}
+    return {
+        "rate": point,
+        "low": draws[int(0.025 * len(draws))],
+        "high": draws[min(len(draws) - 1, int(0.975 * len(draws)))],
+        "n": len(keys),
+    }
+
+
 def cohen_kappa(pairs):
     """M5. Kappa for two raters over [(first, second)] labels."""
     pairs = list(pairs)
@@ -349,13 +382,3 @@ def raw_agreement_for_alpha(alpha, chance_agreement):
     """The raw agreement a reliability of `alpha` needs, given how often
     coders would match by chance."""
     return alpha + (1 - alpha) * chance_agreement
-
-
-def per_category_floor(overall):
-    """The rate each category must average for `overall` agreement.
-
-    A match counts once for its category and a mismatch counts against
-    two, so at overall agreement p the average category sits at
-    p / (p + 2(1 - p)).
-    """
-    return overall / (overall + 2 * (1 - overall))

@@ -23,6 +23,7 @@ from review.classification import (
     ClassificationCohort,
     ClassificationDecision,
     ClassificationStory,
+    CodebookSettings,
     CodebookVersion,
     CoderStanding,
     Round,
@@ -206,6 +207,66 @@ def test_a_story_is_drawn_into_one_pilot_only(v1):
     again, drawn = draw_pilot(open_round("Second", Round.COMPARISON), others=10)
     assert first.samples.count() == 5
     assert again is None and drawn == {"civic": 0, "other": 0}
+
+
+def test_a_repeated_pilot_gives_each_story_to_coders_who_have_not_read_it(v1):
+    """Definitions that fail a pilot are revised and tested again on the
+    same stories. With four coders and two on each story, the other two
+    read it the second time, and nobody reads a story twice."""
+    first_version = CodebookVersion.v1()
+    coders = [_coder(n) for n in "abcd"]
+    first = open_round("Pilot", Round.COMPARISON, base_coders=2)
+    for coder in coders:
+        set_standing(coder, first_version, CoderStanding.ADMITTED)
+    cohort, _ = draw_pilot(first, others=10)
+    for coder in coders:
+        Grant.objects.create(
+            user=coder, app=DATADESK, scope=cohort.slug, role=CLASSIFIER
+        )
+    assign_cohort(cohort)
+
+    revised = CodebookSettings.load().freeze("V2.1")
+    second = open_round(
+        "Pilot again", Round.COMPARISON, codebook_version=revised, base_coders=2
+    )
+    for coder in coders:
+        set_standing(coder, revised, CoderStanding.ADMITTED)
+    again, drawn = draw_pilot(second, others=10)
+    assert drawn["repeat_of"] == "Pilot"
+
+    def stories(c):
+        return sorted(c.samples.values_list("article_id", "stratum"))
+
+    assert stories(again) == stories(cohort) and len(stories(again)) == 5
+    for coder in coders:
+        Grant.objects.create(
+            user=coder, app=DATADESK, scope=again.slug, role=CLASSIFIER
+        )
+    assert assign_cohort(again) == 10
+
+    def readers(c):
+        out = {}
+        for story, user in c.assignments.values_list("article_id", "assigned_to_id"):
+            out.setdefault(story, set()).add(user)
+        return out
+
+    before, after = readers(cohort), readers(again)
+    everyone = {coder.id for coder in coders}
+    for story in before:
+        assert len(after[story]) == 2
+        assert before[story] | after[story] == everyone
+
+    # A third pilot has nobody left to read anything.
+    third_version = CodebookSettings.load().freeze("V2.2")
+    third = open_round(
+        "Pilot three", Round.COMPARISON, codebook_version=third_version, base_coders=2
+    )
+    for coder in coders:
+        set_standing(coder, third_version, CoderStanding.ADMITTED)
+    last, _ = draw_pilot(third, others=10)
+    for coder in coders:
+        Grant.objects.create(user=coder, app=DATADESK, scope=last.slug, role=CLASSIFIER)
+    assert assign_cohort(last) == 0
 
 
 def test_a_coders_queue_does_not_run_group_by_group(v1):
