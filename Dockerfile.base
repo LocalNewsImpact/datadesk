@@ -15,7 +15,7 @@
 # python:3.11 matches CI (.github/workflows/ci.yml) — the two must move
 # together.
 
-FROM python:3.11-slim AS builder
+FROM python:3.15-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 
@@ -60,7 +60,7 @@ RUN test -n "$DIRECTORY_VERSION" \
       "news-source-directory @ git+https://github.com/LocalNewsImpact/NewsSourceDirectory@${DIRECTORY_VERSION}"
 
 
-FROM python:3.11-slim AS base
+FROM python:3.15-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 
