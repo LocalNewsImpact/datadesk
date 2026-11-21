@@ -2893,6 +2893,7 @@ def cin_round(request, pk):
     from review.classification import (
         CoderStanding,
         Round,
+        add_coder_to_round,
         assign_cohort,
         check_figures,
         coder_figures,
@@ -2903,7 +2904,6 @@ def cin_round(request, pk):
         gate,
         hide_check_stories,
         hold_review,
-        invite_coder,
         pilot_new_plan,
         practice_review,
         record_lead_decision,
@@ -2985,27 +2985,38 @@ def cin_round(request, pk):
                     )
                 )
         elif action == "invite":
-            cohorts = list(this.cohorts.filter(closed_at__isnull=True))
-            if not cohorts:
-                notices.append(
-                    (
-                        "bad",
-                        "Open a batch first (Step 1). A coder is added to "
-                        "a batch of stories.",
-                    )
+            try:
+                kind = add_coder_to_round(
+                    this, request.POST.get("email"), invited_by=request.user
                 )
+            except ValueError as problem:
+                notices.append(("bad", str(problem).capitalize() + "."))
             else:
-                try:
-                    for cohort in cohorts:
-                        invite_coder(
-                            request.POST.get("email"), cohort, invited_by=request.user
-                        )
-                except ValueError as problem:
-                    notices.append(("bad", str(problem).capitalize() + "."))
-                else:
-                    made = sum(assign_cohort(cohort) for cohort in cohorts)
+                if kind == "waiting":
                     notices.append(
-                        ("good", f"Added to the round; {made} assignments made.")
+                        (
+                            "good",
+                            "Added. This round has no stories yet; they are "
+                            "given theirs when a batch is opened.",
+                        )
+                    )
+                else:
+                    made = sum(
+                        assign_cohort(cohort)
+                        for cohort in this.cohorts.filter(closed_at__isnull=True)
+                    )
+                    notices.append(
+                        (
+                            "good",
+                            f"Added to the round; {made} assignments made."
+                            + (
+                                " They have not signed in to datadesk before, "
+                                "so their stories are assigned when they do "
+                                "and you press Assign unassigned stories."
+                                if kind == "invited"
+                                else ""
+                            ),
+                        )
                     )
         elif action == "assign":
             made = sum(
