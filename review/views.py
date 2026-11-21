@@ -2906,6 +2906,7 @@ def cin_round(request, pk):
         invite_coder,
         pilot_new_plan,
         practice_review,
+        record_lead_decision,
         round_report,
         set_standing,
     )
@@ -3016,6 +3017,19 @@ def cin_round(request, pk):
                     "Recorded: " + result["record"].get_outcome_display().lower() + ".",
                 )
             )
+        elif action == "decide":
+            try:
+                made = record_lead_decision(
+                    this,
+                    request.POST.get("choice") or "",
+                    request.POST.get("reason") or "",
+                    by=request.user,
+                )
+                notices.append(
+                    ("good", f"Decision recorded: {made.get_choice_display().lower()}.")
+                )
+            except ValueError as error:
+                notices.append(("bad", str(error)))
         elif action == "review" and this.is_practice:
             if not round_report(this).get("coded"):
                 notices.append(
@@ -3055,6 +3069,16 @@ def cin_round(request, pk):
     # As it stands now, unrecorded; and every evaluation recorded so far.
     context["gate"] = gate(this)
     context["gates"] = this.gates.select_related("evaluated_by")[:10]
+    latest = this.gates.first()
+    context["can_decide"] = latest is not None and latest.outcome == "fail"
+    context["decisions"] = this.decisions.select_related("decided_by", "gate")
+    # Secondary use, with each coder's name in place of their id.
+    secondary = context["gate"]["measures"].get("secondary_use")
+    if secondary:
+        names = {row["user"].id: str(row["user"]) for row in context["coders"]}
+        for row in secondary["by_coder"]:
+            row["name"] = names.get(row["coder"], f"coder {row['coder']}")
+    context["secondary"] = secondary
     figures = coder_figures(this)
     checks = check_figures(this)
     for row in context["coders"]:

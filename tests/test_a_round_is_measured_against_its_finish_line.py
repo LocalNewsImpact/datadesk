@@ -23,11 +23,13 @@ from review.classification import (
     ClassificationStory,
     CodebookVersion,
     GateResult,
+    LeadDecision,
     Round,
     V1Decision,
     gate,
     hold_review,
     open_round,
+    record_lead_decision,
 )
 
 pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
@@ -380,3 +382,86 @@ def test_a_category_nobody_chose_cannot_be_passed(coders):
     result = gate(pilot)
     assert _by_name(result)["Civic information"]["value"] is None
     assert result["outcome"] == GateResult.NOT_ENOUGH
+
+
+def _failed_pilot_with_crossovers(coders):
+    pilot, cohort = _pilot(civic=10, other=10)
+    for i in range(10):
+        answers = (
+            ("Civic Life", "Civic information"),
+            ("Civic information", "Civic Life") if i < 3 else ("Civic Life", ""),
+        )
+        for coder, (primary, secondary) in zip(coders, answers, strict=False):
+            ClassificationDecision.objects.create(
+                cohort=cohort,
+                article_id=f"v1:{i}",
+                decided_by=coder,
+                primary_label=primary,
+                secondary_label=secondary,
+                codebook_version=cohort.codebook_version,
+            )
+    for i in range(10, 20):
+        _code(cohort, f"v1:{i}", coders, ("Sports", "Sports"))
+    return pilot
+
+
+def test_the_leads_decision_on_a_failed_pilot_is_written_down(coders):
+    """Keeping definitions that missed the strict conditions is a
+    judgement. It is recorded with its reason against the figures it was
+    taken on, and never changed."""
+    pilot = _failed_pilot_with_crossovers(coders)
+    with pytest.raises(ValueError, match="Record an evaluation first"):
+        record_lead_decision(pilot, LeadDecision.KEEP, "weighted alpha holds")
+    record = gate(pilot, by=coders[0], record=True)["record"]
+    assert record.outcome == GateResult.FAIL
+    with pytest.raises(ValueError, match="needs its reason"):
+        record_lead_decision(pilot, LeadDecision.KEEP, "  ")
+    with pytest.raises(ValueError, match="Choose whether"):
+        record_lead_decision(pilot, "maybe", "because")
+    made = record_lead_decision(
+        pilot, LeadDecision.KEEP, "Weighted alpha is 0.80 or higher.", by=coders[0]
+    )
+    assert (made.gate, made.choice, made.decided_by) == (record, "keep", coders[0])
+    made.reason = "something else"
+    with pytest.raises(ValueError):
+        made.save()
+    # The round's outcome is untouched: the decision sits beside it.
+    assert gate(pilot)["outcome"] == GateResult.FAIL
+
+
+def test_there_is_nothing_to_decide_on_a_pilot_that_passed(coders):
+    pilot, cohort = _pilot(civic=10, other=10)
+    for i in range(20):
+        label = _civic(i) if i < 10 else "Sports"
+        _code(cohort, f"v1:{i}", coders, (label, label))
+    assert gate(pilot, record=True)["outcome"] == GateResult.PASS
+    with pytest.raises(ValueError, match="not a fail"):
+        record_lead_decision(pilot, LeadDecision.KEEP, "no need")
+
+
+def test_secondary_use_is_recorded_with_an_evaluation_and_shown(client, coders):
+    pilot = _failed_pilot_with_crossovers(coders)
+    record = gate(pilot, record=True)["record"]
+    use = record.measures["secondary_use"]
+    # Coder a added a secondary to all ten civic stories; coder b to three.
+    assert (use["overall"]["hits"], use["overall"]["n"]) == (13, 40)
+    assert use["pairs"]["crossover_both"] == 3 and use["pairs"]["apart"] == 0
+    assert use["crossovers_between"] == [
+        {"labels": ["Civic Life", "Civic information"], "count": 3}
+    ]
+
+    admin = User.objects.create_user("admin", password="x")
+    Grant.objects.create(user=admin, app=DATADESK, role=ADMIN, scope="")
+    client.force_login(admin)
+    url = reverse("review:cin_round", args=[pilot.pk])
+    body = client.get(url).content.decode()
+    assert "Secondary categories" in body and "13 of 40" in body
+    assert "Record this decision" in body
+    body = client.post(
+        url, {"action": "decide", "choice": "revise", "reason": "Order still unclear."}
+    ).content.decode()
+    assert "Decision recorded" in body and "Order still unclear." in body
+    assert LeadDecision.objects.get().decided_by == admin
+    body = client.post(url, {"action": "decide", "choice": "keep"}).content.decode()
+    assert "A decision needs its reason." in body
+    assert LeadDecision.objects.count() == 1

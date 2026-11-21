@@ -409,6 +409,12 @@ All admin only.
    is reported beside them and decides nothing. Where the conditions
    are missed and that figure is at or above 0.80 on all three, keeping
    the definitions is the lead's decision and is reported as one.
+   That decision is recorded on the round (`LeadDecision`: keep or
+   revise, the reason, who and when, against the recorded evaluation).
+   Secondary use is reported with every evaluation (M12): the share of
+   answers with a secondary by coder and by primary category, the
+   combinations used, and what became of every pair of coders who chose
+   different categories.
 9. **Pause rule** for check stories: binomial, 1 in 100, 40 stories
    (WP6).
 10. **Stories come from** the Missouri, Washington and Pennsylvania

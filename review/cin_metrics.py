@@ -453,3 +453,90 @@ def raw_agreement_for_alpha(alpha, chance_agreement):
     """The raw agreement a reliability of `alpha` needs, given how often
     coders would match by chance."""
     return alpha + (1 - alpha) * chance_agreement
+
+
+def secondary_use(stories):
+    """M12. How coders used the secondary category.
+
+    A secondary is optional, and the weighted alpha gives part credit
+    through it, so a coder who adds one freely earns more of that credit
+    than one who adds it only when sure. This is what shows it: how
+    often each coder and each category carries a secondary, which
+    secondaries go with which categories, and what became of every pair
+    of coders who chose different categories.
+
+    Over answers that chose a category; a rejection takes no secondary.
+    Returns plain lists and dicts, so it can be stored with a record.
+    """
+    by_coder, by_primary, combos = {}, {}, {}
+    answers = with_secondary = 0
+    pairs = {"same": 0, "crossover_both": 0, "crossover_one": 0, "apart": 0}
+    crossed, rescued = {}, {}
+    for story in stories.values():
+        for answer in story:
+            if not answer["label"]:
+                continue
+            has = bool(answer.get("secondary"))
+            answers += 1
+            with_secondary += has
+            tables = ((by_coder, answer["coder"]), (by_primary, answer["label"]))
+            for table, key in tables:
+                n, hits = table.get(key, (0, 0))
+                table[key] = (n + 1, hits + has)
+            if has:
+                combo = (answer["label"], answer["secondary"])
+                combos[combo] = combos.get(combo, 0) + 1
+        for i, a in enumerate(story):
+            for b in story[i + 1 :]:
+                if not a["label"] or not b["label"]:
+                    continue
+                if a["label"] == b["label"]:
+                    pairs["same"] += 1
+                    continue
+                a_gives = a.get("secondary") == b["label"]
+                b_gives = b.get("secondary") == a["label"]
+                if not (a_gives or b_gives):
+                    pairs["apart"] += 1
+                    continue
+                pairs["crossover_both" if a_gives and b_gives else "crossover_one"] += 1
+                key = tuple(sorted((a["label"], b["label"])))
+                crossed[key] = crossed.get(key, 0) + 1
+                # Whose secondary it was that made the pair a crossover.
+                for answer, gives in ((a, a_gives), (b, b_gives)):
+                    if gives:
+                        coder = answer["coder"]
+                        rescued[coder] = rescued.get(coder, 0) + 1
+
+    def rows(table, name):
+        return [
+            {name: key, **_rate(hits, n)}
+            for key, (n, hits) in sorted(table.items(), key=lambda item: str(item[0]))
+        ]
+
+    different = pairs["crossover_both"] + pairs["crossover_one"] + pairs["apart"]
+    crossovers = pairs["crossover_both"] + pairs["crossover_one"]
+    return {
+        "overall": _rate(with_secondary, answers),
+        "by_coder": [
+            {**row, "crossovers_through_theirs": rescued.get(row["coder"], 0)}
+            for row in rows(by_coder, "coder")
+        ],
+        "by_primary": rows(by_primary, "label"),
+        "combinations": [
+            {"label": label, "secondary": secondary, "count": count}
+            for (label, secondary), count in sorted(
+                combos.items(), key=lambda item: (-item[1], item[0])
+            )
+        ],
+        "pairs": {
+            **pairs,
+            "different": different,
+            "crossover_share": crossovers / different if different else None,
+        },
+        "crossovers_between": [
+            {"labels": list(key), "count": count}
+            for key, count in sorted(
+                crossed.items(), key=lambda item: (-item[1], item[0])
+            )
+        ],
+    }

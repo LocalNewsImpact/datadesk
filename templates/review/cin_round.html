@@ -291,6 +291,134 @@
   {% endif %}
   {% endif %}
 
+  {% if round.kind == "comparison" %}
+  <h2>The lead's decision</h2>
+  <p class="quiet">
+    For a pilot whose latest recorded evaluation is a fail. Whether to
+    keep the definitions anyway is a judgement, and it has to be
+    explained when the work is written up, so it is recorded here with
+    its reason. A record is never changed.
+  </p>
+  {% for row in decisions %}
+  <p>
+    <strong>{{ row.get_choice_display }}.</strong>
+    {{ row.decided_at|date:"j M Y, H:i" }}{% if row.decided_by %}, {{ row.decided_by }}{% endif %},
+    on the evaluation recorded {{ row.gate.evaluated_at|date:"j M Y, H:i" }}.
+    {{ row.reason }}
+  </p>
+  {% empty %}
+  <p class="quiet">No decision recorded.</p>
+  {% endfor %}
+  {% if can_decide %}
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="decide">
+    <label class="check">
+      <input type="radio" name="choice" value="keep" required>
+      Keep the definitions and go on
+    </label>
+    <label class="check">
+      <input type="radio" name="choice" value="revise" required>
+      Revise the definitions and repeat the pilot
+    </label>
+    <label for="reason">Reason</label>
+    <textarea id="reason" name="reason" rows="4" class="wide" required></textarea>
+    <div class="actions">
+      <button type="submit">Record this decision</button>
+    </div>
+  </form>
+  {% endif %}
+  {% endif %}
+
+  {% if secondary %}
+  <h2>Secondary categories</h2>
+  <p class="quiet">
+    A secondary is optional, and agreement with part credit counts it.
+    A coder who adds one far more often than the others earns more of
+    that credit. Over answers that chose a category.
+  </p>
+  <p>
+    Answers with a secondary:
+    {% if secondary.overall.rate is None %}&mdash;{% else %}{% widthratio secondary.overall.rate 1 100 %}%{% endif %}
+    ({{ secondary.overall.hits }} of {{ secondary.overall.n }}).
+  </p>
+  <ul class="plain">
+    <li>Pairs of coders who chose the same category: {{ secondary.pairs.same }}.</li>
+    <li>Pairs who chose different categories: {{ secondary.pairs.different }}.
+      Of those, each chose the other's category as their secondary in
+      {{ secondary.pairs.crossover_both }}; one of them did in
+      {{ secondary.pairs.crossover_one }}; neither did in
+      {{ secondary.pairs.apart }}.
+      {% if secondary.pairs.crossover_share is not None %}
+      {% widthratio secondary.pairs.crossover_share 1 100 %}% of
+      different pairs get part credit.
+      {% endif %}</li>
+  </ul>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Coder</th>
+          <th scope="col" class="num">Answers</th>
+          <th scope="col" class="num">With a secondary</th>
+          <th scope="col" class="num">Share</th>
+          <th scope="col" class="num">95% interval</th>
+          <th scope="col" class="num"
+              title="Pairs given part credit because this coder's secondary was the other coder's category.">Part credit through theirs</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in secondary.by_coder %}
+        <tr>
+          <th scope="row">{{ row.name }}</th>
+          <td class="num">{{ row.n }}</td>
+          <td class="num">{{ row.hits }}</td>
+          <td class="num">{% widthratio row.rate 1 100 %}%</td>
+          <td class="num">{% widthratio row.low 1 100 %}&ndash;{% widthratio row.high 1 100 %}%</td>
+          <td class="num">{{ row.crossovers_through_theirs }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Primary category</th>
+          <th scope="col" class="num">Answers</th>
+          <th scope="col" class="num">With a secondary</th>
+          <th scope="col" class="num">Share</th>
+          <th scope="col" class="num">95% interval</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in secondary.by_primary %}
+        <tr>
+          <th scope="row">{{ row.label }}</th>
+          <td class="num">{{ row.n }}</td>
+          <td class="num">{{ row.hits }}</td>
+          <td class="num">{% widthratio row.rate 1 100 %}%</td>
+          <td class="num">{% widthratio row.low 1 100 %}&ndash;{% widthratio row.high 1 100 %}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if secondary.combinations %}
+  <p>
+    Most used combinations, primary then secondary:
+    {% for row in secondary.combinations|slice:":15" %}{{ row.label }} with {{ row.secondary }} ({{ row.count }}){% if not forloop.last %}; {% endif %}{% endfor %}.
+  </p>
+  {% endif %}
+  {% if secondary.crossovers_between %}
+  <p>
+    Part credit given, by the two categories the coders chose:
+    {% for row in secondary.crossovers_between|slice:":15" %}{{ row.labels.0 }} and {{ row.labels.1 }} ({{ row.count }}){% if not forloop.last %}; {% endif %}{% endfor %}.
+  </p>
+  {% endif %}
+  {% endif %}
+
   <h2>Coders</h2>
   {% if coders %}
   <div class="table-scroll">

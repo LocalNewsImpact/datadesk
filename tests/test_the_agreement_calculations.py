@@ -323,3 +323,46 @@ def test_weighted_alpha_gives_part_credit_for_a_crossover():
         1: _answers(("Sports", ""), ("Sports", "")),
     }
     assert m.weighted_alpha(rejected) == pytest.approx(m.krippendorff_alpha(rejected))
+
+
+def test_secondary_use_says_who_adds_one_and_what_became_of_split_pairs():
+    """Part credit runs through the secondary, which is optional. A
+    coder who adds one freely earns more of it, and this is what shows
+    that."""
+    stories = {
+        0: _answers(("Sports", ""), ("Sports", "")),
+        1: _answers(("Health", "Education"), ("Education", "Health")),
+        2: _answers(("Health", "Education"), ("Education", "")),
+        3: _answers(("Health", "Sports"), ("Education", "")),
+        4: _answers(("Health", "Education"), ("", "")),
+    }
+    got = m.secondary_use(stories)
+    # Nine answers chose a category; five of them carry a secondary.
+    assert (got["overall"]["hits"], got["overall"]["n"]) == (5, 9)
+    coders = {row["coder"]: row for row in got["by_coder"]}
+    assert (coders[0]["hits"], coders[0]["n"]) == (4, 5)
+    assert (coders[1]["hits"], coders[1]["n"]) == (1, 4)
+    assert coders[0]["low"] < coders[0]["rate"] < coders[0]["high"]
+    # Coder 0's secondary made stories 1 and 2 a crossover; coder 1's, story 1.
+    assert coders[0]["crossovers_through_theirs"] == 2
+    assert coders[1]["crossovers_through_theirs"] == 1
+    primaries = {row["label"]: row for row in got["by_primary"]}
+    assert (primaries["Health"]["hits"], primaries["Health"]["n"]) == (4, 4)
+    assert got["combinations"][0] == {
+        "label": "Health",
+        "secondary": "Education",
+        "count": 3,
+    }
+    # A pair with a rejection in it is not a pair of categories.
+    assert got["pairs"] == {
+        "same": 1,
+        "crossover_both": 1,
+        "crossover_one": 1,
+        "apart": 1,
+        "different": 3,
+        "crossover_share": pytest.approx(2 / 3),
+    }
+    between = got["crossovers_between"]
+    assert between == [{"labels": ["Education", "Health"], "count": 2}]
+    # Nothing coded: nothing to divide by.
+    assert m.secondary_use({})["pairs"]["crossover_share"] is None
