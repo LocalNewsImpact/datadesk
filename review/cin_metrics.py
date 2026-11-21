@@ -218,8 +218,9 @@ def krippendorff_alpha(stories, label=None):
     return 1 - disagreement / expected
 
 
-def alpha_with_interval(stories, label=None, *, resamples=500, seed=0):
-    """M4 with a 95% interval: {rate, low, high, n}.
+def alpha_with_interval(stories, label=None, *, resamples=500, seed=0, measure=None):
+    """M4 with a 95% interval: {rate, low, high, n}. `measure` is the
+    alpha to compute: the strict one, or `weighted_alpha`.
 
     The interval is a bootstrap over stories, the unit alpha is computed
     over. `n` is the stories with two or more answers, not all of them
@@ -230,14 +231,15 @@ def alpha_with_interval(stories, label=None, *, resamples=500, seed=0):
         for key, answers in stories.items()
         if len(answers) >= 2 and any(a["label"] for a in answers)
     ]
-    point = krippendorff_alpha({k: stories[k] for k in keys}, label)
+    measure = measure or krippendorff_alpha
+    point = measure({k: stories[k] for k in keys}, label)
     if point is None:
         return {"rate": None, "low": None, "high": None, "n": len(keys)}
     rng = random.Random(seed)
     draws = []
     for _ in range(resamples):
         sample = {i: stories[k] for i, k in enumerate(rng.choices(keys, k=len(keys)))}
-        value = krippendorff_alpha(sample, label)
+        value = measure(sample, label)
         if value is not None:
             draws.append(value)
     draws.sort()
@@ -249,6 +251,75 @@ def alpha_with_interval(stories, label=None, *, resamples=500, seed=0):
         "high": draws[min(len(draws) - 1, int(0.975 * len(draws)))],
         "n": len(keys),
     }
+
+
+#: What the label rule makes of a crossover -- one coder's category is
+#: the other's secondary -- beside a full match: a label at 0.7 against
+#: one at 0.9.
+FULL_MATCH = 0.9
+CROSSOVER = 0.7
+#: So a crossover is 0.7 / 0.9 of a match, and this much disagreement.
+CROSSOVER_DISTANCE = 1 - CROSSOVER / FULL_MATCH
+
+
+def _crossover_distance(a, b):
+    """How far apart two (category, secondary) answers are: 0 where the
+    categories match, `CROSSOVER_DISTANCE` where one's category is the
+    other's secondary, 1 otherwise."""
+    if a[0] == b[0]:
+        return 0.0
+    if (a[0] != REJECTED and a[0] == b[1]) or (b[0] != REJECTED and b[0] == a[1]):
+        return CROSSOVER_DISTANCE
+    return 1.0
+
+
+def weighted_alpha(stories, label=None):
+    """M4w. Krippendorff's alpha with part credit for a crossover.
+
+    The strict figure (`krippendorff_alpha`) reads the category alone,
+    and scores two coders who each chose the other's category as their
+    secondary the same as two who saw nothing in common. The label rule
+    does not: it keeps that story, at 0.7. This is alpha with that
+    difference as its distance, so it measures the agreement the
+    training labels are built on. It is reported beside the strict
+    figure and passes or fails nothing.
+
+    With `label`, the category against everything else, in both places.
+    """
+    units = []
+    for answers in stories.values():
+        values = [(a["label"] or REJECTED, a.get("secondary") or "") for a in answers]
+        if len(values) < 2 or all(v[0] == REJECTED for v in values):
+            continue
+        if label:
+            values = [
+                (p if p == label else "(other)", s if s == label else "")
+                for p, s in values
+            ]
+        units.append(values)
+
+    totals = {}
+    observed = 0.0
+    for values in units:
+        m = len(values)
+        for value in values:
+            totals[value] = totals.get(value, 0) + 1
+        for i, a in enumerate(values):
+            for b in values[i + 1 :]:
+                observed += 2 * _crossover_distance(a, b) / (m - 1)
+    n = sum(totals.values())
+    if n < 2:
+        return None
+    kinds = list(totals)
+    expected = sum(
+        totals[a] * totals[b] * _crossover_distance(a, b)
+        for a in kinds
+        for b in kinds
+        if a != b
+    ) / (n - 1)
+    if not expected:
+        return None
+    return 1 - observed / expected
 
 
 def cohen_kappa(pairs):

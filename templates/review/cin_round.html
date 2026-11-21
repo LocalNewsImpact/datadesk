@@ -117,6 +117,45 @@
       </tbody>
     </table>
   </div>
+  <h3>With part credit for a second choice</h3>
+  <p class="quiet">
+    The conditions above read the primary category only. Here a story
+    on which one coder's primary is the other's secondary counts as
+    {% widthratio gate.measures.crossover_credit 1 100 %}% of a match,
+    which is what the label rule makes of it (a label at 0.7 against
+    0.9). These decide nothing.
+    {% if gate.outcome == "fail" and gate.measures.weighted_reliable %}
+    <strong>The conditions are not met, and every figure here is at or
+    above {{ gate.conditions.0.threshold|floatformat:2 }}.</strong>
+    Coders saw the same needs in these stories and ranked them
+    differently. Keeping the definitions on that basis is the lead's
+    decision, and is reported as one.
+    {% endif %}
+  </p>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Stories</th>
+          <th scope="col">Measured over</th>
+          <th scope="col" class="num">Stories</th>
+          <th scope="col" class="num">Now</th>
+          <th scope="col" class="num">95% interval</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in gate.measures.weighted %}
+        <tr>
+          <th scope="row">{{ row.name }}</th>
+          <td class="quiet">{{ row.population }}</td>
+          <td class="num">{{ row.n }}</td>
+          <td class="num">{% if row.value is None %}&mdash;{% else %}{{ row.value|floatformat:2 }}{% endif %}</td>
+          <td class="num">{% if row.low is None %}&mdash;{% else %}{{ row.low|floatformat:2 }}&ndash;{{ row.high|floatformat:2 }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% if gate.measures.v1_stories %}
   <h3>The V1 stories, against V1</h3>
   <p class="quiet">
