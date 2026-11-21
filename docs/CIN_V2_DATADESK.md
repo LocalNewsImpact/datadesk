@@ -27,7 +27,7 @@ Builds on, rather than replaces:
 | Round | Stories | Coders per story | Coders | Finished when |
 | --- | --- | --- | --- | --- |
 | 1. Practice | 20, same for every coder | all | 4, then each new coder | all coded; review meeting held |
-| 2. Pilot | ~770 V1 stories: the 367 civic stories + ~400 of the other 567 | 3 | 4 (each codes ~575) | every story has 3 answers; 4 pass conditions met or failed |
+| 2. Pilot | ~770 V1 stories: the 367 civic stories + ~400 of the other 567 | 2 | 4 (each codes ~385) | every story has 2 answers; 3 pass conditions met or failed |
 | 3. Training | new stories to bring every category to 250 labels, V1 records counted first (~1,500 new labels) | 2, +1 on a split | 6–9 | every category has 250 labels: 200 to train, 50 held back |
 
 The pilot recodes V1 stories so V2 answers are compared with V1 answers
@@ -217,8 +217,10 @@ category after its first batch.
 
 ### WP5. Two coders, a third on a split
 
-- `coders_rule` = base 2 + third on split (training); base 3 (pilot,
+- `coders_rule` = base 2 + third on split (training); base 2 (pilot,
   spread round-robin over its 4 coders).
+- A story is never assigned to a coder who was given it in another
+  cohort.
 - When a story's second decision lands and the two primaries differ (or
   the two rejection reasons differ), `assign_cohort` adds one assignment
   to an admitted coder not already on the story, round-robin, in the
@@ -376,12 +378,14 @@ All admin only.
 1. **Scoring.** Only answers within the ten categories are scored. A
    category against a rejection is a mismatch. Two rejections are not
    scored.
-2. **Pilot.** About 770 V1 stories, 4 coders, 3 per story. The 66
+2. **Pilot.** About 770 V1 stories, 4 coders, 2 per story. The 66
    stories V1 coders agreed to reject are out; the 157 they never
    agreed on are in.
-3. **A failed pilot** is rerun on the same stories by four new coders.
-   `one_classification_per_coder_per_article` stays: no coder codes a
-   story twice.
+3. **A failed pilot** is repeated once on the same stories by the same
+   four coders, after retraining on the revised definitions. Each story
+   goes to the two coders who have not read it; no coder codes a story
+   twice. A second repeat needs four new coders. Two coders per story,
+   not three, is what leaves two who have not read it.
 4. **Coder quality** is checked with hidden check stories, not a
    first-50 agreement check.
 5. **Removed coders'** decisions are withdrawn.

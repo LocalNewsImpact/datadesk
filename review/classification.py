@@ -1551,6 +1551,10 @@ def assign_cohort(cohort):
     because two decisions from one person on one article is not the
     overlap agreement is measured over.
 
+    Nor a story they were given in any other cohort. A pilot repeated
+    under revised definitions holds the stories of the one before it,
+    and each goes to the coders who have not read it.
+
     Idempotent. Re-running after granting a fourth coder tops the cohort
     up to target rather than starting again.
 
@@ -1609,8 +1613,19 @@ def assign_cohort(cohort):
     import random
 
     random.Random(cohort.pk).shuffle(article_ids)
+    # Who has had each story before, in any other cohort, as work or as
+    # a check story. Practice is exempt: its stories are nobody's work.
+    seen = {}
+    if not practice:
+        for user_id, article_id in (
+            ClassificationAssignment.objects.filter(article_id__in=article_ids)
+            .exclude(cohort=cohort)
+            .values_list("assigned_to_id", "article_id")
+        ):
+            seen.setdefault(article_id, set()).add(user_id)
     for article_id in article_ids:
         already = existing.get(article_id, set())
+        before = seen.get(article_id, ())
         # Rotate the starting point per article so the same pair does not
         # share every record: overlap spread across the group is what lets
         # agreement be read per coder rather than for one pairing.
@@ -1620,7 +1635,7 @@ def assign_cohort(cohort):
         for user in order:
             if len(already) >= wanted:
                 break
-            if user.id in already:
+            if user.id in already or user.id in before:
                 continue
             already.add(user.id)
             made.append(
@@ -1942,8 +1957,37 @@ def draw_pilot(for_round, *, others=400, seed=0):
     there so the round reads as ordinary local news and no coder has a
     reason to expect one category; the chance each had of being drawn is
     recorded with it.
+
+    A pilot under a codebook no pilot has run under yet, where an
+    earlier pilot ran under another, is a repeat: the definitions were
+    revised, and it holds the same stories as the one before it so the
+    two can be compared. `assign_cohort` keeps each story from the
+    coders who have read it.
     """
     import random
+
+    version = for_round.codebook_version
+    pilots = Round.objects.filter(kind=Round.COMPARISON, cohorts__samples__isnull=False)
+    earlier = pilots.exclude(codebook_version=version).order_by("-pk").first()
+    if earlier is not None and not pilots.filter(codebook_version=version).exists():
+        copies = [
+            ClassificationSample(
+                article_id=sample.article_id,
+                stratum=sample.stratum,
+                inclusion_probability=sample.inclusion_probability,
+                dataset_id=sample.dataset_id,
+            )
+            for sample in ClassificationSample.objects.filter(
+                cohort__round=earlier
+            ).order_by("id")
+        ]
+        cohort = _open_batch(for_round, copies, f"pilot: repeat of {earlier.name}")
+        strata = [sample.stratum for sample in copies]
+        return cohort, {
+            "civic": strata.count(ClassificationSample.CIVIC),
+            "other": strata.count(ClassificationSample.OTHER),
+            "repeat_of": earlier.name,
+        }
 
     taken = set(ClassificationSample.objects.values_list("article_id", flat=True))
     usable = ClassificationStory.objects.filter(origin=ClassificationStory.V1).exclude(
