@@ -553,6 +553,78 @@ class GateResult(models.Model):
         super().save(*args, **kwargs)
 
 
+class LeadDecision(models.Model):
+    """What the lead decided after a pilot missed its conditions.
+
+    A pilot passes on strict alpha over the primary category. Where it
+    misses, and agreement with part credit for a second choice is still
+    reliable, the lead may keep the definitions anyway. That is a
+    judgement, not a calculation, and it has to be explained when the
+    work is written up: so it is written down here, with its reason, by
+    whom and when, against the recorded figures it was taken on. Never
+    changed; a second decision is a second row.
+    """
+
+    KEEP = "keep"
+    REVISE = "revise"
+    CHOICES = [
+        (KEEP, "Keep the definitions and go on"),
+        (REVISE, "Revise the definitions and repeat the pilot"),
+    ]
+
+    round = models.ForeignKey(Round, on_delete=models.PROTECT, related_name="decisions")
+    gate = models.ForeignKey(
+        GateResult, on_delete=models.PROTECT, related_name="decisions"
+    )
+    choice = models.CharField(max_length=8, choices=CHOICES)
+    reason = models.TextField()
+    decided_at = models.DateTimeField(auto_now_add=True)
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+
+    class Meta:
+        ordering = ["-decided_at", "-id"]
+
+    def __str__(self):
+        return f"{self.round}: {self.choice}"
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError("a decision is a record; record another instead")
+        super().save(*args, **kwargs)
+
+
+def record_lead_decision(for_round, choice, reason, by=None):
+    """Write down the lead's decision on a pilot that missed.
+
+    Against the round's latest recorded evaluation, which has to be a
+    fail: a decision about figures nobody wrote down, or about a pilot
+    that passed or is unfinished, is not one this records. Raises
+    ValueError saying which.
+    """
+    reason = (reason or "").strip()
+    if choice not in dict(LeadDecision.CHOICES):
+        raise ValueError("Choose whether to keep the definitions or revise them.")
+    if not reason:
+        raise ValueError("A decision needs its reason.")
+    latest = for_round.gates.first()
+    if latest is None:
+        raise ValueError("Record an evaluation first: a decision is about its figures.")
+    if latest.outcome != GateResult.FAIL:
+        raise ValueError(
+            "The latest recorded evaluation is not a fail, so there is "
+            "nothing for the lead to decide."
+        )
+    return LeadDecision.objects.create(
+        round=for_round, gate=latest, choice=choice, reason=reason, decided_by=by
+    )
+
+
 class ClassificationCohort(models.Model):
     """A batch of records drawn together and worked as a unit.
 
@@ -2648,6 +2720,8 @@ def gate(for_round, *, by=None, record=False):
     else:
         outcome = GateResult.PASS
 
+    if not for_round.is_practice:
+        measures["secondary_use"] = cin_metrics.secondary_use(stories)
     result = {"outcome": outcome, "conditions": conditions, "measures": measures}
     if record:
         result["record"] = GateResult.objects.create(
