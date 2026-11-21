@@ -123,7 +123,43 @@ def test_a_pilot_passes_when_every_alpha_is_met(coders):
     assert rows["Civic Life"]["threshold"] == 0.80
     # Beside each, what V1 coders did on the same stories: they split on
     # every civic story, and never chose the same civic category.
-    assert overall["v1"] < 0.80 and rows["Civic Life"]["v1"] < 0
+    then = {r["name"]: r for r in result["measures"]["v1_stories"]}
+    assert then["All V1 stories"]["value"] == pytest.approx(1.0)
+    assert then["All V1 stories"]["v1"] < 0.80 and then["Civic Life"]["v1"] < 0
+    assert result["measures"]["new_stories"] == []
+
+
+def test_new_stories_count_toward_the_pass_and_are_reported_apart(coders):
+    """A pilot holds V1 stories and new ones. It passes on all of them;
+    the V1 stories are also shown against V1, and the new ones alone."""
+    pilot, cohort = _pilot(civic=10, other=10)
+    for i in range(10):
+        ClassificationSample.objects.create(
+            cohort=cohort,
+            article_id=f"new-{i}",
+            stratum=ClassificationSample.CATEGORY,
+            inclusion_probability=1.0,
+            model_label="Health",
+        )
+    for i in range(10):
+        _code(cohort, f"v1:{i}", coders, (_civic(i), _civic(i)))
+    for i in range(10, 20):
+        _code(cohort, f"v1:{i}", coders, ("Sports", "Sports"))
+    for i in range(10):
+        # Coders split on every new story.
+        _code(cohort, f"new-{i}", coders, ("Health", "Education"))
+    result = gate(pilot)
+    rows = _by_name(result)
+    assert rows["All stories"]["n"] == 30
+    assert rows["All stories"]["outcome"] == GateResult.FAIL
+    v1_part = {r["name"]: r for r in result["measures"]["v1_stories"]}
+    new_part = {r["name"]: r for r in result["measures"]["new_stories"]}
+    assert v1_part["All V1 stories"]["value"] == pytest.approx(1.0)
+    assert v1_part["All V1 stories"]["n"] == 20
+    assert new_part["All new stories"]["n"] == 10
+    assert new_part["All new stories"]["value"] < 0
+    assert _readings(result)["The new stories"]["value"] == 0.0
+    assert _readings(result)["All V1 stories"]["value"] == 1.0
 
 
 def test_percent_agreement_is_shown_and_decides_nothing(coders):
@@ -173,7 +209,7 @@ def test_alpha_is_over_every_coder_on_a_story(coders):
     for i in range(10, 20):
         _code(cohort, f"v1:{i}", coders, ("Sports", "Sports", "Sports"))
     result = gate(pilot)
-    assert _readings(result)["All stories"]["value"] == pytest.approx(1.0)
+    assert _readings(result)["All V1 stories"]["value"] == pytest.approx(1.0)
     assert _by_name(result)["All stories"]["value"] < 0.80
     assert result["outcome"] == GateResult.FAIL
 
@@ -192,7 +228,7 @@ def test_the_all_stories_percentage_counts_civic_at_its_true_share(coders):
         _code(cohort, f"v1:{i}", coders, ("Civic Life", second))
     for i in range(10, 20):
         _code(cohort, f"v1:{i}", coders, ("Sports", "Sports"))
-    overall = _readings(gate(pilot))["All stories"]
+    overall = _readings(gate(pilot))["All V1 stories"]
     # Civic 50%, other 100%; civic is 10 of 50 kept, so 0.2*0.5 + 0.8*1.
     assert overall["value"] == pytest.approx(0.9)
     assert "20%" in overall["population"]
@@ -215,7 +251,7 @@ def test_a_rejected_pair_is_not_scored_and_a_mixed_pair_is_a_mismatch(coders):
     _code(cohort, "v1:2", coders, ("Sports", ""))  # mismatch
     _code(cohort, "v1:3", coders, ("Sports", "Sports"))
     result = gate(pilot)
-    overall = _readings(result)["All stories"]
+    overall = _readings(result)["All V1 stories"]
     assert overall["n"] == 3 and overall["value"] == pytest.approx(2 / 3)
     # Alpha leaves the twice-rejected story out the same way.
     assert _by_name(result)["All stories"]["n"] == 3
