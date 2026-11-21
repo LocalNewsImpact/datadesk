@@ -27,7 +27,7 @@ Builds on, rather than replaces:
 | Round | Stories | Coders per story | Coders | Finished when |
 | --- | --- | --- | --- | --- |
 | 1. Practice | 20, same for every coder | all | 4, then each new coder | all coded; review meeting held |
-| 2. Pilot | ~770 V1 stories: the 367 civic stories + ~400 of the other 567 | 2 | 4 (each codes ~385) | every story has 2 answers; 3 pass conditions met or failed |
+| 2. Pilot | ~1,000 stories: ~770 V1 (the 367 civic + ~400 of the other 567) and 230 new from MO, WA, PA | 2 | 4 (each codes ~500) | every story has 2 answers; 3 pass conditions met or failed |
 | 3. Training | new stories to bring every category to 250 labels, V1 records counted first (~1,500 new labels) | 2, +1 on a split | 6–9 | every category has 250 labels: 200 to train, 50 held back |
 
 The pilot recodes V1 stories so V2 answers are compared with V1 answers
@@ -378,13 +378,21 @@ All admin only.
 1. **Scoring.** Only answers within the ten categories are scored. A
    category against a rejection is a mismatch. Two rejections are not
    scored.
-2. **Pilot.** About 770 V1 stories, 4 coders, 2 per story. The 66
+2. **Pilot.** About 770 V1 stories and 230 new stories, 4 coders, 2 per
+   story. The new stories are drawn by the model's label, 55 for each
+   civic category and 15 for each other, from the Missouri, Washington
+   and Pennsylvania datasets. The pilot passes on all of its stories;
+   alpha on the V1 stories against V1, and on the new stories alone,
+   is reported beside it. New pilot stories two coders agreed on count
+   toward each category's 250. The 66
    stories V1 coders agreed to reject are out; the 157 they never
    agreed on are in.
 3. **A failed pilot** is repeated once on the same stories by the same
    four coders, after retraining on the revised definitions. Each story
    goes to the two coders who have not read it; no coder codes a story
-   twice. A second repeat needs four new coders. Two coders per story,
+   twice. Each repeat also holds 230 new stories. After one
+   repeat no V1 story has two coders who have not read it, and a pilot
+   is about 1,000 new stories; nothing stops it being drawn. Two coders per story,
    not three, is what leaves two who have not read it.
 4. **Coder quality** is checked with hidden check stories, not a
    first-50 agreement check.

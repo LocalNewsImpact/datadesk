@@ -1944,80 +1944,188 @@ def _open_batch(for_round, samples, note):
     return cohort
 
 
-def draw_pilot(for_round, *, others=400, seed=0):
-    """The pilot's stories: every civic V1 story, and `others` of the rest.
+#: New stories in a pilot, by the model's label: more for the two
+#: categories the definitions were rewritten for, and enough of every
+#: other that a coder meets all ten. 2 x 55 + 8 x 15 = 230.
+PILOT_NEW_PER_CIVIC = 55
+PILOT_NEW_PER_OTHER = 15
+#: About how many stories a pilot holds. One with no V1 stories left to
+#: give is made up to this with new ones, in the same proportions.
+PILOT_STORIES = 1000
 
-    All from the V1 coding, so a V2 answer is compared with the V1
-    answers on the same story. The stories two V1 coders rejected are
-    left out -- they are not stories to label -- and the ones V1 coders
-    never agreed on stay in: they are what the old definitions failed
-    on, and leaving them out would flatter V1.
 
-    The civic stories are taken whole. The others are a random draw,
-    there so the round reads as ordinary local news and no coder has a
-    reason to expect one category; the chance each had of being drawn is
-    recorded with it.
+def pilot_new_plan():
+    """label -> how many new stories a pilot draws for it."""
+    return {
+        label: PILOT_NEW_PER_CIVIC if label in GATE_CATEGORIES else PILOT_NEW_PER_OTHER
+        for label in CIN_LABELS
+    }
 
-    A pilot under a codebook no pilot has run under yet, where an
-    earlier pilot ran under another, is a repeat: the definitions were
-    revised, and it holds the same stories as the one before it so the
-    two can be compared. `assign_cohort` keeps each story from the
-    coders who have read it.
+
+def _new_stories(plan, taken):
+    """Samples of crawler stories, `plan[label]` of each by the model's
+    label: up to a third from each smaller dataset and the rest from
+    Missouri, never one already in `taken`."""
+    import math
+
+    datasets = draw_dataset_ids()
+    small = [datasets[slug] for slug in SMALL_DATASETS if slug in datasets]
+    samples = []
+    for label, want in plan.items():
+        if not want:
+            continue
+        pool = _pool().filter(primary_label=label).exclude(id__in=taken)
+        got = 0
+        parts = [(pool.filter(dataset_id=d), math.ceil(want / 3)) for d in small]
+        for rows, limit in parts + [(pool.exclude(dataset_id__in=small), want)]:
+            limit = min(limit, want - got)
+            if limit <= 0:
+                continue
+            total = rows.count()
+            picked = list(
+                rows.order_by("?").values_list(
+                    "id", "dataset_id", "primary_label_confidence"
+                )[:limit]
+            )
+            for article_id, dataset_id, confidence in picked:
+                taken.add(article_id)
+                samples.append(
+                    ClassificationSample(
+                        article_id=article_id,
+                        stratum=ClassificationSample.CATEGORY,
+                        inclusion_probability=len(picked) / total if total else 1.0,
+                        dataset_id=dataset_id or "",
+                        model_label=label,
+                        model_confidence=confidence,
+                    )
+                )
+            got += len(picked)
+    return samples
+
+
+def _v1_stories_to_repeat(for_round):
+    """The V1 stories of earlier pilots that can be coded again.
+
+    A story can be, while enough admitted coders have not read it to
+    give it this round's coders per story. Returns None where no earlier
+    pilot held V1 stories: this is the first, and draws its own.
+    """
+    earlier = (
+        ClassificationSample.objects.filter(
+            cohort__round__kind=Round.COMPARISON,
+            stratum__in=(ClassificationSample.CIVIC, ClassificationSample.OTHER),
+        )
+        .exclude(cohort__round=for_round)
+        .order_by("id")
+    )
+    used = {}
+    for sample in earlier:
+        used.setdefault(sample.article_id, sample)
+    if not used:
+        return None
+    admitted = {
+        user
+        for user, status in standings(for_round.codebook_version).items()
+        if status == CoderStanding.ADMITTED
+    }
+    seen = {}
+    for user_id, article_id in ClassificationAssignment.objects.filter(
+        article_id__in=list(used)
+    ).values_list("assigned_to_id", "article_id"):
+        seen.setdefault(article_id, set()).add(user_id)
+    here = set(
+        ClassificationSample.objects.filter(cohort__round=for_round).values_list(
+            "article_id", flat=True
+        )
+    )
+    return [
+        ClassificationSample(
+            article_id=sample.article_id,
+            stratum=sample.stratum,
+            inclusion_probability=sample.inclusion_probability,
+            dataset_id=sample.dataset_id,
+        )
+        for story, sample in used.items()
+        if story not in here
+        and (story not in seen or len(admitted - seen[story]) >= for_round.base_coders)
+    ]
+
+
+def draw_pilot(for_round, *, others=400, new=None, seed=0):
+    """The pilot's stories: V1 stories, and new ones.
+
+    The V1 stories are there so a V2 answer is compared with the V1
+    answers on the same story: every civic V1 story, and `others` of the
+    rest. The stories two V1 coders rejected are left out -- they are
+    not stories to label -- and the ones V1 coders never agreed on stay
+    in: they are what the old definitions failed on, and leaving them
+    out would flatter V1. The civic stories are taken whole. The others
+    are a random draw, there so the round reads as ordinary local news
+    and no coder has a reason to expect one category; the chance each
+    had of being drawn is recorded with it.
+
+    The new stories (`new`, label -> how many, by the model's label;
+    `pilot_new_plan()` is the procedure's) are from the datasets the
+    model will label, so a pass says something about them, and so a
+    pilot is never short of stories.
+
+    A later pilot holds the same V1 stories while there are coders who
+    have not read them: admitted coders, enough to give each story the
+    round's coders per story. With four coders and two per story that is
+    one repeat. After that a pilot is new stories only, about
+    `PILOT_STORIES` of them. `assign_cohort`
+    keeps every story from the coders who have read it.
     """
     import random
 
-    version = for_round.codebook_version
-    pilots = Round.objects.filter(kind=Round.COMPARISON, cohorts__samples__isnull=False)
-    earlier = pilots.exclude(codebook_version=version).order_by("-pk").first()
-    if earlier is not None and not pilots.filter(codebook_version=version).exists():
-        copies = [
+    repeat = _v1_stories_to_repeat(for_round)
+    if repeat is not None:
+        samples = repeat
+    else:
+        taken = set(ClassificationSample.objects.values_list("article_id", flat=True))
+        usable = ClassificationStory.objects.filter(
+            origin=ClassificationStory.V1
+        ).exclude(v1_outcome=ClassificationStory.REJECTED)
+        civic = [s.id for s in usable.filter(civic=True) if s.id not in taken]
+        rest = sorted(s.id for s in usable.filter(civic=False) if s.id not in taken)
+        chosen = random.Random(seed).sample(rest, min(others, len(rest)))
+        probability = (len(chosen) / len(rest)) if rest else 1.0
+        samples = [
             ClassificationSample(
-                article_id=sample.article_id,
-                stratum=sample.stratum,
-                inclusion_probability=sample.inclusion_probability,
-                dataset_id=sample.dataset_id,
+                article_id=story_id,
+                stratum=ClassificationSample.CIVIC,
+                inclusion_probability=1.0,
+                dataset_id=ClassificationStory.V1,
             )
-            for sample in ClassificationSample.objects.filter(
-                cohort__round=earlier
-            ).order_by("id")
+            for story_id in civic
+        ] + [
+            ClassificationSample(
+                article_id=story_id,
+                stratum=ClassificationSample.OTHER,
+                inclusion_probability=probability,
+                dataset_id=ClassificationStory.V1,
+            )
+            for story_id in chosen
         ]
-        cohort = _open_batch(for_round, copies, f"pilot: repeat of {earlier.name}")
-        strata = [sample.stratum for sample in copies]
-        return cohort, {
-            "civic": strata.count(ClassificationSample.CIVIC),
-            "other": strata.count(ClassificationSample.OTHER),
-            "repeat_of": earlier.name,
-        }
-
-    taken = set(ClassificationSample.objects.values_list("article_id", flat=True))
-    usable = ClassificationStory.objects.filter(origin=ClassificationStory.V1).exclude(
-        v1_outcome=ClassificationStory.REJECTED
-    )
-    civic = [s.id for s in usable.filter(civic=True) if s.id not in taken]
-    rest = sorted(s.id for s in usable.filter(civic=False) if s.id not in taken)
-    chosen = random.Random(seed).sample(rest, min(others, len(rest)))
-    probability = (len(chosen) / len(rest)) if rest else 1.0
-    samples = [
-        ClassificationSample(
-            article_id=story_id,
-            stratum=ClassificationSample.CIVIC,
-            inclusion_probability=1.0,
-            dataset_id=ClassificationStory.V1,
-        )
-        for story_id in civic
-    ] + [
-        ClassificationSample(
-            article_id=story_id,
-            stratum=ClassificationSample.OTHER,
-            inclusion_probability=probability,
-            dataset_id=ClassificationStory.V1,
-        )
-        for story_id in chosen
-    ]
+    strata = [sample.stratum for sample in samples]
+    drawn = {
+        "civic": strata.count(ClassificationSample.CIVIC),
+        "other": strata.count(ClassificationSample.OTHER),
+        "new": 0,
+        "repeat": repeat is not None,
+    }
+    if new:
+        if repeat is not None and not samples:
+            scale = PILOT_STORIES / sum(new.values())
+            new = {label: round(count * scale) for label, count in new.items()}
+        taken = set(ClassificationSample.objects.values_list("article_id", flat=True))
+        fresh = _new_stories(new, taken)
+        drawn["new"] = len(fresh)
+        samples += fresh
     if not samples:
-        return None, {"civic": 0, "other": 0}
-    cohort = _open_batch(for_round, samples, "pilot: V1 stories")
-    return cohort, {"civic": len(civic), "other": len(chosen)}
+        return None, drawn
+    note = "pilot: V1 stories" if not drawn["new"] else "pilot: V1 and new stories"
+    return _open_batch(for_round, samples, note), drawn
 
 
 def training_counts(for_round):
@@ -2027,7 +2135,8 @@ def training_counts(for_round):
     coders agreed on where the story was in a pilot under this codebook,
     else the label V1 coders agreed on. A V1 story that was rejected, or
     has no agreed label, is not training data and is not counted. Then
-    the round's own stories two coders agreed on.
+    the new stories of such a pilot, and the round's own, that two coders
+    agreed on.
     """
     version = for_round.codebook_version
     counts = dict.fromkeys(CIN_LABELS, 0)
@@ -2053,7 +2162,13 @@ def training_counts(for_round):
         if label in counts:
             counts[label] += 1
 
-    ours = set(
+    # The new stories of a pilot under this codebook, and the round's own.
+    v1_ids = set(
+        ClassificationStory.objects.filter(origin=ClassificationStory.V1).values_list(
+            "id", flat=True
+        )
+    )
+    ours = (piloted - v1_ids) | set(
         ClassificationSample.objects.filter(cohort__round=for_round).values_list(
             "article_id", flat=True
         )
@@ -2269,9 +2384,9 @@ def _pilot_conditions(for_round, stories):
     The conditions are Krippendorff's alpha, at `RELIABILITY_TARGET`:
     over every story, and for each of the two civic categories against
     every other answer. Alpha is over every coder on a story, and is
-    computed on the pilot as drawn. The pilot holds every civic story and
-    only some of the others, so it is harder than the V1 stories as a
-    whole, and the figure errs low.
+    computed on the pilot as drawn. The pilot holds every civic V1 story
+    and only some of the others, so it is harder than the V1 stories as
+    a whole, and the figure errs low.
 
     The readings are first-pair agreement, the share of stories on which
     the first two coders chose the same category: by group, by civic
@@ -2279,7 +2394,8 @@ def _pilot_conditions(for_round, stories):
     share of the V1 stories kept. They decide nothing. Every figure is
     shown against what V1 coders did on the same stories.
 
-    Returns (conditions, readings, groups).
+    Returns (conditions, readings, groups, parts): `parts` is alpha on
+    the V1 stories alone, against V1, and on the new stories alone.
     """
     version = for_round.codebook_version
     strata = dict(
@@ -2307,7 +2423,6 @@ def _pilot_conditions(for_round, stories):
             "every story in the round, every coder",
             cin_metrics.alpha_with_interval(stories),
             RELIABILITY_TARGET,
-            v1_alpha(),
         )
     ]
     for label in GATE_CATEGORIES:
@@ -2317,9 +2432,47 @@ def _pilot_conditions(for_round, stories):
                 "the category against every other answer, every coder",
                 cin_metrics.alpha_with_interval(stories, label),
                 RELIABILITY_TARGET,
-                v1_alpha(label),
             )
         )
+
+    # The same figures on the V1 stories alone, against what V1 coders
+    # did on them, and on the new stories alone. A pilot passes on all
+    # of its stories; these say where the figure came from.
+    v1_ids = {
+        story
+        for story, stratum in strata.items()
+        if stratum in (ClassificationSample.CIVIC, ClassificationSample.OTHER)
+    }
+    old = {k: v for k, v in stories.items() if k in v1_ids}
+    fresh = {k: v for k, v in stories.items() if k not in v1_ids}
+    parts = {"v1_stories": [], "new_stories": []}
+    if v1_ids:
+        size = f"{len(v1_ids)} V1 stories"
+        parts["v1_stories"] = [
+            _reading(
+                "All V1 stories", size, cin_metrics.alpha_with_interval(old), v1_alpha()
+            )
+        ] + [
+            _reading(
+                version.shown(label),
+                f"{size}, the category against every other answer",
+                cin_metrics.alpha_with_interval(old, label),
+                v1_alpha(label),
+            )
+            for label in GATE_CATEGORIES
+        ]
+    if len(strata) > len(v1_ids):
+        size = f"{len(strata) - len(v1_ids)} new stories"
+        parts["new_stories"] = [
+            _reading("All new stories", size, cin_metrics.alpha_with_interval(fresh))
+        ] + [
+            _reading(
+                version.shown(label),
+                f"{size}, the category against every other answer",
+                cin_metrics.alpha_with_interval(fresh, label),
+            )
+            for label in GATE_CATEGORIES
+        ]
 
     def v1_rate(subset, label=None):
         rate = cin_metrics.first_pair_agreement(subset, label)["rate"]
@@ -2340,8 +2493,8 @@ def _pilot_conditions(for_round, stories):
         readings.append(
             _reading(
                 version.shown(label),
-                "stories either of the first two coders put in it",
-                cin_metrics.first_pair_agreement(stories, label),
+                "V1 stories either of the first two coders put in it",
+                cin_metrics.first_pair_agreement(old, label),
                 v1_rate(before, label),
             )
         )
@@ -2372,11 +2525,19 @@ def _pilot_conditions(for_round, stories):
         )["rate"]
         population = f"civic stories counted at {share:.0%} of the whole"
     else:
-        overall = cin_metrics.first_pair_agreement(stories)
+        overall = cin_metrics.first_pair_agreement(old)
         then = v1_rate(before)
-        population = "every story in the round"
-    readings.append(_reading("All stories", population, overall, then))
-    return conditions, readings, groups
+        population = "every V1 story in the round"
+    readings.append(_reading("All V1 stories", population, overall, then))
+    if fresh or len(strata) > len(v1_ids):
+        readings.append(
+            _reading(
+                "The new stories",
+                f"{len(strata) - len(v1_ids)} new stories",
+                cin_metrics.first_pair_agreement(fresh),
+            )
+        )
+    return conditions, readings, groups, parts
 
 
 def gate(for_round, *, by=None, record=False):
@@ -2408,13 +2569,14 @@ def gate(for_round, *, by=None, record=False):
             },
         ]
     elif for_round.kind == Round.COMPARISON:
-        conditions, readings, groups = _pilot_conditions(for_round, stories)
+        conditions, readings, groups, parts = _pilot_conditions(for_round, stories)
         labelled = sum(
             1 for answers in stories.values() if cin_metrics.settled_label(answers)[1]
         )
         coded = sum(1 for answers in stories.values() if len(answers) >= 2)
         measures = {
             "first_pair": readings,
+            **parts,
             "first_pair_reading": GATE_FIRST_PAIR,
             "labelled_share": labelled / coded if coded else None,
             "left_out": cin_metrics.left_out(stories),

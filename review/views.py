@@ -2904,6 +2904,7 @@ def cin_round(request, pk):
         hide_check_stories,
         hold_review,
         invite_coder,
+        pilot_new_plan,
         practice_review,
         round_report,
         set_standing,
@@ -2921,16 +2922,16 @@ def cin_round(request, pk):
             if size < 1:
                 notices.append(("bad", "A batch needs at least one story."))
             elif this.kind == Round.COMPARISON:
-                # The pilot is the V1 stories: every civic one, and
-                # `size` of the others.
-                cohort, drawn = draw_pilot(this, others=size)
+                # A pilot is V1 stories -- every civic one and `size`
+                # of the others, or the ones an earlier pilot held --
+                # and new stories by the model's label.
+                cohort, drawn = draw_pilot(this, others=size, new=pilot_new_plan())
                 if cohort is None:
                     notices.append(
                         (
                             "bad",
-                            "No V1 stories to draw. Load them first with "
-                            "manage.py import_v1_stories, and note that a "
-                            "story is drawn into one batch only.",
+                            "No stories to draw. Load the V1 stories first "
+                            "with manage.py import_v1_stories.",
                         )
                     )
                 else:
@@ -2941,10 +2942,12 @@ def cin_round(request, pk):
                             f"Batch {cohort.number}: {drawn['civic']} civic and "
                             f"{drawn['other']} other V1 stories"
                             + (
-                                f", the stories of {drawn['repeat_of']}"
-                                if drawn.get("repeat_of")
+                                ", the ones an earlier pilot held that enough "
+                                "admitted coders have not read"
+                                if drawn["repeat"]
                                 else ""
                             )
+                            + f", and {drawn['new']} new stories"
                             + f"; {made} assignments made.",
                         )
                     )

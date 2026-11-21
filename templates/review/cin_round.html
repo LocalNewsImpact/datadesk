@@ -99,7 +99,6 @@
           <th scope="col" class="num">Now</th>
           <th scope="col" class="num">95% interval</th>
           <th scope="col" class="num">Needed</th>
-          <th scope="col" class="num">V1, same stories</th>
           <th scope="col">Result</th>
         </tr>
       </thead>
@@ -112,13 +111,76 @@
           <td class="num">{% if row.value is None %}&mdash;{% else %}{{ row.value|floatformat:2 }}{% endif %}</td>
           <td class="num">{% if row.low is None %}&mdash;{% else %}{{ row.low|floatformat:2 }}&ndash;{{ row.high|floatformat:2 }}{% endif %}</td>
           <td class="num">{{ row.threshold|floatformat:2 }}</td>
-          <td class="num">{% if row.v1 is None %}&mdash;{% else %}{{ row.v1|floatformat:2 }}{% endif %}</td>
           <td>{% if row.outcome == "pass" %}Met{% elif row.outcome == "fail" %}Not met{% else %}No data{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {% if gate.measures.v1_stories %}
+  <h3>The V1 stories, against V1</h3>
+  <p class="quiet">
+    Alpha on the V1 stories alone, beside what the V1 coders reached on
+    the same stories. These decide nothing.
+  </p>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Stories</th>
+          <th scope="col">Measured over</th>
+          <th scope="col" class="num">Stories</th>
+          <th scope="col" class="num">Now</th>
+          <th scope="col" class="num">95% interval</th>
+          <th scope="col" class="num">V1</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in gate.measures.v1_stories %}
+        <tr>
+          <th scope="row">{{ row.name }}</th>
+          <td class="quiet">{{ row.population }}</td>
+          <td class="num">{{ row.n }}</td>
+          <td class="num">{% if row.value is None %}&mdash;{% else %}{{ row.value|floatformat:2 }}{% endif %}</td>
+          <td class="num">{% if row.low is None %}&mdash;{% else %}{{ row.low|floatformat:2 }}&ndash;{{ row.high|floatformat:2 }}{% endif %}</td>
+          <td class="num">{% if row.v1 is None %}&mdash;{% else %}{{ row.v1|floatformat:2 }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% if gate.measures.new_stories %}
+  <h3>The new stories</h3>
+  <p class="quiet">
+    Alpha on the new stories alone: the ones from the datasets the model
+    will label. These decide nothing.
+  </p>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Stories</th>
+          <th scope="col">Measured over</th>
+          <th scope="col" class="num">Stories</th>
+          <th scope="col" class="num">Now</th>
+          <th scope="col" class="num">95% interval</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in gate.measures.new_stories %}
+        <tr>
+          <th scope="row">{{ row.name }}</th>
+          <td class="quiet">{{ row.population }}</td>
+          <td class="num">{{ row.n }}</td>
+          <td class="num">{% if row.value is None %}&mdash;{% else %}{{ row.value|floatformat:2 }}{% endif %}</td>
+          <td class="num">{% if row.low is None %}&mdash;{% else %}{{ row.low|floatformat:2 }}&ndash;{{ row.high|floatformat:2 }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
   <h3>The same answers as percent agreement</h3>
   <p class="quiet">
     The share of stories on which the first two coders to read it chose

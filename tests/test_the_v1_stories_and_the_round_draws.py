@@ -189,7 +189,7 @@ def test_one_lookup_finds_a_story_wherever_it_lives(v1, crawler_schema):
 def test_the_pilot_takes_every_civic_story_and_some_of_the_rest(v1):
     pilot = open_round("Pilot", Round.COMPARISON)
     cohort, drawn = draw_pilot(pilot, others=2)
-    assert drawn == {"civic": 2, "other": 2}
+    assert drawn == {"civic": 2, "other": 2, "new": 0, "repeat": False}
     samples = {s.article_id: s for s in cohort.samples.all()}
     # Both civic stories, including the one V1 coders never agreed on.
     assert samples["v1:2"].stratum == samples["v1:4"].stratum == "civic"
@@ -202,11 +202,12 @@ def test_the_pilot_takes_every_civic_story_and_some_of_the_rest(v1):
     assert cohort.round == pilot and cohort.target_coders == pilot.base_coders
 
 
-def test_a_story_is_drawn_into_one_pilot_only(v1):
-    first, _ = draw_pilot(open_round("Pilot", Round.COMPARISON), others=10)
-    again, drawn = draw_pilot(open_round("Second", Round.COMPARISON), others=10)
+def test_a_story_is_drawn_into_a_pilot_once(v1):
+    pilot = open_round("Pilot", Round.COMPARISON)
+    first, _ = draw_pilot(pilot, others=10)
+    again, drawn = draw_pilot(pilot, others=10)
     assert first.samples.count() == 5
-    assert again is None and drawn == {"civic": 0, "other": 0}
+    assert again is None and (drawn["civic"], drawn["other"], drawn["new"]) == (0, 0, 0)
 
 
 def test_a_repeated_pilot_gives_each_story_to_coders_who_have_not_read_it(v1):
@@ -232,7 +233,7 @@ def test_a_repeated_pilot_gives_each_story_to_coders_who_have_not_read_it(v1):
     for coder in coders:
         set_standing(coder, revised, CoderStanding.ADMITTED)
     again, drawn = draw_pilot(second, others=10)
-    assert drawn["repeat_of"] == "Pilot"
+    assert drawn["repeat"] is True
 
     def stories(c):
         return sorted(c.samples.values_list("article_id", "stratum"))
@@ -256,17 +257,90 @@ def test_a_repeated_pilot_gives_each_story_to_coders_who_have_not_read_it(v1):
         assert len(after[story]) == 2
         assert before[story] | after[story] == everyone
 
-    # A third pilot has nobody left to read anything.
+    # A third pilot has no V1 story two of them have not read.
     third_version = CodebookSettings.load().freeze("V2.2")
     third = open_round(
         "Pilot three", Round.COMPARISON, codebook_version=third_version, base_coders=2
     )
     for coder in coders:
         set_standing(coder, third_version, CoderStanding.ADMITTED)
-    last, _ = draw_pilot(third, others=10)
+    last, drawn = draw_pilot(third, others=10)
+    assert last is None and (drawn["civic"], drawn["other"]) == (0, 0)
+
+
+def test_a_pilot_holds_new_stories_by_the_models_label(v1, crawler_schema):
+    """New stories come from the datasets the model will label: more for
+    the two civic categories, and some of every other. A pilot that has
+    run out of V1 stories is still drawn."""
+    from explorer.models import Article, CandidateLink, Source
+    from review.classification import pilot_new_plan, training_counts
+
+    plan = pilot_new_plan()
+    assert sum(plan.values()) == 230
+    assert plan["Civic information"] == plan["Civic Life"] == 55
+    assert plan["Sports"] == 15
+
+    source = Source.objects.using("crawler").create(
+        id="s1", host="a.example", canonical_name="A"
+    )
+    for n in range(200):
+        link = CandidateLink.objects.using("crawler").create(
+            id=f"cl-{n}",
+            url=f"https://a.example/{n}",
+            source=source,
+            status="extracted",
+        )
+        Article.objects.using("crawler").create(
+            id=f"a-{n}",
+            candidate_link=link,
+            url=link.url,
+            title="T",
+            status="labeled",
+            text="w",
+            primary_label="Civic Life" if n < 100 else "Sports",
+            primary_label_confidence=0.9,
+        )
+    version = CodebookVersion.v1()
+    coders = [_coder(n) for n in "ab"]
     for coder in coders:
-        Grant.objects.create(user=coder, app=DATADESK, scope=last.slug, role=CLASSIFIER)
-    assert assign_cohort(last) == 0
+        set_standing(coder, version, CoderStanding.ADMITTED)
+    pilot = open_round("Pilot", Round.COMPARISON, base_coders=2)
+    cohort, drawn = draw_pilot(pilot, others=10, new=plan)
+    assert (drawn["civic"], drawn["other"], drawn["new"]) == (2, 3, 70)
+    fresh = cohort.samples.filter(stratum="category")
+    assert fresh.filter(model_label="Civic Life").count() == 55
+    assert fresh.filter(model_label="Sports").count() == 15
+    for coder in coders:
+        Grant.objects.create(
+            user=coder, app=DATADESK, scope=cohort.slug, role=CLASSIFIER
+        )
+    assert assign_cohort(cohort) == 150
+
+    # Both coders have read every V1 story, so a second pilot is new
+    # stories only, and never one the first pilot held. It asks for
+    # about 1,000 in the same proportions (239 and 65) and takes what
+    # there is: the 45 Civic Life stories left, and 65 Sports.
+    second = open_round("Pilot again", Round.COMPARISON, base_coders=2)
+    again, drawn = draw_pilot(second, others=10, new=plan)
+    assert (drawn["civic"], drawn["other"], drawn["new"]) == (0, 0, 110)
+    first_ids = set(cohort.samples.values_list("article_id", flat=True))
+    assert not first_ids & set(again.samples.values_list("article_id", flat=True))
+
+    # A new pilot story two coders agreed on counts toward training.
+    training = open_round(
+        "Training", Round.COLLECTION, base_coders=2, finish_rule={"per_category": 5}
+    )
+    before = training_counts(training)["Sports"]
+    story = fresh.filter(model_label="Sports").first().article_id
+    for coder in coders:
+        ClassificationDecision.objects.create(
+            cohort=cohort,
+            article_id=story,
+            decided_by=coder,
+            primary_label="Sports",
+            codebook_version=version,
+        )
+    assert training_counts(training)["Sports"] == before + 1
 
 
 def test_a_coders_queue_does_not_run_group_by_group(v1):
