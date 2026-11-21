@@ -42,7 +42,7 @@ def _article(crawler_schema, n, *, label="Sports", confidence=0.9, status="label
         id=f"00000000-0000-0000-0000-{n:012d}",
         url=f"https://example.com/{n}",
         title=f"story {n}",
-        text="body " * 50,
+        text="body " * 150,
         status=status,
         wire_check_status="done",
         dataset_id="mizzou",
@@ -153,15 +153,16 @@ def test_only_finished_local_stories_are_drawn(crawler_schema):
     through `cleaned` or `local`, which can be set aside after a coder
     has read it."""
     statuses = ("wire", "obituary", "opinion", "cleaned", "local", "in_review")
+    statuses += ("enrichment_skipped",)
     for n, status in enumerate(statuses):
         _article(crawler_schema, n, confidence=0.95, status=status)
     _, drawn = draw_cohort(8)
     assert sum(drawn.values()) == 0
 
-    for n, status in enumerate(("labeled", "enriched", "enrichment_skipped"), 10):
+    for n, status in enumerate(("labeled", "enriched"), 10):
         _article(crawler_schema, n, confidence=0.95, status=status)
     cohort, drawn = draw_cohort(8)
-    assert sum(drawn.values()) == 3
+    assert sum(drawn.values()) == 2
 
 
 def test_a_story_the_wire_check_flagged_is_not_drawn(crawler_schema):
@@ -182,6 +183,31 @@ def test_a_story_the_wire_check_flagged_is_not_drawn(crawler_schema):
     assert drawn == {empty.id, local.id}
 
 
+def test_a_story_too_short_to_read_is_not_drawn(crawler_schema):
+    """A status says nothing about how much text a story has, and a
+    story that was never enriched was never checked for a paywall or a
+    teaser. V1 coders rejected stories under 100 words as too short."""
+    from review.classification import MIN_WORDS
+
+    assert MIN_WORDS == 100
+    lengths = {1: 0, 2: 39, 3: 99, 4: 100, 5: 400}
+    for n, words in lengths.items():
+        article = _article(crawler_schema, n, confidence=0.95)
+        article.text = "word\n  " * words
+        article.save()
+    cohort, _ = draw_cohort(10)
+    drawn = set(cohort.samples.values_list("article_id", flat=True))
+    assert drawn == {f"00000000-0000-0000-0000-{n:012d}" for n in (4, 5)}
+
+
+def test_a_paywall_stub_is_not_drawn(crawler_schema):
+    """`enrichment_skipped` is where a story goes when enrichment finds
+    a teaser or a login wall where the story should be."""
+    _article(crawler_schema, 1, confidence=0.95, status="enrichment_skipped")
+    _, drawn = draw_cohort(4)
+    assert sum(drawn.values()) == 0
+
+
 def test_missouri_is_drawn_only_where_it_has_been_enriched(crawler_schema):
     """Only the March set of the Missouri dataset is fit to code, and it
     is the part that has been through enrichment. The other datasets are
@@ -195,7 +221,7 @@ def test_missouri_is_drawn_only_where_it_has_been_enriched(crawler_schema):
     cases = (
         ("d-mo", "labeled", False),
         ("d-mo", "enriched", True),
-        ("d-mo", "enrichment_skipped", True),
+        ("d-mo", "enrichment_skipped", False),
         ("d-pa", "labeled", True),
         ("d-pa", "enriched", True),
         ("mizzou", "enriched", False),  # not a dataset a draw uses
