@@ -37,7 +37,7 @@ RANDOM = ClassificationSample.RANDOM
 UNLABELLED = ClassificationSample.UNLABELLED
 
 
-def _article(crawler_schema, n, *, label="Sports", confidence=0.9, status="cleaned"):
+def _article(crawler_schema, n, *, label="Sports", confidence=0.9, status="labeled"):
     return Article.objects.using("crawler").create(
         id=f"00000000-0000-0000-0000-{n:012d}",
         url=f"https://example.com/{n}",
@@ -147,13 +147,39 @@ def test_an_article_is_never_in_two_cohorts(crawler_schema):
     assert not (a & b)
 
 
-def test_only_classifiable_statuses_are_drawn(crawler_schema):
-    """The queue reviews the population the model is actually fed, not a
-    wider one: `analysis.py` classifies `cleaned` and `local` only."""
-    for n in range(8):
-        _article(crawler_schema, n, confidence=0.95, status="wire")
+def test_only_finished_local_stories_are_drawn(crawler_schema):
+    """A coder is given local news stories that will stay that. Not one
+    set aside as wire or anything else, and not one still passing
+    through `cleaned` or `local`, which can be set aside after a coder
+    has read it."""
+    statuses = ("wire", "obituary", "opinion", "cleaned", "local", "in_review")
+    for n, status in enumerate(statuses):
+        _article(crawler_schema, n, confidence=0.95, status=status)
     _, drawn = draw_cohort(8)
     assert sum(drawn.values()) == 0
+
+    for n, status in enumerate(("labeled", "enriched", "enrichment_skipped"), 10):
+        _article(crawler_schema, n, confidence=0.95, status=status)
+    cohort, drawn = draw_cohort(8)
+    assert sum(drawn.values()) == 3
+
+
+def test_a_story_the_wire_check_flagged_is_not_drawn(crawler_schema):
+    """The wire check can find syndication on a story whose status was
+    never moved to `wire`. It is left out by what the check found."""
+    flagged = _article(crawler_schema, 1, confidence=0.95)
+    flagged.wire_check_status = "wire"
+    flagged.save()
+    found = _article(crawler_schema, 2, confidence=0.95)
+    found.wire = ["Associated Press"]
+    found.save()
+    empty = _article(crawler_schema, 3, confidence=0.95)
+    empty.wire = []
+    empty.save()
+    local = _article(crawler_schema, 4, confidence=0.95)
+    cohort, _ = draw_cohort(8)
+    drawn = set(cohort.samples.values_list("article_id", flat=True))
+    assert drawn == {empty.id, local.id}
 
 
 def test_the_cohort_number_increments(crawler_schema):

@@ -1414,15 +1414,17 @@ STRATUM_SHARE = {
 CONFIDENT_AT_OR_ABOVE = 0.7
 UNCERTAIN_BELOW = 0.5
 
-#: What the crawler considers classifiable -- the same statuses
-#: `analysis.py` feeds the model, so the queue reviews the population the
-#: model actually sees rather than a wider one.
+#: The statuses a story can be drawn in: the ones a local story ends
+#: in. `labeled` is a story the model has labelled, `enriched` and
+#: `enrichment_skipped` what becomes of one after that. About 100,000
+#: stories across the three datasets.
 #:
-#: `labeled` and `enriched` are where a story goes once the model has
-#: labelled it: about 100,500 stories, against 321 still in `cleaned`.
-#: A draw limited to the first two statuses saw almost none of the
-#: corpus and none of what the model had already answered.
-CLASSIFIABLE_STATUSES = ("cleaned", "local", "labeled", "enriched")
+#: Not `cleaned` or `local`, which are stages a story passes through: a
+#: story drawn there can still become wire, an obituary or not an
+#: article after a coder has read it. And not the statuses a story is
+#: set aside in (`wire`, `obituary`, `opinion`, `paywall` and the rest),
+#: which are not local news stories to label.
+CLASSIFIABLE_STATUSES = ("labeled", "enriched", "enrichment_skipped")
 
 #: The datasets stories are drawn from. Vermont is left out: student
 #: newspapers, not fully collected or labelled.
@@ -1451,10 +1453,21 @@ def draw_dataset_ids():
 
 
 def _pool():
-    """Every crawler story a draw may take."""
+    """Every crawler story a draw may take: local, and finished.
+
+    A status is not the whole of it. The wire check can find syndication
+    on a story whose status was never moved to `wire` -- about 1,400 of
+    the labelled stories -- so those are left out by what the check
+    found, the test `Article.is_wire` makes.
+    """
     from explorer.models import Article
 
-    rows = Article.objects.using("crawler").filter(status__in=CLASSIFIABLE_STATUSES)
+    rows = (
+        Article.objects.using("crawler")
+        .filter(status__in=CLASSIFIABLE_STATUSES)
+        .exclude(wire_check_status="wire")
+        .extra(where=["(wire IS NULL OR wire::text IN ('null', '[]', '{}'))"])
+    )
     # Where none of the named datasets exists -- another installation, a
     # test corpus -- there is nothing to restrict to.
     ids = list(draw_dataset_ids().values())
