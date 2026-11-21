@@ -253,6 +253,39 @@ def test_an_admin_who_is_given_stories_sees_them(client, db, cohort, story):
         assert ClassificationDecision.objects.filter(decided_by=user).count() == 1
 
 
+def test_a_story_stored_as_one_line_is_shown_in_paragraphs(client, coder, assigned):
+    """Four in ten stories are stored with no line breaks, and came up
+    as one block the width of the page. Leftover markup came up as
+    markup."""
+    from explorer.models import Article
+    from review.classification import readable_text
+
+    text = (
+        "The council met Monday. It voted 5-2 to fund the library. "
+        "Mayor De&rsquo;Carlon Seewood signed it. "
+        'The copy seen by <a href="http://example.com">Example</a> is unsigned. '
+        "“We are pleased,” he said. A second vote is due in March. Then it ends."
+    )
+    Article.objects.using("crawler").filter(id="a-1").update(text=text)
+    client.force_login(coder)
+    body = client.get(URL).content.decode()
+    story = body.split('class="story-body"')[1].split("</div>")[0]
+    # Seven sentences, three to a paragraph.
+    assert story.count("<p>") == 3
+    assert "De’Carlon Seewood" in body and "rsquo" not in body
+    assert "seen by Example is unsigned" in body and "example.com" not in body
+
+    # Nothing is added, dropped or reordered: the same words, in order.
+    plain = "The council met. It voted. The mayor signed. A vote is due. It ends."
+    assert readable_text(plain).split() == plain.split()
+    assert readable_text(plain).count("\n\n") == 1
+    # Text stored with its own breaks keeps them, and only them.
+    assert readable_text("One. Two. Three. Four.\n\nFive.") == (
+        "One. Two. Three. Four.\n\nFive."
+    )
+    assert readable_text("") == "" and readable_text(None) == ""
+
+
 def test_nothing_assigned_says_so(client, coder):
     client.force_login(coder)
     body = client.get(URL).content.decode()

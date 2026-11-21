@@ -2403,7 +2403,7 @@ def _submit_discovery_decisions(request):
 
 
 def _story_text(article):
-    """The whole cleaned body, paragraphs kept.
+    """The whole cleaned body, as paragraphs (`readable_text`).
 
     The whole story, as the V1 coders read it: the pilot compares V2
     answers with V1 answers on the same stories, and an answer given on
@@ -2420,8 +2420,10 @@ def _story_text(article):
     capture is also how 3% of stored articles got a CIN label derived
     from a list of section names.
     """
+    from review.classification import readable_text
+
     value = getattr(article, "text", None)
-    return value.strip() if isinstance(value, str) else ""
+    return readable_text(value) if isinstance(value, str) else ""
 
 
 @requires(CLASSIFY)

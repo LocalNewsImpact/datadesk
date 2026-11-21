@@ -3137,3 +3137,26 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
 .layer-group { margin-top: var(--s-2); }
 .layer-row.disabled { opacity: 0.5; }
 .layer-row select { margin-left: auto; font-size: var(--fs-xs); }
+
+/* The story a coder reads. A reading column, not the width of the
+   console: about 70 characters a line, and space between paragraphs. */
+.classification .story { max-width: 42rem; }
+.classification .story-headline {
+  margin: var(--s-4) 0 var(--s-3);
+  font-size: 1.5rem;
+  line-height: 1.25;
+  font-weight: 600;
+}
+.classification .story-body {
+  max-width: 68ch;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: var(--s-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  font-size: 1.0625rem;
+  line-height: 1.65;
+}
+.classification .story-body p { margin: 0 0 1em; }
+.classification .story-body p:last-child { margin-bottom: 0; }
+.classification .classify-form { max-width: 42rem; margin-top: var(--s-4); }
