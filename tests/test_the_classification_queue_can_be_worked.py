@@ -225,6 +225,34 @@ def test_a_coder_cannot_answer_somebody_elses_assignment(
     assert theirs.completed_at is None
 
 
+def test_an_admin_who_is_given_stories_sees_them(client, db, cohort, story):
+    """An admin's scopes are "everything", not a list of batches. The
+    queue read that as a list, matched no batch, and showed an admin who
+    had been added to a round an empty page."""
+    for name, flags in (("root", {"is_superuser": True}), ("lead", {})):
+        user = User.objects.create_user(name, email=f"{name}@x.org", **flags)
+        if not flags:
+            # An application-wide grant: every scope, as a superuser has.
+            from accounts.privileges import ADMIN
+
+            Grant.objects.create(user=user, app=DATADESK, scope="", role=ADMIN)
+        ClassificationAssignment.objects.create(
+            cohort=cohort, article_id="a-1", assigned_to=user
+        )
+        client.force_login(user)
+        body = client.get(URL).content.decode()
+        assert "Council votes on the new library" in body, name
+        response = client.post(
+            URL,
+            {
+                "assignment": ClassificationAssignment.objects.get(assigned_to=user).pk,
+                "primary": "Political life",
+            },
+        )
+        assert response.status_code in (200, 302), name
+        assert ClassificationDecision.objects.filter(decided_by=user).count() == 1
+
+
 def test_nothing_assigned_says_so(client, coder):
     client.force_login(coder)
     body = client.get(URL).content.decode()
