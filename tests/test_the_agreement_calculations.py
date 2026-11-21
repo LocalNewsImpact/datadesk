@@ -277,3 +277,49 @@ def test_the_v1_baseline_from_the_real_files():
         "all 1,000": rate(None),
     }
     assert got == EXPECTED_V1
+
+
+def _answers(*pairs):
+    return [
+        {"coder": i, "label": primary, "secondary": secondary}
+        for i, (primary, secondary) in enumerate(pairs)
+    ]
+
+
+def test_weighted_alpha_gives_part_credit_for_a_crossover():
+    """Two coders who each chose the other's category as their secondary
+    are scored by the strict figure like two who saw nothing in common.
+    The label rule keeps that story at 0.7 against 0.9."""
+    assert pytest.approx(1 - 0.7 / 0.9) == m.CROSSOVER_DISTANCE
+    agreed = {i: _answers(("Sports", ""), ("Sports", "")) for i in range(10)}
+    agreed |= {i: _answers(("Health", ""), ("Health", "")) for i in range(10, 20)}
+    crossed = {
+        i: _answers(("Health", "Education"), ("Education", "Health"))
+        for i in range(20, 24)
+    }
+    apart = {i: _answers(("Health", ""), ("Education", "")) for i in range(20, 24)}
+
+    # No secondaries anywhere: the two figures are the same number.
+    plain = agreed | apart
+    assert m.weighted_alpha(plain) == pytest.approx(m.krippendorff_alpha(plain))
+    # The strict figure cannot tell the crossed stories from the split ones.
+    mixed = agreed | crossed
+    assert m.krippendorff_alpha(mixed) == pytest.approx(m.krippendorff_alpha(plain))
+    # The weighted one can.
+    assert m.krippendorff_alpha(mixed) < m.weighted_alpha(mixed) < 1.0
+    # A secondary on only one side still counts.
+    one_sided = agreed | {
+        i: _answers(("Health", "Education"), ("Education", "")) for i in range(20, 24)
+    }
+    assert m.weighted_alpha(one_sided) > m.krippendorff_alpha(one_sided)
+    # Per category, and with an interval.
+    assert m.weighted_alpha(mixed, "Health") > m.krippendorff_alpha(mixed, "Health")
+    got = m.alpha_with_interval(mixed, measure=m.weighted_alpha)
+    assert got["rate"] == pytest.approx(m.weighted_alpha(mixed))
+    assert got["low"] <= got["rate"] <= got["high"]
+    # A rejection is nobody's second choice.
+    rejected = {
+        0: _answers(("", ""), ("Sports", "")),
+        1: _answers(("Sports", ""), ("Sports", "")),
+    }
+    assert m.weighted_alpha(rejected) == pytest.approx(m.krippendorff_alpha(rejected))

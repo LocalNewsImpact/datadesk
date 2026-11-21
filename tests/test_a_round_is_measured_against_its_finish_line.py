@@ -162,6 +162,48 @@ def test_new_stories_count_toward_the_pass_and_are_reported_apart(coders):
     assert _readings(result)["All V1 stories"]["value"] == 1.0
 
 
+def test_a_failed_pilot_says_when_the_weighted_figure_is_still_reliable(client, coders):
+    """The pilot passes on the primary category alone. Where it fails
+    there and coders chose each other's category as their secondary, the
+    weighted figure says so, and the outcome stays a fail."""
+    pilot, cohort = _pilot(civic=10, other=10)
+    for i in range(10):
+        for coder, (primary, secondary) in zip(
+            coders,
+            (
+                ("Civic Life", "Civic information"),
+                ("Civic information", "Civic Life") if i < 3 else ("Civic Life", ""),
+            ),
+            strict=False,
+        ):
+            ClassificationDecision.objects.create(
+                cohort=cohort,
+                article_id=f"v1:{i}",
+                decided_by=coder,
+                primary_label=primary,
+                secondary_label=secondary,
+                codebook_version=cohort.codebook_version,
+            )
+    for i in range(10, 20):
+        _code(cohort, f"v1:{i}", coders, ("Sports", "Sports"))
+    result = gate(pilot)
+    assert result["outcome"] == GateResult.FAIL
+    strict = _by_name(result)
+    weighted = {r["name"]: r for r in result["measures"]["weighted"]}
+    assert list(weighted) == list(strict)
+    for name in strict:
+        assert weighted[name]["value"] > strict[name]["value"]
+        assert "outcome" not in weighted[name]
+    assert strict["All stories"]["value"] < 0.80 <= weighted["All stories"]["value"]
+    assert result["measures"]["crossover_credit"] == pytest.approx(0.7 / 0.9)
+
+    admin = User.objects.create_user("admin", password="x")
+    Grant.objects.create(user=admin, app=DATADESK, role=ADMIN, scope="")
+    client.force_login(admin)
+    body = client.get(reverse("review:cin_round", args=[pilot.pk])).content.decode()
+    assert "With part credit for a second choice" in body and "78%" in body
+
+
 def test_percent_agreement_is_shown_and_decides_nothing(coders):
     pilot, cohort = _pilot(civic=10, other=10)
     for i in range(10):

@@ -2435,6 +2435,31 @@ def _pilot_conditions(for_round, stories):
             )
         )
 
+    # Alpha with part credit where one coder's category is the other's
+    # secondary: the agreement the label rule builds training labels on.
+    # It decides nothing. Where the strict figure misses and this one
+    # does not, coders saw the same needs in a story and ranked them
+    # differently, and whether to keep the definitions is the lead's
+    # decision, to be reported as one.
+    weighted = [
+        _reading(
+            "All stories",
+            "every story in the round, every coder",
+            cin_metrics.alpha_with_interval(
+                stories, measure=cin_metrics.weighted_alpha
+            ),
+        )
+    ] + [
+        _reading(
+            version.shown(label),
+            "the category against every other answer, every coder",
+            cin_metrics.alpha_with_interval(
+                stories, label, measure=cin_metrics.weighted_alpha
+            ),
+        )
+        for label in GATE_CATEGORIES
+    ]
+
     # The same figures on the V1 stories alone, against what V1 coders
     # did on them, and on the new stories alone. A pilot passes on all
     # of its stories; these say where the figure came from.
@@ -2445,7 +2470,16 @@ def _pilot_conditions(for_round, stories):
     }
     old = {k: v for k, v in stories.items() if k in v1_ids}
     fresh = {k: v for k, v in stories.items() if k not in v1_ids}
-    parts = {"v1_stories": [], "new_stories": []}
+    parts = {
+        "v1_stories": [],
+        "new_stories": [],
+        "weighted": weighted,
+        "weighted_reliable": all(
+            row["value"] is not None and row["value"] >= RELIABILITY_TARGET
+            for row in weighted
+        ),
+        "crossover_credit": cin_metrics.CROSSOVER / cin_metrics.FULL_MATCH,
+    }
     if v1_ids:
         size = f"{len(v1_ids)} V1 stories"
         parts["v1_stories"] = [

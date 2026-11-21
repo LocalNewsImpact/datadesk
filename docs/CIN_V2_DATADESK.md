@@ -403,6 +403,12 @@ All admin only.
    stories and for Civic Information and Community Life each. Percent
    agreement between the first two coders is reported beside it.
    Reaching it is the point of the retraining.
+   The conditions read the primary category only. Alpha with part
+   credit for a crossover (one coder's primary is the other's secondary,
+   counted as 0.7 / 0.9 = 78% of a match, as the label rule values it)
+   is reported beside them and decides nothing. Where the conditions
+   are missed and that figure is at or above 0.80 on all three, keeping
+   the definitions is the lead's decision and is reported as one.
 9. **Pause rule** for check stories: binomial, 1 in 100, 40 stories
    (WP6).
 10. **Stories come from** the Missouri, Washington and Pennsylvania
