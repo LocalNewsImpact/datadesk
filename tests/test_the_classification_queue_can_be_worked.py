@@ -314,3 +314,17 @@ def test_the_labels_come_from_the_contract():
     # The model's order is a different tuple and is not what a coder
     # reads: a dropdown is a list for a person, not a class-id map.
     assert CIN_LABELS != cin_labels.LABELS
+
+
+def test_the_form_sits_beside_the_story(client, coder, assigned):
+    """The instructions, the count and the form are in a column beside
+    the story, after it in the page, rather than below a scrolling
+    block."""
+    client.force_login(coder)
+    body = client.get(URL).content.decode()
+    layout = body.split('class="classify-layout"')[1]
+    story, panel = layout.split('class="classify-panel"')
+    assert 'class="story-body"' in story
+    assert "say which information need it" in panel
+    assert "left in this batch" in panel
+    assert 'name="primary"' in panel and "Save and next" in panel

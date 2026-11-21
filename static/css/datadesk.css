@@ -3149,7 +3149,7 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
 }
 .classification .story-body {
   max-width: 68ch;
-  max-height: 70vh;
+  max-height: calc(70vh - 20px);
   overflow-y: auto;
   padding: var(--s-4);
   border: 1px solid var(--border);
@@ -3160,3 +3160,36 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
 .classification .story-body p { margin: 0 0 1em; }
 .classification .story-body p:last-child { margin-bottom: 0; }
 .classification .classify-form { max-width: 42rem; margin-top: var(--s-4); }
+
+/* Story left; instructions, progress and the form right, level with the
+   headline and kept in view while the page scrolls. One column below
+   64rem, story first. */
+.classification .classify-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 42rem) minmax(16rem, 22rem);
+  gap: var(--s-6);
+  align-items: start;
+}
+.classification .classify-panel {
+  position: sticky;
+  top: var(--s-4);
+  margin-top: var(--s-4);
+}
+.classification .classify-panel .lede { margin-top: 0; }
+.classification .classify-panel .classify-form { margin-top: var(--s-4); }
+.classification .classify-panel .classify-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.classification .classify-panel .classify-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.classification .classify-panel select { width: 100%; }
+.classification .classify-panel button[type="submit"] { margin-top: var(--s-4); }
+@media (max-width: 64rem) {
+  .classification .classify-layout { grid-template-columns: minmax(0, 1fr); }
+  .classification .classify-panel { position: static; }
+}
