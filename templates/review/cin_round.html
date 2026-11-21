@@ -440,6 +440,7 @@
   {% else %}
   <p class="quiet">No batches yet.</p>
   {% endif %}
+  {% if not cohorts or round.kind == "collection" %}
   <form method="post" class="inline-form tight">
     {% csrf_token %}
     <input type="hidden" name="action" value="batch">
@@ -450,6 +451,7 @@
     <input type="text" id="note" name="note" maxlength="200">
     <button type="submit">Open a batch</button>
   </form>
+  {% endif %}
   <form method="post" class="inline">
     {% csrf_token %}
     <input type="hidden" name="action" value="assign">

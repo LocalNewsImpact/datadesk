@@ -434,3 +434,22 @@ def test_a_coder_can_be_added_before_the_round_has_any_stories(client, db):
     other = User.objects.create_user("b", email="b@localnewsimpact.org")
     assert add_coder_to_round(practice, other.email) == "added"
     assert set(coders_for(cohort)) == {admin, other}
+
+
+def test_a_practice_round_takes_one_batch(client, db, crawler_schema):
+    """Opening a batch is slow, and pressing the button again drew a
+    second list of practice stories."""
+    from review.classification import ClassificationCohort
+
+    admin = User.objects.create_user("admin", email="admin@localnewsimpact.org")
+    Grant.objects.create(user=admin, app=DATADESK, role=ADMIN, scope="")
+    client.force_login(admin)
+    practice = open_round("Practice", Round.PRACTICE)
+    url = reverse("review:cin_round", args=[practice.pk])
+    assert client.post(url, {"action": "batch", "size": 20}).status_code == 200
+    assert ClassificationCohort.objects.filter(round=practice).count() == 1
+    body = client.post(url, {"action": "batch", "size": 20}).content.decode()
+    assert "This round already has its stories." in body
+    assert ClassificationCohort.objects.filter(round=practice).count() == 1
+    # And the button is gone.
+    assert "Open a batch</button>" not in client.get(url).content.decode()
