@@ -2162,17 +2162,20 @@ def draw_training_batch(for_round, size=300):
 
 # ------------------------------------------------------------------- gates
 
-#: The reliability the pilot has to show, and what that means in the
-#: terms coders are scored in. Chance agreement across the ten categories
-#: is about 0.15, from the V1 coding (64.5% raw agreement at kappa 0.583),
-#: so an alpha of 0.80 needs the first two coders to match on 83% of
-#: stories; and at 83% overall the average category sits at 71%.
+#: The reliability the pilot has to show: Krippendorff's alpha of 0.80,
+#: the usual standard in content analysis, over every coder on a story,
+#: for all stories and for each of the two civic categories against the
+#: rest. Chance agreement across the ten categories is about 0.15, from
+#: the V1 coding (64.5% raw agreement at kappa 0.583), so 0.80 is about
+#: 83% first-pair agreement. That figure is the plain reading shown
+#: beside alpha, and the floor a training round is watched against,
+#: where a third coder exists only on a split and alpha over every coder
+#: would measure the rule that added them.
 RELIABILITY_TARGET = 0.80
 CHANCE_AGREEMENT = 0.15
 GATE_FIRST_PAIR = round(
     cin_metrics.raw_agreement_for_alpha(RELIABILITY_TARGET, CHANCE_AGREEMENT), 2
 )
-GATE_PER_CATEGORY = round(cin_metrics.per_category_floor(GATE_FIRST_PAIR), 2)
 #: The two categories the V2 definitions were written to separate.
 GATE_CATEGORIES = ("Civic information", "Civic Life")
 
@@ -2196,6 +2199,19 @@ def _condition(name, population, measured, threshold, before=None):
     }
 
 
+def _reading(name, population, measured, before=None):
+    """A figure shown beside the conditions. It passes or fails nothing."""
+    return {
+        "name": name,
+        "population": population,
+        "value": measured.get("rate"),
+        "low": measured.get("low"),
+        "high": measured.get("high"),
+        "n": measured.get("n", 0),
+        "v1": before,
+    }
+
+
 def round_answers(for_round):
     """story id -> counted answers in a round, in the order given."""
     return answers_by_story(
@@ -2204,13 +2220,22 @@ def round_answers(for_round):
 
 
 def _pilot_conditions(for_round, stories):
-    """The four numbers a pilot has to reach.
+    """What a pilot has to reach, and the figures shown beside it.
 
-    Each is first-pair agreement: the share of stories on which the
-    first two coders to read it chose the same category. Each is a fixed
-    threshold on the observed rate, with its interval reported beside
-    it. A pilot drawn from the V1 stories is scored in its two groups,
-    and each is shown against what V1 coders did on the same stories.
+    The conditions are Krippendorff's alpha, at `RELIABILITY_TARGET`:
+    over every story, and for each of the two civic categories against
+    every other answer. Alpha is over every coder on a story, and is
+    computed on the pilot as drawn. The pilot holds every civic story and
+    only some of the others, so it is harder than the V1 stories as a
+    whole, and the figure errs low.
+
+    The readings are first-pair agreement, the share of stories on which
+    the first two coders chose the same category: by group, by civic
+    category, and over all stories with the civic ones counted at their
+    share of the V1 stories kept. They decide nothing. Every figure is
+    shown against what V1 coders did on the same stories.
+
+    Returns (conditions, readings, groups).
     """
     version = for_round.codebook_version
     strata = dict(
@@ -2229,40 +2254,60 @@ def _pilot_conditions(for_round, stories):
                 len(ids),
             )
 
-    def v1_rate(subset, label=None):
-        rate = cin_metrics.first_pair_agreement(subset, label)["rate"]
-        return rate if subset else None
+    def v1_alpha(label=None):
+        return cin_metrics.krippendorff_alpha(before, label) if before else None
 
-    conditions = []
-    if ClassificationSample.CIVIC in groups:
-        now, then, size = groups[ClassificationSample.CIVIC]
-        conditions.append(
-            _condition(
-                "The civic stories",
-                f"{size} V1 stories a V1 coder put in either civic category",
-                cin_metrics.first_pair_agreement(now),
-                GATE_FIRST_PAIR,
-                v1_rate(then),
-            )
+    conditions = [
+        _condition(
+            "All stories",
+            "every story in the round, every coder",
+            cin_metrics.alpha_with_interval(stories),
+            RELIABILITY_TARGET,
+            v1_alpha(),
         )
+    ]
     for label in GATE_CATEGORIES:
         conditions.append(
             _condition(
                 version.shown(label),
+                "the category against every other answer, every coder",
+                cin_metrics.alpha_with_interval(stories, label),
+                RELIABILITY_TARGET,
+                v1_alpha(label),
+            )
+        )
+
+    def v1_rate(subset, label=None):
+        rate = cin_metrics.first_pair_agreement(subset, label)["rate"]
+        return rate if subset else None
+
+    readings = []
+    if ClassificationSample.CIVIC in groups:
+        now, then, size = groups[ClassificationSample.CIVIC]
+        readings.append(
+            _reading(
+                "The civic stories",
+                f"{size} V1 stories a V1 coder put in either civic category",
+                cin_metrics.first_pair_agreement(now),
+                v1_rate(then),
+            )
+        )
+    for label in GATE_CATEGORIES:
+        readings.append(
+            _reading(
+                version.shown(label),
                 "stories either of the first two coders put in it",
                 cin_metrics.first_pair_agreement(stories, label),
-                GATE_PER_CATEGORY,
                 v1_rate(before, label),
             )
         )
     if ClassificationSample.OTHER in groups:
         now, then, size = groups[ClassificationSample.OTHER]
-        conditions.append(
-            _condition(
+        readings.append(
+            _reading(
                 "The other stories",
                 f"{size} other V1 stories",
                 cin_metrics.first_pair_agreement(now),
-                GATE_FIRST_PAIR,
                 v1_rate(then),
             )
         )
@@ -2286,10 +2331,8 @@ def _pilot_conditions(for_round, stories):
         overall = cin_metrics.first_pair_agreement(stories)
         then = v1_rate(before)
         population = "every story in the round"
-    conditions.append(
-        _condition("All stories", population, overall, GATE_FIRST_PAIR, then)
-    )
-    return conditions, groups
+    readings.append(_reading("All stories", population, overall, then))
+    return conditions, readings, groups
 
 
 def gate(for_round, *, by=None, record=False):
@@ -2321,14 +2364,14 @@ def gate(for_round, *, by=None, record=False):
             },
         ]
     elif for_round.kind == Round.COMPARISON:
-        conditions, groups = _pilot_conditions(for_round, stories)
+        conditions, readings, groups = _pilot_conditions(for_round, stories)
         labelled = sum(
             1 for answers in stories.values() if cin_metrics.settled_label(answers)[1]
         )
         coded = sum(1 for answers in stories.values() if len(answers) >= 2)
         measures = {
-            "alpha": cin_metrics.krippendorff_alpha(stories),
-            "alpha_target": RELIABILITY_TARGET,
+            "first_pair": readings,
+            "first_pair_reading": GATE_FIRST_PAIR,
             "labelled_share": labelled / coded if coded else None,
             "left_out": cin_metrics.left_out(stories),
         }

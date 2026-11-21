@@ -208,10 +208,27 @@ def test_the_pause_rule_for_check_stories():
     assert m.pause_threshold(20, 0.10) == 7
 
 
-def test_the_gate_thresholds_follow_from_the_reliability_target():
-    overall = m.raw_agreement_for_alpha(0.80, 0.15)
-    assert overall == pytest.approx(0.83)
-    assert m.per_category_floor(overall) == pytest.approx(0.709, abs=1e-3)
+def test_alpha_080_reads_as_83_percent_agreement():
+    assert m.raw_agreement_for_alpha(0.80, 0.15) == pytest.approx(0.83)
+
+
+def test_alpha_comes_with_an_interval_over_stories():
+    def story(*labels):
+        return [{"coder": i, "label": x, "secondary": ""} for i, x in enumerate(labels)]
+
+    stories = {i: story("Sports", "Sports", "Sports") for i in range(20)}
+    stories |= {i: story("Health", "Health", "Health") for i in range(20, 36)}
+    stories |= {i: story("Health", "Sports", "Health") for i in range(36, 40)}
+    stories[40] = story("", "", "")  # every coder rejected it: left out
+    stories[41] = story("Sports")  # one answer: left out
+    got = m.alpha_with_interval(stories)
+    assert got["n"] == 40
+    assert got["rate"] == pytest.approx(m.krippendorff_alpha(stories))
+    assert got["low"] < got["rate"] < got["high"] <= 1.0
+    # The same answers, the same interval.
+    assert m.alpha_with_interval(stories) == got
+    # Nothing to compare: no figure, and no interval.
+    assert m.alpha_with_interval({0: story("Sports", "Sports")})["rate"] is None
 
 
 # ------------------------------------------------- the real V1 coding
