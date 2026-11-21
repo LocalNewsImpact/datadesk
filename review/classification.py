@@ -2399,9 +2399,10 @@ def draw_training_batch(for_round, size=300):
 #: rest. Chance agreement across the ten categories is about 0.15, from
 #: the V1 coding (64.5% raw agreement at kappa 0.583), so 0.80 is about
 #: 83% first-pair agreement. That figure is the plain reading shown
-#: beside alpha, and the floor a training round is watched against,
-#: where a third coder exists only on a split and alpha over every coder
-#: would measure the rule that added them.
+#: beside alpha. A training round is watched against the same alpha,
+#: read from the first two coders on each story: a third exists there
+#: only on a split, and alpha over every coder would measure the rule
+#: that added them.
 RELIABILITY_TARGET = 0.80
 CHANCE_AGREEMENT = 0.15
 GATE_FIRST_PAIR = round(
@@ -2708,6 +2709,13 @@ def gate(for_round, *, by=None, record=False):
         measures = {
             "first_pair": cin_metrics.first_pair_agreement(stories),
             "first_pair_floor": GATE_FIRST_PAIR,
+            # The same measure the pilot passes on, read from the first
+            # two coders: a third exists here only on a split, and alpha
+            # over every coder would measure the rule that added them.
+            "alpha": cin_metrics.alpha_with_interval(
+                {story: answers[:2] for story, answers in stories.items()}
+            ),
+            "alpha_target": RELIABILITY_TARGET,
             "left_out": cin_metrics.left_out(stories),
         }
 

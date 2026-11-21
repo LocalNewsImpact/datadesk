@@ -261,11 +261,14 @@
   </ul>
   {% else %}
   <p>
-    First two coders choosing the same category, this round:
+    Krippendorff's alpha, first two coders on each story, this round:
+    {% if gate.measures.alpha.rate is None %}&mdash;{% else %}{{ gate.measures.alpha.rate|floatformat:2 }}{% if gate.measures.alpha.low is not None %} (95% interval {{ gate.measures.alpha.low|floatformat:2 }}&ndash;{{ gate.measures.alpha.high|floatformat:2 }}){% endif %}{% endif %}
+    over {{ gate.measures.alpha.n }} stories. Below
+    {{ gate.measures.alpha_target|floatformat:2 }}: pause and hold
+    another practice. As a percentage, the first two coders chose the
+    same category on
     {% if gate.measures.first_pair.rate is None %}&mdash;{% else %}{% widthratio gate.measures.first_pair.rate 1 100 %}%{% endif %}
-    of {{ gate.measures.first_pair.n }} stories. Below
-    {% widthratio gate.measures.first_pair_floor 1 100 %}%: pause and hold
-    another practice.
+    of {{ gate.measures.first_pair.n }} stories.
   </p>
   {% endif %}
   {% if gate.measures.left_out %}
