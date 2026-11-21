@@ -2452,9 +2452,15 @@ def classification_queue(request):
     # their first sign-in and no stories. They get them here, not when
     # an admin remembers to press a button.
     give_a_coder_their_stories(request.user)
-    cohorts = ClassificationCohort.objects.filter(
-        slug__in=scopes_for(request.user, CLASSIFY) or []
-    )
+    # An admin's answer is "everything", which is not a list of slugs.
+    # Read as one it matched no cohort, and an admin who had been given
+    # stories opened the queue to an empty page.
+    from accounts.access import ALL_SCOPES
+
+    scopes = scopes_for(request.user, CLASSIFY)
+    cohorts = ClassificationCohort.objects.all()
+    if scopes is not ALL_SCOPES:
+        cohorts = cohorts.filter(slug__in=scopes or [])
     outstanding = (
         ClassificationAssignment.objects.filter(
             assigned_to=request.user, completed_at__isnull=True, cohort__in=cohorts
