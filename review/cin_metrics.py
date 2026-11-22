@@ -322,19 +322,31 @@ def weighted_alpha(stories, label=None):
     return 1 - observed / expected
 
 
-def cohen_kappa(pairs):
-    """M5. Kappa for two raters over [(first, second)] labels."""
+def kappa_parts(pairs):
+    """Observed agreement, expected (chance) agreement and Cohen's kappa
+    over [(first, second)] labels.
+
+    Expected is the agreement two raters would reach choosing at random
+    with the frequencies each actually used. Kappa is None where it is
+    undefined: no pairs, or both raters always giving the one answer.
+    """
     pairs = list(pairs)
     n = len(pairs)
     if not n:
-        return None
+        return {"n": 0, "observed": None, "expected": None, "kappa": None}
     observed = sum(a == b for a, b in pairs) / n
     left, right = {}, {}
     for a, b in pairs:
         left[a] = left.get(a, 0) + 1
         right[b] = right.get(b, 0) + 1
-    chance = sum(left[k] * right.get(k, 0) for k in left) / (n * n)
-    return None if chance == 1 else (observed - chance) / (1 - chance)
+    expected = sum(left[k] * right.get(k, 0) for k in left) / (n * n)
+    kappa = None if expected == 1 else (observed - expected) / (1 - expected)
+    return {"n": n, "observed": observed, "expected": expected, "kappa": kappa}
+
+
+def cohen_kappa(pairs):
+    """M5. Kappa for two raters over [(first, second)] labels."""
+    return kappa_parts(pairs)["kappa"]
 
 
 def settled_label(answers):
