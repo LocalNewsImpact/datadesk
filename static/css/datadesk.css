@@ -3326,3 +3326,94 @@ td.outlier { background: color-mix(in srgb, var(--tone-bad) 8%, transparent); }
   .cin-form details.defaults .field { grid-template-columns: 1fr; }
   .cin-form .form-actions { padding-left: 0; }
 }
+
+/* ===========================================================================
+   CIN codebook: the draft, the ten categories and the versions
+   =========================================================================== */
+
+.cin-codebook h2 { margin-top: var(--s-6); }
+.cin-codebook h3 { margin-top: var(--s-5); }
+.codebook-field { max-width: 52rem; margin-top: var(--s-3); }
+.codebook-field > label {
+  display: block;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-2);
+}
+.codebook-field .field-note,
+.cin-codebook .field-note {
+  margin: 2px 0 var(--s-2);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.codebook-field textarea {
+  display: block;
+  width: 100%;
+  padding: var(--s-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+/* Inputs fill their cells; the description gets the width it needs to be
+   read and edited whole. */
+.cin-codebook table.guide { table-layout: fixed; min-width: 60rem; }
+.cin-codebook table.guide col.col-stored { width: 12rem; }
+.cin-codebook table.guide col.col-shown { width: 15.5rem; }
+.cin-codebook table.guide col.col-could { width: 18rem; }
+.cin-codebook table.guide tbody th[scope="row"] {
+  padding-top: 0.6rem;
+  font-weight: 600;
+  white-space: normal;
+}
+.cin-codebook table.guide tbody tr:hover { background: none; }
+.cin-codebook table.guide tbody tr:last-child th { border-bottom: none; }
+.cin-codebook table.guide td { padding-top: var(--s-2); padding-bottom: var(--s-2); }
+.cin-codebook table.guide input,
+.cin-codebook table.guide textarea {
+  display: block;
+  width: 100%;
+  padding: 0.35rem var(--s-2);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  resize: vertical;
+}
+.cin-codebook table.guide textarea { field-sizing: content; min-height: 2.2rem; }
+.cin-codebook .th-note {
+  display: block;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* One rejection per line, two columns, the box beside its own text. */
+.rejection-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  gap: var(--s-2) var(--s-5);
+  max-width: 52rem;
+  margin-top: var(--s-2);
+}
+.rejection-list label.check {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-sm);
+}
+.rejection-list label.check input { flex: none; margin: 0; }
+
+.cin-codebook .actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-top: var(--s-4);
+}
+.cin-codebook .actions .quiet { font-size: var(--fs-xs); }
+.cin-codebook .actions.freeze label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-2);
+}
+.cin-codebook .actions.freeze input { width: 9rem; padding: 0.35rem var(--s-2); }
+.cin-codebook table.versions { width: auto; min-width: 28rem; }
+.cin-codebook table.versions tbody tr:last-child th { border-bottom: none; }
+.cin-codebook table.grid .count { text-align: right; }
