@@ -257,3 +257,26 @@ def test_an_admin_reaches_all_three(client):
     client.force_login(admin)
     for name in ("cin_reporting", "cin_coders", "cin_codebook"):
         assert client.get(reverse(f"review:{name}")).status_code == 200, name
+
+
+def test_only_the_page_you_are_on_is_marked_in_the_nav(client):
+    """Reporting is /review/cin/ and Rounds /review/cin/rounds/. A prefix
+    match marked both as current on the Rounds page."""
+    import re
+
+    admin = _user("boss", ADMIN)
+    client.force_login(admin)
+    body = client.get(reverse("review:cin_rounds")).content.decode()
+    active = re.findall(r'class="nav-item active" href="([^"]+)"', body)
+    assert active == [reverse("review:cin_rounds")]
+    body = client.get(reverse("review:cin_reporting")).content.decode()
+    active = re.findall(r'class="nav-item active" href="([^"]+)"', body)
+    assert active == [reverse("review:cin_reporting")]
+
+
+def test_the_start_a_round_form_is_laid_out_as_fields(client):
+    admin = _user("boss", ADMIN)
+    client.force_login(admin)
+    body = client.get(reverse("review:cin_rounds")).content.decode()
+    assert '<form method="post" class="cin-form">' in body
+    assert 'class="inline-form"' not in body

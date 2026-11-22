@@ -3245,3 +3245,84 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
 /* An outlier coder figure on the CIN reporting page. */
 .outlier, td.outlier { color: var(--tone-bad); font-weight: 600; }
 td.outlier { background: color-mix(in srgb, var(--tone-bad) 8%, transparent); }
+
+/* ===========================================================================
+   CIN rounds: the rounds table and the "Start a round" form
+   =========================================================================== */
+
+.cin-rounds h2 { margin-top: var(--s-6); }
+.cin-rounds table.grid th[scope="row"] { font-weight: 600; }
+.cin-rounds table.grid tbody tr:last-child th { border-bottom: none; }
+.cin-rounds table.grid .count { text-align: right; }
+
+/* Label in a fixed column, the control beside it, and its note under the
+   control rather than trailing after it on the same line. */
+.cin-form { max-width: 46rem; margin-top: var(--s-4); }
+.cin-form .field {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr);
+  column-gap: var(--s-4);
+  row-gap: var(--s-1);
+  align-items: start;
+  margin: 0 0 var(--s-4);
+}
+.cin-form .field > label {
+  grid-column: 1;
+  padding-top: 0.4rem;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-2);
+}
+.cin-form .field > input,
+.cin-form .field > select,
+.cin-form .field > textarea {
+  grid-column: 2;
+  width: 100%;
+  max-width: 32rem;
+  padding: 0.35rem var(--s-2);
+  font-size: var(--fs-md);
+}
+.cin-form .field > input[type="number"] { max-width: 8rem; }
+.cin-form .field-note {
+  grid-column: 2;
+  max-width: 32rem;
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text-3);
+}
+.cin-form ul.kinds { padding: 0; list-style: none; }
+.cin-form ul.kinds li + li { margin-top: 2px; }
+.cin-form ul.kinds strong { color: var(--text-2); margin-right: var(--s-1); }
+
+/* The optional settings, closed by default and set off from the three
+   fields every round needs. */
+.cin-form details.defaults {
+  margin: 0 0 var(--s-4);
+  padding: var(--s-3) var(--s-4) var(--s-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md, 6px);
+  background: var(--surface-2);
+}
+.cin-form details.defaults:not([open]) { padding-bottom: var(--s-3); }
+.cin-form details.defaults > summary {
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-2);
+}
+.cin-form details.defaults[open] > summary { margin-bottom: var(--s-4); }
+.cin-form details.defaults .field { grid-template-columns: calc(11rem - var(--s-4) - 1px) minmax(0, 1fr); }
+.cin-form .form-actions { padding-left: calc(11rem + var(--s-4)); }
+
+@media (max-width: 40rem) {
+  .cin-form .field { grid-template-columns: 1fr; }
+  .cin-form .field > label { padding-top: 0; }
+  .cin-form .field > label,
+  .cin-form .field > input,
+  .cin-form .field > select,
+  .cin-form .field > textarea,
+  .cin-form .field-note { grid-column: 1; max-width: none; }
+  .cin-form details.defaults .field { grid-template-columns: 1fr; }
+  .cin-form .form-actions { padding-left: 0; }
+}

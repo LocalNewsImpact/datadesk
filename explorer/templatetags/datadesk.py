@@ -28,9 +28,32 @@ def nav_active(context, url_name):
         target = reverse(url_name)
     except NoReverseMatch:
         return ""
-    if request.path == target or (target != "/" and request.path.startswith(target)):
+    if request.path == target:
         return "active"
-    return ""
+    if target == "/" or not request.path.startswith(target):
+        return ""
+    # A prefix match yields to a longer one: CIN Reporting is /review/cin/
+    # and Rounds is /review/cin/rounds/, and only Rounds is where you are.
+    if any(
+        len(other) > len(target) and request.path.startswith(other)
+        for other in _section_targets()
+    ):
+        return ""
+    return "active"
+
+
+def _section_targets():
+    """Every internal sidebar section's path."""
+    from accounts.sections import SECTION_GROUPS
+
+    targets = []
+    for group in SECTION_GROUPS:
+        for section in group.get("sections", ()):
+            try:
+                targets.append(reverse(section["url"]))
+            except (KeyError, NoReverseMatch):
+                continue
+    return targets
 
 
 # A confidence value is easier to judge against a threshold than in the
