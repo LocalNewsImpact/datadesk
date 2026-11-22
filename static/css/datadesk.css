@@ -3191,33 +3191,19 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
 .classification .classify-panel .lede { margin: 0 0 var(--s-2); }
 .classification .classify-panel .progress { margin: 0; }
 .classification .classify-panel .classify-form { margin-top: var(--s-4); }
-.classification .classify-panel { container-type: inline-size; }
 .classification .classify-panel .classify-fields {
+  /* Primary, Secondary and the rejection in one row. A label that wraps
+     keeps its dropdown level with the others. */
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-3);
+}
+.classification .classify-panel .classify-fields label {
   display: flex;
   flex-direction: column;
-  gap: var(--s-2);
+  justify-content: space-between;
 }
-/* A wide panel puts Primary and Secondary side by side. */
-@container (min-width: 30rem) {
-  .classification .classify-panel .classify-fields {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    column-gap: var(--s-3);
-  }
-  .classification .classify-panel .classify-fields .reject { grid-column: 1 / -1; }
-}
-/* Wider still, all three in one row. */
-@container (min-width: 34rem) {
-  .classification .classify-panel .classify-fields { grid-template-columns: 1fr 1fr 1fr; }
-  .classification .classify-panel .classify-fields .reject { grid-column: auto; }
-  /* A label that wraps keeps its dropdown level with the others. */
-  .classification .classify-panel .classify-fields label {
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-  }
-}
-.classification .classify-panel .classify-fields label { display: block; }
+
 .classification .classify-panel .classify-fields label { font-size: var(--fs-sm); }
 .classification .classify-panel select {
   display: block;
