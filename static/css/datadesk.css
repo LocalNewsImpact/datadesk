@@ -3166,10 +3166,13 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
    right, level with the headline. All ten categories stay in view, so
    the panel has to fit beside the story box; the story box has a fixed
    height so that space does not change from story to story. One column
-   below 64rem, story first. */
+   below 75rem, story first. */
 .classification .classify-layout {
   display: grid;
-  grid-template-columns: minmax(0, 42rem) minmax(16rem, 22rem);
+  /* The story keeps its reading measure; the panel takes the rest of
+     the width, so the category lines are cut as little as the screen
+     allows. */
+  grid-template-columns: minmax(30rem, 42rem) minmax(20rem, 1fr);
   gap: var(--s-6);
 }
 .classification .classify-panel { min-width: 0; }
@@ -3188,10 +3191,20 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
 .classification .classify-panel .lede { margin: 0 0 var(--s-2); }
 .classification .classify-panel .progress { margin: 0; }
 .classification .classify-panel .classify-form { margin-top: var(--s-4); }
+.classification .classify-panel { container-type: inline-size; }
 .classification .classify-panel .classify-fields {
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
+}
+/* A wide panel puts Primary and Secondary side by side. */
+@container (min-width: 30rem) {
+  .classification .classify-panel .classify-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: var(--s-3);
+  }
+  .classification .classify-panel .classify-fields .reject { grid-column: 1 / -1; }
 }
 .classification .classify-panel .classify-fields label { display: block; }
 .classification .classify-panel .classify-fields label { font-size: var(--fs-sm); }
@@ -3227,7 +3240,7 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
 .classification .guide-list { margin: 0; }
 .classification .guide-list dt { font-weight: 600; margin-top: var(--s-2); }
 .classification .guide-list dd { margin: 0; }
-@media (max-width: 64rem) {
+@media (max-width: 75rem) {
   .classification .classify-layout { grid-template-columns: minmax(0, 1fr); }
   .classification .classify-layout .story-body { contain: none; flex: none; height: calc(70vh - 20px); }
 }

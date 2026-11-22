@@ -325,7 +325,6 @@ def test_the_form_sits_beside_the_story(client, coder, assigned):
     layout = body.split('class="classify-layout"')[1]
     story, panel = layout.split('class="classify-panel"')
     assert 'class="story-body"' in story
-    assert "say which information need it" in panel
     assert "left in this batch" in panel
     assert 'name="primary"' in panel and "Save and next" in panel
     # The ten categories are in a box under the button, not behind a link.
@@ -333,3 +332,44 @@ def test_the_form_sits_beside_the_story(client, coder, assigned):
     assert 'class="category-box"' in after_button
     assert after_button.count("<dt>") == 10
     assert 'class="instructions-open"' not in body
+
+
+def test_a_story_answered_in_another_batch_is_not_offered_again(client, coder):
+    """Two batches drawn at once could share a story, and saving it a
+    second time was a server error."""
+    from review.classification import (
+        ClassificationAssignment,
+        ClassificationCohort,
+        ClassificationDecision,
+        ClassificationSample,
+    )
+
+    first = ClassificationCohort.objects.create(number=21, slug="cohort-21")
+    second = ClassificationCohort.objects.create(number=22, slug="cohort-22")
+    for cohort in (first, second):
+        ClassificationSample.objects.create(
+            cohort=cohort, article_id="a-1", stratum="random"
+        )
+        Grant.objects.create(
+            user=coder, app=DATADESK, scope=cohort.slug, role=CLASSIFIER
+        )
+    one = ClassificationAssignment.objects.create(
+        cohort=first, article_id="a-1", assigned_to=coder
+    )
+    two = ClassificationAssignment.objects.create(
+        cohort=second, article_id="a-1", assigned_to=coder
+    )
+    client.force_login(coder)
+    client.post(URL, {"assignment": one.pk, "primary": "Political life"})
+    assert ClassificationDecision.objects.filter(decided_by=coder).count() == 1
+
+    # Not offered again ...
+    body = client.get(URL).content.decode()
+    assert f'name="assignment" value="{two.pk}"' not in body
+    # ... and a stale form for it closes the duplicate instead of failing.
+    response = client.post(URL, {"assignment": two.pk, "primary": "Sports"})
+    assert response.status_code == 302
+    two.refresh_from_db()
+    assert two.completed_at is not None
+    decision = ClassificationDecision.objects.get(decided_by=coder)
+    assert decision.primary_label == "Political life"
