@@ -228,9 +228,11 @@ class CodebookSettings(models.Model):
         verbose_name_plural = "codebook settings"
 
     def draft_guidance(self):
-        """label -> [covers, reader_could], complete for every label."""
+        """label -> [covers, reader_could, one_line], complete for every
+        label. `one_line` is the short form shown in the queue's category
+        box, "" where none has been written."""
         return {
-            label: list(self.guidance.get(label) or CODING_GUIDE[label])
+            label: (list(self.guidance.get(label) or CODING_GUIDE[label]) + [""])[:3]
             for label in CIN_LABELS
         }
 
@@ -369,6 +371,9 @@ class CodebookVersion(models.Model):
                 "label": self.shown(label),
                 "covers": self.guidance[label][0],
                 "reader_could": self.guidance[label][1],
+                # Versions frozen before the one-line form existed carry
+                # two entries; the queue then shows the start of `covers`.
+                "one_line": (list(self.guidance[label]) + ["", ""])[2],
             }
             for label in CIN_LABELS
             if label in self.guidance

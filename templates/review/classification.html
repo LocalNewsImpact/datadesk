@@ -89,7 +89,7 @@
       0.5 weight it carries in the training label is noise.
       {% endcomment %}
       <label class="secondary">
-        Secondary <span class="quiet">— only if you are confident</span>
+        Secondary
         <select name="secondary">
           <option value="">none</option>
           {% for value, shown in labels %}
@@ -118,13 +118,19 @@
   </form>
 
   {% comment %}
-  Always open while a story is assigned, under the button, and no taller
-  than the story beside it: the box scrolls on its own.
+  The ten categories, all ten in view while a story is assigned: each
+  name with its one-line form, and the full "what it covers" text on
+  hover. Nothing else: the full instructions are on the empty-queue page
+  and in the codebook.
   {% endcomment %}
-  <div id="instructions" class="instructions-box" tabindex="0" role="region"
-       aria-label="Instructions, scrollable">
-    {% include "review/_cin_instructions.html" %}
-  </div>
+  <dl class="category-box" aria-label="The ten categories">
+    {% for row in guidance %}
+    <div title="{{ row.covers }}">
+      <dt>{{ row.label }}</dt>
+      <dd>{{ row.one_line|default:row.covers }}</dd>
+    </div>
+    {% endfor %}
+  </dl>
   </aside>
   </div>
 

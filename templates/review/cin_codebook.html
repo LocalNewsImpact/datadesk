@@ -49,7 +49,10 @@
       The stored name is the model's own class name and cannot be
       changed here: renaming it would misalign every existing label and
       the classifier trained on them. &ldquo;Shown as&rdquo; changes
-      only what coders and these pages display.
+      only what coders and these pages display. &ldquo;One line&rdquo;
+      is the short form coders see beside each story, about 45
+      characters; the full &ldquo;What it covers&rdquo; text shows when
+      they hover over it.
     </p>
     <div class="table-scroll">
       <table class="guide">
@@ -59,6 +62,7 @@
             <th scope="col">Shown as</th>
             <th scope="col">What it covers</th>
             <th scope="col">A reader could&hellip;</th>
+            <th scope="col">One line</th>
           </tr>
         </thead>
         <tbody>
@@ -74,6 +78,9 @@
             <td><input type="text" name="could-{{ row.index }}"
                        value="{{ row.reader_could }}"
                        aria-label="{{ row.label }}: a reader could"></td>
+            <td><input type="text" name="line-{{ row.index }}"
+                       value="{{ row.one_line }}" maxlength="60"
+                       aria-label="{{ row.label }} in one line"></td>
           </tr>
           {% endfor %}
         </tbody>

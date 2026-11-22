@@ -328,8 +328,8 @@ def test_the_form_sits_beside_the_story(client, coder, assigned):
     assert "say which information need it" in panel
     assert "left in this batch" in panel
     assert 'name="primary"' in panel and "Save and next" in panel
-    # The instructions are open in a box under the button, not behind a link.
+    # The ten categories are in a box under the button, not behind a link.
     after_button = panel.split("Save and next")[1]
-    assert 'class="instructions-box"' in after_button
-    assert "The ten categories" in after_button
+    assert 'class="category-box"' in after_button
+    assert after_button.count("<dt>") == 10
     assert 'class="instructions-open"' not in body

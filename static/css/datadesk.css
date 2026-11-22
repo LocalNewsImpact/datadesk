@@ -3150,6 +3150,7 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
 .classification .story-body {
   max-width: 68ch;
   height: calc(70vh - 20px);
+  box-sizing: border-box;
   overflow-y: auto;
   padding: var(--s-4);
   border: 1px solid var(--border);
@@ -3161,22 +3162,28 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
 .classification .story-body p:last-child { margin-bottom: 0; }
 .classification .classify-form { max-width: 42rem; margin-top: var(--s-4); }
 
-/* Story left; the brief, the count, the form and the instructions box
-   right, level with the headline. The panel is stretched to the story's
-   height and the instructions box takes what is left of it and scrolls
-   on its own, so it ends where the story box ends. `contain: size` keeps
-   the box's text from adding to the row height. The story box has a
-   fixed height so that space does not change from story to story. One
-   column below 64rem, story first. */
+/* Story left; the brief, the count, the form and the ten categories
+   right, level with the headline. All ten categories stay in view, so
+   the panel has to fit beside the story box; the story box has a fixed
+   height so that space does not change from story to story. One column
+   below 64rem, story first. */
 .classification .classify-layout {
   display: grid;
   grid-template-columns: minmax(0, 42rem) minmax(16rem, 22rem);
   gap: var(--s-6);
 }
-.classification .classify-panel {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
+.classification .classify-panel { min-width: 0; }
+/* On a short window the ten categories reach lower than 70vh. The story
+   box then grows to end level with them rather than the categories
+   running past it: the story column is stretched to the row and the box
+   takes the rest of it. `contain: size` keeps the story's own length out
+   of the row height, so the box still scrolls. */
+.classification .classify-layout .story { display: flex; flex-direction: column; }
+.classification .classify-layout .story-body {
+  flex: 1 1 0;
+  height: auto;
+  min-height: calc(70vh - 20px);
+  contain: size;
 }
 .classification .classify-panel .lede { margin: 0 0 var(--s-2); }
 .classification .classify-panel .progress { margin: 0; }
@@ -3184,36 +3191,44 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
 .classification .classify-panel .classify-fields {
   display: flex;
   flex-direction: column;
-  gap: var(--s-3);
+  gap: var(--s-2);
 }
 .classification .classify-panel .classify-fields label { display: block; }
+.classification .classify-panel .classify-fields label { font-size: var(--fs-sm); }
 .classification .classify-panel select {
   display: block;
   width: 100%;
-  margin-top: var(--s-1);
-}
-.classification .classify-panel button[type="submit"] { margin-top: var(--s-4); }
-.classification .instructions-box {
-  flex: 1 1 0;
+  margin-top: 2px;
+  padding: 2px var(--s-2);
+  font-size: var(--fs-sm);
   min-height: 0;
-  contain: size;
-  overflow-y: auto;
-  margin-top: var(--s-4);
-  padding: var(--s-3);
+  height: auto;
+}
+.classification .classify-panel button[type="submit"] { margin-top: var(--s-3); }
+.classification .category-box {
+  margin: var(--s-3) 0 0;
+  padding: var(--s-2) var(--s-3);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  font-size: var(--fs-sm);
-  line-height: 1.5;
+  font-size: var(--fs-xs);
+  line-height: 1.35;
 }
-.classification .instructions-box h2 { font-size: var(--fs-md); margin: 0 0 var(--s-2); }
-.classification .instructions-box h3 { font-size: var(--fs-sm); margin: var(--s-3) 0 var(--s-2); }
-.classification .instructions-box p,
-.classification .instructions-box .lede { font-size: var(--fs-sm); margin: 0 0 var(--s-2); }
+.classification .category-box > div { margin-top: var(--s-1); cursor: help; }
+.classification .category-box > div:first-child { margin-top: 0; }
+.classification .category-box dt { font-weight: 600; }
+/* One line each, so all ten fit; the full text is in the title. */
+.classification .category-box dd {
+  margin: 0;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .classification .guide-list { margin: 0; }
 .classification .guide-list dt { font-weight: 600; margin-top: var(--s-2); }
 .classification .guide-list dd { margin: 0; }
 @media (max-width: 64rem) {
   .classification .classify-layout { grid-template-columns: minmax(0, 1fr); }
-  .classification .instructions-box { contain: none; flex: none; max-height: 24rem; }
+  .classification .classify-layout .story-body { contain: none; flex: none; height: calc(70vh - 20px); }
 }
 
