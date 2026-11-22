@@ -15,7 +15,6 @@ from django.urls import reverse
 from accounts.models import DATADESK, Grant
 from accounts.privileges import ADMIN, CLASSIFIER
 from review.classification import (
-    CIN_LABELS,
     V1_REJECTIONS,
     ClassificationAssignment,
     ClassificationCohort,
@@ -271,48 +270,13 @@ def test_an_admin_freezes_the_draft_on_the_screen(client):
     assert CodebookVersion.objects.filter(name="V2.0").count() == 1
 
 
-def test_each_category_is_shown_in_one_line_with_the_full_text_on_hover(
-    client, crawler_schema
-):
-    """All ten categories stay in view beside the story, so each is a
-    name and a one-line form; the full "what it covers" is the hover."""
-    admin = User.objects.create_user("admin", password="x")
-    Grant.objects.create(user=admin, app=DATADESK, role=ADMIN, scope="")
-    client.force_login(admin)
-    post = {
-        "instructions": "x",
-        "rejections": list(V1_REJECTIONS),
-        "action": "freeze",
-        "name": "V2.1",
-    }
-    for i in range(10):
-        post[f"covers-{i}"] = f"covers {i}, in full"
-        post[f"could-{i}"] = f"could {i}"
-        post[f"line-{i}"] = f"line {i}"
-    client.post(reverse("review:cin_codebook"), post)
-    v21 = CodebookVersion.objects.get(name="V2.1")
-    i = CIN_LABELS.index("Civic Life")
-    expected = [f"covers {i}, in full", f"could {i}", f"line {i}"]
-    assert v21.guidance["Civic Life"] == expected
-
-    cohort = ClassificationCohort.objects.create(
-        number=3, slug="cohort-3", codebook_version=v21
-    )
-    coder = _coder("coder", cohort)
-    _assign(cohort, coder, "a-3")
-    client.force_login(coder)
-    body = client.get(URL).content.decode()
-    box = body.split('class="category-box"')[1].split("</dl>")[0]
-    assert box.count("<dt>") == 10
-    assert f'<div title="covers {i}, in full">' in box
-    assert f"<dd>line {i}</dd>" in box
-
-
-def test_a_version_without_one_line_forms_shows_the_full_text(
+def test_all_ten_categories_are_shown_in_full_beside_the_story(
     client, crawler_schema, v2_cohort
 ):
     coder = _coder("new", v2_cohort)
     _assign(v2_cohort, coder, "a-2")
     client.force_login(coder)
     body = client.get(URL).content.decode()
-    assert "<dd>How to reach it.</dd>" in body
+    box = body.split('class="category-box"')[1].split("</dl>")[0]
+    assert box.count("<dt>") == 10
+    assert "<dd>How to reach it.</dd>" in box

@@ -3140,7 +3140,7 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
 
 /* The story a coder reads. A reading column, not the width of the
    console: about 70 characters a line, and space between paragraphs. */
-.classification .story { max-width: 42rem; }
+.classification .story { max-width: 29.5rem; }
 .classification .story-headline {
   margin: 0 0 var(--s-3);
   font-size: 1.5rem;
@@ -3172,7 +3172,7 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
   /* The story keeps its reading measure; the panel takes the rest of
      the width, so the category lines are cut as little as the screen
      allows. */
-  grid-template-columns: minmax(30rem, 42rem) minmax(20rem, 1fr);
+  grid-template-columns: minmax(24rem, 29.5rem) minmax(24rem, 1fr);
   gap: var(--s-6);
 }
 .classification .classify-panel { min-width: 0; }
@@ -3206,6 +3206,17 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
   }
   .classification .classify-panel .classify-fields .reject { grid-column: 1 / -1; }
 }
+/* Wider still, all three in one row. */
+@container (min-width: 34rem) {
+  .classification .classify-panel .classify-fields { grid-template-columns: 1fr 1fr 1fr; }
+  .classification .classify-panel .classify-fields .reject { grid-column: auto; }
+  /* A label that wraps keeps its dropdown level with the others. */
+  .classification .classify-panel .classify-fields label {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+}
 .classification .classify-panel .classify-fields label { display: block; }
 .classification .classify-panel .classify-fields label { font-size: var(--fs-sm); }
 .classification .classify-panel select {
@@ -3226,17 +3237,10 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
   font-size: var(--fs-xs);
   line-height: 1.35;
 }
-.classification .category-box > div { margin-top: var(--s-1); cursor: help; }
+.classification .category-box > div { margin-top: 6px; }
 .classification .category-box > div:first-child { margin-top: 0; }
 .classification .category-box dt { font-weight: 600; }
-/* One line each, so all ten fit; the full text is in the title. */
-.classification .category-box dd {
-  margin: 0;
-  color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.classification .category-box dd { margin: 0; color: var(--text-2); }
 .classification .guide-list { margin: 0; }
 .classification .guide-list dt { font-weight: 600; margin-top: var(--s-2); }
 .classification .guide-list dd { margin: 0; }

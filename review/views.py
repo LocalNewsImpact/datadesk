@@ -2787,7 +2787,6 @@ def cin_codebook(request):
             label: [
                 (request.POST.get(f"covers-{i}") or "").strip(),
                 (request.POST.get(f"could-{i}") or "").strip(),
-                (request.POST.get(f"line-{i}") or "").strip(),
             ]
             for i, label in enumerate(CIN_LABELS)
             if (request.POST.get(f"covers-{i}") or "").strip()
@@ -2829,7 +2828,6 @@ def cin_codebook(request):
                     "shown": row.display_names.get(label, ""),
                     "covers": guide[label][0],
                     "reader_could": guide[label][1],
-                    "one_line": guide[label][2],
                 }
                 for i, label in enumerate(CIN_LABELS)
             ],
