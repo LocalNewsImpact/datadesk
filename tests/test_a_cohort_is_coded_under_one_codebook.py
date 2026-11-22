@@ -347,9 +347,33 @@ def test_a_coder_out_of_line_with_the_others_shows(v2_cohort):
 
     sports = CIN_LABELS.index("Sports")
     grid = {row["name"]: row["cells"] for row in report["coder_share"]}
-    assert grid["c"][sports] == {"coder": 50.0, "others": 50.0}
+    assert grid["c"][sports] == {"coder": 50.0, "others": 50.0, "flag": None}
     kappa = {row["name"]: row["cells"] for row in report["coder_kappa"]}
-    assert kappa["c"][sports] == -1.0
+    assert kappa["c"][sports]["kappa"] == -1.0
+    # Two stories are far too few to call anyone an outlier.
+    assert not any(row["flags"] for row in report["coders"])
+
+
+def test_a_coder_far_below_the_others_is_flagged(v2_cohort):
+    """Three coders who agree on 9 stories in 10 and one who agrees on 4
+    in 10: the fourth is flagged overall, the others are not."""
+    import random
+
+    from review.classification import CIN_LABELS
+
+    coders = [_coder(n, v2_cohort) for n in ("ann", "bob", "cat", "dee")]
+    rng = random.Random(3)
+    rows = []
+    for n in range(240):
+        truth = CIN_LABELS[n % len(CIN_LABELS)]
+        for coder in rng.sample(coders, 2):
+            right = 0.4 if coder.username == "dee" else 0.9
+            other = rng.choice([x for x in CIN_LABELS if x != truth])
+            rows.append((f"s-{n}", coder, truth if rng.random() < right else other))
+    _answers(v2_cohort, rows)
+    report = agreement_report(v2_cohort.codebook_version)
+    flagged = {row["name"] for row in report["coders"] if row["flag"]}
+    assert flagged == {"dee"}
 
 
 def test_the_report_page_shows_the_coder_tables(client, v2_cohort):

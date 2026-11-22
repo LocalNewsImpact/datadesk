@@ -108,6 +108,14 @@
     Read a coder's kappa against "Kappa without them", the kappa of the
     pairs they are not in.
   </p>
+  <p class="quiet">
+    <strong class="outlier">Flagged</strong> where a coder's kappa is at
+    least 0.20 below the kappa without them (one Landis&ndash;Koch band)
+    and a 95% bootstrap interval of that gap excludes zero: overall from
+    20 pairs, per category from 10 pairs naming it. A category's use is
+    flagged where a coder chooses it at twice everyone else's rate or
+    under half of it, with p&nbsp;&lt;&nbsp;0.05, from 20 answers.
+  </p>
   <div class="table-scroll">
     <table>
       <thead>
@@ -120,6 +128,7 @@
           <th scope="col" class="num">Expected</th>
           <th scope="col" class="num">Kappa</th>
           <th scope="col" class="num">Kappa without them</th>
+          <th scope="col">Flags</th>
         </tr>
       </thead>
       <tbody>
@@ -131,8 +140,9 @@
           <td class="num">{{ row.n }}</td>
           <td class="num">{% if row.observed is not None %}{{ row.observed }}%{% else %}&mdash;{% endif %}</td>
           <td class="num">{% if row.expected is not None %}{{ row.expected }}%{% else %}&mdash;{% endif %}</td>
-          <td class="num"><strong>{{ row.kappa|floatformat:3|default:"—" }}</strong></td>
+          <td class="num"><strong{% if row.flag %} class="outlier"{% endif %}>{{ row.kappa|floatformat:3|default:"—" }}</strong></td>
           <td class="num">{{ row.kappa_without|floatformat:3|default:"—" }}</td>
+          <td>{% if row.flags %}<span class="outlier">{{ row.flags|join:"; " }}</span>{% else %}<span class="quiet">none</span>{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -141,8 +151,9 @@
 
   <h3>Kappa by coder and category</h3>
   <p class="quiet">
-    Each category against the rest, over that coder's first pairs. The
-    last row is everyone.
+    Each category against the rest, over that coder's first pairs, with
+    the kappa of the pairs without them beneath. The last row is
+    everyone.
   </p>
   <div class="table-scroll">
     <table class="coder-grid">
@@ -156,7 +167,7 @@
         {% for row in coder_kappa %}
         <tr>
           <th scope="row">{{ row.name }}</th>
-          {% for cell in row.cells %}<td class="num">{{ cell|floatformat:3|default:"—" }}</td>{% endfor %}
+          {% for cell in row.cells %}<td class="num{% if cell.flag %} outlier{% endif %}">{{ cell.kappa|floatformat:3|default:"—" }}<br><span class="quiet">{{ cell.without|floatformat:3|default:"—" }}</span></td>{% endfor %}
         </tr>
         {% endfor %}
       </tbody>
@@ -186,7 +197,7 @@
         {% for row in coder_share %}
         <tr>
           <th scope="row">{{ row.name }}</th>
-          {% for cell in row.cells %}<td class="num">{{ cell.coder }}%<br><span class="quiet">{{ cell.others|default_if_none:"—" }}{% if cell.others is not None %}%{% endif %}</span></td>{% endfor %}
+          {% for cell in row.cells %}<td class="num{% if cell.flag %} outlier{% endif %}">{{ cell.coder }}%<br><span class="quiet">{{ cell.others|default_if_none:"—" }}{% if cell.others is not None %}%{% endif %}</span></td>{% endfor %}
         </tr>
         {% endfor %}
       </tbody>

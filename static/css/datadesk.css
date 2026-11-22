@@ -3242,3 +3242,6 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
 .coder-grid th, .coder-grid td { padding: 4px 6px; }
 .coder-grid thead th { vertical-align: bottom; }
 .coder-grid tfoot th, .coder-grid tfoot td { border-top: 2px solid var(--border); font-weight: 600; }
+/* An outlier coder figure on the CIN reporting page. */
+.outlier, td.outlier { color: var(--tone-bad); font-weight: 600; }
+td.outlier { background: color-mix(in srgb, var(--tone-bad) 8%, transparent); }

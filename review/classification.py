@@ -1391,11 +1391,11 @@ def agreement_report(codebook_version=None):
         "categories": categories,
         "cohorts": cohorts,
         "category_columns": [version.shown(label) for label in CIN_LABELS],
-        **_coder_agreement(decisions, answer, parts, against_rest, pct),
+        **_coder_agreement(decisions, version, answer, parts, against_rest, pct),
     }
 
 
-def _coder_agreement(decisions, answer, parts, against_rest, pct):
+def _coder_agreement(decisions, version, answer, parts, against_rest, pct):
     """The per-coder half of `agreement_report`: one row per coder, and
     a coder x category grid of kappa and of how often each category was
     chosen."""
@@ -1434,6 +1434,46 @@ def _coder_agreement(decisions, answer, parts, against_rest, pct):
         mine = given[coder]
         others = [x for c, answers in given.items() if c != coder for x in answers]
         name = names.get(coder, f"coder {coder}")
+        flags = []
+        outlier = cin_metrics.kappa_outlier(
+            own, rest, min_pairs=cin_metrics.OUTLIER_MIN_PAIRS
+        )
+        if outlier:
+            flags.append("Kappa overall")
+
+        kappa_cells, share_cells = [], []
+        for label in CIN_LABELS:
+            shown = version.shown(label)
+            own_bin = [(x == label, y == label) for x, y in own]
+            rest_bin = [(x == label, y == label) for x, y in rest]
+            # Judged only once enough of the coder's pairs name the
+            # category; pairs where neither did say little about it.
+            naming = sum(x or y for x, y in own_bin)
+            low = naming >= cin_metrics.OUTLIER_MIN_CATEGORY_PAIRS and (
+                cin_metrics.kappa_outlier(own_bin, rest_bin, min_pairs=1)
+            )
+            kappa_cells.append(
+                {
+                    "kappa": against_rest(own, label)["kappa"],
+                    "without": against_rest(rest, label)["kappa"],
+                    "flag": low,
+                }
+            )
+            if low:
+                flags.append(f"{shown} kappa")
+            used = cin_metrics.share_outlier(
+                mine.count(label), len(mine), others.count(label), len(others)
+            )
+            share_cells.append(
+                {
+                    "coder": share(mine, label),
+                    "others": share(others, label),
+                    "flag": used,
+                }
+            )
+            if used:
+                often = "often" if used == "high" else "rarely"
+                flags.append(f"{shown} chosen too {often}")
         coders.append(
             {
                 "name": name,
@@ -1441,23 +1481,12 @@ def _coder_agreement(decisions, answer, parts, against_rest, pct):
                 "rejected": share(mine, REJECTED),
                 **parts(own),
                 "kappa_without": parts(rest)["kappa"],
+                "flag": outlier,
+                "flags": flags,
             }
         )
-        kappa_grid.append(
-            {
-                "name": name,
-                "cells": [against_rest(own, label)["kappa"] for label in CIN_LABELS],
-            }
-        )
-        share_grid.append(
-            {
-                "name": name,
-                "cells": [
-                    {"coder": share(mine, label), "others": share(others, label)}
-                    for label in CIN_LABELS
-                ],
-            }
-        )
+        kappa_grid.append({"name": name, "cells": kappa_cells})
+        share_grid.append({"name": name, "cells": share_cells})
     every = [x for answers in given.values() for x in answers]
     return {
         "first_pairs": len(first),
