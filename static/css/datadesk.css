@@ -3433,3 +3433,14 @@ td.outlier { background: color-mix(in srgb, var(--tone-bad) 8%, transparent); }
   font-weight: 500;
   color: var(--tone-warn, var(--tone-bad));
 }
+
+/* CIN reporting: the agreement tables. */
+.cin-reporting h2 { margin-top: var(--s-6); }
+.cin-reporting table.grid { margin-top: var(--s-2); }
+.cin-reporting table.grid tbody th[scope="row"] { font-weight: 600; white-space: nowrap; }
+.cin-reporting table.grid tbody tr:last-child th { border-bottom: none; }
+.cin-reporting table.grid td.num, .cin-reporting table.grid th.num { text-align: right; }
+.cin-reporting table.coder-grid thead th { white-space: normal; text-align: right; vertical-align: bottom; }
+.cin-reporting table.coder-grid thead th:first-child { text-align: left; }
+.cin-reporting table.coder-grid tfoot th, .cin-reporting table.coder-grid tfoot td {
+  border-bottom: none; }
