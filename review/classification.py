@@ -1285,24 +1285,30 @@ REJECTED = "(rejected)"
 
 
 def agreement_report(codebook_version=None):
-    """Agreement overall, by dataset and by category, under ONE codebook.
+    """Agreement overall, by category, by cohort and by coder, under ONE
+    codebook.
 
     Answers given under different definitions are never pooled: a rate
     over V1 and V2 answers together is a rate under no codebook at all.
     Defaults to the current version. Practice rounds and removed
     coders are left out (`counted_decisions`).
 
-    Percent agreement and Cohen's kappa, side by side. Kappa is the
-    measure the V1 coding was reported in (0.583), so a V2 figure has to
-    be given in it to be compared. Its chance term comes from how often
-    each category was used in the pairs scored, and that depends on how
-    the stories were drawn: an oversampled draw and a random one at the
-    same percent agreement give different kappas. Kappas are comparable
-    between rounds drawn the same way.
+    Each figure is given as observed agreement, the agreement expected
+    by chance, and Cohen's kappa, which is how far observed sits above
+    chance. Kappa is the measure the V1 coding was reported in (0.583).
+    Its chance term comes from how often each answer was used in the
+    pairs scored, and that depends on how the stories were drawn, so
+    kappas are comparable between rounds drawn the same way.
 
     A rejection counts as one more answer: a category against a
     rejection is a mismatch, as it is for percent agreement. Per
-    category, kappa is that category against the rest.
+    category, the figures are that category against the rest.
+
+    Per coder, the figures are over first pairs (`cin_metrics.first_pair`)
+    with the coder as the first rater: a third coder is given only the
+    stories two others split on, and over all pairs would look worse
+    than they are. "Kappa without" is the kappa of the first pairs the
+    coder is not in, the figure to read theirs against.
     """
     version = codebook_version or CodebookVersion.current()
     decisions = list(
@@ -1311,40 +1317,67 @@ def agreement_report(codebook_version=None):
     # Scored pairs only: two rejections are not a pair to score.
     pairs = [(a, b) for a, b in _pairs(decisions) if _agree(a, b) is not None]
 
-    by_category, by_cohort = {}, {}
-    agreed = 0
+    def answer(d):
+        return d.primary_label or REJECTED
+
+    def pct(value):
+        return round(100 * value, 1) if value is not None else None
+
+    def parts(scored):
+        out = cin_metrics.kappa_parts(scored)
+        return {
+            "n": out["n"],
+            "observed": pct(out["observed"]),
+            "expected": pct(out["expected"]),
+            "kappa": round(out["kappa"], 3) if out["kappa"] is not None else None,
+        }
+
+    def against_rest(scored, label):
+        return parts((x == label, y == label) for x, y in scored)
+
+    def worst_first(row):
+        return (row["kappa"] is None, row["kappa"] if row["kappa"] is not None else 0)
+
+    answered = [(answer(a), answer(b)) for a, b in pairs]
+    overall = parts(answered)
+
+    # How often each answer was given, the input to every chance term.
+    used = {}
+    for d in decisions:
+        used[answer(d)] = used.get(answer(d), 0) + 1
+
+    by_category = {}
     for a, b in pairs:
-        ok = _agree(a, b)
-        agreed += ok
         # Attributed to both answers when they differ: a disagreement
         # between Civic information and Civic Life is a fact about both,
         # and charging it only to the first would understate whichever
         # category happens to sort earlier.
         for label in {a.primary_label, b.primary_label} - {""}:
             hit, total = by_category.get(label, (0, 0))
-            by_category[label] = (hit + ok, total + 1)
-        number = a.cohort.number
-        hit, total = by_cohort.get(number, (0, 0))
-        by_cohort[number] = (hit + ok, total + 1)
+            by_category[label] = (hit + (a.primary_label == b.primary_label), total + 1)
 
-    def rate(hit, total):
-        return round(100 * hit / total, 1) if total else None
+    categories = sorted(
+        (
+            {
+                "label": label,
+                "shown": version.shown(label),
+                "share": pct(used.get(label, 0) / len(decisions)),
+                "pairs": total,
+                "rate": pct(hit / total),
+                **against_rest(answered, label),
+            }
+            for label, (hit, total) in by_category.items()
+        ),
+        key=worst_first,
+    )
 
-    def answer(d):
-        return d.primary_label or REJECTED
-
-    def kappa(scored):
-        value = cin_metrics.cohen_kappa(scored)
-        return round(value, 3) if value is not None else None
-
-    answered = [(answer(a), answer(b)) for a, b in pairs]
-    category_kappa = {
-        label: kappa((x == label, y == label) for x, y in answered)
-        for label in by_category
-    }
     cohort_pairs = {}
     for a, b in pairs:
         cohort_pairs.setdefault(a.cohort.number, []).append((answer(a), answer(b)))
+    cohorts = [
+        {"number": number, **parts(scored)}
+        for number, scored in sorted(cohort_pairs.items(), reverse=True)
+    ]
 
     return {
         "version": version,
@@ -1352,33 +1385,118 @@ def agreement_report(codebook_version=None):
         "pairs": len(pairs),
         "articles_multiply_coded": len({a.article_id for a, _ in pairs}),
         "decisions": len(decisions),
-        "overall": rate(agreed, len(pairs)),
-        "kappa": kappa(answered),
-        "categories": sorted(
-            (
+        "overall": overall["observed"],
+        "expected": overall["expected"],
+        "kappa": overall["kappa"],
+        "categories": categories,
+        "cohorts": cohorts,
+        "category_columns": [version.shown(label) for label in CIN_LABELS],
+        **_coder_agreement(decisions, version, answer, parts, against_rest, pct),
+    }
+
+
+def _coder_agreement(decisions, version, answer, parts, against_rest, pct):
+    """The per-coder half of `agreement_report`: one row per coder, and
+    a coder x category grid of kappa and of how often each category was
+    chosen."""
+    from django.contrib.auth import get_user_model
+
+    by_story = {}
+    for d in sorted(decisions, key=lambda d: (d.decided_at, d.pk)):
+        by_story.setdefault(d.article_id, []).append(d)
+    first = [
+        (made[0], made[1])
+        for made in by_story.values()
+        if len(made) >= 2 and _agree(made[0], made[1]) is not None
+    ]
+    everyone = [(answer(a), answer(b)) for a, b in first]
+
+    given = {}
+    for d in decisions:
+        given.setdefault(d.decided_by_id, []).append(answer(d))
+
+    def share(answers, label):
+        return pct(answers.count(label) / len(answers)) if answers else None
+
+    names = {
+        user.pk: user.get_full_name() or user.username
+        for user in get_user_model().objects.filter(pk__in=list(given))
+    }
+    coders, kappa_grid, share_grid = [], [], []
+    for coder in sorted(given, key=lambda c: names.get(c, "").lower()):
+        own = [(answer(a), answer(b)) for a, b in first if a.decided_by_id == coder]
+        own += [(answer(b), answer(a)) for a, b in first if b.decided_by_id == coder]
+        rest = [
+            (answer(a), answer(b))
+            for a, b in first
+            if coder not in (a.decided_by_id, b.decided_by_id)
+        ]
+        mine = given[coder]
+        others = [x for c, answers in given.items() if c != coder for x in answers]
+        name = names.get(coder, f"coder {coder}")
+        flags = []
+        outlier = cin_metrics.kappa_outlier(
+            own, rest, min_pairs=cin_metrics.OUTLIER_MIN_PAIRS
+        )
+        if outlier:
+            flags.append("Kappa overall")
+
+        kappa_cells, share_cells = [], []
+        for label in CIN_LABELS:
+            shown = version.shown(label)
+            own_bin = [(x == label, y == label) for x, y in own]
+            rest_bin = [(x == label, y == label) for x, y in rest]
+            # Judged only once enough of the coder's pairs name the
+            # category; pairs where neither did say little about it.
+            naming = sum(x or y for x, y in own_bin)
+            low = naming >= cin_metrics.OUTLIER_MIN_CATEGORY_PAIRS and (
+                cin_metrics.kappa_outlier(own_bin, rest_bin, min_pairs=1)
+            )
+            kappa_cells.append(
                 {
-                    "label": label,
-                    "shown": version.shown(label),
-                    "rate": rate(hit, total),
-                    "kappa": category_kappa[label],
-                    "pairs": total,
+                    "kappa": against_rest(own, label)["kappa"],
+                    "without": against_rest(rest, label)["kappa"],
+                    "flag": low,
                 }
-                for label, (hit, total) in by_category.items()
-            ),
-            key=lambda row: row["rate"] if row["rate"] is not None else 101,
-        ),
-        "cohorts": sorted(
-            (
+            )
+            if low:
+                flags.append(f"{shown} kappa")
+            used = cin_metrics.share_outlier(
+                mine.count(label), len(mine), others.count(label), len(others)
+            )
+            share_cells.append(
                 {
-                    "number": number,
-                    "rate": rate(hit, total),
-                    "kappa": kappa(cohort_pairs[number]),
-                    "pairs": total,
+                    "coder": share(mine, label),
+                    "others": share(others, label),
+                    "flag": used,
                 }
-                for number, (hit, total) in by_cohort.items()
-            ),
-            key=lambda row: -row["number"],
-        ),
+            )
+            if used:
+                often = "often" if used == "high" else "rarely"
+                flags.append(f"{shown} chosen too {often}")
+        coders.append(
+            {
+                "name": name,
+                "answers": len(mine),
+                "rejected": share(mine, REJECTED),
+                **parts(own),
+                "kappa_without": parts(rest)["kappa"],
+                "flag": outlier,
+                "flags": flags,
+            }
+        )
+        kappa_grid.append({"name": name, "cells": kappa_cells})
+        share_grid.append({"name": name, "cells": share_cells})
+    every = [x for answers in given.values() for x in answers]
+    return {
+        "first_pairs": len(first),
+        "coders": coders,
+        "coder_kappa": kappa_grid,
+        "everyone_kappa": [
+            against_rest(everyone, label)["kappa"] for label in CIN_LABELS
+        ],
+        "coder_share": share_grid,
+        "everyone_share": [share(every, label) for label in CIN_LABELS],
     }
 
 

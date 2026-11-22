@@ -273,6 +273,127 @@ def test_kappa_is_reported_beside_percent_agreement(v2_cohort):
     assert report["cohorts"][0]["kappa"] == report["kappa"]
 
 
+def _answers(cohort, rows):
+    """rows: (story, coder, label) in the order given; "" is a rejection."""
+    for story, coder, label in rows:
+        ClassificationDecision.objects.create(
+            cohort=cohort,
+            article_id=story,
+            decided_by=coder,
+            primary_label=label,
+            reject_reason="" if label else "not_local",
+            codebook_version=cohort.codebook_version,
+        )
+
+
+def test_each_category_reports_observed_expected_and_kappa(v2_cohort):
+    a, b = _coder("a", v2_cohort), _coder("b", v2_cohort)
+    _answers(
+        v2_cohort,
+        [
+            ("s-0", a, "Sports"),
+            ("s-0", b, "Sports"),
+            ("s-1", a, "Health"),
+            ("s-1", b, "Health"),
+            ("s-2", a, "Sports"),
+            ("s-2", b, "Health"),
+            ("s-3", a, "Health"),
+            ("s-3", b, ""),
+        ],
+    )
+    report = agreement_report(v2_cohort.codebook_version)
+    assert report["overall"] == 50.0
+    assert report["expected"] == 37.5
+    sports = next(r for r in report["categories"] if r["label"] == "Sports")
+    # Sports against the rest: (T,T) (F,F) (T,F) (F,F). Observed 3/4;
+    # a chose it 2/4, b 1/4: expected 0.5*0.25 + 0.5*0.75.
+    found = (sports["observed"], sports["expected"], sports["kappa"])
+    assert found == (75.0, 50.0, 0.5)
+    # Sports is 3 of the 8 answers; 2 pairs name it, 1 where both did.
+    assert (sports["share"], sports["pairs"], sports["rate"]) == (37.5, 2, 50.0)
+    # Lowest kappa first.
+    kappas = [r["kappa"] for r in report["categories"]]
+    assert kappas == sorted(kappas)
+
+
+def test_a_coder_out_of_line_with_the_others_shows(v2_cohort):
+    """Two coders who agree and a third who never matches either. The
+    third's kappa is read against the kappa of the pairs they are not
+    in."""
+    a, b, c = (_coder(n, v2_cohort) for n in ("a", "b", "c"))
+    _answers(
+        v2_cohort,
+        [
+            ("s-0", a, "Sports"),
+            ("s-0", b, "Sports"),
+            ("s-1", a, "Health"),
+            ("s-1", b, "Health"),
+            ("s-2", a, "Sports"),
+            ("s-2", c, "Health"),
+            ("s-3", b, "Health"),
+            ("s-3", c, "Sports"),
+        ],
+    )
+    report = agreement_report(v2_cohort.codebook_version)
+    rows = {row["name"]: row for row in report["coders"]}
+    c_row = rows["c"]
+    assert (c_row["n"], c_row["observed"], c_row["kappa"]) == (2, 0.0, -1.0)
+    assert rows["c"]["kappa_without"] == 1.0
+    # a: (S,S) (H,H) (S,H). Observed 6/9; a chose S2 H1, partners S1 H2,
+    # so expected (2*1 + 1*2)/9 = 4/9; kappa (6/9 - 4/9) / (5/9) = 0.4.
+    assert rows["a"]["kappa"] == 0.4
+
+    from review.classification import CIN_LABELS
+
+    sports = CIN_LABELS.index("Sports")
+    grid = {row["name"]: row["cells"] for row in report["coder_share"]}
+    assert grid["c"][sports] == {"coder": 50.0, "others": 50.0, "flag": None}
+    kappa = {row["name"]: row["cells"] for row in report["coder_kappa"]}
+    assert kappa["c"][sports]["kappa"] == -1.0
+    # Two stories are far too few to call anyone an outlier.
+    assert not any(row["flags"] for row in report["coders"])
+
+
+def test_a_coder_far_below_the_others_is_flagged(v2_cohort):
+    """Three coders who agree on 9 stories in 10 and one who agrees on 4
+    in 10: the fourth is flagged overall, the others are not."""
+    import random
+
+    from review.classification import CIN_LABELS
+
+    coders = [_coder(n, v2_cohort) for n in ("ann", "bob", "cat", "dee")]
+    rng = random.Random(3)
+    rows = []
+    for n in range(240):
+        truth = CIN_LABELS[n % len(CIN_LABELS)]
+        for coder in rng.sample(coders, 2):
+            right = 0.4 if coder.username == "dee" else 0.9
+            other = rng.choice([x for x in CIN_LABELS if x != truth])
+            rows.append((f"s-{n}", coder, truth if rng.random() < right else other))
+    _answers(v2_cohort, rows)
+    report = agreement_report(v2_cohort.codebook_version)
+    flagged = {row["name"] for row in report["coders"] if row["flag"]}
+    assert flagged == {"dee"}
+
+
+def test_the_report_page_shows_the_coder_tables(client, v2_cohort):
+    admin = User.objects.create_user("admin", password="x")
+    Grant.objects.create(user=admin, app=DATADESK, role=ADMIN, scope="")
+    a, b = _coder("ann", v2_cohort), _coder("bob", v2_cohort)
+    _answers(v2_cohort, [("s-0", a, "Sports"), ("s-0", b, "Health")])
+    client.force_login(admin)
+    body = client.get(reverse("review:cin_reporting")).content.decode()
+    for text in (
+        "Expected by chance",
+        "Kappa without them",
+        "ann",
+        "bob",
+        "Kappa by coder and category",
+        "Community Life",
+    ):
+        assert text in body
+
+
 # ---------------------------------------------------------- the admin page
 
 

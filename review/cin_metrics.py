@@ -322,19 +322,102 @@ def weighted_alpha(stories, label=None):
     return 1 - observed / expected
 
 
-def cohen_kappa(pairs):
-    """M5. Kappa for two raters over [(first, second)] labels."""
+def kappa_parts(pairs):
+    """Observed agreement, expected (chance) agreement and Cohen's kappa
+    over [(first, second)] labels.
+
+    Expected is the agreement two raters would reach choosing at random
+    with the frequencies each actually used. Kappa is None where it is
+    undefined: no pairs, or both raters always giving the one answer.
+    """
     pairs = list(pairs)
     n = len(pairs)
     if not n:
-        return None
+        return {"n": 0, "observed": None, "expected": None, "kappa": None}
     observed = sum(a == b for a, b in pairs) / n
     left, right = {}, {}
     for a, b in pairs:
         left[a] = left.get(a, 0) + 1
         right[b] = right.get(b, 0) + 1
-    chance = sum(left[k] * right.get(k, 0) for k in left) / (n * n)
-    return None if chance == 1 else (observed - chance) / (1 - chance)
+    expected = sum(left[k] * right.get(k, 0) for k in left) / (n * n)
+    kappa = None if expected == 1 else (observed - expected) / (1 - expected)
+    return {"n": n, "observed": observed, "expected": expected, "kappa": kappa}
+
+
+def cohen_kappa(pairs):
+    """M5. Kappa for two raters over [(first, second)] labels."""
+    return kappa_parts(pairs)["kappa"]
+
+
+#: Outlier coders. A coder's kappa is flagged when it sits at least this
+#: far below the kappa of the pairs they are not in -- one band of the
+#: Landis and Koch scale (0.41-0.60 moderate, 0.61-0.80 substantial) --
+#: AND a 95% bootstrap interval of that gap excludes zero. The margin
+#: keeps a real but trivial gap from being flagged; the interval keeps a
+#: large gap over a handful of stories from being flagged.
+OUTLIER_KAPPA_MARGIN = 0.20
+#: The fewest pairs a coder needs before their overall kappa is judged.
+OUTLIER_MIN_PAIRS = 20
+#: The fewest of a coder's pairs naming a category (either answer)
+#: before their kappa on it is judged.
+OUTLIER_MIN_CATEGORY_PAIRS = 10
+#: A category is flagged as over- or under-used when the coder chooses
+#: it at this multiple of everyone else's rate, or below its inverse,
+#: AND a two-proportion test puts the difference at p < OUTLIER_P.
+OUTLIER_SHARE_RATIO = 2.0
+OUTLIER_P = 0.05
+#: The fewest answers a coder needs before their use of a category is
+#: judged.
+OUTLIER_MIN_ANSWERS = 20
+
+
+def kappa_outlier(own, rest, *, min_pairs, resamples=1000, seed=0):
+    """Whether a coder's kappa is an outlier against the pairs without them.
+
+    `own` is the coder's pairs with the coder first, `rest` the pairs the
+    coder is not in, both [(first, second)]. True when the coder has
+    `min_pairs`, their kappa is at least `OUTLIER_KAPPA_MARGIN` below
+    the rest's, and the 95% bootstrap interval of the gap (own and rest
+    resampled independently) lies wholly above zero.
+    """
+    own, rest = list(own), list(rest)
+    if len(own) < min_pairs or not rest:
+        return False
+    mine, theirs = cohen_kappa(own), cohen_kappa(rest)
+    if mine is None or theirs is None or theirs - mine < OUTLIER_KAPPA_MARGIN:
+        return False
+    rng = random.Random(seed)
+    gaps = []
+    for _ in range(resamples):
+        a = cohen_kappa(rng.choices(own, k=len(own)))
+        b = cohen_kappa(rng.choices(rest, k=len(rest)))
+        if a is not None and b is not None:
+            gaps.append(b - a)
+    if not gaps:
+        return False
+    gaps.sort()
+    return gaps[int(0.025 * len(gaps))] > 0
+
+
+def share_outlier(hits, n, other_hits, other_n):
+    """ "high", "low" or None: whether a coder chooses a category at
+    `OUTLIER_SHARE_RATIO` times everyone else's rate (or under its
+    inverse) with a two-proportion test at p < `OUTLIER_P`."""
+    if n < OUTLIER_MIN_ANSWERS or not other_n:
+        return None
+    mine, theirs = hits / n, other_hits / other_n
+    if mine >= OUTLIER_SHARE_RATIO * theirs and mine > theirs:
+        direction = "high"
+    elif mine * OUTLIER_SHARE_RATIO <= theirs and mine < theirs:
+        direction = "low"
+    else:
+        return None
+    pooled = (hits + other_hits) / (n + other_n)
+    se = math.sqrt(pooled * (1 - pooled) * (1 / n + 1 / other_n))
+    if not se:
+        return None
+    p = math.erfc(abs(mine - theirs) / se / math.sqrt(2))
+    return direction if p < OUTLIER_P else None
 
 
 def settled_label(answers):

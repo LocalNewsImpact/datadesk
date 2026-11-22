@@ -30,15 +30,26 @@
   least.
   {% endcomment %}
   <dl class="stat-row">
-    <div><dt>Agreement</dt>
+    <div><dt>Observed agreement</dt>
       <dd class="big">{% if overall is not None %}{{ overall }}%{% else %}&mdash;{% endif %}</dd></div>
+    <div><dt>Expected by chance</dt>
+      <dd class="big">{% if expected is not None %}{{ expected }}%{% else %}&mdash;{% endif %}</dd></div>
     <div><dt>Cohen's kappa</dt>
-      <dd class="big">{% if kappa is not None %}{{ kappa }}{% else %}&mdash;{% endif %}</dd></div>
+      <dd class="big">{{ kappa|floatformat:3|default:"—" }}</dd></div>
     <div><dt>Pairs compared</dt><dd class="big">{{ pairs }}</dd></div>
     <div><dt>Stories with two or more coders</dt>
       <dd class="big">{{ articles_multiply_coded }}</dd></div>
     <div><dt>Decisions recorded</dt><dd class="big">{{ decisions }}</dd></div>
   </dl>
+
+  <p class="quiet">
+    Observed is the share of pairs that gave the same answer; expected is
+    the share two coders would match by chance, choosing with the
+    frequencies these coders used; kappa is how far observed sits above
+    chance, from 0 (chance) to 1 (always the same). V1 measured 0.583.
+    A rejection counts as one more answer. Kappa depends on the mix of
+    stories drawn, so compare it between rounds drawn the same way.
+  </p>
 
   {% if not pairs %}
   <p class="notice">
@@ -50,30 +61,152 @@
 
   <h2>By category</h2>
   <p class="quiet">
-    Worst first, because that is what a codebook revision is aimed at. A
-    disagreement counts against both categories named, not just the one
-    that sorts earlier.
+    Lowest kappa first. Observed, expected and kappa are the category
+    against the rest: whether both coders chose it or both did not.
+    "Both chose it" is the share of pairs naming the category in which
+    both coders did.
   </p>
   <div class="table-scroll">
     <table>
       <thead>
         <tr>
           <th scope="col">Category</th>
-          <th scope="col" class="num">Agreement</th>
+          <th scope="col" class="num">Share of answers</th>
+          <th scope="col" class="num">Pairs naming it</th>
+          <th scope="col" class="num">Both chose it</th>
+          <th scope="col" class="num">Observed</th>
+          <th scope="col" class="num">Expected</th>
           <th scope="col" class="num">Kappa</th>
-          <th scope="col" class="num">Pairs</th>
         </tr>
       </thead>
       <tbody>
         {% for row in categories %}
         <tr>
           <th scope="row">{{ row.shown }}</th>
+          <td class="num">{{ row.share }}%</td>
+          <td class="num">{{ row.pairs }}</td>
           <td class="num">{{ row.rate }}%</td>
-          <td class="num">{% if row.kappa is not None %}{{ row.kappa }}{% else %}&mdash;{% endif %}</td>
-          <td class="num quiet">{{ row.pairs }}</td>
+          <td class="num">{{ row.observed }}%</td>
+          <td class="num">{{ row.expected }}%</td>
+          <td class="num"><strong>{{ row.kappa|floatformat:3|default:"—" }}</strong></td>
         </tr>
         {% endfor %}
       </tbody>
+    </table>
+  </div>
+
+  {% comment %}
+  Per coder, for finding an outlier. Over first pairs, with the coder as
+  the first rater; "Kappa without" is the same figure over the pairs the
+  coder is not in. Admin and editor only: a coder who can watch their
+  own agreement codes toward the others.
+  {% endcomment %}
+  <h2>By coder</h2>
+  <p class="quiet">
+    Over the first two answers on each story ({{ first_pairs }} pairs),
+    so a third coder brought in on a split is not marked down for it.
+    Read a coder's kappa against "Kappa without them", the kappa of the
+    pairs they are not in.
+  </p>
+  <p class="quiet">
+    <strong class="outlier">Flagged</strong> where a coder's kappa is at
+    least 0.20 below the kappa without them (one Landis&ndash;Koch band)
+    and a 95% bootstrap interval of that gap excludes zero: overall from
+    20 pairs, per category from 10 pairs naming it. A category's use is
+    flagged where a coder chooses it at twice everyone else's rate or
+    under half of it, with p&nbsp;&lt;&nbsp;0.05, from 20 answers.
+  </p>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Coder</th>
+          <th scope="col" class="num">Answers</th>
+          <th scope="col" class="num">Rejected</th>
+          <th scope="col" class="num">Pairs</th>
+          <th scope="col" class="num">Observed</th>
+          <th scope="col" class="num">Expected</th>
+          <th scope="col" class="num">Kappa</th>
+          <th scope="col" class="num">Kappa without them</th>
+          <th scope="col">Flags</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in coders %}
+        <tr>
+          <th scope="row">{{ row.name }}</th>
+          <td class="num">{{ row.answers }}</td>
+          <td class="num">{{ row.rejected }}%</td>
+          <td class="num">{{ row.n }}</td>
+          <td class="num">{% if row.observed is not None %}{{ row.observed }}%{% else %}&mdash;{% endif %}</td>
+          <td class="num">{% if row.expected is not None %}{{ row.expected }}%{% else %}&mdash;{% endif %}</td>
+          <td class="num"><strong{% if row.flag %} class="outlier"{% endif %}>{{ row.kappa|floatformat:3|default:"—" }}</strong></td>
+          <td class="num">{{ row.kappa_without|floatformat:3|default:"—" }}</td>
+          <td>{% if row.flags %}<span class="outlier">{{ row.flags|join:"; " }}</span>{% else %}<span class="quiet">none</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Kappa by coder and category</h3>
+  <p class="quiet">
+    Each category against the rest, over that coder's first pairs, with
+    the kappa of the pairs without them beneath. The last row is
+    everyone.
+  </p>
+  <div class="table-scroll">
+    <table class="coder-grid">
+      <thead>
+        <tr>
+          <th scope="col">Coder</th>
+          {% for shown in category_columns %}<th scope="col" class="num">{{ shown }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in coder_kappa %}
+        <tr>
+          <th scope="row">{{ row.name }}</th>
+          {% for cell in row.cells %}<td class="num{% if cell.flag %} outlier{% endif %}">{{ cell.kappa|floatformat:3|default:"—" }}<br><span class="quiet">{{ cell.without|floatformat:3|default:"—" }}</span></td>{% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th scope="row">Everyone</th>
+          {% for cell in everyone_kappa %}<td class="num">{{ cell|floatformat:3|default:"—" }}</td>{% endfor %}
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <h3>How often each coder chose each category</h3>
+  <p class="quiet">
+    Share of the coder's answers, with everyone else's share beneath. A
+    coder far from the others on one category is using it differently.
+  </p>
+  <div class="table-scroll">
+    <table class="coder-grid">
+      <thead>
+        <tr>
+          <th scope="col">Coder</th>
+          {% for shown in category_columns %}<th scope="col" class="num">{{ shown }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in coder_share %}
+        <tr>
+          <th scope="row">{{ row.name }}</th>
+          {% for cell in row.cells %}<td class="num{% if cell.flag %} outlier{% endif %}">{{ cell.coder }}%<br><span class="quiet">{{ cell.others|default_if_none:"—" }}{% if cell.others is not None %}%{% endif %}</span></td>{% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th scope="row">Everyone</th>
+          {% for cell in everyone_share %}<td class="num">{{ cell }}%</td>{% endfor %}
+        </tr>
+      </tfoot>
     </table>
   </div>
 
@@ -87,32 +220,25 @@
       <thead>
         <tr>
           <th scope="col">Cohort</th>
-          <th scope="col" class="num">Agreement</th>
-          <th scope="col" class="num">Kappa</th>
           <th scope="col" class="num">Pairs</th>
+          <th scope="col" class="num">Observed</th>
+          <th scope="col" class="num">Expected</th>
+          <th scope="col" class="num">Kappa</th>
         </tr>
       </thead>
       <tbody>
         {% for row in cohorts %}
         <tr>
           <th scope="row">Cohort {{ row.number }}</th>
-          <td class="num">{{ row.rate }}%</td>
-          <td class="num">{% if row.kappa is not None %}{{ row.kappa }}{% else %}&mdash;{% endif %}</td>
-          <td class="num quiet">{{ row.pairs }}</td>
+          <td class="num">{{ row.n }}</td>
+          <td class="num">{{ row.observed }}%</td>
+          <td class="num">{{ row.expected }}%</td>
+          <td class="num"><strong>{{ row.kappa|floatformat:3|default:"—" }}</strong></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
   {% endif %}
-
-  <p class="quiet">
-    Cohen's kappa is agreement corrected for chance, with chance taken
-    from how often each category was used in these pairs; V1 measured
-    0.583. Per category it is that category against the rest. A round
-    drawn to oversample rare categories and a random one can share a
-    percent agreement and differ in kappa, so compare kappa between
-    rounds drawn the same way.
-  </p>
 </section>
 {% endblock %}

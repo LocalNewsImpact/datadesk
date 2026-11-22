@@ -366,3 +366,33 @@ def test_secondary_use_says_who_adds_one_and_what_became_of_split_pairs():
     assert between == [{"labels": ["Education", "Health"], "count": 2}]
     # Nothing coded: nothing to divide by.
     assert m.secondary_use({})["pairs"]["crossover_share"] is None
+
+
+# ------------------------------------------------------------- outliers
+
+
+def test_a_kappa_gap_is_flagged_only_when_wide_and_certain():
+    same = [("A", "A"), ("B", "B")] * 20 + [("A", "B")] * 4
+    worse = [("A", "A"), ("B", "B")] * 10 + [("A", "B"), ("B", "A")] * 12
+    # 0.82 against 0.09: wide, and over 44 pairs each.
+    assert m.kappa_outlier(worse, same, min_pairs=20)
+    # The same gap over too few pairs is not judged.
+    assert not m.kappa_outlier(worse[:10], same, min_pairs=20)
+    # No gap.
+    assert not m.kappa_outlier(same, same, min_pairs=20)
+    # A gap under the 0.20 margin.
+    close = [("A", "A"), ("B", "B")] * 20 + [("A", "B")] * 7
+    assert m.cohen_kappa(same) - m.cohen_kappa(close) < m.OUTLIER_KAPPA_MARGIN
+    assert not m.kappa_outlier(close, same, min_pairs=20)
+
+
+def test_a_category_used_twice_as_often_is_flagged():
+    # 30% against 10%, 100 answers against 300.
+    assert m.share_outlier(30, 100, 30, 300) == "high"
+    assert m.share_outlier(3, 100, 60, 300) == "low"
+    # Twice as often, but 4 of 20 against 2 of 20 is not significant.
+    assert m.share_outlier(4, 20, 2, 20) is None
+    # Significant but under the ratio: 15% against 10%.
+    assert m.share_outlier(150, 1000, 300, 3000) is None
+    # Too few answers to judge.
+    assert m.share_outlier(10, 19, 10, 300) is None
