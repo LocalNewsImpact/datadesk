@@ -113,16 +113,15 @@
   </form>
 
   {% comment %}
-  The ten categories, all ten in view while a story is assigned: each
-  name with its one-line form, and the full "what it covers" text on
-  hover. Nothing else: the full instructions are on the empty-queue page
-  and in the codebook.
+  The ten categories with what each covers, in full and all in view
+  while a story is assigned. Nothing else: the full instructions are on
+  the empty-queue page and in the codebook.
   {% endcomment %}
   <dl class="category-box" aria-label="The ten categories">
     {% for row in guidance %}
-    <div title="{{ row.covers }}">
+    <div>
       <dt>{{ row.label }}</dt>
-      <dd>{{ row.one_line|default:row.covers }}</dd>
+      <dd>{{ row.covers }}</dd>
     </div>
     {% endfor %}
   </dl>
