@@ -3,8 +3,6 @@
 
 {% block content %}
 <section class="card card-wide classification">
-  <h1>What is this story about?</h1>
-
   {% comment %}
   No filters, and nothing about the pipeline's own opinion: no CIN
   label, no confidence, no status, no wire flag, no publisher notes. A
@@ -14,6 +12,8 @@
   {% endcomment %}
 
   {% if not assignment %}
+  <h1>What is this story about?</h1>
+
   <p class="lede">
     Read the headline and the story, then say which information need it
     serves. <a href="#instructions" class="instructions-open">Instructions</a>
@@ -33,7 +33,7 @@
   {% endcomment %}
   <div class="classify-layout">
   <article class="story">
-    <h2 class="story-headline">{{ article.title|default:"(no headline)" }}</h2>
+    <h1 class="story-headline">{{ article.title|default:"(no headline)" }}</h1>
 
     {% comment %}
     Headline and text, and nothing else: no URL, date, photo, caption,
@@ -56,7 +56,7 @@
   <aside class="classify-panel">
   <p class="lede">
     Read the headline and the story, then say which information need it
-    serves. <a href="#instructions" class="instructions-open">Instructions</a>
+    serves.
   </p>
 
   <p class="quiet progress">
@@ -89,7 +89,7 @@
       0.5 weight it carries in the training label is noise.
       {% endcomment %}
       <label class="secondary">
-        Secondary <span class="quiet">— only if you are confident</span>
+        Secondary
         <select name="secondary">
           <option value="">none</option>
           {% for value, shown in labels %}
@@ -116,6 +116,21 @@
 
     <button type="submit" class="primary">Save and next</button>
   </form>
+
+  {% comment %}
+  The ten categories, all ten in view while a story is assigned: each
+  name with its one-line form, and the full "what it covers" text on
+  hover. Nothing else: the full instructions are on the empty-queue page
+  and in the codebook.
+  {% endcomment %}
+  <dl class="category-box" aria-label="The ten categories">
+    {% for row in guidance %}
+    <div title="{{ row.covers }}">
+      <dt>{{ row.label }}</dt>
+      <dd>{{ row.one_line|default:row.covers }}</dd>
+    </div>
+    {% endfor %}
+  </dl>
   </aside>
   </div>
 
@@ -123,60 +138,16 @@
   {% endif %}
 
   {% comment %}
-  Outside the assignment branch. The "Instructions" link above is shown
-  whether or not anything is assigned, and the panel used to be rendered
-  only when it was -- so a coder waiting on a cohort, which is exactly
-  when somebody reads the instructions rather than working, clicked a
-  link to nothing.
+  Outside the assignment branch. With nothing assigned the "Instructions"
+  link opens this panel -- a coder waiting on a cohort is exactly when
+  somebody reads the instructions rather than working.
   {% endcomment %}
+  {% if not assignment %}
   <div id="instructions" class="instructions" hidden>
-    <h2>How to categorise a story</h2>
-
-    {% comment %}
-    From CodebookSettings, edited under CIN > Codebook rather than
-    deployed. The definitions are known to be imperfect, so the wording
-    will be rewritten, and rewriting it is how agreement gets tested.
-
-    Rendered as paragraphs of text. The field takes plain text and this
-    escapes it: a textarea an admin pastes into from Word is not a place
-    to start trusting markup.
-    {% endcomment %}
-    {% for paragraph in instructions %}
-    <p{% if forloop.first %} class="lede"{% endif %}>{{ paragraph }}</p>
-    {% endfor %}
-
-    <h3>The ten categories</h3>
-    <table class="guide">
-      <thead>
-        <tr>
-          <th scope="col">Category</th>
-          <th scope="col">What it covers</th>
-          <th scope="col">A reader could&hellip;</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in guidance %}
-        <tr>
-          <th scope="row">{{ row.label }}</th>
-          <td>{{ row.covers }}</td>
-          <td class="quiet">{{ row.reader_could }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-
-
-
-
-    <p class="quiet">
-      The full definitions, worked examples and the tags this panel
-      summarises are in
-      <a href="https://github.com/LocalNewsImpact/datadesk/blob/main/docs/CODEBOOK.md"
-         target="_blank" rel="noopener noreferrer">the codebook</a>.
-    </p>
-
+    {% include "review/_cin_instructions.html" %}
     <button type="button" class="linklike instructions-close">Close</button>
   </div>
+  {% endif %}
 
   <script>
   // When the row was opened, so the form can record how long it took.

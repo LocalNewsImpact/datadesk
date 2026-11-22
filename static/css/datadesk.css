@@ -3142,14 +3142,15 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
    console: about 70 characters a line, and space between paragraphs. */
 .classification .story { max-width: 42rem; }
 .classification .story-headline {
-  margin: var(--s-4) 0 var(--s-3);
+  margin: 0 0 var(--s-3);
   font-size: 1.5rem;
   line-height: 1.25;
   font-weight: 600;
 }
 .classification .story-body {
   max-width: 68ch;
-  max-height: calc(70vh - 20px);
+  height: calc(70vh - 20px);
+  box-sizing: border-box;
   overflow-y: auto;
   padding: var(--s-4);
   border: 1px solid var(--border);
@@ -3161,35 +3162,73 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
 .classification .story-body p:last-child { margin-bottom: 0; }
 .classification .classify-form { max-width: 42rem; margin-top: var(--s-4); }
 
-/* Story left; instructions, progress and the form right, level with the
-   headline and kept in view while the page scrolls. One column below
-   64rem, story first. */
+/* Story left; the brief, the count, the form and the ten categories
+   right, level with the headline. All ten categories stay in view, so
+   the panel has to fit beside the story box; the story box has a fixed
+   height so that space does not change from story to story. One column
+   below 64rem, story first. */
 .classification .classify-layout {
   display: grid;
   grid-template-columns: minmax(0, 42rem) minmax(16rem, 22rem);
   gap: var(--s-6);
-  align-items: start;
 }
-.classification .classify-panel {
-  position: sticky;
-  top: var(--s-4);
-  margin-top: var(--s-4);
+.classification .classify-panel { min-width: 0; }
+/* On a short window the ten categories reach lower than 70vh. The story
+   box then grows to end level with them rather than the categories
+   running past it: the story column is stretched to the row and the box
+   takes the rest of it. `contain: size` keeps the story's own length out
+   of the row height, so the box still scrolls. */
+.classification .classify-layout .story { display: flex; flex-direction: column; }
+.classification .classify-layout .story-body {
+  flex: 1 1 0;
+  height: auto;
+  min-height: calc(70vh - 20px);
+  contain: size;
 }
-.classification .classify-panel .lede { margin-top: 0; }
+.classification .classify-panel .lede { margin: 0 0 var(--s-2); }
+.classification .classify-panel .progress { margin: 0; }
 .classification .classify-panel .classify-form { margin-top: var(--s-4); }
 .classification .classify-panel .classify-fields {
   display: flex;
   flex-direction: column;
-  gap: var(--s-3);
+  gap: var(--s-2);
 }
-.classification .classify-panel .classify-fields label {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-1);
+.classification .classify-panel .classify-fields label { display: block; }
+.classification .classify-panel .classify-fields label { font-size: var(--fs-sm); }
+.classification .classify-panel select {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  padding: 2px var(--s-2);
+  font-size: var(--fs-sm);
+  min-height: 0;
+  height: auto;
 }
-.classification .classify-panel select { width: 100%; }
-.classification .classify-panel button[type="submit"] { margin-top: var(--s-4); }
+.classification .classify-panel button[type="submit"] { margin-top: var(--s-3); }
+.classification .category-box {
+  margin: var(--s-3) 0 0;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+}
+.classification .category-box > div { margin-top: var(--s-1); cursor: help; }
+.classification .category-box > div:first-child { margin-top: 0; }
+.classification .category-box dt { font-weight: 600; }
+/* One line each, so all ten fit; the full text is in the title. */
+.classification .category-box dd {
+  margin: 0;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.classification .guide-list { margin: 0; }
+.classification .guide-list dt { font-weight: 600; margin-top: var(--s-2); }
+.classification .guide-list dd { margin: 0; }
 @media (max-width: 64rem) {
   .classification .classify-layout { grid-template-columns: minmax(0, 1fr); }
-  .classification .classify-panel { position: static; }
+  .classification .classify-layout .story-body { contain: none; flex: none; height: calc(70vh - 20px); }
 }
+

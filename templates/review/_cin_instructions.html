@@ -1,0 +1,36 @@
+{% comment %}
+The coder instructions and the ten categories. Shown in the box under
+the answer form while a story is assigned, and behind the Instructions
+link when nothing is.
+{% endcomment %}
+<h2>How to categorise a story</h2>
+
+{% comment %}
+From CodebookSettings, edited under CIN > Codebook rather than
+deployed. The definitions are known to be imperfect, so the wording
+will be rewritten, and rewriting it is how agreement gets tested.
+
+Rendered as paragraphs of text. The field takes plain text and this
+escapes it: a textarea an admin pastes into from Word is not a place
+to start trusting markup.
+{% endcomment %}
+{% for paragraph in instructions %}
+<p{% if forloop.first %} class="lede"{% endif %}>{{ paragraph }}</p>
+{% endfor %}
+
+<h3>The ten categories</h3>
+<dl class="guide-list">
+  {% for row in guidance %}
+  <dt>{{ row.label }}</dt>
+  <dd>{{ row.covers }}</dd>
+  <dd class="quiet">A reader could {{ row.reader_could }}{% if row.reader_could|slice:"-1:" != "." %}.{% endif %}</dd>
+  {% endfor %}
+</dl>
+
+<p class="quiet">
+  The full definitions, worked examples and the tags this panel
+  summarises are in
+  <a href="https://github.com/LocalNewsImpact/datadesk/blob/main/docs/CODEBOOK.md"
+     target="_blank" rel="noopener noreferrer">the codebook</a>.
+</p>
+
