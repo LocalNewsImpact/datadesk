@@ -2466,6 +2466,15 @@ def classification_queue(request):
     outstanding = (
         ClassificationAssignment.objects.filter(
             assigned_to=request.user, completed_at__isnull=True, cohort__in=cohorts
+        )
+        # A story this coder has already answered, wherever, is not
+        # offered again: one answer per coder per story is a database
+        # rule, and saving a second was a server error. Two batches
+        # drawn at once before the batch lock could share a story.
+        .exclude(
+            article_id__in=ClassificationDecision.objects.filter(
+                decided_by=request.user
+            ).values("article_id")
         ).select_related("cohort")
         # A random order, fixed when each assignment was made. Work made
         # in one step -- a batch stored category by category, a set of
@@ -2556,6 +2565,15 @@ def _submit_classification(request):
         or (reject and reject not in codebook.rejections)
     ):
         messages.error(request, "That is not one of the choices offered.")
+        return redirect("review:classification")
+
+    # Already answered in another batch: the first answer stands, and the
+    # duplicate assignment is closed rather than failing the insert.
+    if ClassificationDecision.objects.filter(
+        article_id=assignment.article_id, decided_by=request.user
+    ).exists():
+        assignment.completed_at = timezone.now()
+        assignment.save(update_fields=["completed_at"])
         return redirect("review:classification")
 
     sample = ClassificationSample.objects.filter(
