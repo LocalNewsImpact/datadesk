@@ -60,23 +60,35 @@ def _user(username, role=CLASSIFIER, scope="cohort-1"):
 # ------------------------------------------------------------- the draw
 
 
-def test_a_cohort_draws_across_the_four_strata(crawler_schema):
+def test_a_cohort_draws_across_the_three_strata(crawler_schema):
     """Each stratum answers a different question, so a draw that filled
     only one would answer only that one."""
     for n in range(8):
         _article(crawler_schema, n, confidence=0.95)  # confident
     for n in range(8, 16):
         _article(crawler_schema, n, confidence=0.2)  # uncertain
-    for n in range(16, 24):
-        _article(crawler_schema, n, label=None, confidence=None)  # unlabelled
 
-    cohort, drawn = draw_cohort(8)
+    cohort, drawn = draw_cohort(9)
     assert cohort.number == 1 and cohort.slug == "cohort-1"
-    assert drawn[CONFIDENT] == 2
-    assert drawn[UNCERTAIN] == 2
-    assert drawn[UNLABELLED] == 2
-    assert drawn[RANDOM] == 2
-    assert ClassificationSample.objects.filter(cohort=cohort).count() == 8
+    assert drawn == {CONFIDENT: 3, UNCERTAIN: 3, RANDOM: 3}
+    assert ClassificationSample.objects.filter(cohort=cohort).count() == 9
+
+
+def test_a_story_the_model_has_not_labelled_is_never_drawn(crawler_schema):
+    """A coder's answer is scored against the model's. A story with no
+    model label scores against nothing, so no stratum draws one -- the
+    random one included, which is what a round draws from."""
+    for n in range(6):
+        _article(crawler_schema, n, label=None, confidence=None)
+    for n in range(6, 9):
+        _article(crawler_schema, n, label="", confidence=None)
+    labelled = _article(crawler_schema, 20, confidence=0.6)
+
+    cohort, drawn = draw_cohort(9)
+    assert set(cohort.samples.values_list("article_id", flat=True)) == {labelled.id}
+    assert UNLABELLED not in drawn
+    _, drawn = draw_cohort(5, shares={RANDOM: 1.0})
+    assert drawn == {RANDOM: 0}
 
 
 def test_confident_and_uncertain_are_drawn_in_balance(crawler_schema):
@@ -94,23 +106,23 @@ def test_the_middle_band_is_in_neither_doubt_stratum(crawler_schema):
     two strata exist to separate."""
     for n in range(12):
         _article(crawler_schema, n, confidence=0.6)
-    _, drawn = draw_cohort(8)
+    _, drawn = draw_cohort(9)
     assert drawn[CONFIDENT] == 0
     assert drawn[UNCERTAIN] == 0
     # Still reachable, which is the other half of the rule.
-    assert drawn[RANDOM] == 2
+    assert drawn[RANDOM] == 3
 
 
 def test_a_short_stratum_is_reported_not_topped_up(crawler_schema):
-    """A cohort whose unlabelled quarter came out of the random pool is
-    not the cohort the design describes, and a caller that cannot see the
+    """A cohort whose uncertain third came out of the random pool is not
+    the cohort the design describes, and a caller that cannot see the
     difference cannot correct for it."""
     for n in range(20):
         _article(crawler_schema, n, confidence=0.95)
-    _, drawn = draw_cohort(20)
-    assert drawn[UNLABELLED] == 0
-    assert drawn[CONFIDENT] == 5
-    assert sum(drawn.values()) < 20
+    _, drawn = draw_cohort(21)
+    assert drawn[UNCERTAIN] == 0
+    assert drawn[CONFIDENT] == 7
+    assert sum(drawn.values()) < 21
 
 
 def test_the_inclusion_probability_is_recorded(crawler_schema):
@@ -118,13 +130,13 @@ def test_the_inclusion_probability_is_recorded(crawler_schema):
     is not a rate, and the chance cannot be recovered afterwards."""
     for n in range(40):
         _article(crawler_schema, n, confidence=0.95)
-    cohort, _ = draw_cohort(20)
+    cohort, _ = draw_cohort(21)
     rows = ClassificationSample.objects.filter(cohort=cohort, stratum=CONFIDENT)
     assert rows.exists()
     for row in rows:
         assert 0 < row.inclusion_probability <= 1
-    # 5 confident drawn from 40 eligible.
-    assert rows.first().inclusion_probability == pytest.approx(5 / 40)
+    # 7 confident drawn from 40 eligible.
+    assert rows.first().inclusion_probability == pytest.approx(7 / 40)
 
 
 def test_an_article_is_never_in_two_cohorts(crawler_schema):

@@ -6,16 +6,17 @@ Reviewable as a table before any UI exists, which is while the sampling
 can still be argued with.
 
 WHAT IT DRAWS
-Four strata, each answering a different question (see
+Three strata, each answering a different question (see
 docs/CLASSIFICATION_REVIEW_QUEUE.md section 3):
 
     confident   the model scored >= 0.7 -- does a human agree where it
                 is sure
     uncertain   scored < 0.5 -- does it agree where it is guessing
-    random      drawn uniformly, the only unbiased estimate of anything
-    unlabelled  the analysis stage has not reached it, so there is
-                nothing to agree with and the label is training data
-                outright
+    random      drawn uniformly from labelled stories, the only unbiased
+                estimate of anything
+
+Only stories the model has labelled are drawn: a coder's answer is
+scored against the model's, and an unlabelled story has none.
 
 Confident and uncertain are drawn in equal size on purpose. A model that
 is right when sure and wrong when guessing is usable with a threshold;
@@ -66,8 +67,7 @@ UNCERTAIN_BELOW = 0.5
 SHARES = {
     ClassificationSample.CONFIDENT: 0.3,
     ClassificationSample.UNCERTAIN: 0.3,
-    ClassificationSample.RANDOM: 0.3,
-    ClassificationSample.UNLABELLED: 0.1,
+    ClassificationSample.RANDOM: 0.4,
 }
 
 
@@ -155,28 +155,12 @@ class Command(BaseCommand):
 
         rows = (
             Article.objects.using("crawler")
+            .filter(primary_label__isnull=False)
+            .exclude(primary_label="")
             .exclude(id__in=list(exclude))
             .values("id")
             .extra(select={"_d": "md5(articles.id)"})
             .order_by("_d")[:wanted]
-        )
-        return [{"article_id": r["id"]} for r in rows], {}
-
-    def _unlabelled(self, wanted, exclude):
-        """Articles the analysis stage has not reached.
-
-        Empty while the crons are suspended and a stream once they run.
-        The only stratum where a human label is training data outright:
-        there is no model answer to agree or disagree with, so nothing
-        biases it.
-        """
-        from explorer.models import Article
-
-        rows = (
-            Article.objects.using("crawler")
-            .filter(primary_label__isnull=True)
-            .exclude(id__in=list(exclude))
-            .values("id")[:wanted]
         )
         return [{"article_id": r["id"]} for r in rows], {}
 
@@ -208,10 +192,8 @@ class Command(BaseCommand):
                 rows, probs = self._labelled(
                     -1.0, UNCERTAIN_BELOW, options["balance_labels"], wanted
                 )
-            elif stratum == ClassificationSample.RANDOM:
-                rows, probs = self._random(wanted, seen)
             else:
-                rows, probs = self._unlabelled(wanted, seen)
+                rows, probs = self._random(wanted, seen)
 
             for row in rows:
                 key = row["article_id"]
