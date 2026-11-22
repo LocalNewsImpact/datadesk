@@ -3417,3 +3417,19 @@ td.outlier { background: color-mix(in srgb, var(--tone-bad) 8%, transparent); }
 .cin-codebook table.versions { width: auto; min-width: 28rem; }
 .cin-codebook table.versions tbody tr:last-child th { border-bottom: none; }
 .cin-codebook table.grid .count { text-align: right; }
+.cin-codebook .draft-status {
+  max-width: 52rem;
+  margin: var(--s-2) 0 var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border-left: 3px solid var(--tone-good, var(--border-strong));
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+}
+.cin-codebook .draft-status.differs { border-left-color: var(--tone-warn, var(--tone-bad)); }
+.cin-codebook .changed-tag {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-2xs);
+  font-weight: 500;
+  color: var(--tone-warn, var(--tone-bad));
+}

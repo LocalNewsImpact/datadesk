@@ -36,6 +36,22 @@
     {% csrf_token %}
     <h2>Draft</h2>
 
+    {% comment %}
+    The coding page shows the frozen version, never this draft. Say so,
+    and say what the draft would change, so an edit is not mistaken for
+    one coders already see.
+    {% endcomment %}
+    <p class="draft-status{% if differences %} differs{% endif %}">
+      The coding page shows <strong>{{ current.name }}</strong>.
+      {% if differences %}
+      This draft differs from it in: {{ differences|join:", " }}.
+      Freeze the draft as a new version to show coders the changes;
+      rounds already open keep the version they were opened under.
+      {% else %}
+      This draft matches it.
+      {% endif %}
+    </p>
+
     <div class="codebook-field">
       <label for="instructions">Instructions</label>
       <p class="field-note">
@@ -70,7 +86,7 @@
         <tbody>
           {% for row in categories %}
           <tr>
-            <th scope="row">{{ row.label }}</th>
+            <th scope="row">{{ row.label }}{% if row.changed %}<span class="changed-tag">changed since {{ current.name }}</span>{% endif %}</th>
             <td><input type="text" name="shown-{{ row.index }}"
                        value="{{ row.shown }}" maxlength="64"
                        placeholder="{{ row.label }}"

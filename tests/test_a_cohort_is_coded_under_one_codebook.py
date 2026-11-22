@@ -424,6 +424,36 @@ def test_an_admin_freezes_the_draft_on_the_screen(client):
     assert CodebookVersion.objects.filter(name="V2.0").count() == 1
 
 
+def test_the_codebook_page_says_what_coders_see_and_what_the_draft_changes(client):
+    """The coding page shows the frozen version, not the draft. The page
+    says which, and names what a draft edit has not yet reached."""
+    admin = User.objects.create_user("admin", password="x")
+    Grant.objects.create(user=admin, app=DATADESK, role=ADMIN, scope="")
+    client.force_login(admin)
+    post = {
+        "instructions": "Fresh wording.",
+        "shown-9": "Community Life",
+        "rejections": list(V1_REJECTIONS),
+        "action": "freeze",
+        "name": "V2.0",
+    }
+    for i in range(10):
+        post[f"covers-{i}"] = f"covers {i}"
+        post[f"could-{i}"] = f"could {i}"
+    body = client.post(reverse("review:cin_codebook"), post).content.decode()
+    assert "The coding page shows <strong>V2.0</strong>" in body
+    assert "This draft matches it." in body
+
+    post["action"] = "save"
+    post["covers-1"] = "covers 1, reworded"
+    body = client.post(reverse("review:cin_codebook"), post).content.decode()
+    from review.classification import CIN_LABELS
+
+    changed = CIN_LABELS[1]
+    assert f"This draft differs from it in: {changed}." in body
+    assert body.count("changed since V2.0") == 1
+
+
 def test_all_ten_categories_are_shown_in_full_beside_the_story(
     client, crawler_schema, v2_cohort
 ):
