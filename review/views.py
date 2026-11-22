@@ -2816,11 +2816,28 @@ def cin_codebook(request):
 
     guide = row.draft_guidance()
     offered = row.draft_rejections()
+    # What coders see is the current frozen version, not this draft. Say
+    # where the two differ, so an edit that has not reached the coding
+    # page yet is visible as such.
+    current = CodebookVersion.current()
+    shown_now = {k: v for k, v in row.display_names.items() if v and v != k}
+
+    def changed(label):
+        return list(current.guidance.get(label) or []) != guide[label] or (
+            current.display_names.get(label, "") != shown_now.get(label, "")
+        )
+
+    differences = [current.shown(label) for label in CIN_LABELS if changed(label)]
+    if (row.instructions or "") != (current.instructions or ""):
+        differences.insert(0, "instructions")
+    if list(current.rejections) != list(offered):
+        differences.append("rejections offered")
     return render(
         request,
         "review/cin_codebook.html",
         {
             "settings": row,
+            "differences": differences,
             "categories": [
                 {
                     "index": i,
@@ -2828,6 +2845,7 @@ def cin_codebook(request):
                     "shown": row.display_names.get(label, ""),
                     "covers": guide[label][0],
                     "reader_could": guide[label][1],
+                    "changed": changed(label),
                 }
                 for i, label in enumerate(CIN_LABELS)
             ],
@@ -2839,7 +2857,7 @@ def cin_codebook(request):
                 {"version": v, "cohorts": v.cohorts.count()}
                 for v in CodebookVersion.objects.all()
             ],
-            "current": CodebookVersion.current(),
+            "current": current,
             "saved": saved,
             "frozen": frozen,
             "error": error,

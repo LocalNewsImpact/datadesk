@@ -2,7 +2,7 @@
 {% block title %}Codebook — Datadesk{% endblock %}
 
 {% block content %}
-<section class="card card-wide">
+<section class="card card-wide cin-codebook">
   <h1>Codebook</h1>
 
   <p class="lede">
@@ -32,17 +32,35 @@
   what a cohort was shown must not move while it is being coded, and a
   V1 answer must never be pooled with a V2 one.
   {% endcomment %}
-  <form method="post">
+  <form method="post" class="codebook-form">
     {% csrf_token %}
     <h2>Draft</h2>
 
-    <label for="instructions">Instructions</label>
-    <p class="field-note quiet">
-      Shown above the category table. Blank lines separate paragraphs.
-      Plain text: markup is escaped, not rendered.
+    {% comment %}
+    The coding page shows the frozen version, never this draft. Say so,
+    and say what the draft would change, so an edit is not mistaken for
+    one coders already see.
+    {% endcomment %}
+    <p class="draft-status{% if differences %} differs{% endif %}">
+      The coding page shows <strong>{{ current.name }}</strong>.
+      {% if differences %}
+      This draft differs from it in: {{ differences|join:", " }}.
+      Freeze the draft as a new version to show coders the changes;
+      rounds already open keep the version they were opened under.
+      {% else %}
+      This draft matches it.
+      {% endif %}
     </p>
-    <textarea id="instructions" name="instructions" rows="18"
-              class="wide">{{ settings.instructions }}</textarea>
+
+    <div class="codebook-field">
+      <label for="instructions">Instructions</label>
+      <p class="field-note">
+        Shown above the category table. Blank lines separate paragraphs.
+        Plain text: markup is escaped, not rendered.
+      </p>
+      <textarea id="instructions" name="instructions"
+                rows="14">{{ settings.instructions }}</textarea>
+    </div>
 
     <h3>The ten categories</h3>
     <p class="quiet">
@@ -52,28 +70,31 @@
       only what coders and these pages display.
     </p>
     <div class="table-scroll">
-      <table class="guide">
+      <table class="grid guide">
+        <colgroup>
+          <col class="col-stored"><col class="col-shown">
+          <col class="col-covers"><col class="col-could">
+        </colgroup>
         <thead>
           <tr>
             <th scope="col">Stored name</th>
             <th scope="col">Shown as</th>
-            <th scope="col">What it covers</th>
+            <th scope="col">Short description <span class="th-note">shown beside every story</span></th>
             <th scope="col">A reader could&hellip;</th>
           </tr>
         </thead>
         <tbody>
           {% for row in categories %}
           <tr>
-            <th scope="row">{{ row.label }}</th>
+            <th scope="row">{{ row.label }}{% if row.changed %}<span class="changed-tag">changed since {{ current.name }}</span>{% endif %}</th>
             <td><input type="text" name="shown-{{ row.index }}"
                        value="{{ row.shown }}" maxlength="64"
                        placeholder="{{ row.label }}"
                        aria-label="{{ row.label }} shown as"></td>
             <td><textarea name="covers-{{ row.index }}" rows="3"
-                          aria-label="What {{ row.label }} covers">{{ row.covers }}</textarea></td>
-            <td><input type="text" name="could-{{ row.index }}"
-                       value="{{ row.reader_could }}"
-                       aria-label="{{ row.label }}: a reader could"></td>
+                          aria-label="{{ row.label }}: short description">{{ row.covers }}</textarea></td>
+            <td><textarea name="could-{{ row.index }}" rows="2"
+                          aria-label="{{ row.label }}: a reader could">{{ row.reader_could }}</textarea></td>
           </tr>
           {% endfor %}
         </tbody>
@@ -84,13 +105,15 @@
     <p class="quiet">
       What a coder can choose in place of a category.
     </p>
-    {% for row in rejections %}
-    <label class="check">
-      <input type="checkbox" name="rejections" value="{{ row.value }}"
-             {% if row.offered %}checked{% endif %}>
-      {{ row.label }}
-    </label>
-    {% endfor %}
+    <div class="rejection-list">
+      {% for row in rejections %}
+      <label class="check">
+        <input type="checkbox" name="rejections" value="{{ row.value }}"
+               {% if row.offered %}checked{% endif %}>
+        <span>{{ row.label }}</span>
+      </label>
+      {% endfor %}
+    </div>
 
     <div class="actions">
       <button type="submit" name="action" value="save" class="primary">Save draft</button>
@@ -105,7 +128,7 @@
       A version cannot be edited afterwards. Cohorts opened after this
       are coded under it.
     </p>
-    <div class="actions">
+    <div class="actions freeze">
       <label for="version-name">Name</label>
       <input type="text" id="version-name" name="name" maxlength="20"
              placeholder="V2.0">
@@ -115,13 +138,13 @@
 
   <h2>Versions</h2>
   <div class="table-scroll">
-    <table>
+    <table class="grid versions">
       <thead>
         <tr>
           <th scope="col">Version</th>
           <th scope="col">Frozen</th>
           <th scope="col">By</th>
-          <th scope="col" class="num">Cohorts</th>
+          <th scope="col" class="count">Cohorts</th>
         </tr>
       </thead>
       <tbody>
@@ -130,7 +153,7 @@
           <th scope="row">{{ row.version.name }}</th>
           <td>{{ row.version.frozen_at|date:"j M Y, H:i" }}</td>
           <td>{{ row.version.frozen_by|default:"—" }}</td>
-          <td class="num">{{ row.cohorts }}</td>
+          <td class="count">{{ row.cohorts }}</td>
         </tr>
         {% endfor %}
       </tbody>

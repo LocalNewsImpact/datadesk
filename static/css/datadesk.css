@@ -3245,3 +3245,191 @@ fieldset.swatches legend { font-size: var(--fs-sm); color: var(--text-2); margin
 /* An outlier coder figure on the CIN reporting page. */
 .outlier, td.outlier { color: var(--tone-bad); font-weight: 600; }
 td.outlier { background: color-mix(in srgb, var(--tone-bad) 8%, transparent); }
+
+/* ===========================================================================
+   CIN rounds: the rounds table and the "Start a round" form
+   =========================================================================== */
+
+.cin-rounds h2 { margin-top: var(--s-6); }
+.cin-rounds table.grid th[scope="row"] { font-weight: 600; }
+.cin-rounds table.grid tbody tr:last-child th { border-bottom: none; }
+.cin-rounds table.grid .count { text-align: right; }
+
+/* Label in a fixed column, the control beside it, and its note under the
+   control rather than trailing after it on the same line. */
+.cin-form { max-width: 46rem; margin-top: var(--s-4); }
+.cin-form .field {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr);
+  column-gap: var(--s-4);
+  row-gap: var(--s-1);
+  align-items: start;
+  margin: 0 0 var(--s-4);
+}
+.cin-form .field > label {
+  grid-column: 1;
+  padding-top: 0.4rem;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-2);
+}
+.cin-form .field > input,
+.cin-form .field > select,
+.cin-form .field > textarea {
+  grid-column: 2;
+  width: 100%;
+  max-width: 32rem;
+  padding: 0.35rem var(--s-2);
+  font-size: var(--fs-md);
+}
+.cin-form .field > input[type="number"] { max-width: 8rem; }
+.cin-form .field-note {
+  grid-column: 2;
+  max-width: 32rem;
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text-3);
+}
+.cin-form ul.kinds { padding: 0; list-style: none; }
+.cin-form ul.kinds li + li { margin-top: 2px; }
+.cin-form ul.kinds strong { color: var(--text-2); margin-right: var(--s-1); }
+
+/* The optional settings, closed by default and set off from the three
+   fields every round needs. */
+.cin-form details.defaults {
+  margin: 0 0 var(--s-4);
+  padding: var(--s-3) var(--s-4) var(--s-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md, 6px);
+  background: var(--surface-2);
+}
+.cin-form details.defaults:not([open]) { padding-bottom: var(--s-3); }
+.cin-form details.defaults > summary {
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-2);
+}
+.cin-form details.defaults[open] > summary { margin-bottom: var(--s-4); }
+.cin-form details.defaults .field { grid-template-columns: calc(11rem - var(--s-4) - 1px) minmax(0, 1fr); }
+.cin-form .form-actions { padding-left: calc(11rem + var(--s-4)); }
+
+@media (max-width: 40rem) {
+  .cin-form .field { grid-template-columns: 1fr; }
+  .cin-form .field > label { padding-top: 0; }
+  .cin-form .field > label,
+  .cin-form .field > input,
+  .cin-form .field > select,
+  .cin-form .field > textarea,
+  .cin-form .field-note { grid-column: 1; max-width: none; }
+  .cin-form details.defaults .field { grid-template-columns: 1fr; }
+  .cin-form .form-actions { padding-left: 0; }
+}
+
+/* ===========================================================================
+   CIN codebook: the draft, the ten categories and the versions
+   =========================================================================== */
+
+.cin-codebook h2 { margin-top: var(--s-6); }
+.cin-codebook h3 { margin-top: var(--s-5); }
+.codebook-field { max-width: 52rem; margin-top: var(--s-3); }
+.codebook-field > label {
+  display: block;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-2);
+}
+.codebook-field .field-note,
+.cin-codebook .field-note {
+  margin: 2px 0 var(--s-2);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.codebook-field textarea {
+  display: block;
+  width: 100%;
+  padding: var(--s-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+/* Inputs fill their cells; the description gets the width it needs to be
+   read and edited whole. */
+.cin-codebook table.guide { table-layout: fixed; min-width: 60rem; }
+.cin-codebook table.guide col.col-stored { width: 12rem; }
+.cin-codebook table.guide col.col-shown { width: 15.5rem; }
+.cin-codebook table.guide col.col-could { width: 18rem; }
+.cin-codebook table.guide tbody th[scope="row"] {
+  padding-top: 0.6rem;
+  font-weight: 600;
+  white-space: normal;
+}
+.cin-codebook table.guide tbody tr:hover { background: none; }
+.cin-codebook table.guide tbody tr:last-child th { border-bottom: none; }
+.cin-codebook table.guide td { padding-top: var(--s-2); padding-bottom: var(--s-2); }
+.cin-codebook table.guide input,
+.cin-codebook table.guide textarea {
+  display: block;
+  width: 100%;
+  padding: 0.35rem var(--s-2);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  resize: vertical;
+}
+.cin-codebook table.guide textarea { field-sizing: content; min-height: 2.2rem; }
+.cin-codebook .th-note {
+  display: block;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* One rejection per line, two columns, the box beside its own text. */
+.rejection-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  gap: var(--s-2) var(--s-5);
+  max-width: 52rem;
+  margin-top: var(--s-2);
+}
+.rejection-list label.check {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-sm);
+}
+.rejection-list label.check input { flex: none; margin: 0; }
+
+.cin-codebook .actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-top: var(--s-4);
+}
+.cin-codebook .actions .quiet { font-size: var(--fs-xs); }
+.cin-codebook .actions.freeze label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-2);
+}
+.cin-codebook .actions.freeze input { width: 9rem; padding: 0.35rem var(--s-2); }
+.cin-codebook table.versions { width: auto; min-width: 28rem; }
+.cin-codebook table.versions tbody tr:last-child th { border-bottom: none; }
+.cin-codebook table.grid .count { text-align: right; }
+.cin-codebook .draft-status {
+  max-width: 52rem;
+  margin: var(--s-2) 0 var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border-left: 3px solid var(--tone-good, var(--border-strong));
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+}
+.cin-codebook .draft-status.differs { border-left-color: var(--tone-warn, var(--tone-bad)); }
+.cin-codebook .changed-tag {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-2xs);
+  font-weight: 500;
+  color: var(--tone-warn, var(--tone-bad));
+}
