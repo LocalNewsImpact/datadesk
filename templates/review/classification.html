@@ -13,22 +13,25 @@
   judgement less independent.
   {% endcomment %}
 
+  {% if not assignment %}
   <p class="lede">
     Read the headline and the story, then say which information need it
     serves. <a href="#instructions" class="instructions-open">Instructions</a>
   </p>
 
-  {% if not assignment %}
   <p class="notice">
     Nothing assigned to you at the moment. When a new cohort is drawn
     your queue will fill again.
   </p>
   {% else %}
 
-  <p class="quiet progress">
-    {{ remaining }} left in this batch · {{ done }} answered in total
-  </p>
-
+  {% comment %}
+  Two columns: the story on the left, and on the right -- level with the
+  headline and held in view while the story scrolls -- what to do, how
+  far through the batch the coder is, and the answer form. The form
+  stays beside the text rather than below a scrolling block.
+  {% endcomment %}
+  <div class="classify-layout">
   <article class="story">
     <h2 class="story-headline">{{ article.title|default:"(no headline)" }}</h2>
 
@@ -49,6 +52,16 @@
       {{ body|linebreaks }}
     </div>
   </article>
+
+  <aside class="classify-panel">
+  <p class="lede">
+    Read the headline and the story, then say which information need it
+    serves. <a href="#instructions" class="instructions-open">Instructions</a>
+  </p>
+
+  <p class="quiet progress">
+    {{ remaining }} left in this batch · {{ done }} answered in total
+  </p>
 
   <form method="post" class="classify-form" autocomplete="off">
     {% csrf_token %}
@@ -103,6 +116,8 @@
 
     <button type="submit" class="primary">Save and next</button>
   </form>
+  </aside>
+  </div>
 
 
   {% endif %}
