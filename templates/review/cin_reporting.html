@@ -32,6 +32,8 @@
   <dl class="stat-row">
     <div><dt>Agreement</dt>
       <dd class="big">{% if overall is not None %}{{ overall }}%{% else %}&mdash;{% endif %}</dd></div>
+    <div><dt>Cohen's kappa</dt>
+      <dd class="big">{% if kappa is not None %}{{ kappa }}{% else %}&mdash;{% endif %}</dd></div>
     <div><dt>Pairs compared</dt><dd class="big">{{ pairs }}</dd></div>
     <div><dt>Stories with two or more coders</dt>
       <dd class="big">{{ articles_multiply_coded }}</dd></div>
@@ -58,6 +60,7 @@
         <tr>
           <th scope="col">Category</th>
           <th scope="col" class="num">Agreement</th>
+          <th scope="col" class="num">Kappa</th>
           <th scope="col" class="num">Pairs</th>
         </tr>
       </thead>
@@ -66,6 +69,7 @@
         <tr>
           <th scope="row">{{ row.shown }}</th>
           <td class="num">{{ row.rate }}%</td>
+          <td class="num">{% if row.kappa is not None %}{{ row.kappa }}{% else %}&mdash;{% endif %}</td>
           <td class="num quiet">{{ row.pairs }}</td>
         </tr>
         {% endfor %}
@@ -84,6 +88,7 @@
         <tr>
           <th scope="col">Cohort</th>
           <th scope="col" class="num">Agreement</th>
+          <th scope="col" class="num">Kappa</th>
           <th scope="col" class="num">Pairs</th>
         </tr>
       </thead>
@@ -92,6 +97,7 @@
         <tr>
           <th scope="row">Cohort {{ row.number }}</th>
           <td class="num">{{ row.rate }}%</td>
+          <td class="num">{% if row.kappa is not None %}{{ row.kappa }}{% else %}&mdash;{% endif %}</td>
           <td class="num quiet">{{ row.pairs }}</td>
         </tr>
         {% endfor %}
@@ -101,11 +107,12 @@
   {% endif %}
 
   <p class="quiet">
-    Percent agreement, not kappa. This queue oversamples low-incidence
-    categories on purpose, so the category distribution is a sampling
-    choice rather than a property of the corpus &mdash; a kappa computed
-    against it would move when the sampling changed rather than when the
-    coding did.
+    Cohen's kappa is agreement corrected for chance, with chance taken
+    from how often each category was used in these pairs; V1 measured
+    0.583. Per category it is that category against the rest. A round
+    drawn to oversample rare categories and a random one can share a
+    percent agreement and differ in kappa, so compare kappa between
+    rounds drawn the same way.
   </p>
 </section>
 {% endblock %}

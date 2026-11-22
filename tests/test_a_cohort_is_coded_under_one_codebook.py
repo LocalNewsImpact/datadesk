@@ -240,6 +240,39 @@ def test_the_report_shows_the_name_coders_saw(v2_cohort):
     assert (row["label"], row["shown"]) == ("Civic Life", "Community Life")
 
 
+def test_kappa_is_reported_beside_percent_agreement(v2_cohort):
+    """V1 was reported as Cohen's kappa (0.583), so V2 has to be given
+    in it too. Four stories: Sports/Sports, Health/Health, Sports/Health
+    and Health/a rejection. A rejection is one more answer."""
+    a, b = _coder("a", v2_cohort), _coder("b", v2_cohort)
+    for article, (first, second) in enumerate(
+        (
+            ("Sports", "Sports"),
+            ("Health", "Health"),
+            ("Sports", "Health"),
+            ("Health", ""),
+        )
+    ):
+        for coder, label in ((a, first), (b, second)):
+            ClassificationDecision.objects.create(
+                cohort=v2_cohort,
+                article_id=f"k-{article}",
+                decided_by=coder,
+                primary_label=label,
+                reject_reason="" if label else "not_local",
+                codebook_version=v2_cohort.codebook_version,
+            )
+    report = agreement_report(v2_cohort.codebook_version)
+    assert report["overall"] == 50.0
+    # Observed 0.5; chance: first coder Sports 2/4, Health 2/4; second
+    # Sports 1/4, Health 2/4, rejected 1/4 -> 0.5*0.25 + 0.5*0.5 = 0.375.
+    assert report["kappa"] == round((0.5 - 0.375) / (1 - 0.375), 3)
+    sports = next(r for r in report["categories"] if r["label"] == "Sports")
+    # Sports against the rest: (T,T) (F,F) (T,F) (F,F).
+    assert sports["kappa"] == round((0.75 - 0.5) / (1 - 0.5), 3)
+    assert report["cohorts"][0]["kappa"] == report["kappa"]
+
+
 # ---------------------------------------------------------- the admin page
 
 

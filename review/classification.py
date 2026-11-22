@@ -1279,6 +1279,11 @@ def _agree(a, b):
     return cin_metrics.score(as_answer(a), as_answer(b))
 
 
+#: The answer a rejection counts as when kappa is computed: one more
+#: category, never equal to a real one.
+REJECTED = "(rejected)"
+
+
 def agreement_report(codebook_version=None):
     """Agreement overall, by dataset and by category, under ONE codebook.
 
@@ -1287,14 +1292,17 @@ def agreement_report(codebook_version=None):
     Defaults to the current version. Practice rounds and removed
     coders are left out (`counted_decisions`).
 
-    Percent agreement, and not kappa. Kappa needs a chance-agreement
-    term over a fixed category distribution, and this queue oversamples
-    low-incidence categories deliberately -- so the distribution is a
-    sampling choice, not a property of the corpus, and a kappa computed
-    against it would move when the sampling changed rather than when
-    the coding did. The historical kappa (0.583) was computed once,
-    over a fixed set, and is reported in the codebook annotations
-    instead.
+    Percent agreement and Cohen's kappa, side by side. Kappa is the
+    measure the V1 coding was reported in (0.583), so a V2 figure has to
+    be given in it to be compared. Its chance term comes from how often
+    each category was used in the pairs scored, and that depends on how
+    the stories were drawn: an oversampled draw and a random one at the
+    same percent agreement give different kappas. Kappas are comparable
+    between rounds drawn the same way.
+
+    A rejection counts as one more answer: a category against a
+    rejection is a mismatch, as it is for percent agreement. Per
+    category, kappa is that category against the rest.
     """
     version = codebook_version or CodebookVersion.current()
     decisions = list(
@@ -1322,6 +1330,22 @@ def agreement_report(codebook_version=None):
     def rate(hit, total):
         return round(100 * hit / total, 1) if total else None
 
+    def answer(d):
+        return d.primary_label or REJECTED
+
+    def kappa(scored):
+        value = cin_metrics.cohen_kappa(scored)
+        return round(value, 3) if value is not None else None
+
+    answered = [(answer(a), answer(b)) for a, b in pairs]
+    category_kappa = {
+        label: kappa((x == label, y == label) for x, y in answered)
+        for label in by_category
+    }
+    cohort_pairs = {}
+    for a, b in pairs:
+        cohort_pairs.setdefault(a.cohort.number, []).append((answer(a), answer(b)))
+
     return {
         "version": version,
         "versions": list(CodebookVersion.objects.all()),
@@ -1329,12 +1353,14 @@ def agreement_report(codebook_version=None):
         "articles_multiply_coded": len({a.article_id for a, _ in pairs}),
         "decisions": len(decisions),
         "overall": rate(agreed, len(pairs)),
+        "kappa": kappa(answered),
         "categories": sorted(
             (
                 {
                     "label": label,
                     "shown": version.shown(label),
                     "rate": rate(hit, total),
+                    "kappa": category_kappa[label],
                     "pairs": total,
                 }
                 for label, (hit, total) in by_category.items()
@@ -1343,7 +1369,12 @@ def agreement_report(codebook_version=None):
         ),
         "cohorts": sorted(
             (
-                {"number": number, "rate": rate(hit, total), "pairs": total}
+                {
+                    "number": number,
+                    "rate": rate(hit, total),
+                    "kappa": kappa(cohort_pairs[number]),
+                    "pairs": total,
+                }
                 for number, (hit, total) in by_cohort.items()
             ),
             key=lambda row: -row["number"],
@@ -1446,15 +1477,18 @@ def coder_report():
 # statement at a time -- so the queue could be worked but never started.
 
 
-#: How a cohort is divided between the four strata. Equal quarters, and
+#: How a cohort is divided between the strata. Equal thirds, and
 #: confident/uncertain equal to each other by construction: the whole
 #: point of those two is a direct comparison, which an unequal draw
 #: blurs. `docs/CLASSIFICATION_REVIEW_QUEUE.md` sets out why.
+#:
+#: No unlabelled stratum. Every drawn story must carry a model label
+#: (`_pool`), because a coder's answer is scored against it; a story the
+#: model never labelled cannot be.
 STRATUM_SHARE = {
-    ClassificationSample.CONFIDENT: 0.25,
-    ClassificationSample.UNCERTAIN: 0.25,
-    ClassificationSample.RANDOM: 0.25,
-    ClassificationSample.UNLABELLED: 0.25,
+    ClassificationSample.CONFIDENT: 1 / 3,
+    ClassificationSample.UNCERTAIN: 1 / 3,
+    ClassificationSample.RANDOM: 1 / 3,
 }
 
 #: The confidence bands. The middle (0.5-0.7) is deliberately in neither:
@@ -1528,8 +1562,13 @@ def _furniture():
 
 
 def _pool():
-    """Every crawler story a draw may take: local, finished, and long
-    enough to read (`MIN_WORDS`).
+    """Every crawler story a draw may take: local, finished, long enough
+    to read (`MIN_WORDS`), and labelled by the model.
+
+    The model label is required because agreement with the model is
+    measured on every round. A finished story can lack one -- enriched
+    without passing through the classifier -- and an answer on it
+    scores against nothing.
 
     A status is not the whole of it. The wire check can find syndication
     on a story whose status was never moved to `wire` -- about 1,400 of
@@ -1540,7 +1579,8 @@ def _pool():
 
     rows = (
         Article.objects.using("crawler")
-        .filter(status__in=CLASSIFIABLE_STATUSES)
+        .filter(status__in=CLASSIFIABLE_STATUSES, primary_label__isnull=False)
+        .exclude(primary_label="")
         .exclude(wire_check_status="wire")
         .exclude(_furniture())
         .extra(
@@ -1581,7 +1621,9 @@ def _stratum_pool(stratum):
             primary_label_confidence__isnull=False,
         )
     if stratum == ClassificationSample.UNLABELLED:
-        return rows.filter(primary_label__isnull=True)
+        # Kept as a name for cohorts drawn before the pool required a
+        # label; nothing is drawn into it now.
+        return rows.none()
     # Random draws from everything classifiable, including the middle
     # band and the rows the other strata already cover. That overlap is
     # the point: it is the only stratum whose rate is an unbiased
@@ -1666,8 +1708,14 @@ def draw_cohort(
         )
 
         drawn, samples = {}, []
-        for stratum, share in (shares or STRATUM_SHARE).items():
-            want = int(round(size * share))
+        shares = shares or STRATUM_SHARE
+        # Floors, with the remainder to the last stratum, so the strata
+        # sum to `size` (thirds of 8 rounded each way make 9).
+        wants = {stratum: int(size * share) for stratum, share in shares.items()}
+        if abs(sum(shares.values()) - 1) < 1e-9:
+            wants[list(shares)[-1]] += size - sum(wants.values())
+        for stratum in shares:
+            want = wants[stratum]
             available = _stratum_pool(stratum).exclude(id__in=taken)
             # Counted before the slice: the chance a row in this stratum
             # had of being drawn cannot be recovered later, and without it
