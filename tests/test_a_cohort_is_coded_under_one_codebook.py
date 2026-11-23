@@ -22,6 +22,7 @@ from review.classification import (
     ClassificationSample,
     CodebookSettings,
     CodebookVersion,
+    Round,
     agreement_report,
     draw_cohort,
 )
@@ -241,8 +242,8 @@ def test_the_report_shows_the_name_coders_saw(v2_cohort):
 
 
 def test_kappa_is_reported_beside_percent_agreement(v2_cohort):
-    """V1 was reported as Cohen's kappa (0.583), so V2 has to be given
-    in it too. Four stories: Sports/Sports, Health/Health, Sports/Health
+    """V1 was reported as kappa (0.583), so V2 has to be given in it
+    too. Four stories: Sports/Sports, Health/Health, Sports/Health
     and Health/a rejection. A rejection is one more answer."""
     a, b = _coder("a", v2_cohort), _coder("b", v2_cohort)
     for article, (first, second) in enumerate(
@@ -271,6 +272,52 @@ def test_kappa_is_reported_beside_percent_agreement(v2_cohort):
     # Sports against the rest: (T,T) (F,F) (T,F) (F,F).
     assert sports["kappa"] == round((0.75 - 0.5) / (1 - 0.5), 3)
     assert report["cohorts"][0]["kappa"] == report["kappa"]
+
+
+def _round_cohort(version, number, **rules):
+    for_round = Round.objects.create(
+        name=f"Round {number}", kind=Round.COLLECTION, codebook_version=version, **rules
+    )
+    return ClassificationCohort.objects.create(
+        number=number,
+        slug=f"cohort-{number}",
+        round=for_round,
+        codebook_version=version,
+    )
+
+
+def test_a_tiebreak_coder_is_left_out_of_agreement(v2_cohort):
+    """In a round that adds a third coder only on a split, the third
+    answer exists only on disputed stories: it is left out of kappa and
+    alpha, as group E was from V1. Where three coders were assigned by
+    design, all three count."""
+    version = v2_cohort.codebook_version
+    split = _round_cohort(version, 3, base_coders=2, third_on_split=True)
+    a, b, c = (_coder(n, split) for n in "abc")
+    _answers(
+        split,
+        [
+            ("t-0", a, "Sports"),
+            ("t-0", b, "Sports"),
+            ("t-1", a, "Sports"),
+            ("t-1", b, "Health"),
+            ("t-1", c, "Health"),  # the tiebreak
+        ],
+    )
+    report = agreement_report(version)
+    assert report["pairs"] == 2 and report["overall"] == 50.0
+    # Alpha over t-0 and t-1's first two only: Sports x3, Health x1, one
+    # unit split. 1 - 3 * 2 / (2 * 3 * 1) = 0.
+    assert report["alpha"]["rate"] == 0
+    tiebreaker = next(row for row in report["coders"] if row["name"] == "c")
+    assert tiebreaker["alpha_weighted"] is None
+
+    planned = _round_cohort(version, 4, base_coders=3)
+    _answers(
+        planned,
+        [("p-0", a, "Health"), ("p-0", b, "Health"), ("p-0", c, "Sports")],
+    )
+    assert agreement_report(version)["pairs"] == 2 + 3
 
 
 def _answers(cohort, rows):

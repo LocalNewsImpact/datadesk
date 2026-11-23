@@ -1309,6 +1309,30 @@ def _agree(a, b):
 REJECTED = "(rejected)"
 
 
+def agreement_decisions(decisions):
+    """The decisions agreement is measured over: all of them less the
+    tiebreak answers.
+
+    A round with `third_on_split` adds a coder to a story only where its
+    first `base_coders` split. Those answers exist only on disputed
+    stories, so counting them measures the rule that added them and
+    pulls every figure down. V1 is read the same way (`v1_answers` leaves
+    out group E), and so is a training round's gate. In any other round
+    every coder on a story was assigned by design, and every answer
+    counts. Labels still use the tiebreak; only agreement leaves it out.
+    """
+    by_story = {}
+    for d in sorted(decisions, key=lambda d: (d.decided_at, d.pk)):
+        by_story.setdefault((d.cohort_id, d.article_id), []).append(d)
+    kept = []
+    for made in by_story.values():
+        for_round = made[0].cohort.round
+        if for_round is not None and for_round.third_on_split:
+            made = made[: for_round.base_coders]
+        kept.extend(made)
+    return kept
+
+
 def agreement_report(codebook_version=None):
     """Agreement overall, by category, by cohort and by coder, under ONE
     codebook.
@@ -1318,12 +1342,18 @@ def agreement_report(codebook_version=None):
     Defaults to the current version. Practice rounds and removed
     coders are left out (`counted_decisions`).
 
+    Agreement is over `agreement_decisions`: a tiebreak coder's answers
+    are left out of every figure, as they were from V1's.
+
     Each figure is given as observed agreement, the agreement expected
-    by chance, and Cohen's kappa, which is how far observed sits above
-    chance. Kappa is the measure the V1 coding was reported in (0.583).
-    Its chance term comes from how often each answer was used in the
-    pairs scored, and that depends on how the stories were drawn, so
-    kappas are comparable between rounds drawn the same way.
+    by chance, and pairwise kappa, which is how far observed sits above
+    chance. Coders rotate, so there is no fixed pair of raters for a
+    Cohen's kappa in the strict sense: every pair of coders on a story is
+    one (first, second) pair, pooled. V1's 0.583 was computed the same
+    way, over two coders per story drawn from different groups. Its
+    chance term comes from how often each answer was used in the pairs
+    scored, and that depends on how the stories were drawn, so kappas are
+    comparable between rounds drawn the same way.
 
     A rejection counts as one more answer: a category against a
     rejection is a mismatch, as it is for percent agreement. Per
@@ -1337,10 +1367,15 @@ def agreement_report(codebook_version=None):
     """
     version = codebook_version or CodebookVersion.current()
     decisions = list(
-        counted_decisions(version).select_related("cohort").order_by("article_id")
+        counted_decisions(version)
+        .select_related("cohort__round")
+        .order_by("article_id", "decided_at", "pk")
     )
+    # Ordered as `decisions` is, so each pair keeps its first and second.
+    agreeing = set(map(id, agreement_decisions(decisions)))
+    agreeing = [d for d in decisions if id(d) in agreeing]
     # Scored pairs only: two rejections are not a pair to score.
-    pairs = [(a, b) for a, b in _pairs(decisions) if _agree(a, b) is not None]
+    pairs = [(a, b) for a, b in _pairs(agreeing) if _agree(a, b) is not None]
 
     def answer(d):
         return d.primary_label or REJECTED
@@ -1401,12 +1436,13 @@ def agreement_report(codebook_version=None):
         cohort_pairs.setdefault(a.cohort.number, []).append((answer(a), answer(b)))
     # KRIPPENDORFF'S ALPHA BESIDE KAPPA (2026-11-23): the same measures the
     # round's finish line reads (`_pilot_conditions`), over every answer on
-    # a story rather than pairs, so a third coder on a split counts. Strict
-    # alpha reads the category alone; weighted alpha gives part credit where
-    # one coder's category is the other's secondary, at the label rule's
-    # 0.7 against 0.9 (`cin_metrics.weighted_alpha`) -- the agreement the
-    # training labels are built on. Kappa stays the figure compared with V1.
-    stories = answers_by_story(decisions)
+    # a story rather than pairs, less a tiebreak coder's (`agreeing`).
+    # Strict alpha reads the category alone; weighted alpha gives part
+    # credit where one coder's category is the other's secondary, at the
+    # label rule's 0.7 against 0.9 (`cin_metrics.weighted_alpha`) -- the
+    # agreement the training labels are built on. Kappa stays the figure
+    # compared with V1.
+    stories = answers_by_story(agreeing)
 
     def alphas(subset, label=None):
         strict = cin_metrics.krippendorff_alpha(subset, label)
@@ -1470,7 +1506,8 @@ def _coder_agreement(decisions, version, answer, parts, against_rest, pct):
     for d in decisions:
         given.setdefault(d.decided_by_id, []).append(answer(d))
         answered_by.setdefault(d.decided_by_id, []).append(as_answer(d))
-    stories = answers_by_story(decisions)
+    # Per-coder alpha leaves out tiebreak answers, as the headline does.
+    stories = answers_by_story(agreement_decisions(decisions))
 
     def secondary_counts(coders_):
         made = [a for c in coders_ for a in answered_by[c] if a["label"]]
