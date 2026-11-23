@@ -253,7 +253,8 @@ def test_the_source_directory_sits_under_sources():
 
 
 def test_the_groups_read_in_the_order_the_sidebar_shows_them(client, crawler_schema):
-    """Data, Review, CIN, Sources, Extraction, Processing, then Admin.
+    """Data, Review, Labeling, CIN, Sources, Extraction, Processing,
+    then Admin.
 
     Review sits second because it is what somebody signs in to do. The
     groups below it are the reference material the review is made
@@ -269,10 +270,14 @@ def test_the_groups_read_in_the_order_the_sidebar_shows_them(client, crawler_sch
     assert [g["label"] for g in SECTION_GROUPS] == [
         "Data",
         "Review",
-        # Directly under Review, because it is the work ABOUT one of
-        # Review's queues: whether the coders agree, who is coding, and
-        # what they are told to do. Away from Review it reads as a
-        # separate programme rather than as that queue's instruments.
+        # The labeling queues -- CIN categories and story geography --
+        # under one header of their own: answering a question about an
+        # assigned story is not reviewing the pipeline's output.
+        "Labeling",
+        # Directly under Labeling, because it is the work ABOUT those
+        # queues: whether the coders agree, who is coding, and what they
+        # are told to do. Away from them it reads as a separate
+        # programme rather than as the queues' instruments.
         "CIN",
         "Sources",
         "Extraction",

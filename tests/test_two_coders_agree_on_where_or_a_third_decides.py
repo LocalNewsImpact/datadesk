@@ -255,7 +255,7 @@ def test_saving_a_split_in_the_queue_adds_the_third(client, cohort, coders):
     )
     client.force_login(coders[1])
     client.post(
-        "/review/classification/",
+        "/review/classification/geography/",
         {
             "assignment": assignment.pk,
             "answer_class": PLACE,

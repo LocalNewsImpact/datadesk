@@ -40,7 +40,8 @@ from review.geography_icr import (
 
 pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
 
-URL = "/review/classification/"
+URL = "/review/classification/geography/"
+CIN_URL = "/review/classification/"
 
 COLUMBIA = {"lat": 38.9517, "lon": -92.3341, "view_km": 20}
 ASHLAND = {"lat": 38.7745, "lon": -92.2571, "view_km": 20}
@@ -362,7 +363,7 @@ def test_a_geography_answer_does_not_hide_the_cin_question(client, coder, assign
     assigned.completed_at = "2026-11-23T00:00:00Z"
     assigned.save()
     client.force_login(coder)
-    assert "Primary category" in client.get(URL).content.decode()
+    assert "Primary category" in client.get(CIN_URL).content.decode()
 
 
 def test_a_cin_form_cannot_answer_a_geography_assignment(client, coder, assigned):
@@ -402,3 +403,38 @@ def test_a_geography_coder_with_nothing_left_is_not_told_about_categories(
     body = client.get(URL).content.decode()
     assert "Where is this story about?" in body
     assert "information need" not in body
+
+
+# ------------------------------------------------------- one queue each
+
+
+def test_each_question_has_its_own_queue(client, coder, assigned):
+    """Labeling -> CIN categories never serves a geography story, and
+    Labeling -> Story geography never serves a CIN one."""
+    other = ClassificationCohort.objects.create(number=2, slug="cohort-2")
+    Grant.objects.create(user=coder, app=DATADESK, scope=other.slug, role=CLASSIFIER)
+    ClassificationAssignment.objects.create(
+        cohort=other, article_id="a-1", assigned_to=coder
+    )
+    client.force_login(coder)
+    cin = client.get(CIN_URL).content.decode()
+    assert "Primary category" in cin and 'id="geo-map"' not in cin
+    where = client.get(URL).content.decode()
+    assert 'id="geo-map"' in where and "Primary category" not in where
+
+
+def test_an_empty_cin_queue_is_not_filled_by_geography_work(client, coder, assigned):
+    client.force_login(coder)
+    body = client.get(CIN_URL).content.decode()
+    assert "Nothing assigned to you" in body and 'id="geo-map"' not in body
+
+
+def test_both_queues_sit_under_one_labeling_header(client, coder, assigned):
+    client.force_login(coder)
+    body = client.get(URL).content.decode()
+    nav = body[body.index('id="site-nav"') :]
+    nav = nav[: nav.index("</nav>")]
+    assert "Labeling" in nav
+    assert nav.index("Labeling") < nav.index("CIN categories")
+    assert nav.index("CIN categories") < nav.index("Story geography")
+    assert ">Classification<" not in nav

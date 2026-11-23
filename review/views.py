@@ -2427,7 +2427,16 @@ def _story_text(article):
 
 
 @requires(CLASSIFY)
-def classification_queue(request):
+def geography_labeling_queue(request):
+    """The geography question's queue: the same queue, geography
+    assignments only (Labeling -> Story geography)."""
+    from review.geography_icr import GEOGRAPHY
+
+    return classification_queue(request, task=GEOGRAPHY)
+
+
+@requires(CLASSIFY)
+def classification_queue(request, task=None):
     """One assigned story at a time: headline, body, and a judgement.
 
     No filters. Not by dataset, not by date, not by publisher — choosing
@@ -2446,7 +2455,11 @@ def classification_queue(request):
         give_a_coder_their_stories,
         stories_for,
     )
-    from review.geography_icr import GEOGRAPHY, GeographyDecision, is_geography
+    from review.geography_icr import CIN, GEOGRAPHY, GeographyDecision, is_geography
+
+    # Each labeling question has its own queue in the sidebar. This one
+    # is CIN; Story geography calls it with the geography task.
+    task = task or CIN
 
     if request.method == "POST":
         if "answer_class" in request.POST:
@@ -2466,6 +2479,10 @@ def classification_queue(request):
     cohorts = ClassificationCohort.objects.all()
     if scopes is not ALL_SCOPES:
         cohorts = cohorts.filter(slug__in=scopes or [])
+    if task == GEOGRAPHY:
+        cohorts = cohorts.filter(round__task=GEOGRAPHY)
+    else:
+        cohorts = cohorts.exclude(round__task=GEOGRAPHY)
     outstanding = (
         ClassificationAssignment.objects.filter(
             assigned_to=request.user, completed_at__isnull=True, cohort__in=cohorts
@@ -2530,11 +2547,8 @@ def classification_queue(request):
             "rejections": codebook.rejection_choices(),
             "remaining": outstanding.count(),
             "done": done,
-            # A coder who has only ever been given geography work is not
-            # told about information needs while they wait for more.
-            "geography_only": assignment is None
-            and cohorts.filter(round__task=GEOGRAPHY).exists()
-            and not cohorts.exclude(round__task=GEOGRAPHY).exists(),
+            # The geography queue, empty, is not about information needs.
+            "geography_only": task == GEOGRAPHY,
         },
     )
 
@@ -2699,7 +2713,7 @@ def _submit_geography(request):
         .first()
     )
     if assignment is None or not is_geography(assignment.cohort):
-        return redirect("review:classification")
+        return redirect("review:geography_labeling")
 
     try:
         answer = clean_answer(
@@ -2710,14 +2724,14 @@ def _submit_geography(request):
         )
     except ValueError as error:
         messages.error(request, str(error))
-        return redirect("review:classification")
+        return redirect("review:geography_labeling")
 
     if GeographyDecision.objects.filter(
         article_id=assignment.article_id, decided_by=request.user
     ).exists():
         assignment.completed_at = timezone.now()
         assignment.save(update_fields=["completed_at"])
-        return redirect("review:classification")
+        return redirect("review:geography_labeling")
 
     sample = ClassificationSample.objects.filter(
         cohort=assignment.cohort, article_id=assignment.article_id
@@ -2739,7 +2753,7 @@ def _submit_geography(request):
     if not assignment.is_check:
         # Where the first two coders disagree, a pilot asks for a third.
         add_third_coder(assignment.cohort, assignment.article_id)
-    return redirect("review:classification")
+    return redirect("review:geography_labeling")
 
 
 @requires(CLASSIFY)
