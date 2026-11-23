@@ -94,3 +94,14 @@ def test_a_county_or_place_has_a_box_for_the_map():
     assert bbox_of("0102860") is None  # Ashland, AL: no place file
     assert bbox_of("01001") is not None  # a county anywhere: the 10m file
     assert bbox_of("") is None and bbox_of("29") is None
+
+
+def test_every_built_town_has_a_point_inside_it():
+    """A town chosen by name is pinned at this point, so it must resolve
+    back to the town: checked over every place in every built state."""
+    from review.geo_resolve import built_states, inside_point, state_places
+
+    for state in built_states():
+        for shape in state_places(state):
+            assert resolve(*inside_point(shape.geoid)).place == shape.geoid
+    assert inside_point("0102860") is None  # a state not built

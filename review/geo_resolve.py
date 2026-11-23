@@ -210,6 +210,42 @@ def bbox_of(geoid):
     return next((shape.bbox for shape in shapes if shape.geoid == geoid), None)
 
 
+@cache
+def inside_point(geoid):
+    """(lat, lon) of a point inside a place's boundary, or None where the
+    place's state is not built.
+
+    What a town chosen by name is pinned at, so it resolves through the
+    same lookup as a pin dropped on the map. The middle of the box where
+    that is inside; otherwise the inside point of a grid over the box
+    nearest the middle (a town shaped like a crescent, or in pieces).
+    """
+    geoid = str(geoid or "")
+    shape = next((s for s in state_places(geoid[:2]) if s.geoid == geoid), None)
+    if shape is None:
+        return None
+    west, south, east, north = shape.bbox
+    middle = ((west + east) / 2, (south + north) / 2)
+    if _contains(shape, *middle):
+        return middle[1], middle[0]
+    steps = 24
+    inside = [
+        (
+            west + (east - west) * (i + 0.5) / steps,
+            south + (north - south) * (j + 0.5) / steps,
+        )
+        for i in range(steps)
+        for j in range(steps)
+    ]
+    inside = [pt for pt in inside if _contains(shape, *pt)]
+    if not inside:
+        return None
+    lon, lat = min(
+        inside, key=lambda pt: (pt[0] - middle[0]) ** 2 + (pt[1] - middle[1]) ** 2
+    )
+    return lat, lon
+
+
 def built_states():
     """States whose place boundaries are in the repo."""
     return sorted(path.stem for path in (GEO_DIR / "places").glob("*.json"))

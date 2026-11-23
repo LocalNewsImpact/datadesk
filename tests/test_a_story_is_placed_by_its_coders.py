@@ -25,6 +25,7 @@ from review.classification import (
     Round,
     open_round,
 )
+from review.geo_resolve import resolve
 from review.geography_icr import (
     GEOGRAPHY,
     NO_PLACE,
@@ -81,6 +82,20 @@ def test_a_place_answer_that_is_not_one_good_pin_is_refused(pins, message):
         clean_answer(PLACE, pins)
 
 
+def test_a_town_typed_or_an_address_needs_no_zoom_and_says_how_it_came():
+    """The zoom rule is for a click. A town chosen by name is pinned inside
+    its boundary, an address at the geocoded point: neither has a zoom."""
+    typed = {"lat": 38.95, "lon": -92.33, "how": "search"}
+    (pin,) = clean_answer(PLACE, [typed])["pins"]
+    assert (pin["how"], pin["view_km"], pin["place"]) == ("search", None, "2915670")
+    (pin,) = clean_answer(PLACE, [dict(typed, how="address")])["pins"]
+    assert pin["how"] == "address"
+    (pin,) = clean_answer(PLACE, [COLUMBIA])["pins"]
+    assert (pin["how"], pin["view_km"]) == ("map", 20)
+    with pytest.raises(ValueError, match="form the map does not make"):
+        clean_answer(PLACE, [dict(typed, how="guess")])
+
+
 def test_a_region_is_its_counties_and_the_counties_of_its_pins():
     answer = clean_answer(REGION, [JEFFERSON_CITY], ["29019", "29027"])
     assert answer["counties"] == ["29019", "29027", "29051"]
@@ -95,7 +110,7 @@ def test_a_region_across_a_state_line_has_no_one_state():
 @pytest.mark.parametrize(
     "pins,counties,message",
     [
-        ([], [], "Click the counties"),
+        ([], [], "Add the counties or the towns"),
         ([], ["99999"], "not one the map knows"),
         ([], [f"29{n:03d}" for n in range(1, 100, 2)], "More than 40"),
     ],
@@ -394,6 +409,22 @@ def test_the_place_search_moves_the_map_for_a_coder(client, coder, assigned):
     west, south, east, north = hits[0]["bbox"]
     assert west < -92.25 < east and south < 38.78 < north
     assert client.get(url, {"q": "A"}).json() == {"results": []}
+
+
+def test_a_state_after_a_comma_ranks_the_search(client, coder, assigned):
+    """On a Washington story eight other Fultons came before Missouri's."""
+    client.force_login(coder)
+    url = reverse("review:geography_coding_find")
+    for typed in ("Fulton, MO", "Fulton, Missouri"):
+        first = client.get(url, {"q": typed, "state": "53"}).json()["results"][0]
+        found = (first["name"], first["state"], first["kind"])
+        assert found == ("Fulton", "MO", "place")
+        # A town carries a point inside it, for a pin chosen by name.
+        assert resolve(*first["point"]).place == first["geoid"]
+    # Exact names first: "Ashland" on a Washington story is an Ashland,
+    # not Island County.
+    hits = client.get(url, {"q": "Ashland", "state": "53"}).json()["results"]
+    assert hits[0]["name"] == "Ashland"
 
 
 def test_a_search_naming_a_county_offers_counties(client, coder, assigned):

@@ -3478,8 +3478,40 @@ td.outlier { background: color-mix(in srgb, var(--tone-bad) 8%, transparent); }
   margin-bottom: var(--s-2);
   font-size: var(--fs-sm);
 }
-.geography-coding .geo-find input { width: 24rem; max-width: 100%; }
-.geography-coding .geo-find-note { margin: 0 0 var(--s-2); font-size: var(--fs-sm); }
+/* The add box: typing is the main way to answer, the map the second. */
+.geography-coding .geo-pick { margin-bottom: var(--s-3); }
+.geography-coding .geo-pick[hidden] { display: none; }
+.geography-coding .geo-find-label { display: block; font-weight: 600; margin-bottom: var(--s-1); }
+.geography-coding .geo-combo { position: relative; }
+.geography-coding .geo-combo input { width: 100%; }
+.geography-coding .geo-suggest {
+  position: absolute;
+  z-index: 1100; /* over Leaflet's controls */
+  left: 0;
+  right: 0;
+  top: 100%;
+  margin: 2px 0 0;
+  padding: var(--s-1) 0;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  max-height: 18rem;
+  overflow-y: auto;
+}
+.geography-coding .geo-suggest[hidden] { display: none; }
+.geography-coding .geo-suggest-item {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-1) var(--s-3);
+  cursor: pointer;
+  font-size: var(--fs-sm);
+}
+.geography-coding .geo-suggest-item[aria-selected="true"],
+.geography-coding .geo-suggest-item:hover { background: var(--accent-soft); }
+.geography-coding .geo-find-note { margin: var(--s-1) 0 0; font-size: var(--fs-sm); }
 .geography-coding .geo-find-note:empty { display: none; }
 .geography-coding .geo-mode button[aria-pressed="true"] { font-weight: 600; }
 /* Leaflet over street tiles (G-WP2, rebuilt): its own +/- control,
@@ -3495,10 +3527,24 @@ td.outlier { background: color-mix(in srgb, var(--tone-bad) 8%, transparent); }
 .geography-coding .geo-map.geo-pinning .leaflet-interactive { cursor: crosshair; }
 .geography-coding .geo-scale { margin: var(--s-2) 0 0; font-size: var(--fs-sm); }
 .geography-coding .geo-answer {
-  margin: var(--s-2) 0 var(--s-3);
-  padding-left: var(--s-4);
+  margin: var(--s-2) 0 0;
+  padding: 0;
+  list-style: none;
   font-size: var(--fs-sm);
 }
+.geography-coding .geo-answer li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  margin-bottom: var(--s-1);
+  background: var(--surface-2);
+}
+.geography-coding .geo-error { margin: var(--s-2) 0 var(--s-3); color: var(--tone-bad); font-size: var(--fs-sm); }
+.geography-coding .geo-error:empty { display: none; }
+.geography-coding .geo-map-wrap { margin-top: var(--s-3); }
 
 /* The geography disagreements page (G-WP9): the list beside one map. */
 .geography-disagreements .geo-dis-layout {

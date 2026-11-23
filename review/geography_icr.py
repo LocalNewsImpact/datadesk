@@ -55,14 +55,14 @@ CLASSES = [
     (
         PLACE,
         "One place",
-        "A town, a neighbourhood, an address or a site. Drop one pin on it.",
+        "A town, a neighbourhood, an address or a site. Type it, or pin it on the map.",
     ),
     (
         REGION,
         "A county, or an area wider than one town",
         "A county's own business, or several towns or counties with no "
-        "single one at the centre. Click the counties, or pin the towns, "
-        "or both.",
+        "single one at the centre. Add the counties or the towns, or both: "
+        "type them, or click the map.",
     ),
     (
         STATE,
@@ -92,6 +92,9 @@ PIN_VIEW_KM = 80
 #: More than this and the answer is "the whole state" or a mistake.
 MOST_COUNTIES = 40
 MOST_PINS = 30
+#: How a pin was made: clicked on the map, a town chosen by name, or an
+#: address looked up (`clean_answer`).
+PIN_HOW = ("map", "search", "address")
 
 #: The coder's guide, from the pipeline's own scope rules
 #: (MizzouNewsCrawler src/enrichment/prompts/geographic_scope.md, v6) in
@@ -189,7 +192,10 @@ class GeographyDecision(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
     )
     answer_class = models.CharField(max_length=1, choices=CLASS_CHOICES)
-    #: [{lat, lon, view_km, state, county, county_name, place, place_name}]
+    #: [{lat, lon, view_km, how, state, county, county_name, place,
+    #: place_name}]. `how`: "map" (a click, at view_km), "search" (a town
+    #: chosen by name, pinned inside its boundary) or "address" (a
+    #: geocoded address); view_km is null for the last two.
     #: as the server resolved them.
     pins = models.JSONField(default=list, blank=True)
     #: County GEOIDs, sorted, no repeats.
@@ -284,9 +290,16 @@ def clean_answer(answer_class, pins=None, counties=None, state=""):
         lat = _number((pin or {}).get("lat"))
         lon = _number((pin or {}).get("lon"))
         view = _number((pin or {}).get("view_km"))
+        how = (pin or {}).get("how") or "map"
+        if how not in PIN_HOW:
+            raise ValueError(
+                "A pin arrived in a form the map does not make. Add it again."
+            )
         if lat is None or lon is None:
             raise ValueError("A pin arrived without a position. Drop it again.")
-        if view is None or view > PIN_VIEW_KM:
+        # The zoom rule is for a click: a town chosen by name or an address
+        # looked up lands where it is, at no zoom at all.
+        if how == "map" and (view is None or view > PIN_VIEW_KM):
             raise ValueError(
                 "Zoom in until the town fills the map, then drop the pin again."
             )
@@ -294,13 +307,18 @@ def clean_answer(answer_class, pins=None, counties=None, state=""):
         if where.county is None:
             raise ValueError("That pin is not in a U.S. county. Move it.")
         resolved.append(
-            {"lat": round(lat, 6), "lon": round(lon, 6), "view_km": round(view, 1)}
+            {
+                "lat": round(lat, 6),
+                "lon": round(lon, 6),
+                "view_km": round(view, 1) if how == "map" else None,
+                "how": how,
+            }
             | where.as_dict()
         )
 
     if answer_class == PLACE:
         if len(resolved) != 1:
-            raise ValueError("One place is one pin. Drop exactly one.")
+            raise ValueError("One place is one place. Add exactly one.")
         if counties:
             raise ValueError("One place is a pin, not counties.")
         pin = resolved[0]
@@ -317,7 +335,7 @@ def clean_answer(answer_class, pins=None, counties=None, state=""):
         raise ValueError("A county on the answer is not one the map knows.")
     every = sorted(set(clicked) | {pin["county"] for pin in resolved})
     if not every:
-        raise ValueError("Click the counties, or pin the towns, the story is about.")
+        raise ValueError("Add the counties or the towns the story is about.")
     if len(every) > MOST_COUNTIES:
         raise ValueError(
             f"More than {MOST_COUNTIES} counties. If it is the whole state, say so."

@@ -164,6 +164,31 @@ assignment with the map screen in place of the category menu.
   Nominatim (bare streets, landmarks). Answers are cached for a day.
   The search still only moves the map: the pin is the answer, and the
   80 km pin rule is unchanged.
+- **Typing first (2026-11-23, later the same day).** The map worked
+  better as a picture of the answer than as the way to give it. The
+  panel is now:
+  1. the class
+  2. an add box
+  3. the list of what will be recorded, each item with Remove
+  4. **Save and next**
+  5. the map, which fits itself to the list.
+
+  What the add box does:
+  - It offers towns and counties from the gazetteer, plus "look up as an
+    address". A state written after a comma ("Fulton, MO") ranks that
+    state first, and exact names come before near ones.
+  - A town chosen by name is pinned at `geo_resolve.inside_point`, a
+    point inside its 500k boundary that resolves back to it; this holds
+    for all 4,637 places in the built states.
+  - An address is pinned at the geocoded point.
+  - A county is added by its GEOID (R only; in P a county only moves
+    the map).
+
+  Each pin records `how`: `map`, `search` or `address`. The 80 km zoom
+  rule applies only to `map`, and `view_km` is null for the other two.
+  Agreement and the figures read only the resolved place and county,
+  so they are unchanged. Clicking the map still adds pins and toggles
+  counties.
 - `seconds_spent` and the zoom at each pin are recorded.
 
 Boundaries: 500k place and county boundaries are committed for MO, PA,
