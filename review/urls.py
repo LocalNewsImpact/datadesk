@@ -10,6 +10,16 @@ urlpatterns = [
     path("queue/", views.queue, name="queue"),
     path("discovery/", views.discovery_queue, name="discovery"),
     path("classification/", views.classification_queue, name="classification"),
+    path(
+        "classification/where/",
+        views.geography_coding_resolve,
+        name="geography_coding_resolve",
+    ),
+    path(
+        "classification/find/",
+        views.geography_coding_find,
+        name="geography_coding_find",
+    ),
     # Geography a person puts in, for articles the pipeline could not place.
     path("geography/", views.geography_queue, name="geography"),
     path("geography/suggest/", views.geography_suggest, name="geography_suggest"),

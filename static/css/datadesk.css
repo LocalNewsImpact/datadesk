@@ -3444,3 +3444,81 @@ td.outlier { background: color-mix(in srgb, var(--tone-bad) 8%, transparent); }
 .cin-reporting table.coder-grid thead th:first-child { text-align: left; }
 .cin-reporting table.coder-grid tfoot th, .cin-reporting table.coder-grid tfoot td {
   border-bottom: none; }
+
+/* ------------------------------------------------------------------
+   The geography question (review/geography_icr.py, G-WP2): the CIN
+   screen's story column, with a map in place of the category menu.
+   ------------------------------------------------------------------ */
+.geography-coding .geo-classes {
+  border: 0;
+  margin: 0 0 var(--s-3);
+  padding: 0;
+  display: grid;
+  gap: var(--s-2);
+}
+.geography-coding .geo-classes legend {
+  font-weight: 600;
+  margin-bottom: var(--s-2);
+}
+.geography-coding .geo-class {
+  display: flex;
+  gap: var(--s-2);
+  align-items: baseline;
+  font-size: var(--fs-sm);
+}
+.geography-coding .geo-state { display: block; margin-bottom: var(--s-3); }
+.geography-coding .geo-state[hidden],
+.geography-coding .geo-map-wrap[hidden],
+.geography-coding .geo-mode[hidden] { display: none; }
+/* Lines keep their width on screen at every zoom. */
+.geography-coding .geo-map path { vector-effect: non-scaling-stroke; }
+.geography-coding .geo-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  align-items: baseline;
+  margin-bottom: var(--s-2);
+  font-size: var(--fs-sm);
+}
+.geography-coding .geo-mode button[aria-pressed="true"] { font-weight: 600; }
+.geography-coding .geo-map {
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+}
+.geography-coding .geo-map svg { display: block; }
+.geography-coding .geo-counties path {
+  fill: var(--surface);
+  stroke: var(--border-strong);
+}
+.geography-coding .geo-counties path.chosen { fill: var(--accent-soft); }
+.geography-coding .geo-places path {
+  fill: none;
+  stroke: var(--text-3);
+  stroke-opacity: 0.6;
+  pointer-events: none;
+}
+.geography-coding .geo-states path {
+  fill: none;
+  stroke: var(--text-2);
+  pointer-events: none;
+}
+.geography-coding .geo-labels text {
+  fill: var(--text-2);
+  text-anchor: middle;
+  pointer-events: none;
+}
+.geography-coding .geo-pins circle {
+  fill: var(--accent);
+  stroke: var(--surface);
+  cursor: pointer;
+}
+.geography-coding .geo-scale { margin: var(--s-2) 0 0; font-size: var(--fs-sm); }
+.geography-coding .geo-answer {
+  margin: var(--s-2) 0 var(--s-3);
+  padding-left: var(--s-4);
+  font-size: var(--fs-sm);
+}

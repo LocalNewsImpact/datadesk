@@ -143,9 +143,10 @@ assignment with the map screen in place of the category menu.
   navigation aid only. The answer is the pin.
 - `seconds_spent` and the zoom at each pin are recorded.
 
-Boundaries: place and county boundaries are committed for MO, PA and MN.
-Washington must be added with `infra/fetch_boundaries.sh` before any
-Washington story is drawn.
+Boundaries: 500k place and county boundaries are committed for MO, PA,
+MN and WA (`static/geo/places/`, `static/geo/counties/`, built by
+`infra/fetch_boundaries.sh`). Elsewhere a pin still resolves to its
+county, from us-atlas' 1:10m national file, and to no place.
 
 Done when: a coder can answer each of the five classes; a P pin at
 state-wide zoom is refused; the resolved place and county are shown
@@ -161,10 +162,14 @@ of county GEOIDs: clicked counties together with the counties of the pins),
 
 ### G-WP4. Resolution
 
-A single function turns a lat/lon into (place GEOID or none, county
-GEOID), using the same TIGER files. It runs in the browser for on-screen
-feedback and runs again on the server when the decision is saved. The
-saved value is the server's. The pipeline's own `point_lat`/`point_lon`
+A single function (`review/geo_resolve.py`) turns a lat/lon into (place
+GEOID or none, county GEOID), using the same TIGER files. The coder's
+screen asks the server for it when a pin is dropped, and the server runs
+it again when the decision is saved; the saved value is the server's,
+and nothing the browser sends about a pin but its position is kept. The
+state's 500k counties decide the county where they are built: the 1:10m
+national file is a few hundred metres out at county lines, enough to
+put a town on a line in the wrong county. The pipeline's own `point_lat`/`point_lon`
 is resolved by the same function at report time, so both sides go through
 one lookup.
 
