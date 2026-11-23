@@ -1465,6 +1465,24 @@ def _coder_agreement(decisions, version, answer, parts, against_rest, pct):
         == "high"
     }
 
+    # First pass for category use, the same way: per category, coders who
+    # choose it too often against everyone else.
+    def use_of(coders_, label):
+        made = [x for c in coders_ for x in given[c]]
+        return made.count(label), len(made)
+
+    overuse = {
+        label: {
+            c
+            for c in given
+            if cin_metrics.share_outlier(
+                *use_of([c], label), *use_of([x for x in given if x != c], label)
+            )
+            == "high"
+        }
+        for label in CIN_LABELS
+    }
+
     def share(answers, label):
         return pct(answers.count(label) / len(answers)) if answers else None
 
@@ -1482,7 +1500,6 @@ def _coder_agreement(decisions, version, answer, parts, against_rest, pct):
             if coder not in (a.decided_by_id, b.decided_by_id)
         ]
         mine = given[coder]
-        others = [x for c, answers in given.items() if c != coder for x in answers]
         name = names.get(coder, f"coder {coder}")
         flags = []
         outlier = cin_metrics.kappa_outlier(
@@ -1544,13 +1561,23 @@ def _coder_agreement(decisions, version, answer, parts, against_rest, pct):
             )
             if low:
                 flags.append(f"{shown} kappa")
+            # Everyone else leaves out a coder already found choosing this
+            # category too often, as for secondaries: one over-user raised
+            # "everyone else" enough to flag normal coders as under-users.
+            # The share shown beneath is the one compared against.
+            ref = [
+                x
+                for c, answers in given.items()
+                if c != coder and c not in overuse[label]
+                for x in answers
+            ]
             used = cin_metrics.share_outlier(
-                mine.count(label), len(mine), others.count(label), len(others)
+                mine.count(label), len(mine), ref.count(label), len(ref)
             )
             share_cells.append(
                 {
                     "coder": share(mine, label),
-                    "others": share(others, label),
+                    "others": share(ref, label),
                     "flag": used,
                 }
             )

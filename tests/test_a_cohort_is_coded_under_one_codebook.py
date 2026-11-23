@@ -485,6 +485,30 @@ def test_one_coder_adding_secondaries_freely_does_not_flag_the_rest(v2_cohort):
     assert flagged == {"ann": [], "bob": [], "cat": ["Secondary added too often"]}
 
 
+def test_one_coder_over_using_a_category_does_not_flag_the_rest(v2_cohort):
+    """Three coders: two choose Sports for 1 story in 10, one for 4 in 10.
+    Against everyone else including the third, the two would read as
+    choosing Sports too rarely; the over-user is left out of their
+    comparison, and the share shown beneath is the one compared."""
+    from review.classification import CIN_LABELS
+
+    coders = [_coder(n, v2_cohort) for n in ("ann", "bob", "cat")]
+    rows = []
+    for n in range(60):
+        truth = CIN_LABELS[n % len(CIN_LABELS)]
+        for coder in coders:
+            label = "Sports" if coder.username == "cat" and n % 10 < 4 else truth
+            rows.append((f"s-{n}", coder, label))
+    _answers(v2_cohort, rows)
+    report = agreement_report(v2_cohort.codebook_version)
+    flagged = {row["name"]: row["flags"] for row in report["coders"]}
+    assert flagged["ann"] == flagged["bob"] == []
+    assert "Sports chosen too often" in flagged["cat"]
+    sports = CIN_LABELS.index("Sports")
+    grid = {row["name"]: row["cells"] for row in report["coder_share"]}
+    assert grid["ann"][sports] == {"coder": 10.0, "others": 10.0, "flag": None}
+
+
 def test_the_report_page_shows_the_coder_tables(client, v2_cohort):
     admin = User.objects.create_user("admin", password="x")
     Grant.objects.create(user=admin, app=DATADESK, role=ADMIN, scope="")
