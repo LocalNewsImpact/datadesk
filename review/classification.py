@@ -1862,9 +1862,27 @@ def _furniture():
     return found
 
 
-def _pool():
+#: A story's words, counted as the queue counts them: runs of anything
+#: between whitespace. A regex over the whole text, so about 0.4 ms a
+#: story -- 7 s over the enriched pool. A draw that needs no count of
+#: the pool checks it only on the stories it picks (`_pick`).
+WORDS_SQL = (
+    "array_length(regexp_split_to_array("
+    "btrim(coalesce(articles.text, ''),"
+    " ' ' || chr(9) || chr(10) || chr(13)),"
+    " '\\s+'), 1) >= %s"
+)
+
+
+def long_enough(rows):
+    """`rows` less the stories under `MIN_WORDS` words."""
+    return rows.extra(where=[WORDS_SQL], params=[MIN_WORDS])
+
+
+def _pool(words=True):
     """Every crawler story a draw may take: local, finished, long enough
-    to read (`MIN_WORDS`), and labelled by the model.
+    to read (`MIN_WORDS`), and labelled by the model. With `words`
+    False, the same less the word count, for `_pick`.
 
     The model label is required because agreement with the model is
     measured on every round. A finished story can lack one -- enriched
@@ -1884,19 +1902,10 @@ def _pool():
         .exclude(primary_label="")
         .exclude(wire_check_status="wire")
         .exclude(_furniture())
-        .extra(
-            where=[
-                "(wire IS NULL OR wire::text IN ('null', '[]', '{}'))",
-                # Words, counted as the queue counts them: runs of
-                # anything between whitespace.
-                "array_length(regexp_split_to_array("
-                "btrim(coalesce(articles.text, ''),"
-                " ' ' || chr(9) || chr(10) || chr(13)),"
-                " '\\s+'), 1) >= %s",
-            ],
-            params=[MIN_WORDS],
-        )
+        .extra(where=["(wire IS NULL OR wire::text IN ('null', '[]', '{}'))"])
     )
+    if words:
+        rows = long_enough(rows)
     # Where none of the named datasets exists -- another installation, a
     # test corpus -- there is nothing to restrict to.
     datasets = draw_dataset_ids()
@@ -1911,9 +1920,9 @@ def _pool():
     return rows
 
 
-def _stratum_pool(stratum):
+def _stratum_pool(stratum, words=True):
     """The articles a stratum may draw from, as an unordered queryset."""
-    rows = _pool()
+    rows = _pool(words)
     if stratum == ClassificationSample.CONFIDENT:
         return rows.filter(primary_label_confidence__gte=CONFIDENT_AT_OR_ABOVE)
     if stratum == ClassificationSample.UNCERTAIN:
@@ -1964,6 +1973,37 @@ def same_task(rows, task, round_path):
         models.Q(**{f"{round_path}__isnull": True})
         | models.Q(**{f"{round_path}__task": CIN})
     )
+
+
+#: What a draw reads of each story it takes.
+SAMPLE_FIELDS = ("id", "dataset_id", "primary_label", "primary_label_confidence")
+
+
+def _pick(pool, stratum, taken, want):
+    """`want` stories at random from a stratum, the word count checked
+    only on the ones picked.
+
+    The stratum less its word count is read whole (a third of a second
+    on the enriched pool) and shuffled; candidates are then checked in
+    that order, a few dozen at a time, until `want` pass. The same
+    stories are eligible as for a full read, each equally likely; only
+    the size of the pool is not known.
+    """
+    loose = pool(stratum, words=False).exclude(id__in=taken)
+    ids = list(loose.values_list("id", flat=True))
+    random.shuffle(ids)
+    rows = []
+    step = max(2 * want, 50)
+    for start in range(0, len(ids), step):
+        chunk = ids[start : start + step]
+        found = {
+            row[0]: row
+            for row in pool(stratum).filter(id__in=chunk).values_list(*SAMPLE_FIELDS)
+        }
+        rows += [found[i] for i in chunk if i in found][: want - len(rows)]
+        if len(rows) >= want:
+            break
+    return rows
 
 
 def draw_cohort(
@@ -2019,6 +2059,7 @@ def draw_cohort(
         ).values_list("article_id", flat=True)
     )
     pool = pool or _stratum_pool
+    practice = for_round is not None and for_round.is_practice
     with transaction.atomic():
         _one_batch_at_a_time()
         number = (
@@ -2044,17 +2085,22 @@ def draw_cohort(
             wants[list(shares)[-1]] += size - sum(wants.values())
         for stratum in shares:
             want = wants[stratum]
-            available = pool(stratum).exclude(id__in=taken)
-            # Counted before the slice: the chance a row in this stratum
-            # had of being drawn cannot be recovered later, and without it
-            # an oversampled draw cannot be weighted back to corpus rates.
-            total = available.count()
-            rows = list(
-                available.order_by("?").values_list(
-                    "id", "dataset_id", "primary_label", "primary_label_confidence"
-                )[:want]
-            )
-            probability = (len(rows) / total) if total else 1.0
+            if practice:
+                # Nothing in a practice round is counted or weighted, so
+                # the pool is not counted: the word count is checked only
+                # on the stories picked, and the probability is left at 1.
+                rows = _pick(pool, stratum, taken, want)
+                probability = 1.0
+            else:
+                # Counted before the slice: the chance a row in this
+                # stratum had of being drawn cannot be recovered later,
+                # and without it an oversampled draw cannot be weighted
+                # back to corpus rates. One read of the pool gives both.
+                every = list(
+                    pool(stratum).exclude(id__in=taken).values_list(*SAMPLE_FIELDS)
+                )
+                rows = random.sample(every, min(want, len(every)))
+                probability = (len(rows) / len(every)) if every else 1.0
             for article_id, dataset_id, label, confidence in rows:
                 taken.add(article_id)
                 samples.append(
