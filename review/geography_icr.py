@@ -808,6 +808,182 @@ def save_claims(for_round, article_ids):
     return len(made)
 
 
+# ----------------------------------------- agreement and consensus (G-WP6)
+
+
+def counted_decisions(version):
+    """The geography answers that count under a guide: not practice, not
+    check stories, not from a removed coder."""
+    from review.classification import CoderStanding, Round, standings
+
+    removed = [
+        user_id
+        for user_id, status in standings(version).items()
+        if status == CoderStanding.REMOVED
+    ]
+    return (
+        GeographyDecision.objects.filter(codebook_version=version, is_check=False)
+        .exclude(cohort__round__kind=Round.PRACTICE)
+        .exclude(decided_by_id__in=removed)
+    )
+
+
+def where_of(decision):
+    """(place GEOID or None, county GEOID or None) of a P answer."""
+    pin = (decision.pins or [{}])[0]
+    return pin.get("place"), pin.get("county")
+
+
+def agree(a, b):
+    """Do two coders' answers agree?
+
+    The same class, and:
+
+      P  the same GEOID at the coarser of their two levels: the place
+         where both pins are in a Census place, otherwise the county. A
+         pin in Ashland and one in the countryside outside it agree on
+         Boone County; pins in Ashland and Columbia do not.
+      R  the same set of counties.
+      S  the same state.
+      U  N  the class alone.
+    """
+    if a.answer_class != b.answer_class:
+        return False
+    if a.answer_class == PLACE:
+        (place_a, county_a), (place_b, county_b) = where_of(a), where_of(b)
+        if place_a and place_b:
+            return place_a == place_b
+        return county_a == county_b
+    if a.answer_class == REGION:
+        return sorted(a.counties) == sorted(b.counties)
+    if a.answer_class == STATE:
+        return a.state == b.state
+    return True
+
+
+def add_third_coder(cohort, article_id):
+    """A third coder for a geography story whose first two answers
+    disagree, in a round that asks for one. Returns the assignment, or
+    None where there is nothing to do. Safe to call again."""
+    from review.classification import assign_third
+
+    for_round = cohort.round
+    if (
+        for_round is None
+        or not for_round.is_geography
+        or not for_round.third_on_split
+        or for_round.is_practice
+    ):
+        return None
+    answers = list(
+        counted_decisions(cohort.codebook).filter(cohort=cohort, article_id=article_id)
+    )
+    if len(answers) != 2 or agree(*answers):
+        return None
+    seen = set(
+        GeographyDecision.objects.filter(article_id=article_id).values_list(
+            "decided_by_id", flat=True
+        )
+    )
+    return assign_third(cohort, article_id, seen)
+
+
+def _majority(values):
+    """The value at least two chose, or None. With three answers there
+    can be only one."""
+    counts = {}
+    for value in values:
+        if value is not None:
+            counts[value] = counts.get(value, 0) + 1
+    winners = [value for value, n in counts.items() if n >= 2]
+    return winners[0] if len(winners) == 1 else None
+
+
+def consensus(answers):
+    """What a story's coders agreed, or None.
+
+    The class at least two chose. Then, among the answers in that class:
+    for P the place at least two chose, else the county at least two
+    chose (so a pin in Ashland and a pin just outside it give Boone
+    County, at county level); for R the counties at least two chose; for
+    S the state at least two chose. Where nothing reaches two, the story
+    has no consensus: it is left out of the scoring and counted.
+
+    Returns {answer_class, level, place, counties, state, coders}.
+    """
+    answers = list(answers)
+    if len(answers) < 2:
+        return None
+    kind = _majority(a.answer_class for a in answers)
+    if kind is None:
+        return None
+    within = [a for a in answers if a.answer_class == kind]
+    out = {
+        "answer_class": kind,
+        "level": "",
+        "place": None,
+        "counties": [],
+        "state": "",
+        "coders": len(answers),
+    }
+    if kind == PLACE:
+        places = [where_of(a) for a in within]
+        place = _majority(p for p, _ in places)
+        if place is not None:
+            county = next(c for p, c in places if p == place)
+            return out | {"level": "place", "place": place, "counties": [county]}
+        county = _majority(c for _, c in places)
+        if county is None:
+            return None
+        return out | {"level": "county", "counties": [county]}
+    if kind == REGION:
+        tally = {}
+        for answer in within:
+            for county in set(answer.counties):
+                tally[county] = tally.get(county, 0) + 1
+        counties = sorted(c for c, n in tally.items() if n >= 2)
+        if not counties:
+            return None
+        return out | {"level": "county", "counties": counties}
+    if kind == STATE:
+        state = _majority(a.state for a in within)
+        if state is None:
+            return None
+        return out | {"level": "state", "state": state}
+    return out
+
+
+def round_consensus(for_round):
+    """article_id -> consensus (or None) for every story in the round
+    with at least two counted answers, and the counts an admin reads:
+    stories answered twice, agreed by the first two, split, given a
+    third, waiting on one, with a consensus, without one."""
+    by_story = {}
+    for answer in (
+        counted_decisions(for_round.codebook_version)
+        .filter(cohort__round=for_round)
+        .order_by("decided_at", "id")
+    ):
+        by_story.setdefault(answer.article_id, []).append(answer)
+    results, counts = {}, dict.fromkeys(
+        ("answered", "agreed", "split", "third", "waiting", "consensus", "none"), 0
+    )
+    for article_id, answers in by_story.items():
+        if len(answers) < 2:
+            continue
+        counts["answered"] += 1
+        first_two = agree(answers[0], answers[1])
+        counts["agreed" if first_two else "split"] += 1
+        if not first_two:
+            counts["third" if len(answers) > 2 else "waiting"] += 1
+        if not first_two and len(answers) == 2:
+            # A split still waiting on its third coder has no answer yet.
+            continue
+        results[article_id] = consensus(answers)
+        counts["consensus" if results[article_id] else "none"] += 1
+    return results, counts
+
+
 # ------------------------------------------------------- the coder's map
 
 

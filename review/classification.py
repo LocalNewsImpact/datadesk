@@ -2432,7 +2432,12 @@ def start_round(
     Returns (round, [(level, message)]). A coder who cannot be given
     stories yet is named with the reason, not left out silently.
     """
-    settings_for = {**ROUND_DEFAULTS[kind], **{k: v for k, v in changes.items() if v}}
+    base = dict(ROUND_DEFAULTS[kind])
+    # A geography pilot reads each story twice, and a third time where
+    # the two disagree (docs/GEOGRAPHY_ICR_DATADESK.md, G-WP6).
+    if task == GEOGRAPHY and kind == Round.COMPARISON:
+        base["third_on_split"] = True
+    settings_for = {**base, **{k: v for k, v in changes.items() if v}}
     stories = settings_for.pop("stories")
     question = settings_for.pop("question", "")
     created = open_round(
@@ -3525,6 +3530,23 @@ def add_third_coder(cohort, article_id):
     )
     if len(decisions) != 2 or _agree(*decisions) is not False:
         return None
+    seen = set(
+        ClassificationDecision.objects.filter(article_id=article_id).values_list(
+            "decided_by_id", flat=True
+        )
+    )
+    return assign_third(cohort, article_id, seen)
+
+
+def assign_third(cohort, article_id, seen):
+    """Assign a story to one more coder: admitted, not already on it, not
+    among `seen` (who have answered it anywhere), the one with the least
+    outstanding work. Returns the assignment, or None where the story
+    already has three or nobody is free.
+
+    Shared by the CIN and geography questions; each decides for itself
+    when a story's first two answers disagree.
+    """
     on_story = set(
         ClassificationAssignment.objects.filter(
             cohort=cohort, article_id=article_id, is_check=False
@@ -3533,11 +3555,6 @@ def add_third_coder(cohort, article_id):
     if len(on_story) > 2:
         return None
     standing = standings(cohort.codebook)
-    seen = set(
-        ClassificationDecision.objects.filter(article_id=article_id).values_list(
-            "decided_by_id", flat=True
-        )
-    )
     free = [
         user
         for user in coders_for(cohort)

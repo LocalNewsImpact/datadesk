@@ -236,17 +236,32 @@ and inclusion probabilities reproduce the stratum populations.
 
 Two coders **agree** when they give the same class and:
 
-- P: the same GEOID at the coarser of their two levels (place if both
-  pins are in one place, otherwise county);
+- P: the same GEOID at the coarser of their two levels: the place
+  where both pins are in a Census place, otherwise the county. Pins in
+  Ashland and in the countryside outside it agree on Boone County; pins
+  in Ashland and Columbia do not;
 - R: the same county set;
 - S: the same state;
 - U, N: class alone.
 
-A disagreement adds one assignment to an admitted coder not already on
-the story (CIN V2 WP5). **Consensus**: the class at least two of three
-chose. For P, the GEOID at least two chose. For R, the counties at least
-two chose. If there is no majority, the story has no consensus. It is
-left out and counted, as stories with no agreed label are in CIN.
+A disagreement adds one assignment to an admitted coder who is not on
+the story and has not answered it anywhere, the one with the least
+outstanding work: the CIN step (CIN V2 WP5), shared
+(`classification.assign_third`). A geography pilot started from the
+admin asks for thirds by default; practice rounds never do.
+
+**Consensus** (`geography_icr.consensus`): the class at least two chose.
+Then, among the answers in that class: for P, the place at least two
+chose, else the county at least two chose (three pins in three towns of
+one county give that county, at county level); for R, the counties at
+least two chose; for S, the state at least two chose. If nothing reaches
+two, the story has no consensus. It is left out and counted, as stories
+with no agreed label are in CIN.
+
+`round_consensus` gives every story's consensus and the counts an admin
+reads: answered twice, agreed by the first two, split, given a third,
+waiting on one, with a consensus, without one. Practice rounds, check
+stories and removed coders' answers are not counted.
 
 Expected load: about 920 first-pair codings, plus third coders on about
 15% of P stories and about 25% of R stories. About 1,000 codings in all.
