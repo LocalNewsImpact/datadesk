@@ -424,4 +424,7 @@ from review.classification import (  # noqa: E402,F401  (import for discovery)
     Round,
     V1Decision,
 )
-from review.geography_icr import GeographyDecision  # noqa: E402,F401  (discovery)
+from review.geography_icr import (  # noqa: E402,F401  (discovery)
+    GeographyClaim,
+    GeographyDecision,
+)

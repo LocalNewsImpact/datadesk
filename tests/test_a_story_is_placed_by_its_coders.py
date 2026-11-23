@@ -209,12 +209,12 @@ def test_a_story_in_a_cin_batch_can_still_be_drawn_for_geography(crawler_schema)
     assert list(cohort.samples.values_list("article_id", flat=True)) == ["a-1"]
 
 
-def test_a_geography_pilot_opens_with_no_stories_until_its_draw_is_built():
+def test_a_geography_pilot_with_nothing_to_draw_says_so(crawler_schema):
     from review.classification import open_batch
 
     created = open_round("Geo pilot", Round.COMPARISON, task=GEOGRAPHY)
     cohort, level, message = open_batch(created, 185)
-    assert cohort is None and level == "warn" and "G-WP5" in message
+    assert cohort is None and level == "bad" and "No enriched stories" in message
 
 
 # ------------------------------------------------------- the admin page

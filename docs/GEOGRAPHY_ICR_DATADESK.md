@@ -184,34 +184,47 @@ enrichment run (`ArticlePlaceManual`'s docstring). A claim read at report
 time could therefore differ from the one the coders were scored against.
 The claim is copied when the story is drawn:
 
-**`GeographyClaim`**: `story`, `round`, `scope`, `scope_confidence`,
-`profile_version`, `point_geoid`, `point_geoid_level`, `point_lat`,
-`point_lon`, `point_method`, `point_support`, `county_rows` (JSON:
-geoid, source), `state_geoid`, `drawn_at`.
+**`GeographyClaim`** (`review/geography_icr.py`): `round`, `article_id`,
+`pipeline_class` (P/R/S/N from the scope), `scope`, `scope_confidence`,
+`profile_version`, `point_place`, `point_geoid`, `point_geoid_level`,
+`point_lat`, `point_lon`, `point_method`, `point_support`,
+`geo_skip_reason`, `geoid_rows` (JSON: every `article_geoids` row with
+geoid, level, is_primary, source), `drawn_at`. Counties and the state
+code are read from `geoid_rows`. Never edited once made.
 
-**Draw.** Drawn only from stories enriched under the current profile
-version (3: 18,084 of 18,102 enriched today), stratified by the
-pipeline's class, with the inclusion probability recorded per story as
-`draw_cohort` already does:
+**Draw** (`draw_geography_pilot`). From the enriched pool the practice
+round uses (current profile version, at least 100 words, not wire, no
+page furniture), stratified by how the pipeline placed the story, with
+the inclusion probability recorded per story. A story goes to the first
+stratum it fits, in this order, so the P strata do not overlap.
+Populations are production on 2026-11-23, after the pool's filters:
 
-| Stratum | Population | Drawn | Split |
+| Stratum | Pipeline placed it | Population | Drawn |
 | --- | --- | --- | --- |
-| P: `focus_model`, named | 9,823 | 85 | random |
-| P: supported only by an institution | 395 | 25 | random |
-| P: `publication_place_assumed` | 561 | 25 | random |
-| P: `publication_city` / `single_city` | 336 | 25 | random |
-| P: county-level point | 320 | 25 | random |
-| R | 4,313 | 185 | by county-row count: 0 / 1 / 2+ in proportion |
-| S | 1,538 | 40 | random |
-| N | 592 | 40 | random |
-| **Total** | | **450** | |
+| `p_county` | point at county level | 291 | 25 |
+| `p_assumed` | `publication_place_assumed` | 465 | 25 |
+| `p_pubcity` | `publication_city` / `single_city` | 295 | 25 |
+| `p_institution` | supported only by an institution | 293 | 25 |
+| `p_model` | every other point | 8,895 | 85 |
+| `p_none` | point scope, no point | 174 | 10 |
+| `r_0` | regional, no county rows | 313 | 15 |
+| `r_1` | regional, one county | 1,727 | 80 |
+| `r_2plus` | regional, two or more | 1,935 | 90 |
+| `s_state` | statewide | 1,422 | 40 |
+| `n_none` | national, international, other | 536 | 40 |
+| **Total** | | **16,346** | **460** |
 
-The P strata overlap (an institution-supported point can also be a
-`single_city` point), so each story goes to the first stratum it fits,
-in this order: county-level, `publication_place_assumed`,
-`publication_city` / `single_city`, institution, `focus_model` named. The
-populations in the table are counted before that rule is applied and
-will shrink slightly after it.
+The regional 185 is split over its three strata in proportion to their
+populations when the draw is made. `p_none` was not in the first version
+of this table: leaving out point-scope stories the pipeline could not
+place would score the pipeline only where it answered. The plan, the
+seed (the round's id unless given), the populations and the profile
+version are written to the round's `draw_rule`. A geography pilot takes
+no batch size: its size is its plan's. Stories in another geography
+batch are not drawn again; stories in CIN batches are.
+
+Measured against production with nothing written to it: 460 drawn and
+460 claims saved in 17 seconds.
 
 Coders' queues are shuffled, so strata never come in a run. The mix is
 shown to admins only.
@@ -235,7 +248,7 @@ chose. For P, the GEOID at least two chose. For R, the counties at least
 two chose. If there is no majority, the story has no consensus. It is
 left out and counted, as stories with no agreed label are in CIN.
 
-Expected load: about 900 first-pair codings, plus third coders on about
+Expected load: about 920 first-pair codings, plus third coders on about
 15% of P stories and about 25% of R stories. About 1,000 codings in all.
 
 ### G-WP7. Metrics

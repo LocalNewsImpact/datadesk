@@ -36,7 +36,7 @@ from lnic_contracts import cin_labels
 
 from accounts.privileges import CLASSIFIER
 from review import cin_metrics
-from review.geography_icr import CIN, GEOGRAPHY, TASKS
+from review.geography_icr import CIN, GEOGRAPHY, GEOGRAPHY_STRATA, TASKS
 
 #: The ten Critical Information Needs categories, in the order the
 #: codebook introduces them -- which is the order a person reads them in
@@ -736,9 +736,20 @@ class ClassificationSample(models.Model):
     CIVIC = "civic"
     OTHER = "other"
     CATEGORY = "category"
+    #: A geography pilot's strata (review.geography_icr) are the
+    #: pipeline's kinds of placement, the doubtful ones oversampled.
     STRATA = [
         (s, s)
-        for s in (CONFIDENT, UNCERTAIN, RANDOM, UNLABELLED, CIVIC, OTHER, CATEGORY)
+        for s in (
+            CONFIDENT,
+            UNCERTAIN,
+            RANDOM,
+            UNLABELLED,
+            CIVIC,
+            OTHER,
+            CATEGORY,
+            *GEOGRAPHY_STRATA,
+        )
     ]
 
     cohort = models.ForeignKey(
