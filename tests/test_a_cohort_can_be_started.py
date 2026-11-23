@@ -195,11 +195,15 @@ def test_a_story_the_wire_check_flagged_is_not_drawn(crawler_schema):
     assert drawn == {empty.id, local.id}
 
 
-def test_a_story_too_short_to_read_is_not_drawn(crawler_schema):
+@pytest.mark.parametrize("practice", [False, True])
+def test_a_story_too_short_to_read_is_not_drawn(crawler_schema, practice):
     """A status says nothing about how much text a story has, and a
     story that was never enriched was never checked for a paywall or a
-    teaser. V1 coders rejected stories under 100 words as too short."""
-    from review.classification import MIN_WORDS
+    teaser. V1 coders rejected stories under 100 words as too short.
+
+    A practice draw checks the word count only on the stories it picks
+    (`_pick`); it must leave out the same ones."""
+    from review.classification import MIN_WORDS, Round, open_round
 
     assert MIN_WORDS == 100
     lengths = {1: 0, 2: 39, 3: 99, 4: 100, 5: 400}
@@ -207,7 +211,11 @@ def test_a_story_too_short_to_read_is_not_drawn(crawler_schema):
         article = _article(crawler_schema, n, confidence=0.95)
         article.text = "word\n  " * words
         article.save()
-    cohort, _ = draw_cohort(10)
+    if practice:
+        practice_round = open_round("Practice", Round.PRACTICE)
+        cohort, _ = draw_cohort(10, for_round=practice_round, shares={"random": 1.0})
+    else:
+        cohort, _ = draw_cohort(10)
     drawn = set(cohort.samples.values_list("article_id", flat=True))
     assert drawn == {f"00000000-0000-0000-0000-{n:012d}" for n in (4, 5)}
 

@@ -365,34 +365,28 @@ def current_profile_version():
     )["profile_version__max"]
 
 
-def enriched_pool(_stratum=None):
+def enriched_pool(_stratum=None, words=True):
     """Stories whose geography can be scored: enriched, under the current
     profile, long enough to read, and not wire.
 
     Production, `status = 'enriched'`, and nothing else: a story in any
     other status has no placement to score, or had one under rules that
     no longer run. Takes a stratum for `draw_cohort`'s signature; the
-    practice draw has one.
+    practice draw has one. With `words` False, the same less the word
+    count (`classification._pick`).
     """
     from explorer.models import Article
-    from review.classification import MIN_WORDS, _furniture
+    from review.classification import _furniture, long_enough
 
     rows = (
         Article.objects.using("crawler")
         .filter(status="enriched")
         .exclude(wire_check_status="wire")
         .exclude(_furniture())
-        .extra(
-            where=[
-                "(wire IS NULL OR wire::text IN ('null', '[]', '{}'))",
-                "array_length(regexp_split_to_array("
-                "btrim(coalesce(articles.text, ''),"
-                " ' ' || chr(9) || chr(10) || chr(13)),"
-                " '\\s+'), 1) >= %s",
-            ],
-            params=[MIN_WORDS],
-        )
+        .extra(where=["(wire IS NULL OR wire::text IN ('null', '[]', '{}'))"])
     )
+    if words:
+        rows = long_enough(rows)
     version = current_profile_version()
     if version is not None:
         rows = rows.filter(enrichment__profile_version=version)
