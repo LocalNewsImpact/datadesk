@@ -36,6 +36,12 @@
       <dd class="big">{% if expected is not None %}{{ expected }}%{% else %}&mdash;{% endif %}</dd></div>
     <div><dt>Cohen's kappa</dt>
       <dd class="big">{{ kappa|floatformat:3|default:"—" }}</dd></div>
+    <div><dt>Krippendorff's alpha</dt>
+      <dd class="big">{{ alpha.rate|floatformat:3|default:"—" }}</dd>
+      {% if alpha.low is not None %}<dd class="quiet">95% {{ alpha.low|floatformat:3 }}&ndash;{{ alpha.high|floatformat:3 }}</dd>{% endif %}</div>
+    <div><dt>Weighted alpha</dt>
+      <dd class="big">{{ alpha_weighted.rate|floatformat:3|default:"—" }}</dd>
+      {% if alpha_weighted.low is not None %}<dd class="quiet">95% {{ alpha_weighted.low|floatformat:3 }}&ndash;{{ alpha_weighted.high|floatformat:3 }}</dd>{% endif %}</div>
     <div><dt>Pairs compared</dt><dd class="big">{{ pairs }}</dd></div>
     <div><dt>Stories with two or more coders</dt>
       <dd class="big">{{ articles_multiply_coded }}</dd></div>
@@ -49,6 +55,14 @@
     chance, from 0 (chance) to 1 (always the same). V1 measured 0.583.
     A rejection counts as one more answer. Kappa depends on the mix of
     stories drawn, so compare it between rounds drawn the same way.
+  </p>
+  <p class="quiet">
+    Krippendorff's alpha reads every answer on a story, so a third coder
+    brought in on a split counts, where kappa reads pairs. Weighted alpha
+    also gives part credit where one coder's category is the other's
+    secondary, at the label rule's 0.7 against 0.9 for a match: the
+    agreement the training labels are built on. Kappa stays the figure
+    compared with V1; the alphas are read beside it and decide nothing.
   </p>
 
   {% if not pairs %}
@@ -77,6 +91,8 @@
           <th scope="col" class="num">Observed</th>
           <th scope="col" class="num">Expected</th>
           <th scope="col" class="num">Kappa</th>
+          <th scope="col" class="num">Alpha</th>
+          <th scope="col" class="num">Weighted alpha</th>
         </tr>
       </thead>
       <tbody>
@@ -89,6 +105,8 @@
           <td class="num">{{ row.observed }}%</td>
           <td class="num">{{ row.expected }}%</td>
           <td class="num"><strong>{{ row.kappa|floatformat:3|default:"—" }}</strong></td>
+          <td class="num">{{ row.alpha|floatformat:3|default:"—" }}</td>
+          <td class="num">{{ row.alpha_weighted|floatformat:3|default:"—" }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -143,6 +161,40 @@
           <td class="num"><strong{% if row.flag %} class="outlier"{% endif %}>{{ row.kappa|floatformat:3|default:"—" }}</strong></td>
           <td class="num">{{ row.kappa_without|floatformat:3|default:"—" }}</td>
           <td>{% if row.flags %}<span class="outlier">{{ row.flags|join:"; " }}</span>{% else %}<span class="quiet">none</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Alpha and secondaries by coder</h3>
+  <p class="quiet">
+    Weighted alpha over the stories the coder answered, every answer on
+    them, against the same alpha with their answers taken out of every
+    story. Weighted alpha credits secondaries, so a coder who adds them
+    freely earns more of that credit: the share of their category answers
+    with a secondary is flagged by the rule above, at twice everyone
+    else's rate or under half of it.
+  </p>
+  <div class="table-scroll">
+    <table class="grid">
+      <thead>
+        <tr>
+          <th scope="col">Coder</th>
+          <th scope="col" class="num">Weighted alpha</th>
+          <th scope="col" class="num">Without them</th>
+          <th scope="col" class="num">With a secondary</th>
+          <th scope="col" class="num">Everyone else</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in coders %}
+        <tr>
+          <th scope="row">{{ row.name }}</th>
+          <td class="num">{{ row.alpha_weighted|floatformat:3|default:"—" }}</td>
+          <td class="num">{{ row.alpha_weighted_without|floatformat:3|default:"—" }}</td>
+          <td class="num{% if row.secondary_flag %} outlier{% endif %}">{% if row.secondary is not None %}{{ row.secondary }}%{% else %}&mdash;{% endif %}</td>
+          <td class="num">{% if row.secondary_others is not None %}{{ row.secondary_others }}%{% else %}&mdash;{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -224,6 +276,8 @@
           <th scope="col" class="num">Observed</th>
           <th scope="col" class="num">Expected</th>
           <th scope="col" class="num">Kappa</th>
+          <th scope="col" class="num">Alpha</th>
+          <th scope="col" class="num">Weighted alpha</th>
         </tr>
       </thead>
       <tbody>
@@ -234,6 +288,8 @@
           <td class="num">{{ row.observed }}%</td>
           <td class="num">{{ row.expected }}%</td>
           <td class="num"><strong>{{ row.kappa|floatformat:3|default:"—" }}</strong></td>
+          <td class="num">{{ row.alpha|floatformat:3|default:"—" }}</td>
+          <td class="num">{{ row.alpha_weighted|floatformat:3|default:"—" }}</td>
         </tr>
         {% endfor %}
       </tbody>

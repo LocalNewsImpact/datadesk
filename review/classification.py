@@ -1374,10 +1374,38 @@ def agreement_report(codebook_version=None):
     cohort_pairs = {}
     for a, b in pairs:
         cohort_pairs.setdefault(a.cohort.number, []).append((answer(a), answer(b)))
+    # KRIPPENDORFF'S ALPHA BESIDE KAPPA (2026-11-23): the same measures the
+    # round's finish line reads (`_pilot_conditions`), over every answer on
+    # a story rather than pairs, so a third coder on a split counts. Strict
+    # alpha reads the category alone; weighted alpha gives part credit where
+    # one coder's category is the other's secondary, at the label rule's
+    # 0.7 against 0.9 (`cin_metrics.weighted_alpha`) -- the agreement the
+    # training labels are built on. Kappa stays the figure compared with V1.
+    stories = answers_by_story(decisions)
+
+    def alphas(subset, label=None):
+        strict = cin_metrics.krippendorff_alpha(subset, label)
+        weighted = cin_metrics.weighted_alpha(subset, label)
+        return {
+            "alpha": round(strict, 3) if strict is not None else None,
+            "alpha_weighted": round(weighted, 3) if weighted is not None else None,
+        }
+
+    for row in categories:
+        row.update(alphas(stories, row["label"]))
+    cohort_of = {d.article_id: d.cohort.number for d in decisions}
     cohorts = [
-        {"number": number, **parts(scored)}
+        {
+            "number": number,
+            **parts(scored),
+            **alphas({k: v for k, v in stories.items() if cohort_of[k] == number}),
+        }
         for number, scored in sorted(cohort_pairs.items(), reverse=True)
     ]
+
+    def interval(measure):
+        out = cin_metrics.alpha_with_interval(stories, measure=measure)
+        return {k: (round(v, 3) if isinstance(v, float) else v) for k, v in out.items()}
 
     return {
         "version": version,
@@ -1388,6 +1416,8 @@ def agreement_report(codebook_version=None):
         "overall": overall["observed"],
         "expected": overall["expected"],
         "kappa": overall["kappa"],
+        "alpha": interval(cin_metrics.krippendorff_alpha),
+        "alpha_weighted": interval(cin_metrics.weighted_alpha),
         "categories": categories,
         "cohorts": cohorts,
         "category_columns": [version.shown(label) for label in CIN_LABELS],
@@ -1411,9 +1441,29 @@ def _coder_agreement(decisions, version, answer, parts, against_rest, pct):
     ]
     everyone = [(answer(a), answer(b)) for a, b in first]
 
-    given = {}
+    given, answered_by = {}, {}
     for d in decisions:
         given.setdefault(d.decided_by_id, []).append(answer(d))
+        answered_by.setdefault(d.decided_by_id, []).append(as_answer(d))
+    stories = answers_by_story(decisions)
+
+    def secondary_counts(coders_):
+        made = [a for c in coders_ for a in answered_by[c] if a["label"]]
+        return sum(bool(a["secondary"]) for a in made), len(made)
+
+    # First pass: coders adding a secondary too often against everyone
+    # else, left out of the comparison for the rest (below).
+    def rest_of(c):
+        return [x for x in answered_by if x != c]
+
+    adds_freely = {
+        c
+        for c in answered_by
+        if cin_metrics.share_outlier(
+            *secondary_counts([c]), *secondary_counts(rest_of(c))
+        )
+        == "high"
+    }
 
     def share(answers, label):
         return pct(answers.count(label) / len(answers)) if answers else None
@@ -1440,6 +1490,39 @@ def _coder_agreement(decisions, version, answer, parts, against_rest, pct):
         )
         if outlier:
             flags.append("Kappa overall")
+        # Weighted alpha over the stories the coder answered, every answer
+        # on them, read against the same alpha with the coder's answers
+        # taken out of every story: what the agreement is without them.
+        theirs = {
+            k: v for k, v in stories.items() if any(a["coder"] == coder for a in v)
+        }
+        without = {k: [a for a in v if a["coder"] != coder] for k, v in stories.items()}
+        alpha_own = cin_metrics.weighted_alpha(theirs)
+        alpha_without = cin_metrics.weighted_alpha(without)
+        # The secondary is optional and weighted alpha credits it, so a
+        # coder adding one freely earns more of that credit: their rate of
+        # answers with a secondary, against everyone else's, by the
+        # category-use rule (2x or under half, p < 0.05, from 20 answers).
+        # Everyone else leaves out a coder already found adding them too
+        # often: one such coder raised "everyone else" enough to flag a
+        # normal coder as adding too few (24.6% against 51.5%, test data).
+        cat_mine = [a for a in answered_by[coder] if a["label"]]
+        cat_others = [
+            a
+            for c, v in answered_by.items()
+            if c != coder and c not in adds_freely
+            for a in v
+            if a["label"]
+        ]
+        sec_mine = sum(bool(a["secondary"]) for a in cat_mine)
+        sec_others = sum(bool(a["secondary"]) for a in cat_others)
+        sec_flag = cin_metrics.share_outlier(
+            sec_mine, len(cat_mine), sec_others, len(cat_others)
+        )
+        if sec_flag:
+            flags.append(
+                "Secondary added too " + ("often" if sec_flag == "high" else "rarely")
+            )
 
         kappa_cells, share_cells = [], []
         for label in CIN_LABELS:
@@ -1481,6 +1564,17 @@ def _coder_agreement(decisions, version, answer, parts, against_rest, pct):
                 "rejected": share(mine, REJECTED),
                 **parts(own),
                 "kappa_without": parts(rest)["kappa"],
+                "alpha_weighted": (
+                    round(alpha_own, 3) if alpha_own is not None else None
+                ),
+                "alpha_weighted_without": (
+                    round(alpha_without, 3) if alpha_without is not None else None
+                ),
+                "secondary": pct(sec_mine / len(cat_mine)) if cat_mine else None,
+                "secondary_others": (
+                    pct(sec_others / len(cat_others)) if cat_others else None
+                ),
+                "secondary_flag": sec_flag,
                 "flag": outlier,
                 "flags": flags,
             }

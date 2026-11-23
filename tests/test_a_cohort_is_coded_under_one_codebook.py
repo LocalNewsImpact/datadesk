@@ -376,6 +376,115 @@ def test_a_coder_far_below_the_others_is_flagged(v2_cohort):
     assert flagged == {"dee"}
 
 
+def _with_secondary(cohort, rows):
+    """rows: (story, coder, label, secondary) in the order given."""
+    for story, coder, label, secondary in rows:
+        ClassificationDecision.objects.create(
+            cohort=cohort,
+            article_id=story,
+            decided_by=coder,
+            primary_label=label,
+            secondary_label=secondary,
+            reject_reason="" if label else "not_local",
+            codebook_version=cohort.codebook_version,
+        )
+
+
+def test_alpha_is_reported_beside_kappa(v2_cohort):
+    """Strict and weighted alpha are the finish line's own measures, over
+    every answer on a story: a third coder counts. A crossover -- each
+    coder's category the other's secondary -- earns weighted alpha part
+    credit and strict alpha none."""
+    from review import cin_metrics
+    from review.classification import answers_by_story
+
+    a, b, c = (_coder(n, v2_cohort) for n in ("a", "b", "c"))
+    _with_secondary(
+        v2_cohort,
+        [
+            ("s-0", a, "Sports", ""),
+            ("s-0", b, "Sports", ""),
+            ("s-0", c, "Sports", ""),
+            ("s-1", a, "Health", "Sports"),
+            ("s-1", b, "Sports", "Health"),
+            ("s-1", c, "Health", ""),
+            ("s-2", a, "Health", ""),
+            ("s-2", b, "Health", ""),
+            ("s-3", a, "Sports", ""),
+            ("s-3", b, "", ""),
+        ],
+    )
+    report = agreement_report(v2_cohort.codebook_version)
+    stories = answers_by_story(ClassificationDecision.objects.filter(cohort=v2_cohort))
+    assert report["alpha"]["rate"] == round(cin_metrics.krippendorff_alpha(stories), 3)
+    assert report["alpha_weighted"]["rate"] == round(
+        cin_metrics.weighted_alpha(stories), 3
+    )
+    assert report["alpha_weighted"]["rate"] > report["alpha"]["rate"]
+    assert report["alpha"]["n"] == 4
+    sports = next(r for r in report["categories"] if r["label"] == "Sports")
+    strict = cin_metrics.krippendorff_alpha(stories, "Sports")
+    assert sports["alpha"] == round(strict, 3)
+    assert report["cohorts"][0]["alpha"] == report["alpha"]["rate"]
+    rows = {row["name"]: row for row in report["coders"]}
+    # c's figure is over the two stories c answered, every answer on them;
+    # "without" is every story with c's answers taken out.
+    theirs = {k: v for k, v in stories.items() if k in ("s-0", "s-1")}
+    assert rows["c"]["alpha_weighted"] == round(cin_metrics.weighted_alpha(theirs), 3)
+    assert rows["c"]["alpha_weighted_without"] == round(
+        cin_metrics.weighted_alpha(
+            {k: [x for x in v if x["coder"] != c.pk] for k, v in stories.items()}
+        ),
+        3,
+    )
+    # a gave a secondary on 1 of 4 category answers; b and c on 1 of 5.
+    assert (rows["a"]["secondary"], rows["a"]["secondary_others"]) == (25.0, 20.0)
+
+
+def test_a_coder_adding_secondaries_freely_is_flagged(v2_cohort):
+    """Weighted alpha credits secondaries, so a coder who adds one to
+    every answer is flagged by the category-use rule; the others are
+    not."""
+    from review.classification import CIN_LABELS
+
+    coders = [_coder(n, v2_cohort) for n in ("ann", "bob", "cat", "dee")]
+    rows = []
+    for n in range(60):
+        truth = CIN_LABELS[n % len(CIN_LABELS)]
+        extra = CIN_LABELS[(n + 1) % len(CIN_LABELS)]
+        for coder in coders:
+            freely = coder.username == "cat"
+            secondary = extra if freely or n % 10 < 3 else ""
+            rows.append((f"s-{n}", coder, truth, secondary))
+    _with_secondary(v2_cohort, rows)
+    report = agreement_report(v2_cohort.codebook_version)
+    flagged = {row["name"]: row["flags"] for row in report["coders"]}
+    assert flagged["cat"] == ["Secondary added too often"]
+    assert flagged["ann"] == flagged["bob"] == flagged["dee"] == []
+
+
+def test_one_coder_adding_secondaries_freely_does_not_flag_the_rest(v2_cohort):
+    """Three coders: two add a secondary on 1 answer in 10, one on every
+    answer. Against everyone else including the third, the two would read
+    as adding too few; the coder already found adding too many is left
+    out of their comparison."""
+    from review.classification import CIN_LABELS
+
+    coders = [_coder(n, v2_cohort) for n in ("ann", "bob", "cat")]
+    rows = []
+    for n in range(60):
+        truth = CIN_LABELS[n % len(CIN_LABELS)]
+        extra = CIN_LABELS[(n + 1) % len(CIN_LABELS)]
+        for coder in coders:
+            freely = coder.username == "cat"
+            secondary = extra if freely or n % 10 == 0 else ""
+            rows.append((f"s-{n}", coder, truth, secondary))
+    _with_secondary(v2_cohort, rows)
+    report = agreement_report(v2_cohort.codebook_version)
+    flagged = {row["name"]: row["flags"] for row in report["coders"]}
+    assert flagged == {"ann": [], "bob": [], "cat": ["Secondary added too often"]}
+
+
 def test_the_report_page_shows_the_coder_tables(client, v2_cohort):
     admin = User.objects.create_user("admin", password="x")
     Grant.objects.create(user=admin, app=DATADESK, role=ADMIN, scope="")
@@ -390,6 +499,9 @@ def test_the_report_page_shows_the_coder_tables(client, v2_cohort):
         "bob",
         "Kappa by coder and category",
         "Community Life",
+        "Krippendorff's alpha",
+        "Alpha and secondaries by coder",
+        "With a secondary",
     ):
         assert text in body
 
