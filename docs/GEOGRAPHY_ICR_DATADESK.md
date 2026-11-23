@@ -335,6 +335,20 @@ Gate 1 is evaluated first. If it fails, gates 2 and 3 return **not
 enough data**: without a reliable human answer, the pipeline has nothing
 to be scored against.
 
+As built (`geography_icr.geography_gate`): gate 1 is judged on the
+observed alpha, as the CIN pilot is; gates 2 and 3 on the lower bound.
+M1-M3 are read from each story's first two coders, because a third
+exists only where those two split. Until gate 1 passes, gates 2 and 3
+are shown with their figures and marked "not judged". The round's
+outcome is **not enough data** while any drawn story lacks its two
+answers or a split waits on its third, whatever the figures; then
+**fail** if any condition fails, **not enough data** if any cannot be
+computed, otherwise **pass**. A recorded evaluation keeps the whole
+G-WP7 report in `GateResult.measures`. A geography practice round has
+the CIN practice conditions: every coder has coded every story, and the
+review has been held. The thresholds are `GATE_ALPHA`, `GATE_PLACE` and
+`GATE_REGION` in `review/geography_icr.py`.
+
 **Sample size.** Gate 2 is a one-sided test of accuracy ≤ 0.90 against
 an expected 0.95, at α = 0.05 and 80% power: 183 stories, so 185 P
 stories are drawn. Gate 3 uses the same 185 as its planning figure. The
@@ -356,6 +370,21 @@ consensus stories will show whether 185 is enough.
   definition problem shows up as a pattern before it shows up in alpha.
 - **Coders**: shared with CIN. Onboarding, pause and remove work as in
   CIN V2 WP6.
+
+As built: a geography round uses the CIN round page
+(`/review/cin/rounds/<id>/`) for its batches, coders, standing and
+practice review, with `_geography_round.html` in place of the CIN
+pilot's panels: the gate table, recording an evaluation, the coding
+counts, M5, M6, M10 with intervals, M5 by method, M6 precision by
+source, M7, and M4, M8, M9 and M11 as readings. The coder table's
+agreement is each coder's share of first pairs agreed. The
+disagreements page (`/review/cin/rounds/<id>/disagreements/`, `?all=1`
+for every story) lists each split with every coder's answer in words
+and the saved claim, and draws the chosen story on one map: coders'
+counties and pins in their own colours, the pipeline's point as a black
+square and its counties outlined. In a practice round it lists every
+story on which any two coders differ, and is what the review is held
+over.
 
 ## 6. Build order
 

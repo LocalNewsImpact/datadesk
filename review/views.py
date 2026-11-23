@@ -3238,7 +3238,12 @@ def cin_round(request, pk):
         elif action == "evaluate":
             # Written down as it stood: the decision this supports has to
             # be answerable later with the figures it was taken on.
-            result = gate(this, by=request.user, record=True)
+            if this.is_geography:
+                from review.geography_icr import geography_gate
+
+                result = geography_gate(this, by=request.user, record=True)
+            else:
+                result = gate(this, by=request.user, record=True)
             notices.append(
                 (
                     "good" if result["outcome"] == "pass" else "warn",
@@ -3307,11 +3312,13 @@ def cin_round(request, pk):
 
     context = round_report(this)
     context["notices"] = notices
-    context["review"] = practice_review(this) if this.is_practice else None
     context["statuses"] = CoderStanding
+    context["gates"] = this.gates.select_related("evaluated_by")[:10]
+    if this.is_geography:
+        return _geography_round(request, this, context)
+    context["review"] = practice_review(this) if this.is_practice else None
     # As it stands now, unrecorded; and every evaluation recorded so far.
     context["gate"] = gate(this)
-    context["gates"] = this.gates.select_related("evaluated_by")[:10]
     latest = this.gates.first()
     context["can_decide"] = latest is not None and latest.outcome == "fail"
     context["decisions"] = this.decisions.select_related("decided_by", "gate")
@@ -3328,6 +3335,62 @@ def cin_round(request, pk):
         row["figures"] = figures.get(row["user"].id)
         row["checks"] = checks.get(row["user"].id)
     return render(request, "review/cin_round.html", context)
+
+
+def _geography_round(request, this, context):
+    """The round page for a geography round: the same batches, coders and
+    standing as a CIN round, with the geography gates and figures in
+    place of the CIN ones (docs/GEOGRAPHY_ICR_DATADESK.md, G-WP8/9)."""
+    from review.geography_icr import (
+        GATE_ALPHA,
+        GATE_PLACE,
+        GATE_REGION,
+        coder_figures,
+        geography_gate,
+        geography_report,
+    )
+
+    report = None if this.is_practice else geography_report(this)
+    context["gate"] = geography_gate(this, report=report)
+    context["figures"] = report
+    context["thresholds"] = {
+        "alpha": GATE_ALPHA,
+        "place": GATE_PLACE,
+        "region": GATE_REGION,
+    }
+    context["review"] = None
+    figures = coder_figures(this)
+    for row in context["coders"]:
+        row["figures"] = figures.get(row["user"].id)
+        row["checks"] = None
+    return render(request, "review/cin_round.html", context)
+
+
+@requires_admin
+def geography_disagreements(request, pk):
+    """Every story a geography round's first two coders split on, with
+    each coder's answer and the pipeline's claim on one map. Admin only:
+    coders are named, and a definition problem shows up here as a
+    pattern before it shows up in alpha."""
+    from django.shortcuts import get_object_or_404
+
+    from review.classification import Round
+    from review.geo_resolve import built_states
+    from review.geography_icr import disagreements
+
+    this = get_object_or_404(Round, pk=pk, task="geography")
+    everything = request.GET.get("all") == "1"
+    rows = disagreements(this, include_agreed=everything)
+    return render(
+        request,
+        "review/geography_disagreements.html",
+        {
+            "round": this,
+            "rows": rows,
+            "everything": everything,
+            "place_states": built_states(),
+        },
+    )
 
 
 @requires_admin

@@ -1,0 +1,188 @@
+{% comment %}
+The geography round's gates and figures (docs/GEOGRAPHY_ICR_DATADESK.md,
+G-WP8 and G-WP9), in place of the CIN pilot's. Included by
+cin_round.html for a round whose task is geography. Admin only, like the
+page: coders never see agreement.
+{% endcomment %}
+
+<p>
+  <a href="{% url 'review:geography_disagreements' round.pk %}">Disagreements on the map</a>
+  <span class="quiet">— every story the first two coders split on, with each answer{% if not round.is_practice %} and the pipeline's claim{% endif %}.</span>
+</p>
+
+{% if round.is_practice %}
+<h2>Practice review</h2>
+<p>
+  Go through the disagreements with the coders, then record that the
+  review was held. Recording it admits every coder who finished the
+  practice to geography pilots under {{ round.codebook_version.name }}.
+</p>
+<form method="post">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="review">
+  <label for="notes">What the review changed in the guide</label>
+  <textarea id="notes" name="notes" rows="4" class="wide">{{ round.review_notes }}</textarea>
+  <div class="actions">
+    <button type="submit" class="primary">Record that the review was held</button>
+  </div>
+</form>
+{% else %}
+
+<h2>Measured against the gates</h2>
+<p>
+  As it stands now:
+  <strong>{% if gate.outcome == "pass" %}pass{% elif gate.outcome == "fail" %}fail{% else %}not enough data yet{% endif %}</strong>.
+  Gate 1 asks whether coders agree with each other (Krippendorff's alpha,
+  first two coders on each story, at least {{ thresholds.alpha|floatformat:2 }}).
+  Until it passes, gates 2 and 3 are not judged: without a reliable human
+  answer there is nothing to score the pipeline against. Gates 2 and 3
+  are met when the lower end of the 95% interval reaches the line.
+</p>
+<div class="table-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Gate</th>
+        <th scope="col">Condition</th>
+        <th scope="col">Measured over</th>
+        <th scope="col" class="num">Stories</th>
+        <th scope="col" class="num">Now</th>
+        <th scope="col" class="num">95% interval</th>
+        <th scope="col" class="num">Needed</th>
+        <th scope="col">Result</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in gate.conditions %}
+      <tr>
+        <td class="num">{{ row.gate }}</td>
+        <th scope="row">{{ row.name }}</th>
+        <td class="quiet">{{ row.population }}</td>
+        <td class="num">{{ row.n }}</td>
+        <td class="num">{% if row.value is None %}&mdash;{% else %}{{ row.value|floatformat:2 }}{% endif %}</td>
+        <td class="num">{% if row.low is None %}&mdash;{% else %}{{ row.low|floatformat:2 }}&ndash;{{ row.high|floatformat:2 }}{% endif %}</td>
+        <td class="num">{{ row.threshold|floatformat:2 }} <span class="quiet">{{ row.on }}</span></td>
+        <td>{% if row.outcome == "pass" %}Met{% elif row.outcome == "fail" %}Not met{% elif row.held %}Not judged: {{ row.held }}{% else %}No data{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<form method="post" class="inline">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="evaluate">
+  <button type="submit"
+          title="Writes these figures down as they stand. A record is never changed; evaluating again adds another.">Record this evaluation</button>
+</form>
+{% if gates %}
+<ul class="plain">
+  {% for row in gates %}
+  <li>{{ row.evaluated_at|date:"j M Y, H:i" }}: {{ row.get_outcome_display }}{% if row.evaluated_by %} — {{ row.evaluated_by }}{% endif %}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% with c=figures.counts %}
+<h2>Coding</h2>
+<p>
+  {{ c.answered }} stories answered twice: the first two agreed on
+  {{ c.agreed }} and split on {{ c.split }}; {{ c.third }} splits have
+  their third answer and {{ c.waiting }} are waiting for it.
+  {{ c.consensus }} stories have an agreed answer; {{ c.none }} have none
+  and are left out of the scoring.
+</p>
+{% endwith %}
+
+<h2>The pipeline against the coders</h2>
+<div class="table-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Figure</th>
+        <th scope="col" class="num">Stories</th>
+        <th scope="col" class="num">Now</th>
+        <th scope="col" class="num">95% interval</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% with m=figures.m5_place_accuracy.overall %}
+      <tr><th scope="row">M5 single places right (weighted)</th><td class="num">{{ m.n }}</td>
+        <td class="num">{% if m.rate is None %}&mdash;{% else %}{% widthratio m.rate 1 100 %}%{% endif %}</td>
+        <td class="num">{% if m.low is None %}&mdash;{% else %}{% widthratio m.low 1 100 %}&ndash;{% widthratio m.high 1 100 %}%{% endif %}</td></tr>
+      {% endwith %}
+      {% with m=figures.m6_region.precision %}
+      <tr><th scope="row">M6 regional counties: precision</th><td class="num">{{ m.n }}</td>
+        <td class="num">{% if m.rate is None %}&mdash;{% else %}{% widthratio m.rate 1 100 %}%{% endif %}</td>
+        <td class="num">{% if m.low is None %}&mdash;{% else %}{% widthratio m.low 1 100 %}&ndash;{% widthratio m.high 1 100 %}%{% endif %}</td></tr>
+      {% endwith %}
+      {% with m=figures.m6_region.recall %}
+      <tr><th scope="row">M6 regional counties: recall</th><td class="num">{{ m.n }}</td>
+        <td class="num">{% if m.rate is None %}&mdash;{% else %}{% widthratio m.rate 1 100 %}%{% endif %}</td>
+        <td class="num">{% if m.low is None %}&mdash;{% else %}{% widthratio m.low 1 100 %}&ndash;{% widthratio m.high 1 100 %}%{% endif %}</td></tr>
+      {% endwith %}
+      {% with m=figures.m6_region.exact %}
+      <tr><th scope="row">M6 regional counties: exactly the same set</th><td class="num">{{ m.n }}</td>
+        <td class="num">{% if m.rate is None %}&mdash;{% else %}{% widthratio m.rate 1 100 %}%{% endif %}</td>
+        <td class="num">{% if m.low is None %}&mdash;{% else %}{% widthratio m.low 1 100 %}&ndash;{% widthratio m.high 1 100 %}%{% endif %}</td></tr>
+      {% endwith %}
+      {% with m=figures.m10_end_to_end.overall %}
+      <tr><th scope="row">M10 the counties a map would credit match</th><td class="num">{{ m.n }}</td>
+        <td class="num">{% if m.rate is None %}&mdash;{% else %}{% widthratio m.rate 1 100 %}%{% endif %}</td>
+        <td class="num">{% if m.low is None %}&mdash;{% else %}{% widthratio m.low 1 100 %}&ndash;{% widthratio m.high 1 100 %}%{% endif %}</td></tr>
+      {% endwith %}
+    </tbody>
+  </table>
+</div>
+
+<h3>Single places, by how the pipeline placed them</h3>
+<div class="table-scroll">
+  <table>
+    <thead><tr><th scope="col">Method</th><th scope="col" class="num">Stories</th><th scope="col" class="num">Right</th><th scope="col" class="num">95% interval</th></tr></thead>
+    <tbody>
+      {% for key, m in figures.m5_place_accuracy.by_method.items %}
+      <tr><th scope="row">{{ key }}</th><td class="num">{{ m.n }}</td>
+        <td class="num">{% if m.rate is None %}&mdash;{% else %}{% widthratio m.rate 1 100 %}%{% endif %}</td>
+        <td class="num">{% if m.low is None %}&mdash;{% else %}{% widthratio m.low 1 100 %}&ndash;{% widthratio m.high 1 100 %}%{% endif %}</td></tr>
+      {% empty %}<tr><td colspan="4" class="quiet">No single places agreed yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h3>Regional counties, precision by where the row came from</h3>
+<ul class="plain">
+  {% for source, m in figures.m6_region.precision_by_source.items %}
+  <li>{{ source }}: {% if m.rate is None %}&mdash;{% else %}{% widthratio m.rate 1 100 %}%{% endif %} <span class="quiet">over {{ m.n }} stories</span></li>
+  {% empty %}<li class="quiet">No regional stories agreed yet.</li>
+  {% endfor %}
+</ul>
+
+<h3>The pipeline's class against the coders'</h3>
+<div class="table-scroll">
+  <table>
+    <thead><tr><th scope="col">Pipeline said</th><th scope="col">Coders agreed</th><th scope="col" class="num">Stories</th><th scope="col" class="num">Share, weighted</th></tr></thead>
+    <tbody>
+      {% for said, row in figures.m7_confusion.items %}{% for agreed, cell in row.items %}
+      <tr><td>{{ said }}</td><td>{{ agreed }}</td><td class="num">{{ cell.n }}</td>
+        <td class="num">{% if cell.share is None %}&mdash;{% else %}{% widthratio cell.share 1 100 %}%{% endif %}</td></tr>
+      {% endfor %}{% empty %}<tr><td colspan="4" class="quiet">Nothing agreed yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h3>Readings</h3>
+<ul class="plain">
+  {% with m=figures.m4_coder_distance %}
+  <li>M4 coders who agreed on a place were a median {{ m.median|floatformat:1|default:"—" }} km apart (90th percentile {{ m.p90|floatformat:1|default:"—" }} km, {{ m.n }} pairs).</li>
+  {% endwith %}
+  {% with m=figures.m8_pipeline_distance.overall %}
+  <li>M8 the pipeline's point was a median {{ m.median|floatformat:1|default:"—" }} km from the coders' pins (90th percentile {{ m.p90|floatformat:1|default:"—" }} km, {{ m.n }} stories).</li>
+  {% endwith %}
+  {% with m=figures.m9_scope_calibration %}
+  <li>M9 scope confidence: Brier {{ m.score|floatformat:3|default:"—" }} against {{ m.constant|floatformat:3|default:"—" }} for always saying the observed rate ({{ m.n }} stories). Lower is better; above the second figure, the confidence says less than nothing.</li>
+  {% endwith %}
+  <li>M11 stories the coders agreed never say where:
+    {% for method, n in figures.m11_unplaceable.items %}{{ method }} {{ n }}{% if not forloop.last %}; {% endif %}{% empty %}none{% endfor %}.</li>
+</ul>
+{% endif %}

@@ -3522,3 +3522,38 @@ td.outlier { background: color-mix(in srgb, var(--tone-bad) 8%, transparent); }
   padding-left: var(--s-4);
   font-size: var(--fs-sm);
 }
+
+/* The geography disagreements page (G-WP9): the list beside one map. */
+.geography-disagreements .geo-dis-layout {
+  display: grid;
+  grid-template-columns: minmax(18rem, 1fr) minmax(20rem, 1.3fr);
+  gap: var(--s-5);
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .geography-disagreements .geo-dis-layout { grid-template-columns: 1fr; }
+}
+.geography-disagreements .geo-dis-map-wrap { position: sticky; top: var(--s-4); }
+.geography-disagreements .geo-dis-list > li { margin-bottom: var(--s-4); }
+.geography-disagreements .geo-dis-show { text-align: left; }
+.geography-disagreements .geo-dis-list ul { font-size: var(--fs-sm); margin-top: var(--s-1); }
+.geography-disagreements .geo-map { border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); }
+.geography-disagreements .geo-map path { vector-effect: non-scaling-stroke; }
+.geography-disagreements .geo-states path { fill: none; stroke: var(--text-2); }
+.geography-disagreements .geo-places path { fill: none; stroke: var(--text-3); stroke-opacity: 0.5; }
+.geography-disagreements .shade { fill-opacity: 0.35; stroke: none; }
+.geography-disagreements .outline.pipeline { fill: none; stroke: var(--text); stroke-width: 2; stroke-dasharray: 5 3; }
+.geography-disagreements .mark { stroke: var(--surface); stroke-width: 1.5; }
+.geography-disagreements .coder-0 { fill: var(--accent); background: var(--accent); }
+.geography-disagreements .coder-1 { fill: var(--tone-warn); background: var(--tone-warn); }
+.geography-disagreements .coder-2 { fill: var(--tone-good); background: var(--tone-good); }
+.geography-disagreements .mark.pipeline,
+.geography-disagreements .geo-key.pipeline { fill: var(--text); background: var(--text); }
+.geography-disagreements .geo-key {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-right: 0.4em;
+  border-radius: 2px;
+  vertical-align: baseline;
+}
