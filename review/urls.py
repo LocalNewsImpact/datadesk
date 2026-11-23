@@ -11,6 +11,11 @@ urlpatterns = [
     path("discovery/", views.discovery_queue, name="discovery"),
     path("classification/", views.classification_queue, name="classification"),
     path(
+        "classification/geography/",
+        views.geography_labeling_queue,
+        name="geography_labeling",
+    ),
+    path(
         "classification/where/",
         views.geography_coding_resolve,
         name="geography_coding_resolve",

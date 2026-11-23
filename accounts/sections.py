@@ -125,17 +125,6 @@ SECTION_GROUPS = (
                 ),
             },
             {
-                # The only section a classifier reaches. `requires` is
-                # the flag: a section wanting `classify` is
-                # classification work, one wanting `write` is not.
-                "url": "review:classification",
-                "label": "Classification",
-                "requires": CLASSIFIER,
-                "note": (
-                    "Say what an assigned story is about, for the " "training set."
-                ),
-            },
-            {
                 "url": "review:queue",
                 "label": "Extraction",
                 "note": "Articles automated triage could not use, awaiting a decision.",
@@ -166,8 +155,39 @@ SECTION_GROUPS = (
         ),
     },
     {
-        # The work ABOUT the classification queue, as distinct from the
-        # queue itself, which lives under Review with the other two.
+        # The labeling queues: coders answering a question about stories
+        # assigned to them, as distinct from reviewing the pipeline's
+        # output. One header for both questions -- the CIN category and
+        # where the story is (docs/GEOGRAPHY_ICR_DATADESK.md) -- because
+        # it is one activity, done by the same coders, in the same rounds.
+        #
+        # The only sections a classifier reaches. `requires` is the flag:
+        # a section wanting `classify` is labeling work, one wanting
+        # `write` is not.
+        "label": "Labeling",
+        "requires": CLASSIFIER,
+        "sections": (
+            {
+                "url": "review:classification",
+                "label": "CIN categories",
+                "note": (
+                    "Say which information need an assigned story serves, "
+                    "for the training set."
+                ),
+            },
+            {
+                "url": "review:geography_labeling",
+                "label": "Story geography",
+                "note": (
+                    "Say where an assigned story is about, on a map, to "
+                    "check the pipeline's placement."
+                ),
+            },
+        ),
+    },
+    {
+        # The work ABOUT the labeling queues, as distinct from the queues
+        # themselves, which are under Labeling.
         #
         # Editors and admins only. A classifier reaches exactly one
         # section in this console and it is not in here: they must not
