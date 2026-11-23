@@ -197,6 +197,19 @@ def state_places(state):
     )
 
 
+def bbox_of(geoid):
+    """(min_lon, min_lat, max_lon, max_lat) of a county or a place in the
+    boundary files, or None: what the map's search fits the view to."""
+    geoid = str(geoid or "")
+    if len(geoid) == 5:
+        shapes = state_counties(geoid[:2]) or national_counties()
+    elif len(geoid) == 7:
+        shapes = state_places(geoid[:2])
+    else:
+        return None
+    return next((shape.bbox for shape in shapes if shape.geoid == geoid), None)
+
+
 def built_states():
     """States whose place boundaries are in the repo."""
     return sorted(path.stem for path in (GEO_DIR / "places").glob("*.json"))

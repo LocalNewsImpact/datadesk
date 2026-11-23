@@ -390,7 +390,116 @@ def test_the_place_search_moves_the_map_for_a_coder(client, coder, assigned):
     url = reverse("review:geography_coding_find")
     hits = client.get(url, {"q": "Ashland", "state": "MO"}).json()["results"]
     assert hits[0]["geoid"] == "2902242"
+    # A town in a built state carries its box, for the map to fit to.
+    west, south, east, north = hits[0]["bbox"]
+    assert west < -92.25 < east and south < 38.78 < north
     assert client.get(url, {"q": "A"}).json() == {"results": []}
+
+
+def test_a_search_naming_a_county_offers_counties(client, coder, assigned):
+    """Towns named Boone filled every slot before the county rung."""
+    client.force_login(coder)
+    url = reverse("review:geography_coding_find")
+    hits = client.get(url, {"q": "Boone County, MO", "state": "29"}).json()["results"]
+    assert {h["kind"] for h in hits} == {"county"}
+    assert (hits[0]["geoid"], hits[0]["name"]) == ("29019", "Boone")
+    assert hits[0]["bbox"] is not None
+
+
+def test_the_map_is_leaflet_over_tiles_keyed_only_where_a_key_is_set(
+    client, coder, assigned, settings
+):
+    client.force_login(coder)
+    settings.CARTO_BASEMAPS_KEY = ""
+    body = client.get(URL).content.decode()
+    assert "leaflet/leaflet.js" in body and 'data-tile-key=""' in body
+    assert reverse("review:geography_coding_address") in body
+    settings.CARTO_BASEMAPS_KEY = "k-123"
+    assert 'data-tile-key="k-123"' in client.get(URL).content.decode()
+
+
+def test_an_address_is_looked_up_census_first_then_openstreetmap(
+    client, coder, assigned, monkeypatch
+):
+    from django.core.cache import cache
+
+    from review import geocode
+
+    asked = []
+
+    def census_hit(url, params):
+        asked.append(url)
+        if url == geocode.CENSUS:
+            return {
+                "result": {
+                    "addressMatches": [
+                        {
+                            "matchedAddress": "N PROVIDENCE RD & E BROADWAY, COLUMBIA",
+                            "coordinates": {"x": -92.334, "y": 38.952},
+                        }
+                    ]
+                }
+            }
+        raise AssertionError("OpenStreetMap asked after a Census match")
+
+    cache.clear()
+    monkeypatch.setattr(geocode, "_get", census_hit)
+    client.force_login(coder)
+    url = reverse("review:geography_coding_address")
+    (hit,) = client.get(url, {"q": "Providence and Broadway, Columbia MO"}).json()[
+        "results"
+    ]
+    assert (hit["lat"], hit["lon"], hit["source"]) == (38.952, -92.334, "Census")
+    assert client.get(url, {"q": "ab"}).json() == {"results": []}
+
+    def landmark(url, params):
+        asked.append(url)
+        if url == geocode.CENSUS:
+            return {"result": {"addressMatches": []}}
+        return [
+            {
+                "display_name": "Arrowhead Stadium, Kansas City",
+                "lat": "39.0489",
+                "lon": "-94.4840",
+                "boundingbox": ["39.047", "39.050", "-94.486", "-94.482"],
+            }
+        ]
+
+    asked.clear()
+    monkeypatch.setattr(geocode, "_get", landmark)
+    (hit,) = client.get(url, {"q": "Arrowhead Stadium"}).json()["results"]
+    assert asked == [geocode.CENSUS, geocode.NOMINATIM]
+    assert hit["source"] == "OpenStreetMap"
+    assert hit["bbox"] == [-94.486, 39.047, -94.482, 39.05]
+
+
+def test_a_geocoder_that_fails_is_asked_again_next_time(monkeypatch):
+    from django.core.cache import cache
+
+    from review import geocode
+
+    cache.clear()
+
+    def down(url, params):
+        raise OSError("timed out")
+
+    monkeypatch.setattr(geocode, "_get", down)
+    assert geocode.look_up("100 E Broadway, Columbia, MO") == []
+
+    def up(url, params):
+        return {
+            "result": {
+                "addressMatches": [
+                    {
+                        "matchedAddress": "100 E BROADWAY",
+                        "coordinates": {"x": -92.3, "y": 38.9},
+                    }
+                ]
+            }
+        }
+
+    monkeypatch.setattr(geocode, "_get", up)
+    assert geocode.look_up("100 E Broadway, Columbia, MO")[0]["source"] == "Census"
 
 
 def test_a_geography_coder_with_nothing_left_is_not_told_about_categories(

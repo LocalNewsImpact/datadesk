@@ -3470,8 +3470,6 @@ td.outlier { background: color-mix(in srgb, var(--tone-bad) 8%, transparent); }
 .geography-coding .geo-state[hidden],
 .geography-coding .geo-map-wrap[hidden],
 .geography-coding .geo-mode[hidden] { display: none; }
-/* Lines keep their width on screen at every zoom. */
-.geography-coding .geo-map path { vector-effect: non-scaling-stroke; }
 .geography-coding .geo-tools {
   display: flex;
   flex-wrap: wrap;
@@ -3480,42 +3478,21 @@ td.outlier { background: color-mix(in srgb, var(--tone-bad) 8%, transparent); }
   margin-bottom: var(--s-2);
   font-size: var(--fs-sm);
 }
+.geography-coding .geo-find input { width: 24rem; max-width: 100%; }
+.geography-coding .geo-find-note { margin: 0 0 var(--s-2); font-size: var(--fs-sm); }
+.geography-coding .geo-find-note:empty { display: none; }
 .geography-coding .geo-mode button[aria-pressed="true"] { font-weight: 600; }
+/* Leaflet over street tiles (G-WP2, rebuilt): its own +/- control,
+   scroll and pinch zoom, drag to pan. A crosshair wherever a click will
+   drop a pin, counties included. */
 .geography-coding .geo-map {
+  height: clamp(360px, 62vh, 640px);
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
-  background: var(--surface-2);
-  overflow: hidden;
-  cursor: crosshair;
-  touch-action: none;
+  background: #f2f2f0;
 }
-.geography-coding .geo-map svg { display: block; }
-.geography-coding .geo-counties path {
-  fill: var(--surface);
-  stroke: var(--border-strong);
-}
-.geography-coding .geo-counties path.chosen { fill: var(--accent-soft); }
-.geography-coding .geo-places path {
-  fill: none;
-  stroke: var(--text-3);
-  stroke-opacity: 0.6;
-  pointer-events: none;
-}
-.geography-coding .geo-states path {
-  fill: none;
-  stroke: var(--text-2);
-  pointer-events: none;
-}
-.geography-coding .geo-labels text {
-  fill: var(--text-2);
-  text-anchor: middle;
-  pointer-events: none;
-}
-.geography-coding .geo-pins circle {
-  fill: var(--accent);
-  stroke: var(--surface);
-  cursor: pointer;
-}
+.geography-coding .geo-map.geo-pinning,
+.geography-coding .geo-map.geo-pinning .leaflet-interactive { cursor: crosshair; }
 .geography-coding .geo-scale { margin: var(--s-2) 0 0; font-size: var(--fs-sm); }
 .geography-coding .geo-answer {
   margin: var(--s-2) 0 var(--s-3);

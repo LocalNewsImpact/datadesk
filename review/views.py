@@ -3,6 +3,7 @@
 import io
 from datetime import UTC, datetime
 
+from django.conf import settings
 from django.contrib import messages
 from django.core.cache import cache
 from django.core.paginator import Paginator
@@ -2678,6 +2679,7 @@ def _geography_screen(request, assignment, article, body, outstanding):
             "start_state": map_start(getattr(sample, "dataset_id", "")),
             "place_states": built_states(),
             "pin_view_km": PIN_VIEW_KM,
+            "tile_key": settings.CARTO_BASEMAPS_KEY,
             "remaining": outstanding.count(),
             "done": GeographyDecision.objects.filter(decided_by=request.user).count(),
         },
@@ -2791,8 +2793,34 @@ def geography_coding_find(request):
     state = (request.GET.get("state") or "").strip()
     if state.isdigit():
         state = next((usps for fips, usps in _counties() if fips[:2] == state), "")
-    hits = geography.suggest(typed, state or None)
-    return JsonResponse({"results": hits[:8]})
+    from review.geo_resolve import bbox_of
+
+    # "Boone County" asks for the county: towns named Boone would fill
+    # every slot before the county rung was reached.
+    words = typed.replace(",", " ").split()
+    if any(w.lower() == "county" for w in words):
+        name = " ".join(w for w in words if w.lower() != "county")
+        hits = geography.suggest(name, state or None, kind="county")
+    else:
+        hits = geography.suggest(typed, state or None)
+    # Where the boundary files hold the shape, the map fits to it; a town
+    # in a state not built is looked up as an address instead.
+    return JsonResponse(
+        {"results": [dict(h, bbox=bbox_of(h["geoid"])) for h in hits[:8]]}
+    )
+
+
+@requires(CLASSIFY)
+def geography_coding_address(request):
+    """Where a typed address is, for the map's search box: the Census
+    geocoder, then OpenStreetMap's (`review.geocode`). Moves the map;
+    the coder still drops the pin."""
+    from review.geocode import look_up
+
+    typed = (request.GET.get("q") or "").strip()
+    if len(typed) < 3:
+        return JsonResponse({"results": []})
+    return JsonResponse({"results": look_up(typed)})
 
 
 def _seconds_spent(opened_at):

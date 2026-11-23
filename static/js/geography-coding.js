@@ -15,24 +15,34 @@
  * shown under the map, so what the coder sees is what will be recorded.
  * The server resolves it again on save; nothing here is trusted.
  *
- * Drawn with the vendored d3 and topojson-client over the TIGER files in
- * static/geo: no tiles, no calls to anybody else.
+ * Leaflet (vendored) over CARTO's Positron tiles: streets and place
+ * names come from the basemap, drawn in two layers so the county
+ * outlines sit between the streets and the names and never cover a
+ * label. County outlines are the TIGER files in static/geo -- the 500k
+ * files where a state has been built, the national 10m file elsewhere
+ * -- because a click on one is an answer, and the answer has to be the
+ * county the server will resolve.
+ *
+ * Search moves the map and never answers: a town or county from the
+ * gazetteer, or a street address through the server (data-address-url,
+ * the Census geocoder and then OpenStreetMap's), looked up on Enter only.
  */
 (function () {
   "use strict";
 
   var root = document.getElementById("geo-map");
   var form = document.getElementById("geo-form");
-  if (!root || !form || !window.d3 || !window.topojson) return;
+  if (!root || !form || !window.L || !window.topojson) return;
 
-  var d3 = window.d3;
+  var L = window.L;
   var topojson = window.topojson;
   var base = root.dataset.geoBase;
   var startState = root.dataset.startState || "29";
-  var placeStates = (root.dataset.placeStates || "").split(",").filter(Boolean);
+  var countyStates = (root.dataset.countyStates || "").split(",").filter(Boolean);
   var pinViewKm = parseFloat(root.dataset.pinViewKm) || 80;
   var whereUrl = root.dataset.whereUrl;
   var findUrl = root.dataset.findUrl;
+  var addressUrl = root.dataset.addressUrl;
 
   var pinsField = document.getElementById("geo-pins");
   var countiesField = document.getElementById("geo-counties");
@@ -43,65 +53,67 @@
   var modeGroup = document.querySelector(".geo-mode");
   var modeCounties = document.querySelector(".geo-mode-counties");
   var modePins = document.querySelector(".geo-mode-pins");
+  var findNote = document.getElementById("geo-find-note");
 
   var answerClass = "";
   var clickMode = "counties"; // R only: what a click on the map does
-  var pins = []; // {lat, lon, view_km, label}
+  var pins = []; // {lat, lon, view_km, label, marker}
   var counties = new Map(); // geoid -> name
+  var countyLayers = new Map(); // geoid -> Leaflet layer
 
   // ------------------------------------------------------------ the map
 
+  var map = L.map(root, {
+    zoomControl: true,
+    scrollWheelZoom: true,
+    doubleClickZoom: true,
+    boxZoom: true,
+    keyboard: true,
+    minZoom: 3,
+    maxZoom: 19,
+    zoomSnap: 0.5,
+  });
+  map.attributionControl.setPrefix(false);
+  map.createPane("labels");
+  map.getPane("labels").style.zIndex = 450; // above outlines (400), below pins
+  map.getPane("labels").style.pointerEvents = "none";
+
+  var osm = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+  var tileKey = root.dataset.tileKey;
+  if (tileKey) {
+    // CARTO Voyager in two layers, the names above the county outlines.
+    // Voyager rather than Positron: major roads in colour, so a coder can
+    // find a street without zooming to it.
+    var tiles =
+      "https://basemaps.cartocdn.com/rastertiles/{style}/{z}/{x}/{y}.png?key=" +
+      encodeURIComponent(tileKey);
+    var credit = osm + ' &copy; <a href="https://carto.com/attributions">CARTO</a>';
+    L.tileLayer(tiles, { style: "voyager_nolabels", maxZoom: 19, attribution: credit }).addTo(map);
+    L.tileLayer(tiles, { style: "voyager_only_labels", maxZoom: 19, pane: "labels" }).addTo(map);
+  } else {
+    // No key (local development): OpenStreetMap's own tiles, names baked in.
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: osm,
+    }).addTo(map);
+  }
+
   // The map's box is hidden until a class that needs it is chosen, and a
-  // hidden box has no width; the form it sits in has the same one.
-  var width = root.clientWidth || form.clientWidth || 600;
-  var height = Math.max(360, Math.round(width * 0.72));
-  var svg = d3
-    .select(root)
-    .append("svg")
-    .attr("viewBox", [0, 0, width, height])
-    .attr("width", "100%")
-    .attr("height", height);
-  var layer = svg.append("g");
-  var gCounties = layer.append("g").attr("class", "geo-counties");
-  var gPlaces = layer.append("g").attr("class", "geo-places");
-  var gStates = layer.append("g").attr("class", "geo-states");
-  var gLabels = layer.append("g").attr("class", "geo-labels");
-  var gPins = layer.append("g").attr("class", "geo-pins");
-
-  var projection = d3.geoMercator();
-  var path = d3.geoPath(projection);
-  var transform = d3.zoomIdentity;
-  var countyFeatures = [];
-  var placeFeatures = new Map(); // geoid -> feature
-  var placeLabels = []; // {name, x, y}
-
-  var zoom = d3
-    .zoom()
-    .scaleExtent([1, 600])
-    .on("zoom", function (event) {
-      transform = event.transform;
-      layer.attr("transform", transform);
-      redrawScale();
-    });
-  svg.call(zoom).on("dblclick.zoom", null);
+  // hidden box has no size: Leaflet is told when it is shown.
+  map.setView([38.5, -92.5], 6);
 
   function viewKm() {
-    // The visible width at mid-height, on the ground.
-    var y = height / 2;
-    var left = projection.invert(transform.invert([0, y]));
-    var right = projection.invert(transform.invert([width, y]));
-    if (!left || !right) return Infinity;
-    return d3.geoDistance(left, right) * 6371;
+    var b = map.getBounds();
+    var lat = map.getCenter().lat;
+    return map.distance([lat, b.getWest()], [lat, b.getEast()]) / 1000;
   }
 
   function redrawScale() {
     var km = viewKm();
-    var k = transform.k;
-    // Strokes and pins keep their size on screen as the map scales.
-    gPins.selectAll("circle").attr("r", 6 / k).attr("stroke-width", 2 / k);
-    var close = km <= pinViewKm * 1.5;
-    gPlaces.attr("display", km <= 250 ? null : "none");
-    drawLabels(close);
+    root.classList.toggle(
+      "geo-pinning",
+      answerClass === "P" || (answerClass === "R" && clickMode === "pins")
+    );
     if (answerClass === "P" || (answerClass === "R" && clickMode === "pins")) {
       scaleNote.textContent =
         km <= pinViewKm
@@ -117,141 +129,130 @@
       scaleNote.textContent = "";
     }
   }
+  map.on("zoomend moveend", redrawScale);
 
-  function drawLabels(show) {
-    if (!show) {
-      gLabels.selectAll("text").remove();
-      return;
-    }
-    var k = transform.k;
-    var x0 = transform.invertX(0);
-    var x1 = transform.invertX(width);
-    var y0 = transform.invertY(0);
-    var y1 = transform.invertY(height);
-    var visible = placeLabels
-      .filter(function (d) {
-        return d.x >= x0 && d.x <= x1 && d.y >= y0 && d.y <= y1;
-      })
-      .slice(0, 120);
-    gLabels
-      .selectAll("text")
-      .data(visible, function (d) {
-        return d.geoid;
-      })
-      .join("text")
-      .attr("x", function (d) {
-        return d.x;
-      })
-      .attr("y", function (d) {
-        return d.y;
-      })
-      .attr("font-size", 11 / k)
-      .text(function (d) {
-        return d.name;
-      });
+  var countyStyle = { color: "#4a5568", weight: 1, opacity: 0.55, fill: true, fillOpacity: 0 };
+  var chosenStyle = { color: "#2456c9", weight: 2, opacity: 0.9, fillColor: "#2456c9", fillOpacity: 0.22 };
+
+  function fips(id) {
+    return String(id).padStart(5, "0");
   }
 
-  function zoomTo(feature) {
-    var b = path.bounds(feature);
-    var dx = b[1][0] - b[0][0];
-    var dy = b[1][1] - b[0][1];
-    var x = (b[0][0] + b[1][0]) / 2;
-    var y = (b[0][1] + b[1][1]) / 2;
-    var k = Math.min(600, 0.8 / Math.max(dx / width, dy / height));
-    svg
-      .transition()
-      .duration(500)
-      .call(
-        zoom.transform,
-        d3.zoomIdentity.translate(width / 2, height / 2).scale(k).translate(-x, -y)
-      );
-  }
-
-  d3.json(base + "counties-10m.json").then(function (us) {
-    var states = topojson.feature(us, us.objects.states).features;
-    var start = states.find(function (s) {
-      return String(s.id).padStart(2, "0") === startState;
+  function loadJson(url) {
+    return fetch(url, { credentials: "same-origin" }).then(function (r) {
+      if (!r.ok) throw new Error(url);
+      return r.json();
     });
-    projection.fitSize([width, height], start || topojson.feature(us, us.objects.nation));
-    countyFeatures = topojson.feature(us, us.objects.counties).features;
-    gCounties
-      .selectAll("path")
-      .data(countyFeatures)
-      .join("path")
-      .attr("d", path)
-      .attr("data-geoid", function (d) {
-        return String(d.id).padStart(5, "0");
-      })
-      .on("click", function (event, d) {
-        if (answerClass !== "R" || clickMode !== "counties") return;
-        event.stopPropagation();
-        toggleCounty(String(d.id).padStart(5, "0"), d.properties.name);
-      });
-    gStates
-      .append("path")
-      .datum(topojson.mesh(us, us.objects.states, function (a, b) {
-        return a !== b;
-      }))
-      .attr("d", path);
-    redrawScale();
-    // The start state's places first, the others after.
-    var order = [startState].concat(
-      placeStates.filter(function (s) {
-        return s !== startState;
-      })
-    );
-    order
-      .filter(function (s) {
-        return placeStates.indexOf(s) !== -1;
-      })
-      .reduce(function (chain, state) {
-        return chain.then(function () {
-          return loadPlaces(state);
-        });
-      }, Promise.resolve());
-  });
+  }
 
-  function loadPlaces(state) {
-    return d3.json(base + "places/" + state + ".json").then(function (topo) {
-      var features = topojson.feature(topo, topo.objects.places).features;
-      features.forEach(function (f) {
-        placeFeatures.set(f.properties.GEOID, f);
-        var c = path.centroid(f);
-        if (isFinite(c[0])) {
-          placeLabels.push({ geoid: f.properties.GEOID, name: f.properties.NAME, x: c[0], y: c[1] });
+  var stateBounds = {};
+  var ready = loadJson(base + "counties-10m.json").then(function (us) {
+    topojson.feature(us, us.objects.states).features.forEach(function (s) {
+      stateBounds[String(s.id).padStart(2, "0")] = L.geoJSON(s).getBounds();
+    });
+    // The built states' 500k counties in place of the 10m ones.
+    var national = topojson.feature(us, us.objects.counties).features.filter(function (f) {
+      return countyStates.indexOf(fips(f.id).slice(0, 2)) === -1;
+    });
+    national.forEach(function (f) {
+      f.properties = { GEOID: fips(f.id), NAME: f.properties.name };
+    });
+    L.geoJSON(
+      topojson.mesh(us, us.objects.states, function (a, b) {
+        return a !== b;
+      }),
+      { interactive: false, style: { color: "#1d2433", weight: 2, opacity: 0.6 } }
+    ).addTo(map);
+    return Promise.all(
+      countyStates.map(function (state) {
+        return loadJson(base + "counties/" + state + ".json")
+          .then(function (topo) {
+            return topojson.feature(topo, topo.objects.counties).features;
+          })
+          .catch(function () {
+            return [];
+          });
+      })
+    ).then(function (built) {
+      var features = national.concat.apply(national, built);
+      L.geoJSON(
+        { type: "FeatureCollection", features: features },
+        {
+          style: countyStyle,
+          onEachFeature: function (feature, layer) {
+            var geoid = feature.properties.GEOID;
+            countyLayers.set(geoid, layer);
+            layer.on("click", function (event) {
+              // Anything but counties mode: the click is the map's.
+              if (answerClass !== "R" || clickMode !== "counties") return;
+              L.DomEvent.stop(event);
+              toggleCounty(geoid, feature.properties.NAME);
+            });
+          },
         }
-      });
-      gPlaces
-        .append("g")
-        .selectAll("path")
-        .data(features)
-        .join("path")
-        .attr("d", path);
+      ).addTo(map);
       redrawScale();
     });
-  }
+  });
 
   // ------------------------------------------------------- the answer
 
-  svg.on("click", function (event) {
-    var wantsPin =
-      answerClass === "P" || (answerClass === "R" && clickMode === "pins");
+  // A double click zooms, as it does on every other map: a single click
+  // waits long enough to tell the two apart.
+  var pending = null;
+  map.on("click", function (event) {
+    if (pending) return;
+    pending = setTimeout(function () {
+      pending = null;
+      dropPin(event.latlng);
+    }, 260);
+  });
+  map.on("dblclick", function () {
+    clearTimeout(pending);
+    pending = null;
+  });
+
+  function dropPin(latlng) {
+    var wantsPin = answerClass === "P" || (answerClass === "R" && clickMode === "pins");
     if (!wantsPin) return;
     var km = viewKm();
     if (km > pinViewKm) {
-      scaleNote.textContent =
-        "Zoom in further before dropping a pin: one town should fill the map.";
+      scaleNote.textContent = "Zoom in further before dropping a pin: one town should fill the map.";
       return;
     }
-    var point = transform.invert(d3.pointer(event, svg.node()));
-    var lonlat = projection.invert(point);
-    if (!lonlat) return;
-    var pin = { lat: lonlat[1], lon: lonlat[0], view_km: km, label: "…" };
-    if (answerClass === "P") pins = [pin];
-    else pins.push(pin);
+    var pin = { lat: latlng.lat, lon: latlng.lng, view_km: km, label: "…" };
+    if (answerClass === "P") clearPins();
+    pins.push(pin);
+    pin.marker = L.circleMarker(latlng, {
+      radius: 7,
+      color: "#fff",
+      weight: 2,
+      fillColor: "#c0392b",
+      fillOpacity: 1,
+      bubblingMouseEvents: false,
+    })
+      .addTo(map)
+      .on("click", function () {
+        removePin(pin);
+      });
     resolvePin(pin);
     render();
-  });
+  }
+
+  function clearPins() {
+    pins.forEach(function (p) {
+      map.removeLayer(p.marker);
+    });
+    pins = [];
+  }
+
+  function removePin(pin) {
+    map.removeLayer(pin.marker);
+    pins = pins.filter(function (p) {
+      return p !== pin;
+    });
+    render();
+  }
 
   function resolvePin(pin) {
     var url = whereUrl + "?lat=" + pin.lat + "&lon=" + pin.lon;
@@ -268,6 +269,7 @@
             where.county_name +
             " County";
         }
+        pin.marker.bindTooltip(pin.label);
         render();
       });
   }
@@ -279,25 +281,8 @@
   }
 
   function render() {
-    gPins
-      .selectAll("circle")
-      .data(pins)
-      .join("circle")
-      .attr("cx", function (d) {
-        return projection([d.lon, d.lat])[0];
-      })
-      .attr("cy", function (d) {
-        return projection([d.lon, d.lat])[1];
-      })
-      .on("click", function (event, d) {
-        event.stopPropagation();
-        pins = pins.filter(function (p) {
-          return p !== d;
-        });
-        render();
-      });
-    gCounties.selectAll("path").classed("chosen", function (d) {
-      return counties.has(String(d.id).padStart(5, "0"));
+    countyLayers.forEach(function (layer, geoid) {
+      layer.setStyle(counties.has(geoid) ? chosenStyle : countyStyle);
     });
     redrawScale();
 
@@ -327,14 +312,27 @@
       answerClass = radio.value;
       // A change of class starts the marking again: a P answer is one
       // pin, and an R answer's pins and counties are not a P answer.
-      pins = [];
+      clearPins();
       counties.clear();
-      mapWrap.hidden = !(answerClass === "P" || answerClass === "R");
+      var shown = answerClass === "P" || answerClass === "R";
+      mapWrap.hidden = !shown;
       stateLabel.hidden = answerClass !== "S";
       modeGroup.hidden = answerClass !== "R";
+      // The box has a size only once shown: open it on the state the
+      // first time, and leave it where the coder put it after that.
+      if (shown) {
+        map.invalidateSize();
+        if (!fitted) {
+          fitted = true;
+          ready.then(function () {
+            if (stateBounds[startState]) map.fitBounds(stateBounds[startState]);
+          });
+        }
+      }
       render();
     });
   });
+  var fitted = false;
 
   function setMode(mode) {
     clickMode = mode;
@@ -349,10 +347,12 @@
     setMode("pins");
   });
 
-  // Find a place: moves the map, never answers.
+  // Find: moves the map, never answers.
   var find = document.getElementById("geo-find");
   var list = document.getElementById("geo-find-list");
   var found = [];
+  var spot = null; // where an address search put the map
+
   find.addEventListener("input", function () {
     var typed = find.value.trim();
     var hit = found.find(function (h) {
@@ -362,7 +362,7 @@
       goTo(hit);
       return;
     }
-    if (typed.length < 2) return;
+    if (typed.length < 2 || /\d/.test(typed)) return; // an address: Enter
     fetch(findUrl + "?q=" + encodeURIComponent(typed) + "&state=" + startState, {
       credentials: "same-origin",
     })
@@ -380,10 +380,14 @@
       });
   });
   find.addEventListener("keydown", function (event) {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      if (found.length) goTo(found[0]);
-    }
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    var typed = find.value.trim();
+    var hit = found.find(function (h) {
+      return label(h) === typed;
+    });
+    if (hit) goTo(hit);
+    else if (typed.length >= 3) lookUp(typed);
   });
 
   function label(h) {
@@ -391,18 +395,55 @@
   }
 
   function goTo(h) {
-    var feature =
-      h.kind === "county"
-        ? countyFeatures.find(function (f) {
-            return String(f.id).padStart(5, "0") === h.geoid;
-          })
-        : placeFeatures.get(h.geoid);
-    if (feature) {
-      zoomTo(feature);
+    if (h.bbox) {
+      map.fitBounds([
+        [h.bbox[1], h.bbox[0]],
+        [h.bbox[3], h.bbox[2]],
+      ], { maxZoom: 14 });
+      say("");
     } else {
-      scaleNote.textContent =
-        "That place is not drawn on this map; zoom to it by hand.";
+      lookUp(h.name + ", " + h.state);
     }
+  }
+
+  function say(text) {
+    if (findNote) findNote.textContent = text;
+  }
+
+  function lookUp(typed) {
+    say("Looking up “" + typed + "”…");
+    fetch(addressUrl + "?q=" + encodeURIComponent(typed), { credentials: "same-origin" })
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function (data) {
+        var hit = (data.results || [])[0];
+        if (!hit) {
+          say("Nothing found for “" + typed + "”. Try a town, or a street with a house number.");
+          return;
+        }
+        if (hit.bbox) {
+          map.fitBounds([
+            [hit.bbox[1], hit.bbox[0]],
+            [hit.bbox[3], hit.bbox[2]],
+          ], { maxZoom: 17 });
+        } else {
+          map.setView([hit.lat, hit.lon], hit.zoom || 16);
+        }
+        if (spot) map.removeLayer(spot);
+        spot = L.circleMarker([hit.lat, hit.lon], {
+          radius: 14,
+          color: "#2456c9",
+          weight: 2,
+          dashArray: "4 3",
+          fill: false,
+          interactive: false,
+        }).addTo(map);
+        say("Showing " + hit.label + ". Click the map to drop the pin.");
+      })
+      .catch(function () {
+        say("The address lookup did not answer. Try again, or move the map by hand.");
+      });
   }
 
   // ------------------------------------------------- form and guide

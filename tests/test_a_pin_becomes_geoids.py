@@ -83,3 +83,14 @@ def test_a_pin_outside_the_built_states_still_finds_its_county():
     file and there is no place, rather than no answer."""
     where = resolve(39.05, -95.68)  # Topeka's edge, Shawnee County, KS
     assert where.county == "20177" and where.place is None
+
+
+def test_a_county_or_place_has_a_box_for_the_map():
+    from review.geo_resolve import bbox_of
+
+    west, south, east, north = bbox_of("29019")  # Boone County, MO
+    assert west < -92.33 < east and south < 38.95 < north
+    assert bbox_of("2915670") is not None  # Columbia: a built state's place
+    assert bbox_of("0102860") is None  # Ashland, AL: no place file
+    assert bbox_of("01001") is not None  # a county anywhere: the 10m file
+    assert bbox_of("") is None and bbox_of("29") is None
