@@ -2582,13 +2582,16 @@ def round_report(round):
         for user in round_coders(round)
     ]
 
-    decisions = [
-        d
-        for d in ClassificationDecision.objects.filter(
+    # The geography question's answers are its own table.
+    if round.is_geography:
+        from review.geography_icr import GeographyDecision
+
+        answered = GeographyDecision.objects.filter(cohort__in=cohorts, is_check=False)
+    else:
+        answered = ClassificationDecision.objects.filter(
             cohort__in=cohorts, is_check=False
         )
-        if d.decided_by_id not in removed
-    ]
+    decisions = [d for d in answered if d.decided_by_id not in removed]
     by_story = {}
     for decision in decisions:
         by_story.setdefault(decision.article_id, []).append(decision)

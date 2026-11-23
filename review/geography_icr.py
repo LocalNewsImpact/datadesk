@@ -1102,20 +1102,23 @@ def geography_report(for_round, *, resamples=None, seed=0):
             },
         }
 
-    # M1-M3: do coders agree?
+    # M1-M3: do coders agree? Read from each story's first two coders:
+    # a third is added only where those two split, so alpha over every
+    # coder would measure the rule that added them.
+    first_two = {a: answers[:2] for a, answers in by_story.items()}
     classes = {
-        a: [d.answer_class for d in answers]
-        for a, answers in by_story.items()
-        if len(answers) >= 2
+        a: [d.answer_class for d in pair]
+        for a, pair in first_two.items()
+        if len(pair) == 2
     }
     places = {}
     regions = {}
-    for article_id, answers in by_story.items():
-        p = [where_of(d)[1] for d in answers if d.answer_class == PLACE]
-        if len(p) >= 2:
+    for article_id, pair in first_two.items():
+        p = [where_of(d)[1] for d in pair if d.answer_class == PLACE]
+        if len(p) == 2:
             places[article_id] = p
-        r = [frozenset(d.counties) for d in answers if d.answer_class == REGION]
-        if len(r) >= 2:
+        r = [frozenset(d.counties) for d in pair if d.answer_class == REGION]
+        if len(r) == 2:
             regions[article_id] = r
 
     # M4: how far apart are coders who agree?
@@ -1278,6 +1281,348 @@ def geography_report(for_round, *, resamples=None, seed=0):
         },
         "m11_unplaceable": dict(sorted(unplaced.items())),
     }
+
+
+# ------------------------------------------------------- the gates (G-WP8)
+
+#: Gate 1: coders agree. Krippendorff's alpha, each of M1-M3, on the
+#: observed figure -- the usual standard for a reliable variable
+#: (Krippendorff 2004), as the CIN pilot uses.
+GATE_ALPHA = 0.80
+#: Gate 2: the pipeline's single places. The lower bound of M5's 95%
+#: interval.
+GATE_PLACE = 0.90
+#: Gate 3: the pipeline's regions. The lower bound of each of M6's
+#: precision and recall. A starting point, not a measured one
+#: (docs/GEOGRAPHY_ICR_DATADESK.md §7).
+GATE_REGION = 0.80
+
+
+def _on_figure(gate, name, population, measured, threshold):
+    """A condition met when the observed figure reaches the threshold."""
+    from review.classification import GateResult
+
+    rate = measured.get("rate")
+    return {
+        "gate": gate,
+        "name": name,
+        "population": population,
+        "value": rate,
+        "low": measured.get("low"),
+        "high": measured.get("high"),
+        "n": measured.get("n", 0),
+        "threshold": threshold,
+        "on": "figure",
+        "outcome": (
+            GateResult.NOT_ENOUGH
+            if rate is None
+            else GateResult.PASS if rate >= threshold else GateResult.FAIL
+        ),
+    }
+
+
+def _on_bound(gate, name, population, measured, threshold):
+    """A condition met when the LOWER bound of the 95% interval reaches
+    the threshold: the claim is that the pipeline is at least this good,
+    and the interval is what can say so."""
+    from review.classification import GateResult
+
+    low = measured.get("low")
+    return {
+        "gate": gate,
+        "name": name,
+        "population": population,
+        "value": measured.get("rate"),
+        "low": low,
+        "high": measured.get("high"),
+        "n": measured.get("n", 0),
+        "threshold": threshold,
+        "on": "lower bound",
+        "outcome": (
+            GateResult.NOT_ENOUGH
+            if low is None
+            else GateResult.PASS if low >= threshold else GateResult.FAIL
+        ),
+    }
+
+
+def _jsonable(value):
+    """The report as JSON can hold it: keys as strings, tuples as lists."""
+    if isinstance(value, dict):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_jsonable(v) for v in value]
+    return value
+
+
+def round_finished(for_round, counts=None):
+    """A geography pilot is finished when every story drawn has its two
+    answers and no split is waiting on its third coder."""
+    from review.classification import ClassificationSample
+
+    if counts is None:
+        _, counts = round_consensus(for_round)
+    stories = ClassificationSample.objects.filter(cohort__round=for_round).count()
+    return bool(stories) and counts["answered"] == stories and not counts["waiting"]
+
+
+def geography_gate(for_round, *, by=None, record=False, report=None):
+    """Measure a geography round against its gates; with `record`, write
+    the result down as a `GateResult` (never changed; evaluating again
+    adds a row).
+
+    A practice round has the CIN practice conditions: every coder has
+    coded every story, and the review has been held. A pilot has three
+    gates:
+
+      1. Coders agree: M1, M2 and M3 each at least GATE_ALPHA.
+      2. Single places: M5's lower bound at least GATE_PLACE.
+      3. Regions: M6 precision's and recall's lower bounds at least
+         GATE_REGION.
+
+    Gate 1 comes first. Until it passes, gates 2 and 3 are NOT ENOUGH
+    DATA whatever their figures: without a reliable human answer the
+    pipeline has nothing to be scored against. A round still being coded
+    is NOT ENOUGH as a whole, however the figures look so far.
+    """
+    from review.classification import GateResult, round_report
+
+    if for_round.is_practice:
+        progress = round_report(for_round)
+        conditions = [
+            {
+                "name": "Every coder has coded every story",
+                "outcome": (
+                    GateResult.PASS if progress["coded"] else GateResult.NOT_ENOUGH
+                ),
+            },
+            {
+                "name": "The review has been held",
+                "outcome": (
+                    GateResult.PASS if progress["reviewed"] else GateResult.NOT_ENOUGH
+                ),
+            },
+        ]
+        outcomes = {c["outcome"] for c in conditions}
+        outcome = (
+            GateResult.PASS if outcomes == {GateResult.PASS} else GateResult.NOT_ENOUGH
+        )
+        measures = {}
+    else:
+        report = report or geography_report(for_round)
+        alpha = {
+            "m1": report["m1_class_alpha"]["overall"],
+            "m2": report["m2_place_alpha"]["overall"],
+            "m3": report["m3_region_alpha"]["overall"],
+        }
+        first = [
+            _on_figure(
+                1,
+                "Coders agree on the kind of place",
+                "every story, first two coders",
+                alpha["m1"],
+                GATE_ALPHA,
+            ),
+            _on_figure(
+                1,
+                "Coders agree on the county of a single place",
+                "stories both first coders placed at one place",
+                alpha["m2"],
+                GATE_ALPHA,
+            ),
+            _on_figure(
+                1,
+                "Coders agree on a region's counties",
+                "stories both first coders called a county or wider",
+                alpha["m3"],
+                GATE_ALPHA,
+            ),
+        ]
+        later = [
+            _on_bound(
+                2,
+                "The pipeline places a single place right",
+                "coders agreed on one place and the pipeline gave a point",
+                report["m5_place_accuracy"]["overall"],
+                GATE_PLACE,
+            ),
+            _on_bound(
+                3,
+                "The pipeline's regional counties are the coders' (precision)",
+                "coders agreed on a region and so did the pipeline",
+                report["m6_region"]["precision"],
+                GATE_REGION,
+            ),
+            _on_bound(
+                3,
+                "The coders' regional counties are the pipeline's (recall)",
+                "coders agreed on a region and so did the pipeline",
+                report["m6_region"]["recall"],
+                GATE_REGION,
+            ),
+        ]
+        if any(c["outcome"] != GateResult.PASS for c in first):
+            for c in later:
+                c["outcome"] = GateResult.NOT_ENOUGH
+                c["held"] = "gate 1 has not passed"
+        conditions = first + later
+        outcomes = {c["outcome"] for c in conditions}
+        if not round_finished(for_round, report["counts"]):
+            outcome = GateResult.NOT_ENOUGH
+        elif GateResult.FAIL in outcomes:
+            outcome = GateResult.FAIL
+        elif GateResult.NOT_ENOUGH in outcomes:
+            outcome = GateResult.NOT_ENOUGH
+        else:
+            outcome = GateResult.PASS
+        measures = _jsonable(report)
+
+    result = {"outcome": outcome, "conditions": conditions, "measures": measures}
+    if record:
+        result["record"] = GateResult.objects.create(
+            round=for_round,
+            evaluated_by=by,
+            outcome=outcome,
+            conditions=conditions,
+            measures=measures,
+        )
+    return result
+
+
+# --------------------------------------------------- admin screens (G-WP9)
+
+
+def coder_figures(for_round):
+    """coder id -> {agreement: {rate, n}, median_seconds} for the round
+    page. Agreement is over the first pairs a coder is in. For admins
+    only: a coder who can watch their agreement codes toward the others.
+    """
+    import statistics
+
+    by_story, seconds = {}, {}
+    for answer in (
+        counted_decisions(for_round.codebook_version)
+        .filter(cohort__round=for_round)
+        .order_by("decided_at", "id")
+    ):
+        by_story.setdefault(answer.article_id, []).append(answer)
+        if answer.seconds_spent is not None:
+            seconds.setdefault(answer.decided_by_id, []).append(answer.seconds_spent)
+    pairs = {}
+    for answers in by_story.values():
+        if len(answers) < 2:
+            continue
+        a, b = answers[0], answers[1]
+        same = agree(a, b)
+        for coder in (a.decided_by_id, b.decided_by_id):
+            hits, n = pairs.get(coder, (0, 0))
+            pairs[coder] = (hits + same, n + 1)
+    return {
+        coder: {
+            "agreement": (
+                {"rate": pairs[coder][0] / pairs[coder][1], "n": pairs[coder][1]}
+                if coder in pairs
+                else None
+            ),
+            "median_seconds": (
+                int(statistics.median(seconds[coder])) if coder in seconds else None
+            ),
+        }
+        for coder in set(pairs) | set(seconds)
+    }
+
+
+def describe(answer):
+    """A coder's answer in words, for the disagreements page."""
+    shown = dict(CLASS_CHOICES)[answer.answer_class]
+    if answer.answer_class == PLACE and answer.pins:
+        pin = answer.pins[0]
+        where = pin.get("place_name") or "outside any town"
+        return f"{shown}: {where}, {pin.get('county_name', '')} County"
+    if answer.answer_class == REGION:
+        names = [geo_resolve.county_of(c) or c for c in answer.counties]
+        return f"{shown}: " + ", ".join(names)
+    if answer.answer_class == STATE:
+        return f"{shown}: {dict(state_choices()).get(answer.state, answer.state)}"
+    return shown
+
+
+def disagreements(for_round, *, include_agreed=False):
+    """Every story whose first two coders split (or every story, with
+    `include_agreed`), with each coder's answer and the pipeline's claim,
+    for the admin's map. The coders are named here: the page is admin
+    only, and a definition problem shows up as one coder's pattern."""
+    from review.classification import CoderStanding, standings, stories_for
+
+    # By round rather than `counted_decisions`, which leaves practice
+    # out: a practice review is exactly where these are read.
+    removed = [
+        user_id
+        for user_id, status in standings(for_round.codebook_version).items()
+        if status == CoderStanding.REMOVED
+    ]
+    by_story = {}
+    for answer in (
+        GeographyDecision.objects.filter(cohort__round=for_round, is_check=False)
+        .exclude(decided_by_id__in=removed)
+        .select_related("decided_by")
+        .order_by("decided_at", "id")
+    ):
+        by_story.setdefault(answer.article_id, []).append(answer)
+    agreed, _ = round_consensus(for_round)
+    claims = {c.article_id: c for c in GeographyClaim.objects.filter(round=for_round)}
+    wanted = [
+        article_id
+        for article_id, answers in by_story.items()
+        if len(answers) >= 2
+        and (
+            include_agreed
+            # In practice every coder codes every story: any two apart.
+            or not all(agree(answers[0], other) for other in answers[1:])
+        )
+    ]
+    titles = stories_for(wanted)
+    rows = []
+    for article_id in wanted:
+        claim = claims.get(article_id)
+        rows.append(
+            {
+                "article_id": article_id,
+                "title": getattr(titles.get(article_id), "title", "") or "",
+                "answers": [
+                    {
+                        "coder": str(answer.decided_by),
+                        "class": answer.answer_class,
+                        "said": describe(answer),
+                        "pins": [
+                            {"lat": p["lat"], "lon": p["lon"]} for p in answer.pins
+                        ],
+                        "counties": list(answer.counties),
+                        "state": answer.state,
+                    }
+                    for answer in by_story[article_id]
+                ],
+                "agreed": agreed.get(article_id),
+                "pipeline": (
+                    {
+                        "class": claim.pipeline_class,
+                        "scope": claim.scope,
+                        "point": (
+                            {"lat": claim.point_lat, "lon": claim.point_lon}
+                            if claim.point_lat is not None
+                            else None
+                        ),
+                        "point_place": claim.point_place,
+                        "point_method": claim.point_method,
+                        "counties": claim.counties,
+                        "state": claim.state_geoid,
+                    }
+                    if claim
+                    else None
+                ),
+            }
+        )
+    return rows
 
 
 # ------------------------------------------------------- the coder's map

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Disagreements — {{ round.name }} — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide geography-disagreements">
+  <p class="quiet"><a href="{% url 'review:cin_round' round.pk %}">{{ round.name }}</a></p>
+  <h1>Where coders disagreed</h1>
+  <p class="lede">
+    {% if everything %}Every story answered at least twice{% else %}Every story whose coders split{% endif %}
+    in {{ round.name }}: each coder's answer{% if not round.is_practice %} and the
+    pipeline's claim as it stood when the story was drawn{% endif %}. Choose a story
+    to draw it on the map.
+    {% if everything %}<a href="?">Only the splits</a>{% else %}<a href="?all=1">Every story</a>{% endif %}
+  </p>
+
+  {% if rows %}
+  <div class="geo-dis-layout">
+    <ol class="geo-dis-list">
+      {% for row in rows %}
+      <li>
+        <button type="button" class="linklike geo-dis-show" data-index="{{ forloop.counter0 }}">{{ row.title|default:row.article_id }}</button>
+        <ul class="plain">
+          {% for answer in row.answers %}
+          <li><span class="geo-key coder-{{ forloop.counter0 }}" aria-hidden="true"></span>{{ answer.coder }}: {{ answer.said }}</li>
+          {% endfor %}
+          {% if row.pipeline %}
+          <li><span class="geo-key pipeline" aria-hidden="true"></span>Pipeline: {{ row.pipeline.scope|default:"no scope" }}{% if row.pipeline.point_place %}, point {{ row.pipeline.point_place }} ({{ row.pipeline.point_method|default:"no method" }}){% endif %}{% if row.pipeline.counties %}, counties {{ row.pipeline.counties|join:", " }}{% endif %}</li>
+          {% endif %}
+          <li class="quiet">{% if row.agreed %}Agreed: {{ row.agreed.answer_class }}{% if row.agreed.place %} {{ row.agreed.place }}{% elif row.agreed.counties %} {{ row.agreed.counties|join:", " }}{% elif row.agreed.state %} {{ row.agreed.state }}{% endif %}{% else %}No agreed answer yet{% endif %}</li>
+        </ul>
+      </li>
+      {% endfor %}
+    </ol>
+    <div class="geo-dis-map-wrap">
+      <div id="geo-dis-map" class="geo-map"
+           data-geo-base="{% static 'geo/' %}"
+           data-place-states="{{ place_states|join:',' }}"
+           role="img" aria-label="Map of the chosen story's answers"></div>
+      <p class="quiet" id="geo-dis-caption">Choose a story.</p>
+    </div>
+  </div>
+  {{ rows|json_script:"geo-dis-data" }}
+  {% else %}
+  <p class="notice">No disagreements{% if not everything %} yet{% endif %}.</p>
+  {% endif %}
+</section>
+<script src="{% static 'js/d3.min.js' %}"></script>
+<script src="{% static 'js/topojson-client.min.js' %}"></script>
+<script src="{% static 'js/geography-disagreements.js' %}"></script>
+{% endblock %}

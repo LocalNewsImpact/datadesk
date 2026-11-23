@@ -77,7 +77,11 @@
   </p>
   {% endif %}
 
-  {% if not round.is_practice %}
+  {% if round.is_geography %}
+  {% include "review/_geography_round.html" %}
+  {% endif %}
+
+  {% if not round.is_practice and not round.is_geography %}
   <h2>Measured against the finish line</h2>
   <p>
     As it stands now:
@@ -294,7 +298,7 @@
   {% endif %}
   {% endif %}
 
-  {% if round.kind == "comparison" %}
+  {% if round.kind == "comparison" and not round.is_geography %}
   <h2>The lead's decision</h2>
   <p class="quiet">
     For a pilot whose latest recorded evaluation is a fail. Whether to
@@ -426,7 +430,9 @@
   <p class="quiet">
     Opening a batch draws the round's stories and hands them to the
     coders on the round.
-    {% if round.kind == "comparison" %}A pilot batch is every civic V1
+    {% if round.is_geography and round.kind == "comparison" %}A geography
+    pilot is one draw of about 460 stories, stratified by how the pipeline
+    placed each, with that placement saved beside every story.{% elif round.kind == "comparison" %}A pilot batch is every civic V1
     story, the number of other V1 stories entered below, and 230 new
     stories.{% endif %}
   </p>
@@ -444,9 +450,13 @@
   <form method="post" class="inline-form tight">
     {% csrf_token %}
     <input type="hidden" name="action" value="batch">
+    {% if round.is_geography and round.kind == "comparison" %}
+    <input type="hidden" name="size" value="460">
+    {% else %}
     <label for="size">{% if round.kind == "comparison" %}Other V1 stories, beside every civic one{% else %}Stories{% endif %}</label>
     <input type="number" id="size" name="size" min="1" max="20000"
            value="{% if round.is_practice %}20{% elif round.kind == "comparison" %}400{% else %}300{% endif %}" required>
+    {% endif %}
     <label for="note">Note</label>
     <input type="text" id="note" name="note" maxlength="200">
     <button type="submit">Open a batch</button>
@@ -550,7 +560,7 @@
   </form>
 
 
-  {% if not round.is_practice %}
+  {% if not round.is_practice and not round.is_geography %}
   <h2>Labels for the retrain</h2>
   <p>
     Every story with a label under {{ round.codebook_version.name }}, from
