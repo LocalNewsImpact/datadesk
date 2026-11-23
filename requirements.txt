@@ -15,6 +15,10 @@ whitenoise>=6.7
 # offer gzip, and every embed pays about a quarter more bytes for the
 # same files -- 250KB of county outlines instead of 190KB.
 brotli>=1.1
+# The geography ICR's agreement figures (review/geography_metrics.py):
+# Krippendorff's alpha with MASI distance recomputes a distance-weighted
+# sum over every pair of distinct answers in each bootstrap resample.
+numpy>=2.2
 
 # The Source Directory as an installed app (ROADMAP.md item 14). Pinned
 # to a tag rather than a branch: a moving dependency makes a build

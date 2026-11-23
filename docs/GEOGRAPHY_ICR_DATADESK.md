@@ -293,6 +293,30 @@ least as often as the nine-way label. The scores therefore lean toward
 the pipeline looking under-confident, not over-confident. Today's mean
 `scope_confidence` is 0.937.
 
+As built (`review/geography_metrics.py` for the arithmetic, numpy for the
+sums; `geography_icr.geography_report(round)` gathers the answers,
+saved claims, weights and consensus and returns M1-M11 with the G-WP6
+counts):
+
+- Alpha is Krippendorff's general form, `1 - (n-1) * sum D_u / t.D.t`,
+  with the nominal distance for M1 and M2 and MASI for M3; nominal alpha
+  is identical to `cin_metrics.krippendorff_alpha`. Alpha is computed
+  over every coder on a story, as the CIN pilot's is. Cuts are by
+  stratum.
+- M5 resolves the pipeline's own point through `geo_resolve`, as a pin
+  is, and compares at the coarser of the two levels. "Places sharing a
+  name" uses `doubted_geography.BETTER_KNOWN_ELSEWHERE` on `point_place`.
+- M6 precision by source counts each county row once per story.
+- M8 is the median, per story, of the distances from the pipeline's
+  point to each P coder's pin; then the median and 90th percentile over
+  stories.
+- M10's pipeline value is the point's county for a P claim (the central
+  claim only, decision 1), the claim's county rows for R, its state code
+  for S, nothing for N. Consensus-U stories are left out of M9 and M10
+  and counted in M11.
+- On a 460-story round with two answers each (simulated from the saved
+  claims of a production draw), the whole report takes under a second.
+
 Done when: each metric has a unit test against a hand-computed fixture,
 and M5 and M6 reproduce from saved claims after the crawler has
 re-enriched the drawn stories.
