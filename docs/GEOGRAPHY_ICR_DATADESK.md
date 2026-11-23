@@ -141,6 +141,29 @@ assignment with the map screen in place of the category menu.
   and makes no calls to third parties. A place-name search box jumps the
   view to a place, using the Census gazetteer. The search is a
   navigation aid only. The answer is the pin.
+- **As built, revised (2026-11-23).** The first practice round showed
+  that a coder without streets cannot tell which side of a state line a
+  pin is on (a Chiefs story pinned in Kansas City, Kansas), and that
+  Census place labels were too dense where a county has many CDPs and
+  missing in states without a place file. The map is now vendored
+  Leaflet 1.9.4 over CARTO Voyager raster tiles, in two layers so the
+  place names sit above the county outlines. Voyager was chosen over
+  Positron for its coloured major roads. The CARTO key is the
+  `carto-basemaps-key` secret, set as `CARTO_BASEMAPS_KEY`. It is locked
+  to the production hostname, so it is harmless in the page. With no
+  key, the map uses OpenStreetMap's standard tiles. Zooming works by the
+  +/− control, the wheel or a pinch, and a double click. A single click
+  waits 260 ms to tell it from a double click.
+  County outlines are still the repo's TIGER files: 500k in the built
+  states, 10m elsewhere. A click on one is an answer, so the outline
+  has to be the county the server resolves. The search box takes a town
+  or county from the gazetteer, now with a bounding box to fit to; a
+  query naming "county" searches counties. On Enter it also takes a
+  street address, sent through the server (`review/geocode.py`) to the
+  Census geocoder (house numbers, intersections) and then OpenStreetMap
+  Nominatim (bare streets, landmarks). Answers are cached for a day.
+  The search still only moves the map: the pin is the answer, and the
+  80 km pin rule is unchanged.
 - `seconds_spent` and the zoom at each pin are recorded.
 
 Boundaries: 500k place and county boundaries are committed for MO, PA,

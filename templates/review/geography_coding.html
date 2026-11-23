@@ -57,8 +57,9 @@
     <div class="geo-map-wrap" hidden>
       <div class="geo-tools">
         <label class="geo-find">
-          Find a place
-          <input type="search" id="geo-find" placeholder="town or county"
+          Find
+          <input type="search" id="geo-find"
+                 placeholder="town, county or street address, then Enter"
                  list="geo-find-list">
           <datalist id="geo-find-list"></datalist>
         </label>
@@ -68,14 +69,17 @@
           <button type="button" class="linklike geo-mode-pins" aria-pressed="false">Pin towns</button>
         </span>
       </div>
+      <p class="quiet geo-find-note" id="geo-find-note" aria-live="polite"></p>
       <div id="geo-map" class="geo-map" role="application"
-           aria-label="Map: scroll or pinch to zoom, drag to move, click to answer"
+           aria-label="Map: use + and − or scroll to zoom, drag to move, click to answer"
            data-start-state="{{ start_state }}"
-           data-place-states="{{ place_states|join:',' }}"
+           data-county-states="{{ place_states|join:',' }}"
            data-pin-view-km="{{ pin_view_km }}"
+           data-tile-key="{{ tile_key }}"
            data-geo-base="{% static 'geo/' %}"
            data-where-url="{% url 'review:geography_coding_resolve' %}"
-           data-find-url="{% url 'review:geography_coding_find' %}"></div>
+           data-find-url="{% url 'review:geography_coding_find' %}"
+           data-address-url="{% url 'review:geography_coding_address' %}"></div>
       <p class="quiet geo-scale" id="geo-scale" aria-live="polite"></p>
       <ul class="geo-answer" id="geo-answer" aria-live="polite"></ul>
     </div>
@@ -92,7 +96,8 @@
   </div>
 </section>
 
-<script src="{% static 'js/d3.min.js' %}"></script>
+<link rel="stylesheet" href="{% static 'js/leaflet/leaflet.css' %}">
+<script src="{% static 'js/leaflet/leaflet.js' %}"></script>
 <script src="{% static 'js/topojson-client.min.js' %}"></script>
 <script src="{% static 'js/geography-coding.js' %}"></script>
 {% endblock %}

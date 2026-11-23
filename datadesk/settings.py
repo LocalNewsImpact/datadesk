@@ -446,6 +446,12 @@ AUTHENTICATION_BACKENDS = [
 # developer can read the link they were sent.
 GMAIL_CREDENTIALS_JSON = os.environ.get("GMAIL_CREDENTIALS_JSON", "").strip()
 GMAIL_DELEGATED_USER = os.environ.get("GMAIL_DELEGATED_USER", "").strip()
+
+# CARTO's basemap tiles under the geography coder's map. The key is locked
+# to the production hostname in CARTO's dashboard, so it is safe in the
+# page and useless anywhere else; without it the map uses OpenStreetMap's
+# standard tiles (local development, or the secret missing).
+CARTO_BASEMAPS_KEY = os.environ.get("CARTO_BASEMAPS_KEY", "").strip()
 EMAIL_BACKEND = (
     "accounts.mail.GmailAPIBackend"
     if GMAIL_CREDENTIALS_JSON and GMAIL_DELEGATED_USER
