@@ -34,7 +34,7 @@
       <dd class="big">{% if overall is not None %}{{ overall }}%{% else %}&mdash;{% endif %}</dd></div>
     <div><dt>Expected by chance</dt>
       <dd class="big">{% if expected is not None %}{{ expected }}%{% else %}&mdash;{% endif %}</dd></div>
-    <div><dt>Cohen's kappa</dt>
+    <div><dt>Pairwise kappa</dt>
       <dd class="big">{{ kappa|floatformat:3|default:"—" }}</dd></div>
     <div><dt>Krippendorff's alpha</dt>
       <dd class="big">{{ alpha.rate|floatformat:3|default:"—" }}</dd>
@@ -52,13 +52,17 @@
     Observed is the share of pairs that gave the same answer; expected is
     the share two coders would match by chance, choosing with the
     frequencies these coders used; kappa is how far observed sits above
-    chance, from 0 (chance) to 1 (always the same). V1 measured 0.583.
+    chance, from 0 (chance) to 1 (always the same). Coders rotate, so
+    there is no fixed pair for a Cohen's kappa: every pair of coders on a
+    story counts as one pair, pooled. V1 measured 0.583 the same way.
     A rejection counts as one more answer. Kappa depends on the mix of
     stories drawn, so compare it between rounds drawn the same way.
   </p>
   <p class="quiet">
-    Krippendorff's alpha reads every answer on a story, so a third coder
-    brought in on a split counts, where kappa reads pairs. Weighted alpha
+    Krippendorff's alpha reads every answer on a story where kappa reads
+    pairs. Every figure here leaves out a third coder brought in only
+    because the first two split: those answers exist only on disputed
+    stories, and V1's figures leave them out too. Weighted alpha
     also gives part credit where one coder's category is the other's
     secondary, at the label rule's 0.7 against 0.9 for a match: the
     agreement the training labels are built on. Kappa stays the figure
