@@ -402,20 +402,25 @@ def enriched_pool(_stratum=None):
 def open_geography_batch(for_round, size):
     """A geography round's stories: (cohort or None, level, message).
 
-    A practice round draws at random from the enriched pool. A pilot's
-    stratified draw, with the pipeline's claim saved beside each story,
-    is G-WP5 and is not built: until it is, a geography pilot opens with
-    no stories rather than with a draw the procedure does not describe.
+    A practice round draws `size` at random from the enriched pool. A
+    pilot is the stratified draw (`draw_geography_pilot`), whose size is
+    its plan's, with the pipeline's claim saved beside every story.
     """
     from review.classification import ClassificationSample, assign_cohort, draw_cohort
 
     if not for_round.is_practice:
+        cohort, drawn = draw_geography_pilot(for_round)
+        if cohort is None:
+            return None, "bad", "No enriched stories to draw from."
+        made = assign_cohort(cohort)
+        total = sum(row["drawn"] for row in drawn)
+        short = [row["stratum"] for row in drawn if row["drawn"] < row["wanted"]]
         return (
-            None,
-            "warn",
-            "The round is open. Its stratified draw, which saves the "
-            "pipeline's placement beside each story, is not built yet "
-            "(G-WP5), so no stories were drawn.",
+            cohort,
+            "warn" if short else "good",
+            f"{total} stories drawn in {len(drawn)} strata, {made} assignments "
+            "made; the pipeline's placement of each is saved."
+            + (f" Short: {', '.join(short)}." if short else ""),
         )
     cohort, drawn = draw_cohort(
         size,
@@ -430,6 +435,377 @@ def open_geography_batch(for_round, size):
         "good" if total == size else "warn",
         f"{total} of {size} enriched stories drawn, {made} assignments made.",
     )
+
+
+# --------------------------------------------------- the pilot (G-WP5)
+#
+# The pipeline's answer is copied when a story is drawn. The crawler
+# DELETEs and rewrites an article's geoid set on every enrichment run
+# (ArticlePlaceManual's docstring), so a claim read at report time could
+# be a different claim from the one the coders were scored against.
+
+#: The crawler's point scopes (MizzouNewsCrawler enrichment/profiles.py
+#: POINT_SCOPES): the only scopes that get a story-level point.
+POINT_SCOPES = frozenset(
+    {
+        "neighborhood_community",
+        "city_municipality",
+        "elsewhere_to_local",
+        "local_to_elsewhere",
+    }
+)
+NO_PLACE_SCOPES = frozenset({"national", "international", "other"})
+
+#: The pilot's strata, in the order a story is tested against them: a
+#: story goes to the FIRST it fits, so the P strata do not overlap (an
+#: institution-supported point can also be a `single_city` one). The
+#: doubtful kinds of point come first and are oversampled; `p_model` is
+#: everything else the model placed.
+P_COUNTY = "p_county"
+P_ASSUMED = "p_assumed"
+P_PUBCITY = "p_pubcity"
+P_INSTITUTION = "p_institution"
+P_MODEL = "p_model"
+P_NONE = "p_none"
+R_NONE = "r_0"
+R_ONE = "r_1"
+R_MANY = "r_2plus"
+S_STATE = "s_state"
+N_NONE = "n_none"
+
+#: Stories drawn per stratum. The regional 185 is split over its three
+#: strata in proportion to their populations when the draw is made.
+PILOT_PLAN = {
+    P_COUNTY: 25,
+    P_ASSUMED: 25,
+    P_PUBCITY: 25,
+    P_INSTITUTION: 25,
+    P_MODEL: 85,
+    P_NONE: 10,
+    "regional": 185,
+    S_STATE: 40,
+    N_NONE: 40,
+}
+REGIONAL_STRATA = (R_NONE, R_ONE, R_MANY)
+GEOGRAPHY_STRATA = (
+    P_COUNTY,
+    P_ASSUMED,
+    P_PUBCITY,
+    P_INSTITUTION,
+    P_MODEL,
+    P_NONE,
+    R_NONE,
+    R_ONE,
+    R_MANY,
+    S_STATE,
+    N_NONE,
+)
+
+
+def pipeline_class(scope):
+    """The answer class the pipeline's scope corresponds to, or None
+    for a scope that is none of them (unset, or a value from a profile
+    that no longer runs)."""
+    if scope in POINT_SCOPES:
+        return PLACE
+    if scope == "regional":
+        return REGION
+    if scope == "statewide":
+        return STATE
+    if scope in NO_PLACE_SCOPES:
+        return NO_PLACE
+    return None
+
+
+def stratum_of(scope, point_geoid, point_level, point_method, point_support, counties):
+    """Which pilot stratum a story falls in, or None.
+
+    `counties` is how many distinct county rows the story has in
+    `article_geoids`.
+    """
+    kind = pipeline_class(scope)
+    if kind == PLACE:
+        if not point_geoid:
+            return P_NONE
+        if point_level == "county":
+            return P_COUNTY
+        if point_method == "publication_place_assumed":
+            return P_ASSUMED
+        if point_method in ("publication_city", "single_city"):
+            return P_PUBCITY
+        if point_support == "institution":
+            return P_INSTITUTION
+        return P_MODEL
+    if kind == REGION:
+        return R_NONE if counties == 0 else R_ONE if counties == 1 else R_MANY
+    if kind == STATE:
+        return S_STATE
+    if kind == NO_PLACE:
+        return N_NONE
+    return None
+
+
+def _populations(taken):
+    """stratum -> [(article_id, dataset_id)] over the enriched pool."""
+    from explorer.models import ArticleGeoid
+
+    rows = list(
+        enriched_pool()
+        .exclude(id__in=taken)
+        .values_list(
+            "id",
+            "dataset_id",
+            "enrichment__scope",
+            "enrichment__point_geoid",
+            "enrichment__point_geoid_level",
+            "enrichment__point_method",
+            "enrichment__point_support",
+        )
+    )
+    regional = [row[0] for row in rows if row[2] == "regional"]
+    counts = {}
+    for start in range(0, len(regional), 2000):
+        for article_id, n in (
+            ArticleGeoid.objects.using("crawler")
+            .filter(article_id__in=regional[start : start + 2000], geoid_level="county")
+            .values("article_id")
+            .annotate(n=models.Count("geoid", distinct=True))
+            .values_list("article_id", "n")
+        ):
+            counts[article_id] = n
+    out = {stratum: [] for stratum in GEOGRAPHY_STRATA}
+    for article_id, dataset_id, *claim in rows:
+        stratum = stratum_of(*claim, counts.get(article_id, 0))
+        if stratum is not None:
+            out[stratum].append((article_id, dataset_id or ""))
+    return out
+
+
+def _wanted(plan, populations):
+    """stratum -> stories to draw, the regional total split in proportion
+    to the three regional populations (largest remainder, so the parts
+    sum to the whole)."""
+    wanted = {s: n for s, n in plan.items() if s in GEOGRAPHY_STRATA}
+    total = plan.get("regional", 0)
+    sizes = {s: len(populations.get(s, ())) for s in REGIONAL_STRATA}
+    whole = sum(sizes.values())
+    if total and whole:
+        exact = {s: total * sizes[s] / whole for s in REGIONAL_STRATA}
+        parts = {s: int(exact[s]) for s in REGIONAL_STRATA}
+        left = total - sum(parts.values())
+        for s in sorted(REGIONAL_STRATA, key=lambda s: exact[s] - parts[s])[::-1][
+            :left
+        ]:
+            parts[s] += 1
+        wanted.update(parts)
+    return wanted
+
+
+def draw_geography_pilot(for_round, plan=None, seed=None):
+    """Draw a geography pilot and save the pipeline's claim on each story.
+
+    Returns (cohort or None, [{stratum, population, wanted, drawn,
+    inclusion_probability}]). The draw -- plan, seed, populations and the
+    profile version -- is written to `for_round.draw_rule`, so the round
+    says how its stories were chosen.
+
+    Stories already in another geography batch are not drawn again;
+    stories in CIN batches are (the two questions are independent).
+    """
+    import random
+
+    from django.db import transaction
+
+    from review.classification import (
+        ClassificationCohort,
+        ClassificationSample,
+        _one_batch_at_a_time,
+        admit_waiting_coders,
+        grant_cohort,
+        round_coders,
+        same_task,
+    )
+
+    plan = plan or PILOT_PLAN
+    seed = for_round.pk if seed is None else seed
+    taken = set(
+        same_task(
+            ClassificationSample.objects.all(), GEOGRAPHY, "cohort__round"
+        ).values_list("article_id", flat=True)
+    )
+    populations = _populations(taken)
+    if not any(populations.values()):
+        return None, []
+    wanted = _wanted(plan, populations)
+    rng = random.Random(seed)
+    report, chosen = [], []
+    for stratum in GEOGRAPHY_STRATA:
+        pool = sorted(populations[stratum])
+        want = wanted.get(stratum, 0)
+        picked = rng.sample(pool, min(want, len(pool)))
+        probability = (len(picked) / len(pool)) if pool else 1.0
+        report.append(
+            {
+                "stratum": stratum,
+                "population": len(pool),
+                "wanted": want,
+                "drawn": len(picked),
+                "inclusion_probability": probability,
+            }
+        )
+        chosen += [(stratum, a, d, probability) for a, d in picked]
+
+    with transaction.atomic():
+        _one_batch_at_a_time()
+        number = (
+            ClassificationCohort.objects.aggregate(models.Max("number"))["number__max"]
+            or 0
+        ) + 1
+        cohort = ClassificationCohort.objects.create(
+            number=number,
+            slug=f"cohort-{number}",
+            target_coders=for_round.base_coders,
+            codebook_version=for_round.codebook_version,
+            round=for_round,
+            note="geography pilot",
+        )
+        ClassificationSample.objects.bulk_create(
+            [
+                ClassificationSample(
+                    cohort=cohort,
+                    article_id=article_id,
+                    stratum=stratum,
+                    inclusion_probability=probability,
+                    dataset_id=dataset_id,
+                )
+                for stratum, article_id, dataset_id, probability in chosen
+            ],
+            batch_size=500,
+        )
+        save_claims(for_round, [article_id for _, article_id, _, _ in chosen])
+        for_round.draw_rule = {
+            "plan": plan,
+            "seed": seed,
+            "profile_version": current_profile_version(),
+            "strata": report,
+        }
+        for_round.save(update_fields=["draw_rule"])
+    for user in round_coders(for_round):
+        grant_cohort(user, cohort)
+    admit_waiting_coders(for_round, cohort)
+    return cohort, report
+
+
+class GeographyClaim(models.Model):
+    """The pipeline's placement of one story, as it stood when drawn.
+
+    Everything later scoring reads about the pipeline's answer comes
+    from here and never from the crawler's live tables, which the next
+    enrichment run rewrites. Never changed after it is made.
+    """
+
+    round = models.ForeignKey(
+        "Round", on_delete=models.PROTECT, related_name="geography_claims"
+    )
+    article_id = models.CharField(max_length=64)
+    #: The answer class the pipeline's scope corresponds to (P/R/S/N),
+    #: or empty for a scope that is none of them.
+    pipeline_class = models.CharField(max_length=1, blank=True, default="")
+    scope = models.CharField(max_length=40, blank=True, default="")
+    scope_confidence = models.FloatField(null=True, blank=True)
+    profile_version = models.IntegerField(null=True, blank=True)
+    point_place = models.TextField(blank=True, default="")
+    point_geoid = models.CharField(max_length=20, blank=True, default="")
+    point_geoid_level = models.CharField(max_length=10, blank=True, default="")
+    point_lat = models.FloatField(null=True, blank=True)
+    point_lon = models.FloatField(null=True, blank=True)
+    point_method = models.CharField(max_length=40, blank=True, default="")
+    point_support = models.CharField(max_length=20, blank=True, default="")
+    geo_skip_reason = models.CharField(max_length=60, blank=True, default="")
+    #: Every `article_geoids` row: [{geoid, level, is_primary, source}].
+    geoid_rows = models.JSONField(default=list, blank=True)
+    drawn_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["round", "article_id"], name="one_claim_per_story_per_round"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.article_id}: {self.pipeline_class or '?'} {self.point_geoid}"
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError("a claim is a record of what was drawn; never edited")
+        super().save(*args, **kwargs)
+
+    @property
+    def counties(self):
+        """The county GEOIDs in the story's geoid set, sorted."""
+        return sorted(
+            {row["geoid"] for row in self.geoid_rows if row.get("level") == "county"}
+        )
+
+    @property
+    def state_geoid(self):
+        """The state code a statewide story carries, or empty."""
+        if self.point_geoid_level == "state":
+            return self.point_geoid
+        rows = [r["geoid"] for r in self.geoid_rows if r.get("level") == "state"]
+        return rows[0] if len(rows) == 1 else ""
+
+
+def save_claims(for_round, article_ids):
+    """Copy the pipeline's placement of each story into `GeographyClaim`.
+    Returns how many were made."""
+    from explorer.models import ArticleEnrichment, ArticleGeoid
+
+    ids = list(article_ids)
+    enrichment = {
+        row.article_id: row
+        for row in ArticleEnrichment.objects.using("crawler").filter(article_id__in=ids)
+    }
+    rows = {}
+    for row in (
+        ArticleGeoid.objects.using("crawler")
+        .filter(article_id__in=ids)
+        .order_by("id")
+        .values("article_id", "geoid", "geoid_level", "is_primary", "source")
+    ):
+        rows.setdefault(row["article_id"], []).append(
+            {
+                "geoid": row["geoid"],
+                "level": row["geoid_level"],
+                "is_primary": bool(row["is_primary"]),
+                "source": row["source"] or "",
+            }
+        )
+    made = []
+    for article_id in ids:
+        e = enrichment.get(article_id)
+        made.append(
+            GeographyClaim(
+                round=for_round,
+                article_id=article_id,
+                pipeline_class=pipeline_class(getattr(e, "scope", None)) or "",
+                scope=getattr(e, "scope", None) or "",
+                scope_confidence=getattr(e, "scope_confidence", None),
+                profile_version=getattr(e, "profile_version", None),
+                point_place=getattr(e, "point_place", None) or "",
+                point_geoid=getattr(e, "point_geoid", None) or "",
+                point_geoid_level=getattr(e, "point_geoid_level", None) or "",
+                point_lat=getattr(e, "point_lat", None),
+                point_lon=getattr(e, "point_lon", None),
+                point_method=getattr(e, "point_method", None) or "",
+                point_support=getattr(e, "point_support", None) or "",
+                geo_skip_reason=getattr(e, "geo_skip_reason", None) or "",
+                geoid_rows=rows.get(article_id, []),
+            )
+        )
+    GeographyClaim.objects.bulk_create(made, batch_size=500)
+    return len(made)
 
 
 # ------------------------------------------------------- the coder's map
