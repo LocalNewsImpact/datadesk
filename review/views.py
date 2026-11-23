@@ -2446,8 +2446,11 @@ def classification_queue(request):
         give_a_coder_their_stories,
         stories_for,
     )
+    from review.geography_icr import GEOGRAPHY, GeographyDecision, is_geography
 
     if request.method == "POST":
+        if "answer_class" in request.POST:
+            return _submit_geography(request)
         return _submit_classification(request)
 
     # A coder added before they had ever signed in has a grant from
@@ -2470,12 +2473,25 @@ def classification_queue(request):
         # A story this coder has already answered, wherever, is not
         # offered again: one answer per coder per story is a database
         # rule, and saving a second was a server error. Two batches
-        # drawn at once before the batch lock could share a story.
+        # drawn at once before the batch lock could share a story. Per
+        # question: a story placed on the map can still be categorised.
         .exclude(
-            article_id__in=ClassificationDecision.objects.filter(
-                decided_by=request.user
-            ).values("article_id")
-        ).select_related("cohort")
+            Q(
+                article_id__in=ClassificationDecision.objects.filter(
+                    decided_by=request.user
+                ).values("article_id")
+            )
+            & ~Q(cohort__round__task=GEOGRAPHY)
+        )
+        .exclude(
+            Q(
+                article_id__in=GeographyDecision.objects.filter(
+                    decided_by=request.user
+                ).values("article_id")
+            )
+            & Q(cohort__round__task=GEOGRAPHY)
+        )
+        .select_related("cohort", "cohort__round")
         # A random order, fixed when each assignment was made. Work made
         # in one step -- a batch stored category by category, a set of
         # check stories -- is then not met in the order it was made.
@@ -2489,6 +2505,9 @@ def classification_queue(request):
         article = stories_for([assignment.article_id]).get(assignment.article_id)
 
     body = _story_text(article) if article is not None else ""
+
+    if assignment is not None and is_geography(assignment.cohort):
+        return _geography_screen(request, assignment, article, body, outstanding)
 
     done = ClassificationDecision.objects.filter(decided_by=request.user).count()
     # Everything a coder is shown comes from the codebook version their
@@ -2511,6 +2530,11 @@ def classification_queue(request):
             "rejections": codebook.rejection_choices(),
             "remaining": outstanding.count(),
             "done": done,
+            # A coder who has only ever been given geography work is not
+            # told about information needs while they wait for more.
+            "geography_only": assignment is None
+            and cohorts.filter(round__task=GEOGRAPHY).exists()
+            and not cohorts.exclude(round__task=GEOGRAPHY).exists(),
         },
     )
 
@@ -2604,6 +2628,149 @@ def _submit_classification(request):
         # Where the first two coders differ, the round may ask for a third.
         add_third_coder(assignment.cohort, assignment.article_id)
     return redirect("review:classification")
+
+
+def _geography_screen(request, assignment, article, body, outstanding):
+    """Where is this story about? The map in place of the category menu.
+
+    The same story column as the CIN screen, and the same blindness: no
+    publisher, URL, date or byline, and never the pipeline's own
+    placement (docs/GEOGRAPHY_ICR_DATADESK.md, G-WP2).
+    """
+    from review.classification import ClassificationSample
+    from review.geo_resolve import built_states
+    from review.geography_icr import (
+        CLASSES,
+        PIN_VIEW_KM,
+        GeographyDecision,
+        guide_paragraphs,
+        map_start,
+        state_choices,
+    )
+
+    sample = ClassificationSample.objects.filter(
+        cohort=assignment.cohort, article_id=assignment.article_id
+    ).first()
+    return render(
+        request,
+        "review/geography_coding.html",
+        {
+            "assignment": assignment,
+            "article": article,
+            "body": body,
+            "classes": CLASSES,
+            "guide": guide_paragraphs(assignment.cohort.codebook.instructions),
+            "states": state_choices(),
+            "start_state": map_start(getattr(sample, "dataset_id", "")),
+            "place_states": built_states(),
+            "pin_view_km": PIN_VIEW_KM,
+            "remaining": outstanding.count(),
+            "done": GeographyDecision.objects.filter(decided_by=request.user).count(),
+        },
+    )
+
+
+@require_POST
+@requires(CLASSIFY)
+def _submit_geography(request):
+    """Record where one coder says a story is, and close their assignment.
+
+    The pins are resolved again here and the server's answer is the one
+    kept: the browser's resolution is for the coder to see, not to be
+    trusted (review.geo_resolve).
+    """
+    from django.utils import timezone
+
+    from review.classification import ClassificationAssignment, ClassificationSample
+    from review.geography_icr import GeographyDecision, clean_answer, is_geography
+
+    assignment = (
+        ClassificationAssignment.objects.filter(
+            pk=request.POST.get("assignment"),
+            assigned_to=request.user,
+            completed_at__isnull=True,
+        )
+        .select_related("cohort", "cohort__round")
+        .first()
+    )
+    if assignment is None or not is_geography(assignment.cohort):
+        return redirect("review:classification")
+
+    try:
+        answer = clean_answer(
+            request.POST.get("answer_class"),
+            request.POST.get("pins"),
+            request.POST.get("counties"),
+            request.POST.get("state"),
+        )
+    except ValueError as error:
+        messages.error(request, str(error))
+        return redirect("review:classification")
+
+    if GeographyDecision.objects.filter(
+        article_id=assignment.article_id, decided_by=request.user
+    ).exists():
+        assignment.completed_at = timezone.now()
+        assignment.save(update_fields=["completed_at"])
+        return redirect("review:classification")
+
+    sample = ClassificationSample.objects.filter(
+        cohort=assignment.cohort, article_id=assignment.article_id
+    ).first()
+    GeographyDecision.objects.create(
+        cohort=assignment.cohort,
+        article_id=assignment.article_id,
+        decided_by=request.user,
+        codebook_version=assignment.cohort.codebook,
+        is_check=assignment.is_check,
+        stratum=getattr(sample, "stratum", ""),
+        inclusion_probability=getattr(sample, "inclusion_probability", 1.0),
+        dataset_id=getattr(sample, "dataset_id", ""),
+        seconds_spent=_seconds_spent(request.POST.get("opened_at")),
+        **answer,
+    )
+    assignment.completed_at = timezone.now()
+    assignment.save(update_fields=["completed_at"])
+    return redirect("review:classification")
+
+
+@requires(CLASSIFY)
+def geography_coding_resolve(request):
+    """What a pin resolves to, for the coder to see before saving.
+
+    The server's lookup, the same one the save uses, so what the coder
+    is shown under the pin is what will be recorded.
+    """
+    from review.geo_resolve import resolve
+
+    try:
+        lat = float(request.GET.get("lat"))
+        lon = float(request.GET.get("lon"))
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "lat and lon"}, status=400)
+    return JsonResponse(resolve(lat, lon).as_dict())
+
+
+@requires(CLASSIFY)
+def geography_coding_find(request):
+    """Place and county names for the map's search box.
+
+    A way to move the map, not an answer: choosing a name zooms to it,
+    and the coder still drops the pin. From the same gazetteer the
+    pipeline resolves against, ranked by the state the map opened on.
+    """
+    from review import geography
+    from visuals.geofocus import _counties
+
+    typed = (request.GET.get("q") or "").strip()
+    if len(typed) < 2:
+        return JsonResponse({"results": []})
+    # The map's state arrives as FIPS; the gazetteer ranks by USPS.
+    state = (request.GET.get("state") or "").strip()
+    if state.isdigit():
+        state = next((usps for fips, usps in _counties() if fips[:2] == state), "")
+    hits = geography.suggest(typed, state or None)
+    return JsonResponse({"results": hits[:8]})
 
 
 def _seconds_spent(opened_at):
@@ -2855,7 +3022,7 @@ def cin_codebook(request):
             ],
             "versions": [
                 {"version": v, "cohorts": v.cohorts.count()}
-                for v in CodebookVersion.objects.all()
+                for v in CodebookVersion.objects.filter(task="cin")
             ],
             "current": current,
             "saved": saved,
@@ -2881,18 +3048,25 @@ def cin_rounds(request):
         round_report,
         start_round,
     )
+    from review.geography_icr import CIN, GEOGRAPHY, TASKS, geography_guide
 
     notices = []
     if request.method == "POST":
         name = (request.POST.get("name") or "").strip()
         kind = request.POST.get("kind") or ""
+        task = request.POST.get("task") or CIN
         # Blank means the current codebook, and blank numbers mean the
         # procedure's: starting a round is a name, a kind and the coders.
-        version = (
-            CodebookVersion.objects.filter(pk=request.POST.get("codebook")).first()
-            if request.POST.get("codebook")
-            else CodebookVersion.current()
-        )
+        # A geography round is coded under the geography guide, whatever
+        # the CIN codebook menu says.
+        if task == GEOGRAPHY:
+            version = geography_guide()
+        elif request.POST.get("codebook"):
+            version = CodebookVersion.objects.filter(
+                pk=request.POST.get("codebook"), task=CIN
+            ).first()
+        else:
+            version = CodebookVersion.current()
         emails = [
             part
             for part in (request.POST.get("coders") or "")
@@ -2915,6 +3089,12 @@ def cin_rounds(request):
             notices.append(("bad", f"There is already a round named {name}."))
         elif kind not in dict(Round.KINDS):
             notices.append(("bad", "Choose what the round is for."))
+        elif task not in dict(TASKS):
+            notices.append(("bad", "Choose the question the round asks."))
+        elif task == GEOGRAPHY and kind == Round.COLLECTION:
+            notices.append(
+                ("bad", "A geography round is a practice or a pilot, not training.")
+            )
         elif version is None:
             notices.append(("bad", "Choose the codebook the round is coded under."))
         else:
@@ -2930,7 +3110,13 @@ def cin_rounds(request):
                     "holdout": min(held or usual, floor),
                 }
             created, made = start_round(
-                name, kind, emails, codebook_version=version, by=request.user, **changes
+                name,
+                kind,
+                emails,
+                codebook_version=version,
+                by=request.user,
+                task=task,
+                **changes,
             )
             # Shown on the round's page, where the redirect lands.
             request.session["cin_round_notices"] = [list(row) for row in made]
@@ -2942,8 +3128,9 @@ def cin_rounds(request):
         {
             "rounds": [round_report(row) for row in Round.objects.all()],
             "kinds": Round.KINDS,
+            "tasks": TASKS,
             "defaults": ROUND_DEFAULTS,
-            "versions": CodebookVersion.objects.all(),
+            "versions": CodebookVersion.objects.filter(task=CIN),
             "current": CodebookVersion.current(),
             "notices": notices,
         },

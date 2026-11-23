@@ -1,0 +1,404 @@
+"""A coder says where a story is about, on a map.
+
+The geography question rides on the CIN rounds: a round, its batches,
+assignments and coder standing are the same tables, and only the
+question and the answer are new (docs/GEOGRAPHY_ICR_DATADESK.md, G-WP1
+to G-WP3). These tests hold the joins between the two: a geography round
+never borrows the CIN codebook, never takes a CIN story off the table,
+and a coder answering both questions of one story is asked both.
+"""
+
+import json
+
+import pytest
+from django.contrib.auth.models import User
+from django.urls import reverse
+
+from accounts.models import DATADESK, Grant
+from accounts.privileges import ADMIN, CLASSIFIER
+from review.classification import (
+    ClassificationAssignment,
+    ClassificationCohort,
+    ClassificationDecision,
+    ClassificationSample,
+    CodebookVersion,
+    Round,
+    open_round,
+)
+from review.geography_icr import (
+    GEOGRAPHY,
+    NO_PLACE,
+    PIN_VIEW_KM,
+    PLACE,
+    REGION,
+    STATE,
+    UNSTATED,
+    GeographyDecision,
+    clean_answer,
+    geography_guide,
+)
+
+pytestmark = pytest.mark.django_db(databases=["default", "crawler"])
+
+URL = "/review/classification/"
+
+COLUMBIA = {"lat": 38.9517, "lon": -92.3341, "view_km": 20}
+ASHLAND = {"lat": 38.7745, "lon": -92.2571, "view_km": 20}
+JEFFERSON_CITY = {"lat": 38.5767, "lon": -92.1735, "view_km": 20}
+
+
+# ------------------------------------------------------------ the answer
+
+
+def test_one_place_is_one_pin_resolved_to_its_place_and_county():
+    answer = clean_answer(PLACE, json.dumps([COLUMBIA]))
+    assert answer["counties"] == ["29019"] and answer["state"] == "29"
+    (pin,) = answer["pins"]
+    assert pin["place"] == "2915670" and pin["place_name"] == "Columbia"
+
+
+def test_the_servers_resolution_is_kept_not_the_browsers():
+    """Whatever the form says a pin resolved to is thrown away."""
+    forged = dict(COLUMBIA, place="2938000", county="29095")
+    (pin,) = clean_answer(PLACE, [forged])["pins"]
+    assert pin["place"] == "2915670" and pin["county"] == "29019"
+
+
+@pytest.mark.parametrize(
+    "pins,message",
+    [
+        ([], "exactly one"),
+        ([COLUMBIA, ASHLAND], "exactly one"),
+        ([dict(COLUMBIA, view_km=PIN_VIEW_KM + 1)], "Zoom in"),
+        ([{"lat": 38.95, "lon": -92.33}], "Zoom in"),
+        ([{"lat": 28.0, "lon": -90.0, "view_km": 20}], "not in a U.S. county"),
+        ([{"lat": "x", "lon": -92.3, "view_km": 20}], "without a position"),
+    ],
+)
+def test_a_place_answer_that_is_not_one_good_pin_is_refused(pins, message):
+    with pytest.raises(ValueError, match=message):
+        clean_answer(PLACE, pins)
+
+
+def test_a_region_is_its_counties_and_the_counties_of_its_pins():
+    answer = clean_answer(REGION, [JEFFERSON_CITY], ["29019", "29027"])
+    assert answer["counties"] == ["29019", "29027", "29051"]
+    assert answer["state"] == "29"
+
+
+def test_a_region_across_a_state_line_has_no_one_state():
+    answer = clean_answer(REGION, [], ["29095", "20209"])
+    assert answer["state"] == ""
+
+
+@pytest.mark.parametrize(
+    "pins,counties,message",
+    [
+        ([], [], "Click the counties"),
+        ([], ["99999"], "not one the map knows"),
+        ([], [f"29{n:03d}" for n in range(1, 100, 2)], "More than 40"),
+    ],
+)
+def test_a_region_answer_needs_real_counties(pins, counties, message):
+    with pytest.raises(ValueError, match=message):
+        clean_answer(REGION, pins, counties)
+
+
+def test_the_whole_state_is_a_state():
+    assert clean_answer(STATE, state="29")["state"] == "29"
+    with pytest.raises(ValueError, match="Choose the state"):
+        clean_answer(STATE, state="99")
+
+
+@pytest.mark.parametrize("answer_class", [UNSTATED, NO_PLACE])
+def test_unstated_and_no_place_carry_no_geography(answer_class):
+    """Even if the map was used before the class was changed."""
+    answer = clean_answer(answer_class, [COLUMBIA], ["29019"], "29")
+    assert answer == {
+        "answer_class": answer_class,
+        "pins": [],
+        "counties": [],
+        "state": "",
+    }
+
+
+def test_an_answer_needs_a_class():
+    with pytest.raises(ValueError, match="what kind of place"):
+        clean_answer("", [COLUMBIA])
+
+
+def test_garbled_map_answer_is_refused_in_words():
+    with pytest.raises(ValueError, match="could not be read"):
+        clean_answer(PLACE, "{not json")
+
+
+# ------------------------------------------------------------- the round
+
+
+def test_a_geography_round_is_coded_under_the_geography_guide():
+    created = open_round("Geo practice", Round.PRACTICE, task=GEOGRAPHY)
+    assert created.is_geography
+    assert created.codebook_version.task == GEOGRAPHY
+    assert created.codebook_version.name == "GEO-1"
+
+
+def test_the_geography_guide_is_never_the_current_cin_codebook():
+    """It is the newest version frozen, and a CIN round opened with no
+    codebook named would otherwise be coded under it."""
+    cin = CodebookVersion.v1()
+    geography_guide()
+    assert CodebookVersion.current() == cin
+    assert open_round("CIN", Round.PRACTICE).codebook_version == cin
+
+
+def _article(n, *, status="enriched", profile=3, dataset=None):
+    from explorer.models import Article, ArticleEnrichment, CandidateLink, Source
+
+    source, _ = Source.objects.using("crawler").get_or_create(
+        id="s1", defaults={"host": "a.example", "canonical_name": "A Paper"}
+    )
+    link = CandidateLink.objects.using("crawler").create(
+        id=f"cl-{n}", url=f"https://a.example/{n}", source=source, status="extracted"
+    )
+    article = Article.objects.using("crawler").create(
+        id=f"a-{n}",
+        candidate_link=link,
+        url=link.url,
+        title=f"Story {n}",
+        status=status,
+        text="word " * 150,
+        primary_label="Civic Life",
+        primary_label_confidence=0.9,
+        dataset_id=dataset,
+    )
+    ArticleEnrichment.objects.using("crawler").create(
+        article=article,
+        profile_version=profile,
+        cost_usd="0",
+        scope="city_municipality",
+    )
+    return article
+
+
+def test_a_geography_practice_draws_enriched_stories_under_the_current_profile(
+    crawler_schema,
+):
+    from review.classification import open_batch
+
+    for n in range(6):
+        _article(n)
+    _article(10, status="labeled")
+    _article(11, profile=2)
+    created = open_round("Geo practice", Round.PRACTICE, task=GEOGRAPHY)
+    cohort, level, message = open_batch(created, 20)
+    drawn = set(cohort.samples.values_list("article_id", flat=True))
+    assert drawn == {f"a-{n}" for n in range(6)}
+    assert level == "warn" and "6 of 20 enriched stories drawn" in message
+
+
+def test_a_story_in_a_cin_batch_can_still_be_drawn_for_geography(crawler_schema):
+    """The two questions measure different things, so a story one has
+    drawn is not off the table for the other."""
+    from review.classification import open_batch
+
+    _article(1)
+    cin = ClassificationCohort.objects.create(number=900, slug="cohort-900")
+    ClassificationSample.objects.create(cohort=cin, article_id="a-1", stratum="random")
+    created = open_round("Geo practice", Round.PRACTICE, task=GEOGRAPHY)
+    cohort, _, _ = open_batch(created, 5)
+    assert list(cohort.samples.values_list("article_id", flat=True)) == ["a-1"]
+
+
+def test_a_geography_pilot_opens_with_no_stories_until_its_draw_is_built():
+    from review.classification import open_batch
+
+    created = open_round("Geo pilot", Round.COMPARISON, task=GEOGRAPHY)
+    cohort, level, message = open_batch(created, 185)
+    assert cohort is None and level == "warn" and "G-WP5" in message
+
+
+# ------------------------------------------------------- the admin page
+
+
+@pytest.fixture
+def admin(db):
+    user = User.objects.create_user("boss", password="x")
+    Grant.objects.create(user=user, app=DATADESK, role=ADMIN, scope="")
+    return user
+
+
+def test_an_admin_starts_a_geography_practice(client, admin, crawler_schema):
+    for n in range(3):
+        _article(n)
+    CodebookVersion.v1()
+    client.force_login(admin)
+    response = client.post(
+        reverse("review:cin_rounds"),
+        {"name": "Geo practice", "kind": Round.PRACTICE, "task": GEOGRAPHY},
+        follow=True,
+    )
+    created = Round.objects.get(name="Geo practice")
+    assert created.is_geography and created.codebook_version.name == "GEO-1"
+    assert created.cohorts.get().samples.count() == 3
+    assert response.status_code == 200
+    listing = client.get(reverse("review:cin_rounds")).content.decode()
+    assert "geography" in listing
+    # The geography guide is not offered as a CIN codebook.
+    assert "GEO-1</option>" not in listing
+
+
+def test_a_geography_training_round_is_refused(client, admin):
+    client.force_login(admin)
+    response = client.post(
+        reverse("review:cin_rounds"),
+        {"name": "Geo training", "kind": Round.COLLECTION, "task": GEOGRAPHY},
+    )
+    assert "a practice or a pilot" in response.content.decode()
+    assert not Round.objects.filter(name="Geo training").exists()
+
+
+# ------------------------------------------------------- the coder's screen
+
+
+@pytest.fixture
+def geo_round(db):
+    return open_round("Geo practice", Round.PRACTICE, task=GEOGRAPHY)
+
+
+@pytest.fixture
+def coder(db):
+    return User.objects.create_user("cl", email="cl@localnewsimpact.org")
+
+
+@pytest.fixture
+def assigned(crawler_schema, geo_round, coder):
+    _article(1)
+    cohort = ClassificationCohort.objects.create(
+        number=1,
+        slug="cohort-1",
+        round=geo_round,
+        codebook_version=geo_round.codebook_version,
+    )
+    ClassificationSample.objects.create(
+        cohort=cohort, article_id="a-1", stratum="random", inclusion_probability=0.5
+    )
+    Grant.objects.create(user=coder, app=DATADESK, scope=cohort.slug, role=CLASSIFIER)
+    return ClassificationAssignment.objects.create(
+        cohort=cohort, article_id="a-1", assigned_to=coder
+    )
+
+
+def test_a_geography_assignment_is_served_with_the_map(client, coder, assigned):
+    client.force_login(coder)
+    body = client.get(URL).content.decode()
+    assert "Where is this story about?" in body
+    assert 'id="geo-map"' in body and "geography-coding.js" in body
+    assert "Story 1" in body
+    # Not the CIN menu, and nothing that names the outlet or the
+    # pipeline's placement.
+    assert "Primary category" not in body
+    assert "a.example" not in body and "A Paper" not in body
+    assert "city_municipality" not in body
+
+
+def test_a_saved_answer_is_resolved_by_the_server(client, coder, assigned):
+    client.force_login(coder)
+    client.post(
+        URL,
+        {
+            "assignment": assigned.pk,
+            "answer_class": PLACE,
+            "pins": json.dumps([COLUMBIA]),
+            "counties": "[]",
+            "opened_at": "41",
+        },
+    )
+    decision = GeographyDecision.objects.get()
+    assert decision.answer_class == PLACE and decision.place == "2915670"
+    assert decision.counties == ["29019"] and decision.state == "29"
+    assert decision.codebook_version.name == "GEO-1"
+    assert decision.inclusion_probability == 0.5 and decision.seconds_spent == 41
+    assigned.refresh_from_db()
+    assert assigned.completed_at is not None
+
+
+def test_a_refused_answer_leaves_the_story_in_the_queue(client, coder, assigned):
+    client.force_login(coder)
+    response = client.post(
+        URL,
+        {
+            "assignment": assigned.pk,
+            "answer_class": PLACE,
+            "pins": json.dumps([dict(COLUMBIA, view_km=400)]),
+        },
+        follow=True,
+    )
+    assert "Zoom in until the town fills the map" in response.content.decode()
+    assert not GeographyDecision.objects.exists()
+    assigned.refresh_from_db()
+    assert assigned.completed_at is None
+
+
+def test_a_cin_answer_on_the_story_does_not_hide_the_geography_question(
+    client, coder, assigned
+):
+    other = ClassificationCohort.objects.create(number=2, slug="cohort-2")
+    ClassificationDecision.objects.create(
+        cohort=other, article_id="a-1", decided_by=coder, primary_label="Sports"
+    )
+    client.force_login(coder)
+    assert "Where is this story about?" in client.get(URL).content.decode()
+
+
+def test_a_geography_answer_does_not_hide_the_cin_question(client, coder, assigned):
+    other = ClassificationCohort.objects.create(number=2, slug="cohort-2")
+    Grant.objects.create(user=coder, app=DATADESK, scope=other.slug, role=CLASSIFIER)
+    ClassificationAssignment.objects.create(
+        cohort=other, article_id="a-1", assigned_to=coder
+    )
+    GeographyDecision.objects.create(
+        cohort=assigned.cohort, article_id="a-1", decided_by=coder, answer_class="N"
+    )
+    assigned.completed_at = "2026-11-23T00:00:00Z"
+    assigned.save()
+    client.force_login(coder)
+    assert "Primary category" in client.get(URL).content.decode()
+
+
+def test_a_cin_form_cannot_answer_a_geography_assignment(client, coder, assigned):
+    client.force_login(coder)
+    client.post(URL, {"assignment": assigned.pk, "answer_class": "Z"})
+    client.post(URL, {"assignment": assigned.pk, "primary": "Sports"})
+    assert not GeographyDecision.objects.exists()
+
+
+def test_the_pin_lookup_answers_a_coder(client, coder, assigned):
+    client.force_login(coder)
+    where = client.get(
+        reverse("review:geography_coding_resolve"), {"lat": 38.9517, "lon": -92.3341}
+    ).json()
+    assert where["place_name"] == "Columbia" and where["county"] == "29019"
+    assert (
+        client.get(reverse("review:geography_coding_resolve"), {"lat": "x"}).status_code
+        == 400
+    )
+
+
+def test_the_place_search_moves_the_map_for_a_coder(client, coder, assigned):
+    client.force_login(coder)
+    url = reverse("review:geography_coding_find")
+    hits = client.get(url, {"q": "Ashland", "state": "MO"}).json()["results"]
+    assert hits[0]["geoid"] == "2902242"
+    assert client.get(url, {"q": "A"}).json() == {"results": []}
+
+
+def test_a_geography_coder_with_nothing_left_is_not_told_about_categories(
+    client, coder, assigned
+):
+    GeographyDecision.objects.create(
+        cohort=assigned.cohort, article_id="a-1", decided_by=coder, answer_class="N"
+    )
+    client.force_login(coder)
+    body = client.get(URL).content.decode()
+    assert "Where is this story about?" in body
+    assert "information need" not in body

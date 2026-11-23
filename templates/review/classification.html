@@ -12,12 +12,21 @@
   {% endcomment %}
 
   {% if not assignment %}
+  {% if geography_only %}
+  <h1>Where is this story about?</h1>
+
+  <p class="lede">
+    Read the headline and the story, then mark where it is about on the
+    map.
+  </p>
+  {% else %}
   <h1>What is this story about?</h1>
 
   <p class="lede">
     Read the headline and the story, then say which information need it
     serves. <a href="#instructions" class="instructions-open">Instructions</a>
   </p>
+  {% endif %}
 
   <p class="notice">
     Nothing assigned to you at the moment. When a new cohort is drawn

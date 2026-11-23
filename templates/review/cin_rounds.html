@@ -32,7 +32,7 @@
           <th scope="row">
             <a href="{% url 'review:cin_round' row.round.pk %}">{{ row.round.name }}</a>
           </th>
-          <td>{{ row.round.get_kind_display }}</td>
+          <td>{{ row.round.get_kind_display }}{% if row.round.is_geography %} · geography{% endif %}</td>
           <td>{{ row.round.codebook_version.name }}</td>
           <td class="count">{{ row.stories }}</td>
           <td class="count">{{ row.coders|length }}</td>
@@ -68,6 +68,19 @@
       <label for="name">Name</label>
       <input type="text" id="name" name="name" maxlength="60" required
              placeholder="V2 practice">
+    </div>
+    <div class="field">
+      <label for="task">Question</label>
+      <select id="task" name="task">
+        {% for value, label in tasks %}
+        <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+      <span class="field-note">
+        Story geography: coders say where each story is about and mark it
+        on a map, under the geography guide. Its practice rounds draw 20
+        enriched stories; its pilot draw is not built yet.
+      </span>
     </div>
     <div class="field">
       <label for="kind">What it is for</label>

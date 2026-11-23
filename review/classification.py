@@ -36,6 +36,7 @@ from lnic_contracts import cin_labels
 
 from accounts.privileges import CLASSIFIER
 from review import cin_metrics
+from review.geography_icr import CIN, GEOGRAPHY, TASKS
 
 #: The ten Critical Information Needs categories, in the order the
 #: codebook introduces them -- which is the order a person reads them in
@@ -309,6 +310,11 @@ class CodebookVersion(models.Model):
     """
 
     name = models.CharField(max_length=20, unique=True)
+    #: What the version is a guide to: CIN categories, or where a story
+    #: is (review.geography_icr). Kept apart so the geography guide is
+    #: never what a CIN round opens under by default, and admission to
+    #: one is never admission to the other.
+    task = models.CharField(max_length=10, choices=TASKS, default=CIN)
     instructions = models.TextField(blank=True, default="")
     guidance = models.JSONField(default=dict)
     display_names = models.JSONField(default=dict, blank=True)
@@ -351,9 +357,9 @@ class CodebookVersion(models.Model):
 
     @classmethod
     def current(cls):
-        """The most recently frozen version: what a new cohort is opened
-        under unless told otherwise."""
-        return cls.objects.first() or cls.v1()
+        """The most recently frozen CIN version: what a new cohort is
+        opened under unless told otherwise."""
+        return cls.objects.filter(task=CIN).first() or cls.v1()
 
     def shown(self, label):
         """The name a coder sees for a stored label."""
@@ -417,6 +423,10 @@ class Round(models.Model):
 
     name = models.CharField(max_length=60, unique=True)
     kind = models.CharField(max_length=12, choices=KINDS)
+    #: The question coders answer: a CIN category, or where the story is
+    #: (docs/GEOGRAPHY_ICR_DATADESK.md). Kinds, batches, assignments and
+    #: standing work the same for both.
+    task = models.CharField(max_length=10, choices=TASKS, default=CIN)
     codebook_version = models.ForeignKey(
         "CodebookVersion", on_delete=models.PROTECT, related_name="rounds"
     )
@@ -460,6 +470,10 @@ class Round(models.Model):
     @property
     def is_practice(self):
         return self.kind == self.PRACTICE
+
+    @property
+    def is_geography(self):
+        return self.task == GEOGRAPHY
 
 
 class CoderStanding(models.Model):
@@ -1409,7 +1423,7 @@ def agreement_report(codebook_version=None):
 
     return {
         "version": version,
-        "versions": list(CodebookVersion.objects.all()),
+        "versions": list(CodebookVersion.objects.filter(task=CIN)),
         "pairs": len(pairs),
         "articles_multiply_coded": len({a.article_id for a, _ in pairs}),
         "decisions": len(decisions),
@@ -1890,6 +1904,20 @@ def _one_batch_at_a_time():
 BATCH_LOCK = 20261121
 
 
+def same_task(rows, task, round_path):
+    """Rows whose round asks the same question as `task`.
+
+    A cohort opened before rounds existed has no round and was CIN
+    coding, so it counts as CIN.
+    """
+    if task == GEOGRAPHY:
+        return rows.filter(**{f"{round_path}__task": GEOGRAPHY})
+    return rows.filter(
+        models.Q(**{f"{round_path}__isnull": True})
+        | models.Q(**{f"{round_path}__task": CIN})
+    )
+
+
 def draw_cohort(
     size,
     *,
@@ -1899,6 +1927,7 @@ def draw_cohort(
     codebook_version=None,
     for_round=None,
     shares=None,
+    pool=None,
 ):
     """Open a cohort and draw `size` articles into it.
 
@@ -1922,14 +1951,26 @@ def draw_cohort(
 
     Articles already drawn into any earlier cohort are excluded. Cohort
     membership is permanent, and one article in two cohorts would make
-    each of their rates depend on the other.
+    each of their rates depend on the other. Earlier cohorts asking the
+    other question do not count: a story placed on the map can still be
+    given a CIN category, and the two answers measure different things.
+
+    `pool` is stratum -> queryset of articles, `_stratum_pool` unless
+    given; a geography round draws from enriched stories instead.
     """
     from django.db import transaction
 
     if for_round is not None:
         codebook_version = for_round.codebook_version
         target_coders = for_round.base_coders
-    taken = set(ClassificationSample.objects.values_list("article_id", flat=True))
+    taken = set(
+        same_task(
+            ClassificationSample.objects.all(),
+            for_round.task if for_round is not None else CIN,
+            "cohort__round",
+        ).values_list("article_id", flat=True)
+    )
+    pool = pool or _stratum_pool
     with transaction.atomic():
         _one_batch_at_a_time()
         number = (
@@ -1955,7 +1996,7 @@ def draw_cohort(
             wants[list(shares)[-1]] += size - sum(wants.values())
         for stratum in shares:
             want = wants[stratum]
-            available = _stratum_pool(stratum).exclude(id__in=taken)
+            available = pool(stratum).exclude(id__in=taken)
             # Counted before the slice: the chance a row in this stratum
             # had of being drawn cannot be recovered later, and without it
             # an oversampled draw cannot be weighted back to corpus rates.
@@ -2119,7 +2160,11 @@ def assign_cohort(cohort):
     seen = {}
     if not practice:
         for user_id, article_id in (
-            ClassificationAssignment.objects.filter(article_id__in=article_ids)
+            same_task(
+                ClassificationAssignment.objects.filter(article_id__in=article_ids),
+                cohort.round.task if cohort.round is not None else CIN,
+                "cohort__round",
+            )
             .exclude(cohort=cohort)
             .values_list("assigned_to_id", "article_id")
         ):
@@ -2244,12 +2289,27 @@ def round_coders(round):
 
 
 def open_round(
-    name, kind, *, codebook_version=None, question="", base_coders=3, **rules
+    name,
+    kind,
+    *,
+    codebook_version=None,
+    question="",
+    base_coders=3,
+    task=CIN,
+    **rules,
 ):
+    if codebook_version is None:
+        if task == GEOGRAPHY:
+            from review.geography_icr import geography_guide
+
+            codebook_version = geography_guide()
+        else:
+            codebook_version = CodebookVersion.current()
     return Round.objects.create(
         name=name,
         kind=kind,
-        codebook_version=codebook_version or CodebookVersion.current(),
+        task=task,
+        codebook_version=codebook_version,
         question=question,
         base_coders=base_coders,
         third_on_split=bool(rules.get("third_on_split")),
@@ -2292,6 +2352,10 @@ def open_batch(for_round, size=None, note=""):
             "This round already has its stories. Only a training round "
             "takes more than one batch.",
         )
+    if for_round.is_geography:
+        from review.geography_icr import open_geography_batch
+
+        return open_geography_batch(for_round, size)
     if for_round.kind == Round.COMPARISON:
         cohort, drawn = draw_pilot(for_round, others=size, new=pilot_new_plan())
         if cohort is None:
@@ -2343,7 +2407,9 @@ def open_batch(for_round, size=None, note=""):
     )
 
 
-def start_round(name, kind, emails, *, codebook_version=None, by=None, **changes):
+def start_round(
+    name, kind, emails, *, codebook_version=None, by=None, task=CIN, **changes
+):
     """Open a round, draw its stories, and put its coders on it.
 
     One step, because it was six on three pages: open the round, open a
@@ -2359,7 +2425,12 @@ def start_round(name, kind, emails, *, codebook_version=None, by=None, **changes
     stories = settings_for.pop("stories")
     question = settings_for.pop("question", "")
     created = open_round(
-        name, kind, codebook_version=codebook_version, question=question, **settings_for
+        name,
+        kind,
+        codebook_version=codebook_version,
+        question=question,
+        task=task,
+        **settings_for,
     )
     notices = []
     added = []

@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Where is this story? — Datadesk{% endblock %}
+
+{% block content %}
+<section class="card card-wide classification geography-coding">
+  {% comment %}
+  The geography question (docs/GEOGRAPHY_ICR_DATADESK.md, G-WP2). The
+  story column is the CIN screen's, with its blindness: headline and
+  text only, no publisher, URL, date or byline, and never the pipeline's
+  own placement. The map opens on the dataset's state, which says
+  nothing about which outlet ran the story.
+  {% endcomment %}
+  <div class="classify-layout">
+  <article class="story">
+    <h1 class="story-headline">{{ article.title|default:"(no headline)" }}</h1>
+    <div class="story-body" tabindex="0" role="region"
+         aria-label="Article text, scrollable">
+      {{ body|linebreaks }}
+    </div>
+  </article>
+
+  <aside class="classify-panel">
+  <p class="quiet progress">
+    {{ remaining }} left in this batch · {{ done }} answered in total ·
+    <a href="#geo-guide" class="geo-guide-open">How to answer</a>
+  </p>
+
+  <form method="post" class="classify-form geo-form" autocomplete="off"
+        id="geo-form">
+    {% csrf_token %}
+    <input type="hidden" name="assignment" value="{{ assignment.pk }}">
+    <input type="hidden" name="opened_at" id="opened-at" value="">
+    <input type="hidden" name="pins" id="geo-pins" value="[]">
+    <input type="hidden" name="counties" id="geo-counties" value="[]">
+
+    <fieldset class="geo-classes">
+      <legend>Where is this story about?</legend>
+      {% for code, shown, about in classes %}
+      <label class="geo-class">
+        <input type="radio" name="answer_class" value="{{ code }}" required>
+        <span><strong>{{ shown }}</strong> <span class="quiet">{{ about }}</span></span>
+      </label>
+      {% endfor %}
+    </fieldset>
+
+    <label class="geo-state" hidden>
+      Which state
+      <select name="state" id="geo-state">
+        <option value="">choose…</option>
+        {% for fips, name in states %}
+        <option value="{{ fips }}">{{ name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <div class="geo-map-wrap" hidden>
+      <div class="geo-tools">
+        <label class="geo-find">
+          Find a place
+          <input type="search" id="geo-find" placeholder="town or county"
+                 list="geo-find-list">
+          <datalist id="geo-find-list"></datalist>
+        </label>
+        <span class="geo-mode" hidden role="group" aria-label="What a click does">
+          <button type="button" class="linklike geo-mode-counties" aria-pressed="true">Click counties</button>
+          ·
+          <button type="button" class="linklike geo-mode-pins" aria-pressed="false">Pin towns</button>
+        </span>
+      </div>
+      <div id="geo-map" class="geo-map" role="application"
+           aria-label="Map: scroll or pinch to zoom, drag to move, click to answer"
+           data-start-state="{{ start_state }}"
+           data-place-states="{{ place_states|join:',' }}"
+           data-pin-view-km="{{ pin_view_km }}"
+           data-geo-base="{% static 'geo/' %}"
+           data-where-url="{% url 'review:geography_coding_resolve' %}"
+           data-find-url="{% url 'review:geography_coding_find' %}"></div>
+      <p class="quiet geo-scale" id="geo-scale" aria-live="polite"></p>
+      <ul class="geo-answer" id="geo-answer" aria-live="polite"></ul>
+    </div>
+
+    <button type="submit" class="primary">Save and next</button>
+  </form>
+  </aside>
+  </div>
+
+  <div id="geo-guide" class="instructions" hidden>
+    <h2>How to answer</h2>
+    {% for paragraph in guide %}<p>{{ paragraph }}</p>{% endfor %}
+    <button type="button" class="linklike geo-guide-close">Close</button>
+  </div>
+</section>
+
+<script src="{% static 'js/d3.min.js' %}"></script>
+<script src="{% static 'js/topojson-client.min.js' %}"></script>
+<script src="{% static 'js/geography-coding.js' %}"></script>
+{% endblock %}
