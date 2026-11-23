@@ -1,31 +1,34 @@
-/* The coder's map for the geography question (G-WP2).
+/* The coder's screen for the geography question (G-WP2).
  *
  * The coder says what kind of place the story is about, then marks it:
  *
- *   P  one pin
- *   R  counties clicked, and/or towns pinned
+ *   P  one place: a town or an address, typed, or one pin on the map
+ *   R  towns and counties, typed, or clicked and pinned on the map
  *   S  a state, from the menu
  *   U  N  nothing to mark
  *
- * A pin is accepted only when the map is zoomed in far enough that one
- * town fills the view (data-pin-view-km): dropped on a whole-state view
- * it lands wherever the cursor was and resolves to a town nobody chose.
+ * TYPING IS THE MAIN WAY TO ANSWER. The first practice round showed the
+ * map working better as a picture of the answer than as the way to give
+ * it, so the add box comes first: a town chosen by name is pinned at a
+ * point inside its boundary, an address at the geocoded point, a county
+ * by its GEOID. Every choice goes in the list under the box, and the map
+ * fits itself to the list.
+ *
+ * The map is the second way. A pin dropped on it is accepted only when
+ * the view is zoomed in far enough that one town fills it
+ * (data-pin-view-km): dropped on a whole-state view it lands wherever
+ * the cursor was and resolves to a town nobody chose. The rule is for
+ * clicks; a typed town lands where it is.
  *
  * Every pin is resolved by the server (data-where-url) and the result is
- * shown under the map, so what the coder sees is what will be recorded.
+ * what the list shows, so what the coder sees is what will be recorded.
  * The server resolves it again on save; nothing here is trusted.
  *
- * Leaflet (vendored) over CARTO's Positron tiles: streets and place
- * names come from the basemap, drawn in two layers so the county
- * outlines sit between the streets and the names and never cover a
- * label. County outlines are the TIGER files in static/geo -- the 500k
- * files where a state has been built, the national 10m file elsewhere
- * -- because a click on one is an answer, and the answer has to be the
+ * Leaflet (vendored) over CARTO Voyager tiles (data-tile-key; OpenStreetMap
+ * where there is none), in two layers so the county outlines sit between
+ * the streets and the names. County outlines are the TIGER files in
+ * static/geo, because a click on one is an answer and has to be the
  * county the server will resolve.
- *
- * Search moves the map and never answers: a town or county from the
- * gazetteer, or a street address through the server (data-address-url,
- * the Census geocoder and then OpenStreetMap's), looked up on Enter only.
  */
 (function () {
   "use strict";
@@ -47,17 +50,22 @@
   var pinsField = document.getElementById("geo-pins");
   var countiesField = document.getElementById("geo-counties");
   var scaleNote = document.getElementById("geo-scale");
+  var errorNote = document.getElementById("geo-error");
   var answerList = document.getElementById("geo-answer");
+  var pickWrap = document.querySelector(".geo-pick");
+  var findLabel = document.querySelector(".geo-find-label");
+  var find = document.getElementById("geo-find");
+  var suggest = document.getElementById("geo-suggest");
+  var findNote = document.getElementById("geo-find-note");
   var mapWrap = document.querySelector(".geo-map-wrap");
   var stateLabel = document.querySelector(".geo-state");
   var modeGroup = document.querySelector(".geo-mode");
   var modeCounties = document.querySelector(".geo-mode-counties");
   var modePins = document.querySelector(".geo-mode-pins");
-  var findNote = document.getElementById("geo-find-note");
 
   var answerClass = "";
   var clickMode = "counties"; // R only: what a click on the map does
-  var pins = []; // {lat, lon, view_km, label, marker}
+  var pins = []; // {lat, lon, view_km, how, label, marker}
   var counties = new Map(); // geoid -> name
   var countyLayers = new Map(); // geoid -> Leaflet layer
 
@@ -81,9 +89,8 @@
   var osm = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
   var tileKey = root.dataset.tileKey;
   if (tileKey) {
-    // CARTO Voyager in two layers, the names above the county outlines.
-    // Voyager rather than Positron: major roads in colour, so a coder can
-    // find a street without zooming to it.
+    // CARTO Voyager in two layers, the names above the county outlines:
+    // major roads in colour, so a street can be found without zooming.
     var tiles =
       "https://basemaps.cartocdn.com/rastertiles/{style}/{z}/{x}/{y}.png?key=" +
       encodeURIComponent(tileKey);
@@ -108,21 +115,22 @@
     return map.distance([lat, b.getWest()], [lat, b.getEast()]) / 1000;
   }
 
+  function clickPins() {
+    return answerClass === "P" || (answerClass === "R" && clickMode === "pins");
+  }
+
   function redrawScale() {
+    root.classList.toggle("geo-pinning", clickPins());
     var km = viewKm();
-    root.classList.toggle(
-      "geo-pinning",
-      answerClass === "P" || (answerClass === "R" && clickMode === "pins")
-    );
-    if (answerClass === "P" || (answerClass === "R" && clickMode === "pins")) {
+    if (clickPins()) {
       scaleNote.textContent =
         km <= pinViewKm
-          ? "Close enough to drop a pin (" + Math.round(km) + " km across)."
-          : "Zoom in to drop a pin: the map is " +
-            Math.round(km) +
-            " km across, and a pin needs " +
+          ? "Click the map to drop a pin (" + Math.round(km) + " km across)."
+          : "To drop a pin by clicking, zoom in until the map is " +
             pinViewKm +
-            " or less.";
+            " km across or less (now " +
+            Math.round(km) +
+            ").";
     } else if (answerClass === "R") {
       scaleNote.textContent = "Click a county to add it; click it again to take it off.";
     } else {
@@ -138,7 +146,7 @@
     return String(id).padStart(5, "0");
   }
 
-  function loadJson(url) {
+  function getJson(url) {
     return fetch(url, { credentials: "same-origin" }).then(function (r) {
       if (!r.ok) throw new Error(url);
       return r.json();
@@ -146,7 +154,7 @@
   }
 
   var stateBounds = {};
-  var ready = loadJson(base + "counties-10m.json").then(function (us) {
+  var ready = getJson(base + "counties-10m.json").then(function (us) {
     topojson.feature(us, us.objects.states).features.forEach(function (s) {
       stateBounds[String(s.id).padStart(2, "0")] = L.geoJSON(s).getBounds();
     });
@@ -165,7 +173,7 @@
     ).addTo(map);
     return Promise.all(
       countyStates.map(function (state) {
-        return loadJson(base + "counties/" + state + ".json")
+        return getJson(base + "counties/" + state + ".json")
           .then(function (topo) {
             return topojson.feature(topo, topo.objects.counties).features;
           })
@@ -191,20 +199,38 @@
           },
         }
       ).addTo(map);
-      redrawScale();
+      render();
     });
   });
 
+  function showState() {
+    if (stateBounds[startState]) map.fitBounds(stateBounds[startState]);
+  }
+
+  // The map follows the answer: it fits to what has been chosen.
+  function fitToAnswer() {
+    var box = L.latLngBounds([]);
+    pins.forEach(function (p) {
+      box.extend([p.lat, p.lon]);
+    });
+    counties.forEach(function (name, geoid) {
+      var layer = countyLayers.get(geoid);
+      if (layer) box.extend(layer.getBounds());
+    });
+    if (box.isValid()) map.fitBounds(box, { maxZoom: 13, padding: [28, 28] });
+    else showState();
+  }
+
   // ------------------------------------------------------- the answer
 
-  // A double click zooms, as it does on every other map: a single click
-  // waits long enough to tell the two apart.
+  // A double click zooms, as on every other map: a single click waits
+  // long enough to tell the two apart.
   var pending = null;
   map.on("click", function (event) {
     if (pending) return;
     pending = setTimeout(function () {
       pending = null;
-      dropPin(event.latlng);
+      clickPin(event.latlng);
     }, 260);
   });
   map.on("dblclick", function () {
@@ -212,18 +238,23 @@
     pending = null;
   });
 
-  function dropPin(latlng) {
-    var wantsPin = answerClass === "P" || (answerClass === "R" && clickMode === "pins");
-    if (!wantsPin) return;
+  function clickPin(latlng) {
+    if (!clickPins()) return;
     var km = viewKm();
     if (km > pinViewKm) {
-      scaleNote.textContent = "Zoom in further before dropping a pin: one town should fill the map.";
+      scaleNote.textContent =
+        "Zoom in further before clicking a pin: one town should fill the map. " +
+        "Or type the town in the box above.";
       return;
     }
-    var pin = { lat: latlng.lat, lon: latlng.lng, view_km: km, label: "…" };
+    addPin({ lat: latlng.lat, lon: latlng.lng, view_km: km, how: "map" }, false);
+  }
+
+  function addPin(pin, fit) {
     if (answerClass === "P") clearPins();
+    pin.label = pin.label || "…";
     pins.push(pin);
-    pin.marker = L.circleMarker(latlng, {
+    pin.marker = L.circleMarker([pin.lat, pin.lon], {
       radius: 7,
       color: "#fff",
       weight: 2,
@@ -237,6 +268,7 @@
       });
     resolvePin(pin);
     render();
+    if (fit) fitToAnswer();
   }
 
   function clearPins() {
@@ -255,29 +287,48 @@
   }
 
   function resolvePin(pin) {
-    var url = whereUrl + "?lat=" + pin.lat + "&lon=" + pin.lon;
-    fetch(url, { credentials: "same-origin" })
-      .then(function (r) {
-        return r.json();
-      })
-      .then(function (where) {
-        if (!where.county) {
-          pin.label = "Not in a U.S. county: move it";
-        } else {
-          pin.label =
-            (where.place_name ? where.place_name + ", " : "Outside any town, ") +
-            where.county_name +
-            " County";
-        }
-        pin.marker.bindTooltip(pin.label);
-        render();
-      });
+    getJson(whereUrl + "?lat=" + pin.lat + "&lon=" + pin.lon).then(function (where) {
+      if (!where.county) {
+        pin.label = "Not in a U.S. county: take it off and add it again";
+      } else if (!where.place_name && countyStates.indexOf(where.state) === -1) {
+        // No town boundaries for this state: the county is what is kept.
+        pin.label = where.county_name + " County (towns in this state are recorded by county)";
+      } else {
+        pin.label =
+          (where.place_name ? where.place_name + ", " : "Outside any town, ") +
+          where.county_name +
+          " County";
+      }
+      pin.marker.bindTooltip(pin.label);
+      render();
+    });
+  }
+
+  function addCounty(geoid, name) {
+    counties.set(geoid, name);
+    render();
+    fitToAnswer();
   }
 
   function toggleCounty(geoid, name) {
     if (counties.has(geoid)) counties.delete(geoid);
     else counties.set(geoid, name);
     render();
+  }
+
+  function chip(text, remove) {
+    var li = document.createElement("li");
+    var span = document.createElement("span");
+    span.textContent = text;
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "linklike geo-remove";
+    button.textContent = "Remove";
+    button.setAttribute("aria-label", "Remove " + text);
+    button.addEventListener("click", remove);
+    li.appendChild(span);
+    li.appendChild(button);
+    return li;
   }
 
   function render() {
@@ -288,51 +339,241 @@
 
     answerList.replaceChildren();
     pins.forEach(function (pin) {
-      var li = document.createElement("li");
-      li.textContent = "Pin: " + pin.label;
-      answerList.appendChild(li);
+      var what = answerClass === "P" ? "Place: " : "Town: ";
+      answerList.appendChild(
+        chip(what + pin.label, function () {
+          removePin(pin);
+        })
+      );
     });
-    counties.forEach(function (name) {
-      var li = document.createElement("li");
-      li.textContent = "County: " + name;
-      answerList.appendChild(li);
+    counties.forEach(function (name, geoid) {
+      answerList.appendChild(
+        chip("County: " + name, function () {
+          counties.delete(geoid);
+          render();
+        })
+      );
     });
     pinsField.value = JSON.stringify(
       pins.map(function (p) {
-        return { lat: p.lat, lon: p.lon, view_km: p.view_km };
+        return { lat: p.lat, lon: p.lon, view_km: p.view_km, how: p.how };
       })
     );
     countiesField.value = JSON.stringify(Array.from(counties.keys()));
   }
 
+  // -------------------------------------------------------- the add box
+
+  var items = []; // what the list under the box offers
+  var active = -1;
+  var asked = 0; // the newest request; older answers are dropped
+  var timer = null;
+
+  function say(text) {
+    findNote.textContent = text;
+  }
+
+  function offer(list) {
+    items = list;
+    active = list.length ? 0 : -1;
+    suggest.replaceChildren();
+    list.forEach(function (item, i) {
+      var li = document.createElement("li");
+      li.id = "geo-suggest-" + i;
+      li.setAttribute("role", "option");
+      li.className = "geo-suggest-item";
+      var main = document.createElement("span");
+      main.textContent = item.text;
+      li.appendChild(main);
+      if (item.hint) {
+        var hint = document.createElement("span");
+        hint.className = "quiet";
+        hint.textContent = item.hint;
+        li.appendChild(hint);
+      }
+      // mousedown, not click: a click would blur the box and close the
+      // list before it landed.
+      li.addEventListener("mousedown", function (event) {
+        event.preventDefault();
+        pick(item);
+      });
+      suggest.appendChild(li);
+    });
+    suggest.hidden = !list.length;
+    find.setAttribute("aria-expanded", String(!!list.length));
+    highlight();
+  }
+
+  function highlight() {
+    Array.prototype.forEach.call(suggest.children, function (li, i) {
+      li.setAttribute("aria-selected", String(i === active));
+    });
+    if (active >= 0) find.setAttribute("aria-activedescendant", "geo-suggest-" + active);
+    else find.removeAttribute("aria-activedescendant");
+  }
+
+  function name(h) {
+    return h.name + (h.kind === "county" ? " County" : "") + ", " + h.state;
+  }
+
+  function hintFor(h) {
+    if (h.kind === "county") {
+      return answerClass === "R" ? "add the county" : "show on the map";
+    }
+    return answerClass === "P" ? "use this town" : "add the town";
+  }
+
+  function addressItem(typed) {
+    return { kind: "address", text: "Look up “" + typed + "” as an address", typed: typed };
+  }
+
+  find.addEventListener("input", function () {
+    clearTimeout(timer);
+    var typed = find.value.trim();
+    if (typed.length < 2) {
+      offer([]);
+      return;
+    }
+    timer = setTimeout(function () {
+      var mine = ++asked;
+      getJson(findUrl + "?q=" + encodeURIComponent(typed) + "&state=" + startState)
+        .then(function (data) {
+          if (mine !== asked) return;
+          var list = (data.results || []).map(function (h) {
+            return { kind: h.kind, text: name(h), hint: hintFor(h), hit: h };
+          });
+          // A number in it reads as an address: offer that first.
+          if (typed.length >= 3) {
+            if (/\d/.test(typed)) list.unshift(addressItem(typed));
+            else list.push(addressItem(typed));
+          }
+          offer(list);
+        })
+        .catch(function () {
+          if (mine === asked) offer(typed.length >= 3 ? [addressItem(typed)] : []);
+        });
+    }, 180);
+  });
+
+  find.addEventListener("keydown", function (event) {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (!items.length) return;
+      event.preventDefault();
+      var step = event.key === "ArrowDown" ? 1 : -1;
+      active = (active + step + items.length) % items.length;
+      highlight();
+    } else if (event.key === "Enter") {
+      event.preventDefault(); // never submit the form from the box
+      if (active >= 0 && items[active]) pick(items[active]);
+      else if (find.value.trim().length >= 3) lookUp(find.value.trim(), false);
+    } else if (event.key === "Escape") {
+      offer([]);
+    }
+  });
+  find.addEventListener("blur", function () {
+    offer([]);
+  });
+
+  function added() {
+    find.value = "";
+    offer([]);
+    say("");
+    errorNote.textContent = "";
+  }
+
+  function pick(item) {
+    if (item.kind === "address") {
+      lookUp(item.typed, false);
+    } else if (item.kind === "found") {
+      addPin({ lat: item.hit.lat, lon: item.hit.lon, view_km: null, how: "address" }, true);
+      added();
+    } else if (item.kind === "place") {
+      var h = item.hit;
+      if (h.point) {
+        addPin({ lat: h.point[0], lon: h.point[1], view_km: null, how: "search" }, true);
+        added();
+      } else {
+        // A town in a state whose boundaries are not built: found by name.
+        lookUp(h.name + ", " + h.state, true);
+      }
+    } else if (item.kind === "county") {
+      if (answerClass === "R") {
+        addCounty(item.hit.geoid, item.hit.name);
+        added();
+      } else {
+        var b = item.hit.bbox;
+        if (b) map.fitBounds([[b[1], b[0]], [b[3], b[2]]]);
+        offer([]);
+        say(
+          name(item.hit) +
+            " is on the map. A story about the county itself is “A county, or an area wider than one town”."
+        );
+      }
+    }
+  }
+
+  // An address, through the server: the Census geocoder, then
+  // OpenStreetMap's. `take` adds the first match without asking.
+  function lookUp(typed, take) {
+    var mine = ++asked;
+    say("Looking up “" + typed + "”…");
+    getJson(addressUrl + "?q=" + encodeURIComponent(typed))
+      .then(function (data) {
+        if (mine !== asked) return;
+        var found = (data.results || []).map(function (r) {
+          return { kind: "found", text: r.label, hint: r.source, hit: r };
+        });
+        if (!found.length) {
+          say("Nothing found for “" + typed + "”. Try a town, or a street with a house number.");
+          return;
+        }
+        if (take) {
+          pick(found[0]);
+          return;
+        }
+        say("Choose the match to add it.");
+        find.focus();
+        offer(found);
+      })
+      .catch(function () {
+        if (mine === asked) say("The address lookup did not answer. Try again, or click the map.");
+      });
+  }
+
   // ----------------------------------------------------- the controls
 
+  var fitted = false;
   form.querySelectorAll("input[name=answer_class]").forEach(function (radio) {
     radio.addEventListener("change", function () {
       answerClass = radio.value;
       // A change of class starts the marking again: a P answer is one
-      // pin, and an R answer's pins and counties are not a P answer.
+      // place, and an R answer's towns and counties are not a P answer.
       clearPins();
       counties.clear();
-      var shown = answerClass === "P" || answerClass === "R";
-      mapWrap.hidden = !shown;
+      errorNote.textContent = "";
+      var marks = answerClass === "P" || answerClass === "R";
+      pickWrap.hidden = !marks;
+      mapWrap.hidden = !marks;
       stateLabel.hidden = answerClass !== "S";
       modeGroup.hidden = answerClass !== "R";
-      // The box has a size only once shown: open it on the state the
-      // first time, and leave it where the coder put it after that.
-      if (shown) {
+      findLabel.textContent =
+        answerClass === "P"
+          ? "Type the place: a town, or a street address"
+          : "Add the towns and counties, one at a time";
+      find.placeholder =
+        answerClass === "P" ? "e.g. Ashland, or 100 E Broadway, Columbia" : "e.g. Boone County, or Ashland";
+      // The box has a size only once shown: open on the story's state
+      // the first time, and leave the map where it is after that.
+      if (marks) {
         map.invalidateSize();
         if (!fitted) {
           fitted = true;
-          ready.then(function () {
-            if (stateBounds[startState]) map.fitBounds(stateBounds[startState]);
-          });
+          ready.then(showState);
         }
       }
       render();
     });
   });
-  var fitted = false;
 
   function setMode(mode) {
     clickMode = mode;
@@ -347,105 +588,6 @@
     setMode("pins");
   });
 
-  // Find: moves the map, never answers.
-  var find = document.getElementById("geo-find");
-  var list = document.getElementById("geo-find-list");
-  var found = [];
-  var spot = null; // where an address search put the map
-
-  find.addEventListener("input", function () {
-    var typed = find.value.trim();
-    var hit = found.find(function (h) {
-      return label(h) === typed;
-    });
-    if (hit) {
-      goTo(hit);
-      return;
-    }
-    if (typed.length < 2 || /\d/.test(typed)) return; // an address: Enter
-    fetch(findUrl + "?q=" + encodeURIComponent(typed) + "&state=" + startState, {
-      credentials: "same-origin",
-    })
-      .then(function (r) {
-        return r.json();
-      })
-      .then(function (data) {
-        found = data.results || [];
-        list.replaceChildren();
-        found.forEach(function (h) {
-          var option = document.createElement("option");
-          option.value = label(h);
-          list.appendChild(option);
-        });
-      });
-  });
-  find.addEventListener("keydown", function (event) {
-    if (event.key !== "Enter") return;
-    event.preventDefault();
-    var typed = find.value.trim();
-    var hit = found.find(function (h) {
-      return label(h) === typed;
-    });
-    if (hit) goTo(hit);
-    else if (typed.length >= 3) lookUp(typed);
-  });
-
-  function label(h) {
-    return h.name + (h.kind === "county" ? " County" : "") + ", " + h.state;
-  }
-
-  function goTo(h) {
-    if (h.bbox) {
-      map.fitBounds([
-        [h.bbox[1], h.bbox[0]],
-        [h.bbox[3], h.bbox[2]],
-      ], { maxZoom: 14 });
-      say("");
-    } else {
-      lookUp(h.name + ", " + h.state);
-    }
-  }
-
-  function say(text) {
-    if (findNote) findNote.textContent = text;
-  }
-
-  function lookUp(typed) {
-    say("Looking up “" + typed + "”…");
-    fetch(addressUrl + "?q=" + encodeURIComponent(typed), { credentials: "same-origin" })
-      .then(function (r) {
-        return r.json();
-      })
-      .then(function (data) {
-        var hit = (data.results || [])[0];
-        if (!hit) {
-          say("Nothing found for “" + typed + "”. Try a town, or a street with a house number.");
-          return;
-        }
-        if (hit.bbox) {
-          map.fitBounds([
-            [hit.bbox[1], hit.bbox[0]],
-            [hit.bbox[3], hit.bbox[2]],
-          ], { maxZoom: 17 });
-        } else {
-          map.setView([hit.lat, hit.lon], hit.zoom || 16);
-        }
-        if (spot) map.removeLayer(spot);
-        spot = L.circleMarker([hit.lat, hit.lon], {
-          radius: 14,
-          color: "#2456c9",
-          weight: 2,
-          dashArray: "4 3",
-          fill: false,
-          interactive: false,
-        }).addTo(map);
-        say("Showing " + hit.label + ". Click the map to drop the pin.");
-      })
-      .catch(function () {
-        say("The address lookup did not answer. Try again, or move the map by hand.");
-      });
-  }
-
   // ------------------------------------------------- form and guide
 
   var opened = Date.now();
@@ -453,10 +595,10 @@
     document.getElementById("opened-at").value = Math.round((Date.now() - opened) / 1000);
     if (answerClass === "P" && pins.length !== 1) {
       event.preventDefault();
-      scaleNote.textContent = "Drop one pin on the place.";
+      errorNote.textContent = "Add the place: type the town or address above, or click the map.";
     } else if (answerClass === "R" && !pins.length && !counties.size) {
       event.preventDefault();
-      scaleNote.textContent = "Click the counties, or pin the towns.";
+      errorNote.textContent = "Add the towns or counties: type them above, or click the map.";
     }
   });
 

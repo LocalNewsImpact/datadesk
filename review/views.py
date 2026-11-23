@@ -2777,13 +2777,20 @@ def geography_coding_resolve(request):
 
 @requires(CLASSIFY)
 def geography_coding_find(request):
-    """Place and county names for the map's search box.
+    """Towns and counties for the coder's add box.
 
-    A way to move the map, not an answer: choosing a name zooms to it,
-    and the coder still drops the pin. From the same gazetteer the
-    pipeline resolves against, ranked by the state the map opened on.
+    From the same gazetteer the pipeline resolves against, ranked by the
+    state the map opened on -- or by the state the coder wrote after a
+    comma ("Fulton, MO", "Fulton, Missouri"), which wins: a Washington
+    story about Fulton, Missouri lists eight other Fultons first. A query
+    naming "county" asks for counties. Each town carries a point inside
+    it, so choosing it by name pins it where a map click would resolve
+    the same; each hit carries the box the map fits to.
     """
+    from lnic_contracts.geography import state_code
+
     from review import geography
+    from review.geo_resolve import bbox_of, inside_point
     from visuals.geofocus import _counties
 
     typed = (request.GET.get("q") or "").strip()
@@ -2793,20 +2800,32 @@ def geography_coding_find(request):
     state = (request.GET.get("state") or "").strip()
     if state.isdigit():
         state = next((usps for fips, usps in _counties() if fips[:2] == state), "")
-    from review.geo_resolve import bbox_of
-
-    # "Boone County" asks for the county: towns named Boone would fill
-    # every slot before the county rung was reached.
-    words = typed.replace(",", " ").split()
+    if "," in typed:
+        head, tail = typed.rsplit(",", 1)
+        named = state_code(tail.strip()) if tail.strip() else None
+        if named and head.strip():
+            typed, state = head.strip(), named
+    words = typed.split()
     if any(w.lower() == "county" for w in words):
         name = " ".join(w for w in words if w.lower() != "county")
         hits = geography.suggest(name, state or None, kind="county")
     else:
         hits = geography.suggest(typed, state or None)
-    # Where the boundary files hold the shape, the map fits to it; a town
-    # in a state not built is looked up as an address instead.
+    # Exact names before near ones, the state's first within each: on a
+    # Washington story "Ashland" offered Island County, WA before any
+    # Ashland, and Enter takes the first offer.
+    hits = sorted(hits, key=lambda h: not h.get("exact"))
     return JsonResponse(
-        {"results": [dict(h, bbox=bbox_of(h["geoid"])) for h in hits[:8]]}
+        {
+            "results": [
+                dict(
+                    h,
+                    bbox=bbox_of(h["geoid"]),
+                    point=inside_point(h["geoid"]) if h["kind"] == "place" else None,
+                )
+                for h in hits[:10]
+            ]
+        }
     )
 
 

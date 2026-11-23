@@ -54,24 +54,39 @@
       </select>
     </label>
 
+    {% comment %}
+    Typing is the main way to answer: a town or an address for One place,
+    towns and counties for a county or wider. Each choice is added to the
+    list below the box. Save sits above the map, and the map shows what
+    has been chosen; clicking it is a second way to add.
+    {% endcomment %}
+    <div class="geo-pick" hidden>
+      <label class="geo-find-label" for="geo-find">Add a place</label>
+      <div class="geo-combo">
+        <input type="text" id="geo-find" role="combobox" aria-autocomplete="list"
+               aria-expanded="false" aria-controls="geo-suggest" autocomplete="off"
+               spellcheck="false">
+        <ul id="geo-suggest" class="geo-suggest" role="listbox" hidden></ul>
+      </div>
+      <p class="quiet geo-find-note" id="geo-find-note" aria-live="polite"></p>
+      <ul class="geo-answer" id="geo-answer" aria-live="polite"
+          aria-label="What will be recorded"></ul>
+    </div>
+
+    <button type="submit" class="primary">Save and next</button>
+    <p class="geo-error" id="geo-error" role="alert"></p>
+
     <div class="geo-map-wrap" hidden>
       <div class="geo-tools">
-        <label class="geo-find">
-          Find
-          <input type="search" id="geo-find"
-                 placeholder="town, county or street address, then Enter"
-                 list="geo-find-list">
-          <datalist id="geo-find-list"></datalist>
-        </label>
+        <span class="quiet geo-map-says">Or click the map.</span>
         <span class="geo-mode" hidden role="group" aria-label="What a click does">
           <button type="button" class="linklike geo-mode-counties" aria-pressed="true">Click counties</button>
           ·
           <button type="button" class="linklike geo-mode-pins" aria-pressed="false">Pin towns</button>
         </span>
       </div>
-      <p class="quiet geo-find-note" id="geo-find-note" aria-live="polite"></p>
       <div id="geo-map" class="geo-map" role="application"
-           aria-label="Map: use + and − or scroll to zoom, drag to move, click to answer"
+           aria-label="Map of what has been chosen: use + and − or scroll to zoom, drag to move, click to add"
            data-start-state="{{ start_state }}"
            data-county-states="{{ place_states|join:',' }}"
            data-pin-view-km="{{ pin_view_km }}"
@@ -81,10 +96,7 @@
            data-find-url="{% url 'review:geography_coding_find' %}"
            data-address-url="{% url 'review:geography_coding_address' %}"></div>
       <p class="quiet geo-scale" id="geo-scale" aria-live="polite"></p>
-      <ul class="geo-answer" id="geo-answer" aria-live="polite"></ul>
     </div>
-
-    <button type="submit" class="primary">Save and next</button>
   </form>
   </aside>
   </div>
