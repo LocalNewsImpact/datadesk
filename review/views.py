@@ -2682,7 +2682,12 @@ def _submit_geography(request):
     from django.utils import timezone
 
     from review.classification import ClassificationAssignment, ClassificationSample
-    from review.geography_icr import GeographyDecision, clean_answer, is_geography
+    from review.geography_icr import (
+        GeographyDecision,
+        add_third_coder,
+        clean_answer,
+        is_geography,
+    )
 
     assignment = (
         ClassificationAssignment.objects.filter(
@@ -2731,6 +2736,9 @@ def _submit_geography(request):
     )
     assignment.completed_at = timezone.now()
     assignment.save(update_fields=["completed_at"])
+    if not assignment.is_check:
+        # Where the first two coders disagree, a pilot asks for a third.
+        add_third_coder(assignment.cohort, assignment.article_id)
     return redirect("review:classification")
 
 
