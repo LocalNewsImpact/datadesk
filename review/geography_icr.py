@@ -984,6 +984,302 @@ def round_consensus(for_round):
     return results, counts
 
 
+# ------------------------------------------------------- metrics (G-WP7)
+
+
+def pipeline_where(claim):
+    """(place GEOID or None, county GEOID or None) of the pipeline's
+    point, through the same lookup a coder's pin goes through."""
+    level = claim.point_geoid_level
+    if not claim.point_geoid:
+        return None, None
+    if level == "county":
+        return None, claim.point_geoid
+    if claim.point_lat is not None and claim.point_lon is not None:
+        where = geo_resolve.resolve(claim.point_lat, claim.point_lon)
+        return where.place, where.county
+    if level == "place":
+        from lnic_contracts.geography import county_for_place
+
+        return claim.point_geoid, county_for_place(claim.point_geoid)[0]
+    return None, None
+
+
+def place_matches(claim, agreed):
+    """M5: does the pipeline's point match the coders' agreed place, at
+    the coarser of the two levels?"""
+    place, county = pipeline_where(claim)
+    if county is None:
+        return False
+    if agreed["level"] == "place" and place:
+        return place == agreed["place"]
+    return county in agreed["counties"]
+
+
+def _county_value(kind, counties, state):
+    """What a story credits on a coverage map: its counties, or its
+    state for a statewide story."""
+    if kind == STATE:
+        return ("state", state)
+    return frozenset(counties)
+
+
+def pipeline_value(claim):
+    """M10: the pipeline's answer in the same terms as the coders'."""
+    kind = claim.pipeline_class
+    if kind == PLACE:
+        _, county = pipeline_where(claim)
+        return frozenset({county} if county else set())
+    if kind == REGION:
+        return frozenset(claim.counties)
+    if kind == STATE:
+        return ("state", claim.state_geoid)
+    return frozenset()
+
+
+def better_known(claim):
+    """The point is named after somewhere better known (Mexico, Paris):
+    `doubted_geography`'s list, which flags and never selects."""
+    from review.doubted_geography import BETTER_KNOWN_ELSEWHERE
+
+    name = " ".join((claim.point_place or "").lower().replace(".", "").split())
+    return name in BETTER_KNOWN_ELSEWHERE
+
+
+def _cut(items, key, measure, **options):
+    """measure() over items grouped by key(item), as {group: figure}."""
+    groups = {}
+    for item in items:
+        groups.setdefault(key(item), []).append(item)
+    return {group: measure(rows, **options) for group, rows in sorted(groups.items())}
+
+
+def geography_report(for_round, *, resamples=None, seed=0):
+    """Every G-WP7 figure for one round: M1 to M11 and the consensus
+    counts. Computed from the answers and saved claims on demand; nothing
+    here is stored."""
+    from review import geography_metrics as gm
+    from review.classification import ClassificationSample
+
+    share_n = resamples or gm.RESAMPLES
+    alpha_n = resamples or gm.ALPHA_RESAMPLES
+    by_story = {}
+    for answer in (
+        counted_decisions(for_round.codebook_version)
+        .filter(cohort__round=for_round)
+        .order_by("decided_at", "id")
+    ):
+        by_story.setdefault(answer.article_id, []).append(answer)
+    samples = {
+        s.article_id: s
+        for s in ClassificationSample.objects.filter(cohort__round=for_round)
+    }
+    claims = {c.article_id: c for c in GeographyClaim.objects.filter(round=for_round)}
+    agreed, counts = round_consensus(for_round)
+
+    def weight(article_id):
+        sample = samples.get(article_id)
+        p = getattr(sample, "inclusion_probability", 1.0) or 1.0
+        return 1.0 / p
+
+    def stratum(article_id):
+        return getattr(samples.get(article_id), "stratum", "") or ""
+
+    def alphas(units_by_story, distance):
+        overall = gm.alpha_with_interval(
+            list(units_by_story.values()), distance, resamples=alpha_n, seed=seed
+        )
+        cuts = {}
+        for article_id, units in units_by_story.items():
+            cuts.setdefault(stratum(article_id), []).append(units)
+        return {
+            "overall": overall,
+            "by_stratum": {
+                key: gm.alpha_with_interval(
+                    rows, distance, resamples=alpha_n, seed=seed
+                )
+                for key, rows in sorted(cuts.items())
+            },
+        }
+
+    # M1-M3: do coders agree?
+    classes = {
+        a: [d.answer_class for d in answers]
+        for a, answers in by_story.items()
+        if len(answers) >= 2
+    }
+    places = {}
+    regions = {}
+    for article_id, answers in by_story.items():
+        p = [where_of(d)[1] for d in answers if d.answer_class == PLACE]
+        if len(p) >= 2:
+            places[article_id] = p
+        r = [frozenset(d.counties) for d in answers if d.answer_class == REGION]
+        if len(r) >= 2:
+            regions[article_id] = r
+
+    # M4: how far apart are coders who agree?
+    apart = []
+    for answers in by_story.values():
+        pins = [d for d in answers if d.answer_class == PLACE and d.pins]
+        for i, a in enumerate(pins):
+            for b in pins[i + 1 :]:
+                if agree(a, b):
+                    apart.append(
+                        gm.haversine_km(
+                            a.pins[0]["lat"],
+                            a.pins[0]["lon"],
+                            b.pins[0]["lat"],
+                            b.pins[0]["lon"],
+                        )
+                    )
+
+    # M5, M8: single places.
+    place_rows, distance_rows = [], []
+    for article_id, result in agreed.items():
+        claim = claims.get(article_id)
+        if not result or claim is None:
+            continue
+        if result["answer_class"] != PLACE or claim.pipeline_class != PLACE:
+            continue
+        place_rows.append(
+            {
+                "hit": place_matches(claim, result),
+                "weight": weight(article_id),
+                "method": claim.point_method or "(none)",
+                "support": claim.point_support or "(none)",
+                "level": claim.point_geoid_level or "(none)",
+                "stratum": stratum(article_id),
+                "better_known": better_known(claim),
+            }
+        )
+        if claim.point_lat is not None and claim.point_lon is not None:
+            distances = [
+                gm.haversine_km(
+                    claim.point_lat, claim.point_lon, d.pins[0]["lat"], d.pins[0]["lon"]
+                )
+                for d in by_story[article_id]
+                if d.answer_class == PLACE and d.pins
+            ]
+            if distances:
+                distance_rows.append(
+                    {
+                        "km": gm.percentile(distances, 50),
+                        "level": claim.point_geoid_level or "(none)",
+                        "method": claim.point_method or "(none)",
+                    }
+                )
+
+    def share(rows, **options):
+        return gm.weighted_share(
+            [(row["hit"], row["weight"]) for row in rows], **options
+        )
+
+    options = {"resamples": share_n, "seed": seed}
+
+    # M6: regions.
+    precision, recall, exact, by_source = [], [], [], {}
+    for article_id, result in agreed.items():
+        claim = claims.get(article_id)
+        if not result or claim is None:
+            continue
+        if result["answer_class"] != REGION or claim.pipeline_class != REGION:
+            continue
+        coders = set(result["counties"])
+        pipeline = set(claim.counties)
+        w = weight(article_id)
+        common = len(coders & pipeline)
+        precision.append((common, len(pipeline), w))
+        recall.append((common, len(coders), w))
+        exact.append((coders == pipeline, w))
+        rows = {}
+        for row in claim.geoid_rows:
+            if row.get("level") == "county":
+                rows.setdefault(row.get("source") or "(none)", {})[row["geoid"]] = 1
+        for source, geoids in rows.items():
+            by_source.setdefault(source, []).append(
+                (sum(1 for g in geoids if g in coders), len(geoids), w)
+            )
+
+    # M7, M9, M10, M11: every story with an agreed answer.
+    confusion, calibration, end_to_end, unplaced = {}, [], [], {}
+    for article_id, result in agreed.items():
+        claim = claims.get(article_id)
+        if not result or claim is None:
+            continue
+        w = weight(article_id)
+        kind = result["answer_class"]
+        cell = confusion.setdefault(claim.pipeline_class or "?", {}).setdefault(
+            kind, {"n": 0, "weight": 0.0}
+        )
+        cell["n"] += 1
+        cell["weight"] += w
+        if kind == UNSTATED:
+            key = claim.point_method or "(none)"
+            unplaced[key] = unplaced.get(key, 0) + 1
+            continue
+        calibration.append((claim.scope_confidence, claim.pipeline_class == kind, w))
+        coders = _county_value(kind, result["counties"], result["state"])
+        end_to_end.append(
+            {
+                "hit": pipeline_value(claim) == coders,
+                "weight": w,
+                "stratum": stratum(article_id),
+            }
+        )
+    total = sum(c["weight"] for row in confusion.values() for c in row.values())
+    for row in confusion.values():
+        for c in row.values():
+            c["share"] = c["weight"] / total if total else None
+
+    def ratio(rows, **o):
+        return gm.weighted_ratio(rows, **o)
+
+    return {
+        "counts": counts,
+        "m1_class_alpha": alphas(classes, gm.nominal),
+        "m2_place_alpha": alphas(places, gm.nominal),
+        "m3_region_alpha": alphas(regions, gm.masi),
+        "m4_coder_distance": gm.spread(apart),
+        "m5_place_accuracy": {
+            "overall": share(place_rows, **options),
+            **{
+                f"by_{key}": _cut(place_rows, lambda r, k=key: r[k], share, **options)
+                for key in ("method", "support", "level", "stratum", "better_known")
+            },
+        },
+        "m6_region": {
+            "precision": ratio(precision, **options),
+            "recall": ratio(recall, **options),
+            "exact": gm.weighted_share(exact, **options),
+            "precision_by_source": {
+                source: ratio(rows, **options)
+                for source, rows in sorted(by_source.items())
+            },
+        },
+        "m7_confusion": confusion,
+        "m8_pipeline_distance": {
+            "overall": gm.spread(r["km"] for r in distance_rows),
+            "by_level": _cut(
+                distance_rows,
+                lambda r: r["level"],
+                lambda rows: gm.spread(r["km"] for r in rows),
+            ),
+            "by_method": _cut(
+                distance_rows,
+                lambda r: r["method"],
+                lambda rows: gm.spread(r["km"] for r in rows),
+            ),
+        },
+        "m9_scope_calibration": gm.brier(calibration),
+        "m10_end_to_end": {
+            "overall": share(end_to_end, **options),
+            "by_stratum": _cut(end_to_end, lambda r: r["stratum"], share, **options),
+        },
+        "m11_unplaceable": dict(sorted(unplaced.items())),
+    }
+
+
 # ------------------------------------------------------- the coder's map
 
 
