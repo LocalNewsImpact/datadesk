@@ -76,9 +76,10 @@ CLASSES = [
     ),
     (
         NO_PLACE,
-        "Not about a place",
-        "National or international news, or a story with no geography: a "
-        "column about the newsroom, a recipe.",
+        "Outside the state, or not about a place",
+        "A place in another state or country, national or international "
+        "news, or a story with no geography: a column about the newsroom, a "
+        "recipe.",
     ),
 ]
 CLASS_CHOICES = [(code, shown) for code, shown, _ in CLASSES]
@@ -262,9 +263,39 @@ def _county_ids():
     return {fips for fips, _ in _counties()}
 
 
-def clean_answer(answer_class, pins=None, counties=None, state=""):
+def clean_answer(answer_class, pins=None, counties=None, state="", home_state=""):
     """A coder's answer checked and resolved, or ValueError saying what
     is wrong with it in words a coder can act on.
+
+    `home_state` is the story's state (two-digit FIPS, `map_start`). An
+    answer wholly outside it is refused: a story about somewhere in
+    another state is answered "Outside the state", the way the scoring
+    reads the pipeline's (`outside_home`).
+    """
+    answer = _clean_answer(answer_class, pins, counties, state)
+    if home_state and outside_home(answer, home_state):
+        name = dict(state_choices()).get(home_state, "the state")
+        raise ValueError(
+            f"That is outside {name}. A story about a place outside {name} "
+            "is answered \u201cOutside the state, or not about a place\u201d."
+        )
+    return answer
+
+
+def outside_home(answer, home_state):
+    """Is an answer ({answer_class, counties, state}) wholly outside the
+    story's state? A regional answer reaching into it is not."""
+    kind = answer["answer_class"]
+    if kind == STATE:
+        return bool(answer["state"]) and answer["state"] != home_state
+    if kind in (PLACE, REGION):
+        counties = answer["counties"]
+        return bool(counties) and all(c[:2] != home_state for c in counties)
+    return False
+
+
+def _clean_answer(answer_class, pins=None, counties=None, state=""):
+    """clean_answer, before the story's state is considered.
 
     `pins` and `counties` arrive as JSON text from the form (or as
     lists). Returns {answer_class, pins, counties, state}.
@@ -1049,6 +1080,29 @@ def pipeline_value(claim):
     return frozenset()
 
 
+def score_outside_as_none(claim, home_state):
+    """Read a claim wholly outside the story's state as "Outside the
+    state" (N), the answer coders are told to give for it. In memory
+    only: the saved claim is never changed. The pipeline files a Kansas
+    bill as statewide and a Kansas town as a point, and scored as those
+    every such story would count against it for following its own
+    definition rather than the coders'."""
+    kind = claim.pipeline_class
+    if kind == PLACE:
+        county = pipeline_where(claim)[1]
+        answer = {"answer_class": PLACE, "counties": [county] if county else []}
+    elif kind == REGION:
+        answer = {"answer_class": REGION, "counties": claim.counties}
+    elif kind == STATE:
+        answer = {"answer_class": STATE, "state": claim.state_geoid}
+    else:
+        return claim
+    if outside_home(answer, home_state):
+        claim.scored_from = kind
+        claim.pipeline_class = NO_PLACE
+    return claim
+
+
 def better_known(claim):
     """The point is named after somewhere better known (Mexico, Paris):
     `doubted_geography`'s list, which flags and never selects."""
@@ -1087,6 +1141,12 @@ def geography_report(for_round, *, resamples=None, seed=0):
         for s in ClassificationSample.objects.filter(cohort__round=for_round)
     }
     claims = {c.article_id: c for c in GeographyClaim.objects.filter(round=for_round)}
+    homes = {}
+    for article_id, claim in claims.items():
+        dataset = getattr(samples.get(article_id), "dataset_id", "")
+        if dataset not in homes:
+            homes[dataset] = map_start(dataset)
+        score_outside_as_none(claim, homes[dataset])
     agreed, counts = round_consensus(for_round)
 
     def weight(article_id):
@@ -1252,6 +1312,10 @@ def geography_report(for_round, *, resamples=None, seed=0):
 
     return {
         "counts": counts,
+        # Claims placed wholly outside the story's state, read as N.
+        "outside_state": sum(
+            1 for c in claims.values() if getattr(c, "scored_from", "")
+        ),
         "m1_class_alpha": alphas(classes, gm.nominal),
         "m2_place_alpha": alphas(places, gm.nominal),
         "m3_region_alpha": alphas(regions, gm.masi),

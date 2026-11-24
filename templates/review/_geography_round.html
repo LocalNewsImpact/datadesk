@@ -92,6 +92,14 @@ page: coders never see agreement.
   {{ c.consensus }} stories have an agreed answer; {{ c.none }} have none
   and are left out of the scoring.
 </p>
+{% if figures.outside_state %}
+<p>
+  {{ figures.outside_state }} stor{{ figures.outside_state|pluralize:"y,ies" }}
+  the pipeline placed entirely outside the story's state are scored as
+  &ldquo;Outside the state, or not about a place&rdquo;, the answer
+  coders give for them.
+</p>
+{% endif %}
 {% endwith %}
 
 <h2>The pipeline against the coders</h2>
