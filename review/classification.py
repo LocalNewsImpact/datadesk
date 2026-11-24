@@ -2803,17 +2803,33 @@ def hold_review(round, *, by, notes=""):
     round.reviewed_by = by
     round.review_notes = notes
     round.save(update_fields=["reviewed_at", "reviewed_by", "review_notes"])
+    # The practice's guide, and any guide for the same question frozen
+    # since the practice opened: a version written from what the review
+    # found is the one the pilot is coded under, and the review is where
+    # the coders were taken through it. Without this, a pilot under the
+    # revised guide gave the coders who had just practised no stories.
+    versions = [
+        round.codebook_version,
+        *CodebookVersion.objects.filter(
+            task=round.codebook_version.task, frozen_at__gt=round.opened_at
+        ).exclude(pk=round.codebook_version_id),
+    ]
     admitted = []
     for row in report["coders"]:
-        if row["finished"] and row["standing"] != CoderStanding.ADMITTED:
+        if not row["finished"]:
+            continue
+        for version in versions:
+            if standings(version).get(row["user"].id) == CoderStanding.ADMITTED:
+                continue
             set_standing(
                 row["user"],
-                round.codebook_version,
+                version,
                 CoderStanding.ADMITTED,
                 by=by,
                 note=f"practice reviewed: {round.name}",
             )
-            admitted.append(row["user"])
+            if row["user"] not in admitted:
+                admitted.append(row["user"])
     return admitted
 
 
