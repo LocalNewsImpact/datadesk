@@ -578,3 +578,90 @@ def test_both_queues_sit_under_one_labeling_header(client, coder, assigned):
     assert nav.index("Labeling") < nav.index("CIN categories")
     assert nav.index("CIN categories") < nav.index("Story geography")
     assert ">Classification<" not in nav
+
+
+# ------------------------------------------------- outside the story's state
+
+
+def test_an_answer_outside_the_storys_state_is_refused():
+    """A story about somewhere in another state is answered N."""
+    from review.geography_icr import STATE
+
+    with pytest.raises(ValueError, match="Outside the state"):
+        clean_answer(STATE, state="20", home_state="29")
+    assert clean_answer(STATE, state="29", home_state="29")["state"] == "29"
+    with pytest.raises(ValueError, match="Outside the state"):
+        clean_answer(PLACE, [COLUMBIA], home_state="20")
+    assert clean_answer(PLACE, [COLUMBIA], home_state="29")["counties"]
+
+
+def test_a_regional_answer_reaching_into_the_state_is_kept():
+    from review.geography_icr import REGION, outside_home
+
+    answer = {"answer_class": REGION, "counties": ["20091", "29095"]}
+    assert not outside_home(answer, "29")
+    answer = {"answer_class": REGION, "counties": ["20091", "20209"]}
+    assert outside_home(answer, "29")
+
+
+def test_a_claim_outside_the_storys_state_is_scored_as_outside():
+    from review.geography_icr import (
+        NO_PLACE,
+        REGION,
+        STATE,
+        GeographyClaim,
+        score_outside_as_none,
+    )
+
+    kansas = GeographyClaim(
+        pipeline_class=STATE, point_geoid="20", point_geoid_level="state"
+    )
+    assert score_outside_as_none(kansas, "29").pipeline_class == NO_PLACE
+    home = GeographyClaim(
+        pipeline_class=STATE, point_geoid="29", point_geoid_level="state"
+    )
+    assert score_outside_as_none(home, "29").pipeline_class == STATE
+    border = GeographyClaim(
+        pipeline_class=REGION,
+        geoid_rows=[
+            {"geoid": "20091", "level": "county"},
+            {"geoid": "29095", "level": "county"},
+        ],
+    )
+    assert score_outside_as_none(border, "29").pipeline_class == REGION
+
+
+def test_quincy_illinois_in_a_missouri_dataset_is_not_a_disagreement():
+    """The pipeline placed the story in Quincy, Ill.; the coder answered
+    "Outside the state". That is agreement. Hannibal, Mo. is not."""
+    from review.geography_icr import (
+        NO_PLACE,
+        GeographyClaim,
+        _county_value,
+        pipeline_value,
+        score_outside_as_none,
+    )
+
+    quincy = GeographyClaim(
+        pipeline_class=PLACE,
+        point_geoid="1762367",
+        point_geoid_level="place",
+        point_lat=39.9356,
+        point_lon=-91.4099,
+    )
+    scored = score_outside_as_none(quincy, "29")
+    assert scored.pipeline_class == NO_PLACE
+    assert pipeline_value(scored) == _county_value(NO_PLACE, [], "")
+    # No coordinates: the GEOID's state digits decide.
+    bare = GeographyClaim(
+        pipeline_class=PLACE, point_geoid="1762367", point_geoid_level="place"
+    )
+    assert score_outside_as_none(bare, "29").pipeline_class == NO_PLACE
+    hannibal = GeographyClaim(
+        pipeline_class=PLACE,
+        point_geoid="2930214",
+        point_geoid_level="place",
+        point_lat=39.7084,
+        point_lon=-91.3585,
+    )
+    assert score_outside_as_none(hannibal, "29").pipeline_class == PLACE

@@ -33,6 +33,18 @@ the coders' consensus (gates 2 and 3).
 | 5 | Population | The production crawler DB, `articles.status = 'enriched'` only. |
 | 6 | Score used | Agreement on GEOIDs with a confidence interval. Brier is computed only where the pipeline gives a probability, which here means `scope_confidence` (§6, M9). Geography carries no confidence of its own. |
 
+### Places outside the story's state (decided 2026-11-24)
+
+A story about a place outside its dataset's state is answered N,
+"Outside the state, or not about a place". The story's state is the
+dataset's (`map_start`). The pipeline files these otherwise: a Kansas
+bill is `statewide` (for Kansas), a Kansas town is a point. So in the
+scoring a claim wholly outside the story's state is read as N
+(`score_outside_as_none`, in memory; the saved claim is unchanged), and
+the round page counts them. A coder's answer wholly outside the state is
+refused with that instruction. A regional answer that reaches into the
+state is not outside it.
+
 ## 3. Stories with no central place
 
 Only point scopes get a central place. `profiles.POINT_SCOPES` is
@@ -96,7 +108,7 @@ finer comparison by place. Gate 3 scores the sets.
 | R | Several towns, a county, or a wider area | Clicks counties and/or pins towns | set of county GEOIDs | `regional` |
 | S | The whole state | Picks the state | state GEOID | `statewide` |
 | U | Local, but the text never says where | nothing | n/a | nearest is a `publication_place_assumed` point |
-| N | Not about a place: national, international, not geographic | nothing | empty | `national`, `international`, `other` |
+| N | Outside the state, or not about a place: another state or country, national, international, not geographic | nothing | empty | `national`, `international`, `other`; and any claim wholly outside the story's state |
 
 U exists because coders cannot see the publisher. When the pipeline
 cannot place a story, it falls back to the publication's own city (561

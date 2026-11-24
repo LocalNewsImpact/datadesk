@@ -2727,6 +2727,7 @@ def _submit_geography(request):
         add_third_coder,
         clean_answer,
         is_geography,
+        map_start,
     )
 
     assignment = (
@@ -2742,11 +2743,15 @@ def _submit_geography(request):
         return redirect("review:geography_labeling")
 
     try:
+        sample = ClassificationSample.objects.filter(
+            cohort=assignment.cohort, article_id=assignment.article_id
+        ).first()
         answer = clean_answer(
             request.POST.get("answer_class"),
             request.POST.get("pins"),
             request.POST.get("counties"),
             request.POST.get("state"),
+            home_state=map_start(getattr(sample, "dataset_id", "")),
         )
     except ValueError as error:
         messages.error(request, str(error))
@@ -2759,9 +2764,6 @@ def _submit_geography(request):
         assignment.save(update_fields=["completed_at"])
         return redirect("review:geography_labeling")
 
-    sample = ClassificationSample.objects.filter(
-        cohort=assignment.cohort, article_id=assignment.article_id
-    ).first()
     GeographyDecision.objects.create(
         cohort=assignment.cohort,
         article_id=assignment.article_id,
@@ -3437,18 +3439,25 @@ def _round_page_extras(this, context):
     ]
 
 
-def _preview_answer(cohort, post):
+def _preview_answer(cohort, article_id, post):
     """What a coder's Save would record for this answer, in words.
     Raises ValueError with the coder's error where it would be refused."""
     from review.classification import CIN_LABELS
-    from review.geography_icr import CLASS_CHOICES, clean_answer, is_geography
+    from review.geography_icr import (
+        CLASS_CHOICES,
+        clean_answer,
+        is_geography,
+        map_start,
+    )
 
     if is_geography(cohort):
+        sample = cohort.samples.filter(article_id=article_id).first()
         answer = clean_answer(
             post.get("answer_class"),
             post.get("pins"),
             post.get("counties"),
             post.get("state"),
+            home_state=map_start(getattr(sample, "dataset_id", "")),
         )
         parts = [
             dict(CLASS_CHOICES).get(answer["answer_class"], ""),
@@ -3507,7 +3516,7 @@ def cin_batch_preview(request, pk):
     if request.method == "POST":
         n = at(request.POST.get("n"))
         try:
-            said = _preview_answer(cohort, request.POST)
+            said = _preview_answer(cohort, article_ids[n], request.POST)
         except ValueError as error:
             messages.error(request, f"Preview, story {n + 1}: {error}")
             return redirect(f"{here}?n={n}")
