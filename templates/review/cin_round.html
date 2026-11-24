@@ -2,8 +2,8 @@
 {% block title %}{{ round.name }} — Datadesk{% endblock %}
 
 {% block content %}
-<section class="card card-wide">
-  <p class="quiet"><a href="{% url 'review:cin_rounds' %}">Rounds</a></p>
+<section class="card card-wide cin-round">
+  <p class="breadcrumb"><a href="{% url 'review:cin_rounds' %}">Rounds</a></p>
   <h1>{{ round.name }}</h1>
 
   <p class="lede">
@@ -48,7 +48,7 @@
     {{ binding.count }} of {{ floor }}.{% endif %}
   </p>
   <div class="table-scroll">
-    <table>
+    <table class="grid">
       <thead>
         <tr>
           <th scope="col">Category</th>
@@ -94,7 +94,7 @@
   </p>
   {% if round.kind == "comparison" %}
   <div class="table-scroll">
-    <table>
+    <table class="grid">
       <thead>
         <tr>
           <th scope="col">Condition</th>
@@ -137,7 +137,7 @@
     {% endif %}
   </p>
   <div class="table-scroll">
-    <table>
+    <table class="grid">
       <thead>
         <tr>
           <th scope="col">Stories</th>
@@ -167,7 +167,7 @@
     the same stories. These decide nothing.
   </p>
   <div class="table-scroll">
-    <table>
+    <table class="grid">
       <thead>
         <tr>
           <th scope="col">Stories</th>
@@ -200,7 +200,7 @@
     will label. These decide nothing.
   </p>
   <div class="table-scroll">
-    <table>
+    <table class="grid">
       <thead>
         <tr>
           <th scope="col">Stories</th>
@@ -233,7 +233,7 @@
     {% widthratio gate.measures.first_pair_reading 1 100 %}%.
   </p>
   <div class="table-scroll">
-    <table>
+    <table class="grid">
       <thead>
         <tr>
           <th scope="col">Stories</th>
@@ -283,7 +283,7 @@
     {% for label, count in gate.measures.left_out.items %}{{ label }} {{ count }}{% if not forloop.last %}; {% endif %}{% endfor %}.
   </p>
   {% endif %}
-  <form method="post" class="inline">
+  <form method="post" class="action-row">
     {% csrf_token %}
     <input type="hidden" name="action" value="evaluate">
     <button type="submit"
@@ -306,7 +306,7 @@
     explained when the work is written up, so it is recorded here with
     its reason. A record is never changed.
   </p>
-  {% for row in decisions %}
+  {% for row in lead_decisions %}
   <p>
     <strong>{{ row.get_choice_display }}.</strong>
     {{ row.decided_at|date:"j M Y, H:i" }}{% if row.decided_by %}, {{ row.decided_by }}{% endif %},
@@ -362,7 +362,7 @@
       {% endif %}</li>
   </ul>
   <div class="table-scroll">
-    <table>
+    <table class="grid">
       <thead>
         <tr>
           <th scope="col">Coder</th>
@@ -389,7 +389,7 @@
     </table>
   </div>
   <div class="table-scroll">
-    <table>
+    <table class="grid">
       <thead>
         <tr>
           <th scope="col">Primary category</th>
@@ -436,18 +436,37 @@
     story, the number of other V1 stories entered below, and 230 new
     stories.{% endif %}
   </p>
-  {% if cohorts %}
-  <ul class="plain">
-    {% for cohort in cohorts %}
-    <li>Batch {{ cohort.number }}{% if cohort.note %} — {{ cohort.note }}{% endif %}
-      {% if cohort.closed_at %}<span class="quiet">closed</span>{% endif %}</li>
-    {% endfor %}
-  </ul>
+  {% if batches %}
+  <div class="table-scroll">
+    <table class="grid batches">
+      <thead>
+        <tr>
+          <th scope="col">Batch</th>
+          <th scope="col">Note</th>
+          <th scope="col" class="num">Stories</th>
+          <th scope="col">Status</th>
+          <th scope="col"
+              title="The coding screen on this batch's stories. Answers are checked, never saved, and you are not added as a coder.">Preview</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cohort in batches %}
+        <tr>
+          <th scope="row">{{ cohort.number }}</th>
+          <td>{{ cohort.note|default:"—" }}</td>
+          <td class="num">{{ cohort.story_count }}</td>
+          <td>{% if cohort.closed_at %}Closed{% else %}Open{% endif %}</td>
+          <td><a href="{% url 'review:cin_batch_preview' cohort.pk %}">Preview the coding screen</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% else %}
   <p class="quiet">No batches yet.</p>
   {% endif %}
   {% if not cohorts or round.kind == "collection" %}
-  <form method="post" class="inline-form tight">
+  <form method="post" class="action-row">
     {% csrf_token %}
     <input type="hidden" name="action" value="batch">
     {% if round.is_geography and round.kind == "comparison" %}
@@ -459,22 +478,24 @@
     {% endif %}
     <label for="note">Note</label>
     <input type="text" id="note" name="note" maxlength="200">
-    <button type="submit">Open a batch</button>
+    <button type="submit" class="primary">Open a batch</button>
   </form>
   {% endif %}
-  <form method="post" class="inline">
+  {% if batches %}
+  <form method="post" class="action-row">
     {% csrf_token %}
     <input type="hidden" name="action" value="assign">
-    <button type="submit" class="linklike"
+    <button type="submit"
             title="Hands out any stories not yet assigned. Safe to run again.">Assign unassigned stories</button>
   </form>
+  {% endif %}
 
   <h2>Coders</h2>
   <p class="quiet">
-    To add a coder, type the Google address they sign in with in the
-    box under the table. That is all: somebody who has used datadesk
-    before gets their stories at once, and somebody new gets them the
-    first time they sign in.
+    To add a coder, pick them from the list under the table, or type the
+    Google address they sign in with if they have never used datadesk.
+    Somebody already in datadesk gets their stories at once; somebody
+    new gets them the first time they sign in.
     {% if not round.is_practice %}In this round a coder gets stories
     only after finishing a practice round under
     {{ round.codebook_version.name }}. Recording that practice round's
@@ -482,7 +503,7 @@
   </p>
   {% if coders %}
   <div class="table-scroll">
-    <table>
+    <table class="grid">
       <thead>
         <tr>
           <th scope="col">Coder</th>
@@ -550,10 +571,24 @@
     {{ round.waiting_coders|join:", " }}.
   </p>
   {% endif %}
-  <form method="post" class="inline-form tight">
+  {% if candidates %}
+  <form method="post" class="action-row">
     {% csrf_token %}
     <input type="hidden" name="action" value="invite">
-    <label for="email">Add a coder by email</label>
+    <label for="add-user">Add somebody already in datadesk</label>
+    <select id="add-user" name="user" required>
+      <option value="">Choose a person</option>
+      {% for person in candidates %}
+      <option value="{{ person.pk }}">{% if person.get_full_name %}{{ person.get_full_name }} — {% endif %}{{ person.email }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="primary">Add</button>
+  </form>
+  {% endif %}
+  <form method="post" class="action-row">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="invite">
+    <label for="email">{% if candidates %}Or add a new person by address{% else %}Add a coder by address{% endif %}</label>
     <input type="email" id="email" name="email" required
            placeholder="name@example.edu">
     <button type="submit">Add</button>

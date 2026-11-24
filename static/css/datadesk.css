@@ -3580,3 +3580,95 @@ td.outlier { background: color-mix(in srgb, var(--tone-bad) 8%, transparent); }
   border-radius: 2px;
   vertical-align: baseline;
 }
+
+/* ------------------------------------------------------------------
+   A CIN or geography round (review/cin_round.html). The page used
+   classes nothing styled: the stat row ran together, tables had no
+   rules, and forms sat inline with the text.
+   ------------------------------------------------------------------ */
+.cin-round h2 { margin: var(--s-6) 0 var(--s-2); }
+.cin-round h3 { margin: var(--s-5) 0 var(--s-2); }
+.cin-round p { max-width: 52rem; }
+.cin-round .quiet { color: var(--text-3); font-size: var(--fs-sm); }
+.cin-round ul.plain { list-style: none; margin: var(--s-2) 0 var(--s-3); padding: 0; }
+.cin-round ul.plain li + li { margin-top: var(--s-1); }
+
+.cin-round dl.stat-row > div {
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.cin-round dl.stat-row dt {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.cin-round dl.stat-row dd { margin: 0; }
+.cin-round dl.stat-row dd.big {
+  font-size: var(--fs-2xl, 1.5rem);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  font-variant-numeric: tabular-nums;
+}
+
+.cin-round .table-scroll { margin: var(--s-2) 0 var(--s-3); }
+.cin-round table.grid tbody th[scope="row"] { font-weight: 600; white-space: nowrap; }
+.cin-round table.grid td.num, .cin-round table.grid th.num { text-align: right; }
+.cin-round table.grid td form { display: inline-flex; gap: var(--s-2); }
+
+.cin-round .notice {
+  margin: var(--s-2) 0;
+  padding: var(--s-2) var(--s-3);
+  border-left: 3px solid var(--border-strong, var(--border));
+  background: var(--surface-2);
+}
+.cin-round .notice.good { border-left-color: var(--tone-good); color: var(--text); }
+.cin-round .notice.warn { border-left-color: var(--tone-warn); color: var(--text); }
+
+/* One action per row: label, control, button, on one line. */
+.cin-round form.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  margin: var(--s-3) 0;
+}
+.cin-round form.action-row label { font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); }
+.cin-round form.action-row input[type="email"],
+.cin-round form.action-row input[type="text"],
+.cin-round form.action-row select { min-width: 18rem; padding: 0.35rem var(--s-2); }
+.cin-round form.action-row input[type="number"] { width: 6rem; padding: 0.35rem var(--s-2); }
+
+.cin-round label.check { display: flex; gap: var(--s-2); align-items: baseline; margin: var(--s-1) 0; }
+.cin-round textarea.wide { display: block; width: 100%; max-width: 52rem; margin: var(--s-1) 0 var(--s-2); }
+.cin-round .actions { display: flex; align-items: center; gap: var(--s-3); margin-top: var(--s-3); }
+.cin-round article.story {
+  margin: var(--s-3) 0;
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--border);
+}
+.cin-round article.story h3 { margin-top: 0; }
+
+/* An admin's preview of a batch on the coding screen. */
+.preview-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-2) var(--s-4);
+  margin: 0 0 var(--s-4);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--tone-warn);
+  border-left-width: 4px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+}
+.preview-bar .quiet { color: var(--text-3); }
+.preview-bar .preview-steps { display: flex; gap: var(--s-3); margin-left: auto; }
+.cin-round table.grid tbody tr:last-child th { border-bottom: none; }
+.classification .preview-heading { margin: var(--s-5) 0 var(--s-1); font-size: var(--fs-lg, 1rem); }
+.classification ul.preview-batches { margin: var(--s-2) 0 0; padding-left: var(--s-4); }
+.classification ul.preview-batches li + li { margin-top: var(--s-1); }

@@ -1,0 +1,14 @@
+{% comment %}
+An admin's preview of a batch (review.views.cin_batch_preview): the
+coder's screen, with Save checking the answer and writing nothing.
+{% endcomment %}
+<nav class="preview-bar" aria-label="Preview">
+  <strong>Preview</strong>
+  <span>Batch {{ preview.cohort.number }}{% if preview.round %}, {{ preview.round.name }}{% endif %}{% if preview.total %} · story {{ preview.number }} of {{ preview.total }}{% else %} · no stories{% endif %}</span>
+  <span class="quiet">Save checks the answer and shows what would be recorded. Nothing is saved.</span>
+  <span class="preview-steps">
+    {% if preview.previous %}<a href="{{ preview.previous }}">&larr; Previous</a>{% else %}<span class="quiet">&larr; Previous</span>{% endif %}
+    {% if preview.next %}<a href="{{ preview.next }}">Next &rarr;</a>{% else %}<span class="quiet">Next &rarr;</span>{% endif %}
+    <a href="{{ preview.back }}">Back to the round</a>
+  </span>
+</nav>

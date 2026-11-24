@@ -2,6 +2,7 @@
 
 import io
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 from django.conf import settings
 from django.contrib import messages
@@ -21,6 +22,7 @@ from django.utils import timezone
 from django.utils.http import urlencode
 from django.views.decorators.http import require_POST
 
+from accounts.access import is_application_admin
 from accounts.decorators import APP, requires, requires_admin, requires_import
 from accounts.privileges import CLASSIFY, EXPORT_PRIVILEGE, WRITE
 from audit.models import AuditLogEntry
@@ -2525,9 +2527,28 @@ def classification_queue(request, task=None):
     body = _story_text(article) if article is not None else ""
 
     if assignment is not None and is_geography(assignment.cohort):
-        return _geography_screen(request, assignment, article, body, outstanding)
+        return _geography_screen(
+            request,
+            assignment,
+            article,
+            body,
+            remaining=outstanding.count(),
+            done=GeographyDecision.objects.filter(decided_by=request.user).count(),
+        )
 
     done = ClassificationDecision.objects.filter(decided_by=request.user).count()
+    # An admin is offered each open batch of this question to preview:
+    # the coding screen on its stories, answers checked and never saved.
+    preview_batches = []
+    if is_application_admin(request.user, APP):
+        open_batches = ClassificationCohort.objects.filter(
+            closed_at__isnull=True, round__isnull=False
+        ).select_related("round")
+        if task == GEOGRAPHY:
+            open_batches = open_batches.filter(round__task=GEOGRAPHY)
+        else:
+            open_batches = open_batches.exclude(round__task=GEOGRAPHY)
+        preview_batches = list(open_batches.order_by("-number"))
     # Everything a coder is shown comes from the codebook version their
     # cohort is coded under, so two cohorts under different definitions
     # can be open at once and neither sees the other's.
@@ -2550,6 +2571,7 @@ def classification_queue(request, task=None):
             "done": done,
             # The geography queue, empty, is not about information needs.
             "geography_only": task == GEOGRAPHY,
+            "preview_batches": preview_batches,
         },
     )
 
@@ -2645,7 +2667,9 @@ def _submit_classification(request):
     return redirect("review:classification")
 
 
-def _geography_screen(request, assignment, article, body, outstanding):
+def _geography_screen(
+    request, assignment, article, body, *, remaining, done, extra=None
+):
     """Where is this story about? The map in place of the category menu.
 
     The same story column as the CIN screen, and the same blindness: no
@@ -2657,7 +2681,6 @@ def _geography_screen(request, assignment, article, body, outstanding):
     from review.geography_icr import (
         CLASSES,
         PIN_VIEW_KM,
-        GeographyDecision,
         guide_paragraphs,
         map_start,
         state_choices,
@@ -2680,8 +2703,9 @@ def _geography_screen(request, assignment, article, body, outstanding):
             "place_states": built_states(),
             "pin_view_km": PIN_VIEW_KM,
             "tile_key": settings.CARTO_BASEMAPS_KEY,
-            "remaining": outstanding.count(),
-            "done": GeographyDecision.objects.filter(decided_by=request.user).count(),
+            "remaining": remaining,
+            "done": done,
+            **(extra or {}),
         },
     )
 
@@ -3252,10 +3276,16 @@ def cin_round(request, pk):
                 if cohort is not None:
                     notices += coder_notices(this)
         elif action == "invite":
+            # Somebody already in datadesk is picked from the list; an
+            # address is for somebody who has never signed in.
+            picked = (
+                get_user_model()
+                .objects.filter(pk=request.POST.get("user") or None)
+                .first()
+            )
+            email = picked.email if picked else request.POST.get("email")
             try:
-                kind = add_coder_to_round(
-                    this, request.POST.get("email"), invited_by=request.user
-                )
+                kind = add_coder_to_round(this, email, invited_by=request.user)
             except ValueError as problem:
                 notices.append(("bad", str(problem).capitalize() + "."))
             else:
@@ -3360,6 +3390,7 @@ def cin_round(request, pk):
     context = round_report(this)
     context["notices"] = notices
     context["statuses"] = CoderStanding
+    _round_page_extras(this, context)
     context["gates"] = this.gates.select_related("evaluated_by")[:10]
     if this.is_geography:
         return _geography_round(request, this, context)
@@ -3368,7 +3399,9 @@ def cin_round(request, pk):
     context["gate"] = gate(this)
     latest = this.gates.first()
     context["can_decide"] = latest is not None and latest.outcome == "fail"
-    context["decisions"] = this.decisions.select_related("decided_by", "gate")
+    # Not "decisions": round_report's count of answers is shown under
+    # that name, and this queryset replaced it ("<QuerySet []>").
+    context["lead_decisions"] = this.decisions.select_related("decided_by", "gate")
     # Secondary use, with each coder's name in place of their id.
     secondary = context["gate"]["measures"].get("secondary_use")
     if secondary:
@@ -3382,6 +3415,159 @@ def cin_round(request, pk):
         row["figures"] = figures.get(row["user"].id)
         row["checks"] = checks.get(row["user"].id)
     return render(request, "review/cin_round.html", context)
+
+
+def _round_page_extras(this, context):
+    """What the round page needs beside the report: each batch's size,
+    and the people already in datadesk who can be added as coders."""
+    from django.contrib.auth import get_user_model
+
+    context["batches"] = list(
+        this.cohorts.annotate(story_count=Count("samples")).order_by("number")
+    )
+    on_round = {row["user"].pk for row in context["coders"]}
+    waiting = {email.lower() for email in this.waiting_coders}
+    context["candidates"] = [
+        user
+        for user in get_user_model()
+        .objects.filter(is_active=True)
+        .exclude(email="")
+        .order_by("first_name", "last_name", "email")
+        if user.pk not in on_round and user.email.lower() not in waiting
+    ]
+
+
+def _preview_answer(cohort, post):
+    """What a coder's Save would record for this answer, in words.
+    Raises ValueError with the coder's error where it would be refused."""
+    from review.classification import CIN_LABELS
+    from review.geography_icr import CLASS_CHOICES, clean_answer, is_geography
+
+    if is_geography(cohort):
+        answer = clean_answer(
+            post.get("answer_class"),
+            post.get("pins"),
+            post.get("counties"),
+            post.get("state"),
+        )
+        parts = [
+            dict(CLASS_CHOICES).get(answer["answer_class"], ""),
+            f"{len(answer['pins'])} place(s)" if answer["pins"] else "",
+            f"{len(answer['counties'])} county(ies)" if answer["counties"] else "",
+            answer["state"],
+        ]
+        return ", ".join(part for part in parts if part)
+    primary = (post.get("primary") or "").strip()
+    secondary = (post.get("secondary") or "").strip()
+    reject = (post.get("reject") or "").strip()
+    codebook = cohort.codebook
+    if not primary and not reject:
+        raise ValueError("Choose a category, or say why you cannot.")
+    if reject:
+        if reject not in codebook.rejections:
+            raise ValueError("That is not one of the choices offered.")
+        return f"rejected ({reject})"
+    if primary not in CIN_LABELS or (secondary and secondary not in CIN_LABELS):
+        raise ValueError("That is not one of the choices offered.")
+    shown = dict(codebook.label_choices())
+    said = shown.get(primary, primary)
+    if secondary:
+        said += f", secondary {shown.get(secondary, secondary)}"
+    return said
+
+
+@requires_admin
+def cin_batch_preview(request, pk):
+    """A batch's stories in the coding screen, for an admin.
+
+    The screen a coder is given -- categories or the map, as the round
+    asks -- walked story by story in the order drawn. Save checks the
+    answer the way a coder's is checked and says what would be recorded;
+    nothing is written, no assignment is made or closed, and the
+    previewer never appears among the round's coders.
+    """
+    from review.classification import ClassificationCohort, stories_for
+    from review.geography_icr import is_geography
+
+    cohort = get_object_or_404(
+        ClassificationCohort.objects.select_related("round"), pk=pk
+    )
+    article_ids = list(
+        cohort.samples.order_by("id").values_list("article_id", flat=True)
+    )
+    total = len(article_ids)
+    here = reverse("review:cin_batch_preview", args=[cohort.pk])
+
+    def at(raw):
+        try:
+            return min(max(int(raw or 0), 0), max(total - 1, 0))
+        except ValueError:
+            return 0
+
+    if request.method == "POST":
+        n = at(request.POST.get("n"))
+        try:
+            said = _preview_answer(cohort, request.POST)
+        except ValueError as error:
+            messages.error(request, f"Preview, story {n + 1}: {error}")
+            return redirect(f"{here}?n={n}")
+        messages.success(
+            request, f"Preview, story {n + 1}: would record {said}. Not saved."
+        )
+        return redirect(f"{here}?n={min(n + 1, max(total - 1, 0))}")
+
+    n = at(request.GET.get("n"))
+    article = stories_for([article_ids[n]]).get(article_ids[n]) if total else None
+    preview = {
+        "cohort": cohort,
+        "round": cohort.round,
+        "number": n + 1,
+        "n": n,
+        "total": total,
+        "previous": f"{here}?n={n - 1}" if n > 0 else "",
+        "next": f"{here}?n={n + 1}" if n + 1 < total else "",
+        "back": (
+            reverse("review:cin_round", args=[cohort.round_id])
+            if cohort.round_id
+            else reverse("review:cin_coders")
+        ),
+    }
+    # The templates read an assignment; this stands in for one. The form
+    # posts back here, and nothing names a real assignment.
+    stand_in = (
+        SimpleNamespace(pk="", cohort=cohort, article_id=article_ids[n], is_check=False)
+        if total
+        else None
+    )
+    body = _story_text(article) if article is not None else ""
+    if stand_in is not None and is_geography(cohort):
+        return _geography_screen(
+            request,
+            stand_in,
+            article,
+            body,
+            remaining=total - n - 1,
+            done=0,
+            extra={"preview": preview},
+        )
+    codebook = cohort.codebook
+    return render(
+        request,
+        "review/classification.html",
+        {
+            "assignment": stand_in,
+            "article": article,
+            "body": body,
+            "labels": codebook.label_choices(),
+            "guidance": codebook.guidance_rows(),
+            "instructions": codebook.paragraphs(),
+            "rejections": codebook.rejection_choices(),
+            "remaining": total - n - 1,
+            "done": 0,
+            "geography_only": is_geography(cohort),
+            "preview": preview,
+        },
+    )
 
 
 def _geography_round(request, this, context):

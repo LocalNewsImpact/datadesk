@@ -40,6 +40,11 @@ urlpatterns = [
     path("cin/rounds/", views.cin_rounds, name="cin_rounds"),
     path("cin/rounds/<int:pk>/", views.cin_round, name="cin_round"),
     path(
+        "cin/batches/<int:pk>/preview/",
+        views.cin_batch_preview,
+        name="cin_batch_preview",
+    ),
+    path(
         "cin/rounds/<int:pk>/disagreements/",
         views.geography_disagreements,
         name="geography_disagreements",
