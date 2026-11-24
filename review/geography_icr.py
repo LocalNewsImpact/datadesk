@@ -1089,7 +1089,9 @@ def score_outside_as_none(claim, home_state):
     definition rather than the coders'."""
     kind = claim.pipeline_class
     if kind == PLACE:
-        county = pipeline_where(claim)[1]
+        # Its county where the point resolves; otherwise the state digits
+        # of its GEOID, which every Census GEOID begins with.
+        county = pipeline_where(claim)[1] or (claim.point_geoid or "")[:2]
         answer = {"answer_class": PLACE, "counties": [county] if county else []}
     elif kind == REGION:
         answer = {"answer_class": REGION, "counties": claim.counties}
