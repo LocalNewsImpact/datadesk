@@ -449,7 +449,8 @@ def test_the_round_page_records_the_review_and_admits(
     cohort = _batch(practice, ["p1"], [a, b])
     assign_cohort(cohort)
     url = reverse("review:cin_round", args=[practice.pk])
-    assert "Opens when every coder has finished" in client.get(url).content.decode()
+    body = client.get(url).content.decode()
+    assert "The answers appear here when every coder has finished" in body
     _answer(cohort, a, "p1", "Sports")
     _answer(cohort, b, "p1", "Health")
     body = client.post(url, {"action": "review", "notes": "ok"}).content.decode()

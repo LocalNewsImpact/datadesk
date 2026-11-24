@@ -5,28 +5,29 @@ cin_round.html for a round whose task is geography. Admin only, like the
 page: coders never see agreement.
 {% endcomment %}
 
-<p>
-  <a href="{% url 'review:geography_disagreements' round.pk %}">Disagreements on the map</a>
-  <span class="quiet">— every story the first two coders split on, with each answer{% if not round.is_practice %} and the pipeline's claim{% endif %}.</span>
-</p>
-
 {% if round.is_practice %}
-<h2>Practice review</h2>
+<h2>Record the review meeting</h2>
 <p>
-  Go through the disagreements with the coders, then record that the
-  review was held. Recording it admits every coder who finished the
-  practice to geography pilots under {{ round.codebook_version.name }}.
+  After going through the
+  <a href="{% url 'review:geography_disagreements' round.pk %}">disagreements map</a>
+  with the coders, fill in the box and press the button.
 </p>
 <form method="post">
   {% csrf_token %}
   <input type="hidden" name="action" value="review">
-  <label for="notes">What the review changed in the guide</label>
+  <label for="notes">Changes made to the guide in the meeting (leave empty if none)</label>
   <textarea id="notes" name="notes" rows="4" class="wide">{{ round.review_notes }}</textarea>
   <div class="actions">
     <button type="submit" class="primary">Record that the review was held</button>
   </div>
 </form>
 {% else %}
+
+<p>
+  <a href="{% url 'review:geography_disagreements' round.pk %}">Disagreements map</a>:
+  every story the first two coders answered differently, with each
+  answer and the pipeline's own.
+</p>
 
 <h2>Measured against the gates</h2>
 <p>
