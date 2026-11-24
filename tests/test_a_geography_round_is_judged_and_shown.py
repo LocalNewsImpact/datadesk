@@ -306,7 +306,7 @@ def test_a_geography_practice_page_offers_the_review(client, admin):
     practice = open_round("Geo practice", Round.PRACTICE, task=GEOGRAPHY)
     client.force_login(admin)
     body = client.get(reverse("review:cin_round", args=[practice.pk])).content.decode()
-    assert "Practice review" in body and 'value="review"' in body
+    assert "Record the review meeting" in body and 'value="review"' in body
     assert "Measured against the gates" not in body
 
 

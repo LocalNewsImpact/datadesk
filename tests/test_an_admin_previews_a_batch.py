@@ -168,3 +168,15 @@ def test_a_coder_is_picked_from_the_people_in_datadesk(client, admin, crawler_sc
     assert person in round_coders(round)
     # On the round now, so no longer offered.
     assert f'<option value="{person.pk}">' not in body
+
+
+def test_a_practice_round_page_is_numbered_steps(client, admin, crawler_schema):
+    _stories(2)
+    round = open_round("Practice", Round.PRACTICE)
+    url = reverse("review:cin_round", args=[round.pk])
+    body = client.get(url).content.decode()
+    assert '<ol class="round-steps">' in body and "Add the coders." in body
+    assert "Not done." in body
+    _batch(round, count=2)
+    body = client.get(url).content.decode()
+    assert "Open the batch." in body and "Done." in body

@@ -27,19 +27,56 @@
   {% comment %}
   Progress against how this kind of round finishes, never a bare total.
   {% endcomment %}
-  <h2>Finish line</h2>
   {% if round.is_practice %}
-  <p>
-    Every coder codes every story, then the lead reviews each
-    disagreement with them. These answers are never counted.
-  </p>
-  <ul class="plain">
-    <li>{% if coded %}Every coder has finished.{% else %}Waiting on:
-      {% for user in waiting_on %}{{ user }}{% if not forloop.last %}, {% endif %}{% empty %}no coders yet{% endfor %}.{% endif %}</li>
-    <li>{% if reviewed %}Review held {{ round.reviewed_at|date:"j M Y" }}
-      {% if round.reviewed_by %}by {{ round.reviewed_by }}{% endif %}.{% else %}Review not yet held.{% endif %}</li>
-  </ul>
+  {% comment %}
+  A practice round as numbered steps, each marked done or not. The lead
+  runs it from this list; nothing else on the page needs reading first.
+  {% endcomment %}
+  <h2>Steps</h2>
+  <ol class="round-steps">
+    <li class="{% if coders %}done{% endif %}">
+      <strong>Add the coders.</strong>
+      Use &ldquo;Add&rdquo; in the Coders section below.
+      <span class="step-state">{% if coders %}Done: {{ coders|length }} coder{{ coders|length|pluralize }}.{% else %}Not done.{% endif %}</span>
+    </li>
+    <li class="{% if batches %}done{% endif %}">
+      <strong>Open the batch.</strong>
+      Press &ldquo;Open a batch&rdquo; in the Stories section below. Each
+      coder then finds the stories under Labeling &rarr;
+      {% if round.is_geography %}Story geography{% else %}CIN categories{% endif %}.
+      <span class="step-state">{% if batches %}Done.{% else %}Not done.{% endif %}</span>
+    </li>
+    <li class="{% if coded %}done{% endif %}">
+      <strong>Wait for every coder to finish.</strong>
+      <span class="step-state">{% if coded %}Done.{% elif not coders or not batches %}Not started.{% else %}Still coding: {% for user in waiting_on %}{{ user }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}</span>
+    </li>
+    <li class="{% if reviewed %}done{% endif %}">
+      <strong>Meet with the coders and go through every story they answered differently.</strong>
+      {% if round.is_geography %}Open
+      <a href="{% url 'review:geography_disagreements' round.pk %}">the disagreements map</a>:
+      it lists each of those stories with every coder's answer.{% else %}The
+      stories and every coder's answer are listed at the bottom of this
+      page once step 3 is done.{% endif %}
+      <span class="step-state">{% if reviewed %}Done.{% elif coded %}Ready.{% else %}Available after step 3.{% endif %}</span>
+    </li>
+    <li class="{% if reviewed %}done{% endif %}">
+      <strong>Record the meeting.</strong>
+      Below, under &ldquo;Record the review
+      meeting&rdquo;, note any change you made to the
+      {% if round.is_geography %}guide{% else %}codebook{% endif %} and
+      press &ldquo;Record that the review was held&rdquo;. This lets every
+      coder who finished into the pilot.
+      <span class="step-state">{% if reviewed %}Done {{ round.reviewed_at|date:"j M Y" }}{% if round.reviewed_by %} by {{ round.reviewed_by }}{% endif %}.{% else %}Not done.{% endif %}</span>
+    </li>
+    <li>
+      <strong>Start the pilot.</strong>
+      On the <a href="{% url 'review:cin_rounds' %}">Rounds</a> page, start
+      a new round, choose &ldquo;Pilot&rdquo;, and add the same coders.
+    </li>
+  </ol>
+  <p class="quiet">Practice answers are never counted in any agreement figure.</p>
   {% elif categories %}
+  <h2>Finish line</h2>
   <p>
     Finished when every category has {{ floor }} labelled stories. V1
     records with a label count first; new stories count when two coders
@@ -71,6 +108,7 @@
     </table>
   </div>
   {% else %}
+  <h2>Finish line</h2>
   <p>
     Finished when every story has {{ round.base_coders }} answers:
     {{ complete_stories }} of {{ stories }}{% if percent is not None %} ({{ percent }}%){% endif %}.
@@ -610,21 +648,22 @@
   {% endif %}
 
   {% if review %}
-  <h2>Practice review</h2>
+  <h2>Record the review meeting</h2>
   {% if not review.ready %}
   <p class="notice">
-    Opens when every coder has finished. Until then nobody, including
-    the lead, is shown the answers.
+    The answers appear here when every coder has finished (step 3).
   </p>
   {% else %}
   <p>
     {{ review.differing }} of {{ review.rows|length }} stories were
-    answered differently. Go through each with the coders, against the
-    definitions shown.
+    answered differently. With the coders, go through each one marked
+    &ldquo;answered differently&rdquo;, using the category definitions
+    shown under it. Then fill in the box at the bottom and press the
+    button.
   </p>
   {% for row in review.rows %}
   <article class="story">
-    <h3>{{ row.title }}{% if not row.differ %} <span class="quiet">— all agreed</span>{% endif %}</h3>
+    <h3>{{ row.title }}{% if row.differ %} <span class="differ-tag">answered differently</span>{% else %} <span class="quiet">— all agreed</span>{% endif %}</h3>
     <ul class="plain">
       {% for answer in row.answers %}
       <li><strong>{{ answer.coder }}</strong>: {{ answer.answer }}{% if answer.secondary %}
@@ -642,12 +681,12 @@
   <form method="post">
     {% csrf_token %}
     <input type="hidden" name="action" value="review">
-    <label for="notes">What the review changed in the definitions</label>
+    <label for="notes">Changes made to the codebook in the meeting (leave empty if none)</label>
     <textarea id="notes" name="notes" rows="5" class="wide">{{ round.review_notes }}</textarea>
     <div class="actions">
       <button type="submit" class="primary">Record that the review was held</button>
       <span class="quiet">
-        Admits every coder who has finished the practice.
+        Lets every coder who finished into the pilot.
       </span>
     </div>
   </form>

@@ -3672,3 +3672,19 @@ td.outlier { background: color-mix(in srgb, var(--tone-bad) 8%, transparent); }
 .classification .preview-heading { margin: var(--s-5) 0 var(--s-1); font-size: var(--fs-lg, 1rem); }
 .classification ul.preview-batches { margin: var(--s-2) 0 0; padding-left: var(--s-4); }
 .classification ul.preview-batches li + li { margin-top: var(--s-1); }
+
+/* A practice round's numbered steps, each marked done or not. */
+.cin-round ol.round-steps { max-width: 52rem; margin: var(--s-2) 0 var(--s-3); padding-left: 1.5rem; }
+.cin-round ol.round-steps li { margin: 0 0 var(--s-3); padding-left: var(--s-1); line-height: 1.5; }
+.cin-round ol.round-steps .step-state {
+  display: block;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--tone-warn);
+}
+.cin-round ol.round-steps li.done .step-state { color: var(--tone-good); }
+.cin-round .differ-tag {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--tone-warn);
+}
