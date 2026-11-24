@@ -3,6 +3,7 @@
 
 {% block content %}
 <section class="card card-wide classification">
+  {% if preview %}{% include "review/_preview_bar.html" %}{% endif %}
   {% comment %}
   No filters, and nothing about the pipeline's own opinion: no CIN
   label, no confidence, no status, no wire flag, no publisher notes. A
@@ -28,10 +29,26 @@
   </p>
   {% endif %}
 
+  {% if preview %}
+  <p class="notice">This batch has no stories.</p>
+  {% else %}
   <p class="notice">
     Nothing assigned to you at the moment. When a new cohort is drawn
     your queue will fill again.
   </p>
+  {% endif %}
+  {% if preview_batches %}
+  <h2 class="preview-heading">Preview a batch</h2>
+  <p class="quiet">
+    For admins: this screen on a batch's stories. Answers are checked and
+    never saved, and you are not added as a coder.
+  </p>
+  <ul class="preview-batches">
+    {% for batch in preview_batches %}
+    <li><a href="{% url 'review:cin_batch_preview' batch.pk %}">Batch {{ batch.number }}, {{ batch.round.name }}</a>{% if batch.note %} <span class="quiet">— {{ batch.note }}</span>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
   {% else %}
 
   {% comment %}
@@ -63,13 +80,16 @@
   </article>
 
   <aside class="classify-panel">
+  {% if not preview %}
   <p class="quiet progress">
     {{ remaining }} left in this batch · {{ done }} answered in total
   </p>
+  {% endif %}
 
   <form method="post" class="classify-form" autocomplete="off">
     {% csrf_token %}
     <input type="hidden" name="assignment" value="{{ assignment.pk }}">
+    {% if preview %}<input type="hidden" name="n" value="{{ preview.n }}">{% endif %}
     {% comment %}
     Seconds the row was open, filled by the script below. The cheapest
     defence against somebody clicking through, short of seeded check

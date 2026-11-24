@@ -4,6 +4,7 @@
 
 {% block content %}
 <section class="card card-wide classification geography-coding">
+  {% if preview %}{% include "review/_preview_bar.html" %}{% endif %}
   {% comment %}
   The geography question (docs/GEOGRAPHY_ICR_DATADESK.md, G-WP2). The
   story column is the CIN screen's, with its blindness: headline and
@@ -22,7 +23,7 @@
 
   <aside class="classify-panel">
   <p class="quiet progress">
-    {{ remaining }} left in this batch · {{ done }} answered in total ·
+    {% if not preview %}{{ remaining }} left in this batch · {{ done }} answered in total ·{% endif %}
     <a href="#geo-guide" class="geo-guide-open">How to answer</a>
   </p>
 
@@ -30,6 +31,7 @@
         id="geo-form">
     {% csrf_token %}
     <input type="hidden" name="assignment" value="{{ assignment.pk }}">
+    {% if preview %}<input type="hidden" name="n" value="{{ preview.n }}">{% endif %}
     <input type="hidden" name="opened_at" id="opened-at" value="">
     <input type="hidden" name="pins" id="geo-pins" value="[]">
     <input type="hidden" name="counties" id="geo-counties" value="[]">

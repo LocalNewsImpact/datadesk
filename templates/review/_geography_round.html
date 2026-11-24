@@ -39,7 +39,7 @@ page: coders never see agreement.
   are met when the lower end of the 95% interval reaches the line.
 </p>
 <div class="table-scroll">
-  <table>
+  <table class="grid">
     <thead>
       <tr>
         <th scope="col">Gate</th>
@@ -95,7 +95,7 @@ page: coders never see agreement.
 
 <h2>The pipeline against the coders</h2>
 <div class="table-scroll">
-  <table>
+  <table class="grid">
     <thead>
       <tr>
         <th scope="col">Figure</th>
@@ -136,7 +136,7 @@ page: coders never see agreement.
 
 <h3>Single places, by how the pipeline placed them</h3>
 <div class="table-scroll">
-  <table>
+  <table class="grid">
     <thead><tr><th scope="col">Method</th><th scope="col" class="num">Stories</th><th scope="col" class="num">Right</th><th scope="col" class="num">95% interval</th></tr></thead>
     <tbody>
       {% for key, m in figures.m5_place_accuracy.by_method.items %}
@@ -159,7 +159,7 @@ page: coders never see agreement.
 
 <h3>The pipeline's class against the coders'</h3>
 <div class="table-scroll">
-  <table>
+  <table class="grid">
     <thead><tr><th scope="col">Pipeline said</th><th scope="col">Coders agreed</th><th scope="col" class="num">Stories</th><th scope="col" class="num">Share, weighted</th></tr></thead>
     <tbody>
       {% for said, row in figures.m7_confusion.items %}{% for agreed, cell in row.items %}
