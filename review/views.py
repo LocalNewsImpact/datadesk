@@ -3136,6 +3136,8 @@ def cin_rounds(request):
     answers, a test of new definitions and training data were one
     undifferentiated pile of cohorts.
     """
+    from django.contrib.auth import get_user_model
+
     from review.classification import (
         ROUND_DEFAULTS,
         CodebookVersion,
@@ -3170,6 +3172,11 @@ def cin_rounds(request):
             .split()
             if part
         ]
+        # People already in datadesk, ticked on the form.
+        picked = get_user_model().objects.filter(
+            pk__in=[pk for pk in request.POST.getlist("coder_users") if pk.isdigit()]
+        )
+        emails += [user.email for user in picked if user.email]
 
         def number(field):
             try:
@@ -3228,6 +3235,10 @@ def cin_rounds(request):
             "versions": CodebookVersion.objects.filter(task=CIN),
             "current": CodebookVersion.current(),
             "notices": notices,
+            "people": get_user_model()
+            .objects.filter(is_active=True)
+            .exclude(email="")
+            .order_by("first_name", "last_name", "email"),
         },
     )
 

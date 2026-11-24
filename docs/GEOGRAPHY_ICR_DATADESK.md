@@ -45,6 +45,13 @@ the round page counts them. A coder's answer wholly outside the state is
 refused with that instruction. A regional answer that reaches into the
 state is not outside it.
 
+The guide says so from **GEO-2** (migration 0032, made where GEO-1
+exists). GEO-1 is unchanged: the practice was answered under it.
+Recording a practice review admits its coders to the practice's guide
+and to any guide for the same question frozen since the practice
+opened (`hold_review`), so a pilot under GEO-2 gives them stories.
+Mentions in point stories stay unscored (decision 1; user, 2026-11-24).
+
 ## 3. Stories with no central place
 
 Only point scopes get a central place. `profiles.POINT_SCOPES` is

@@ -125,11 +125,17 @@ A state official acting on named places is about those places. It is
 the whole state only when the action applies across it: a law, a rule,
 a statewide program.
 
-A county, or wider, is for a county government's own business, a story
-set in a county but in no particular town, or two or more communities
-sharing the story with no single one at its centre. Where the people in
-a story are from is not a second place: a crash near Centerville whose
-driver lives in Ellington is a Centerville story.
+Several towns, a county, or wider is for two or more communities
+sharing the story with no single one at its centre, a county
+government's own business, or a story set in a county but in no
+particular town. Where the people in a story are from is not a second
+place: a crash near Centerville whose driver lives in Ellington is a
+Centerville story.
+
+A place outside the state is answered "Outside the state, or not about
+a place": Quincy, Illinois; Kansas City, Kansas; a Kansas bill. Do not
+pin it. A story set in the state that also names places across the
+border is about the place in the state.
 
 A dateline alone does not locate a story. "COLUMBIA, Mo. —" says where
 the reporter filed from; read the story for where it happened.
