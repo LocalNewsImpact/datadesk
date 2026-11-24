@@ -95,8 +95,13 @@
       "https://basemaps.cartocdn.com/rastertiles/{style}/{z}/{x}/{y}.png?key=" +
       encodeURIComponent(tileKey);
     var credit = osm + ' &copy; <a href="https://carto.com/attributions">CARTO</a>';
-    L.tileLayer(tiles, { style: "voyager_nolabels", maxZoom: 19, attribution: credit }).addTo(map);
-    L.tileLayer(tiles, { style: "voyager_only_labels", maxZoom: 19, pane: "labels" }).addTo(map);
+    // The key is locked to datadesk's hostname, which CARTO reads from the
+    // Referer. The site's own policy (same-origin) sends none to another
+    // host, and every tile came back 403: a blank map. The origin alone is
+    // enough, and no path leaves the site.
+    var carto = { maxZoom: 19, referrerPolicy: "strict-origin-when-cross-origin" };
+    L.tileLayer(tiles, L.extend({ style: "voyager_nolabels", attribution: credit }, carto)).addTo(map);
+    L.tileLayer(tiles, L.extend({ style: "voyager_only_labels", pane: "labels" }, carto)).addTo(map);
   } else {
     // No key (local development): OpenStreetMap's own tiles, names baked in.
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -506,7 +511,7 @@
         offer([]);
         say(
           name(item.hit) +
-            " is on the map. A story about the county itself is “A county, or an area wider than one town”."
+            " is on the map. A story about the county itself is “Several towns, a county, or a wider area”."
         );
       }
     }

@@ -14,7 +14,7 @@ and adds one new kind of question.
 ## 1. The procedure in one paragraph
 
 Each coder reads a story (headline and text only) and records what the
-story is about: one place, a county or wider area, the whole state, or
+story is about: one place, several towns or a county or wider area, the whole state, or
 no place. They then mark that geography on a map. Every answer is turned
 into Census GEOIDs using the TIGER boundaries datadesk already ships. Two
 coders answer each story, and a third is added when the first two
@@ -54,7 +54,7 @@ report the result as if it held for all of them. Regional stories are
 therefore scored, using **the set of counties the story is about** in
 place of a single point:
 
-- **Coder side.** A coder who answers "a county or a wider area" clicks
+- **Coder side.** A coder who answers "several towns, a county, or a wider area" clicks
   counties on the map, drops pins on towns, or does both. Every pin rolls
   up to its county through the same crosswalk the pipeline uses
   (`fips.county_of_place`). The answer is a set of counties.
@@ -93,7 +93,7 @@ finer comparison by place. Gate 3 scores the sets.
 | Class | Coder sees | Coder does | Resolves to | Pipeline equivalent |
 | --- | --- | --- | --- | --- |
 | P | One place: a town, neighborhood, address or site | Drops one pin. Accepted only at a zoom where one town fills the view. | place GEOID (if inside one), county GEOID | point scopes |
-| R | A county, or an area wider than one town | Clicks counties and/or pins towns | set of county GEOIDs | `regional` |
+| R | Several towns, a county, or a wider area | Clicks counties and/or pins towns | set of county GEOIDs | `regional` |
 | S | The whole state | Picks the state | state GEOID | `statewide` |
 | U | Local, but the text never says where | nothing | n/a | nearest is a `publication_place_assumed` point |
 | N | Not about a place: national, international, not geographic | nothing | empty | `national`, `international`, `other` |

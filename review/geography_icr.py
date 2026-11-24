@@ -59,10 +59,10 @@ CLASSES = [
     ),
     (
         REGION,
-        "A county, or an area wider than one town",
-        "A county's own business, or several towns or counties with no "
-        "single one at the centre. Add the counties or the towns, or both: "
-        "type them, or click the map.",
+        "Several towns, a county, or a wider area",
+        "Two or more towns or counties with no single one at the centre, or "
+        "a county government's own business. Add the towns or the counties, "
+        "or both: type them, or click the map.",
     ),
     (
         STATE,
