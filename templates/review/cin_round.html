@@ -609,7 +609,9 @@
     {{ round.waiting_coders|join:", " }}.
   </p>
   {% endif %}
-  {% if candidates %}
+  {% if not candidates %}
+  <p class="quiet">Everyone who has signed in to datadesk is already on this round.</p>
+  {% else %}
   <form method="post" class="action-row">
     {% csrf_token %}
     <input type="hidden" name="action" value="invite">

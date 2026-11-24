@@ -99,17 +99,29 @@
           and a third where they differ, until every category has 250.</li>
       </ul>
     </div>
+    <div class="field coder-picks" role="group" aria-labelledby="coder-picks-label">
+      <span class="field-label" id="coder-picks-label">Coders already in datadesk</span>
+      {% if people %}
+      <div class="coder-pick-list">
+        {% for person in people %}
+        <label class="check">
+          <input type="checkbox" name="coder_users" value="{{ person.pk }}">
+          {% if person.get_full_name %}{{ person.get_full_name }} <span class="quiet">{{ person.email }}</span>{% else %}{{ person.email }}{% endif %}
+        </label>
+        {% endfor %}
+      </div>
+      {% else %}
+      <span class="field-note">Nobody has signed in to datadesk with a Google address yet.</span>
+      {% endif %}
+      <span class="field-note">Tick each coder. More can be added later on the round's page.</span>
+    </div>
     <div class="field">
-      <label for="coders">Coders</label>
-      <textarea id="coders" name="coders" rows="5" class="wide"
+      <label for="coders">New coders, by address</label>
+      <textarea id="coders" name="coders" rows="3" class="wide"
                 placeholder="one Google address per line"></textarea>
       <span class="field-note">
-        The address each coder signs in to Google with. Somebody who has
-        never used datadesk gets their stories the first time they sign
-        in; there is no separate invitation to send from here. In a
-        pilot or training round, a coder gets stories only after
-        finishing a practice round under the same codebook. More coders
-        can be added later on the round's page.
+        Only for people who have never signed in to datadesk. They get
+        their stories the first time they sign in.
       </span>
     </div>
     <details class="defaults">

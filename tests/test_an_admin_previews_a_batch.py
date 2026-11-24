@@ -180,3 +180,32 @@ def test_a_practice_round_page_is_numbered_steps(client, admin, crawler_schema):
     _batch(round, count=2)
     body = client.get(url).content.decode()
     assert "Open the batch." in body and "Done." in body
+
+
+def test_a_round_is_started_with_people_ticked_from_datadesk(
+    client, admin, crawler_schema
+):
+    _stories(30)
+    person = User.objects.create_user(
+        "jsmith", email="jsmith@missouri.edu", first_name="Jo", last_name="Smith"
+    )
+    form = client.get(reverse("review:cin_rounds")).content.decode()
+    assert f'name="coder_users" value="{person.pk}"' in form
+    client.post(
+        reverse("review:cin_rounds"),
+        {"name": "Test", "kind": Round.PRACTICE, "coder_users": [person.pk]},
+    )
+    round = Round.objects.get(name="Test")
+    assert person in round_coders(round)
+    assert ClassificationAssignment.objects.filter(assigned_to=person).exists()
+
+
+def test_the_round_page_says_when_nobody_is_left_to_add(client, admin, crawler_schema):
+    round = open_round("Practice", Round.PRACTICE)
+    url = reverse("review:cin_round", args=[round.pk])
+    # The admin is the only person with an address; once on the round,
+    # nobody is left, and the page says so instead of showing nothing.
+    client.post(url, {"action": "invite", "user": admin.pk})
+    _batch(round, count=0)
+    body = client.get(url).content.decode()
+    assert "Everyone who has signed in to datadesk is already on this round." in body

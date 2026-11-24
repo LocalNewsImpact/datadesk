@@ -3688,3 +3688,14 @@ td.outlier { background: color-mix(in srgb, var(--tone-bad) 8%, transparent); }
   font-weight: 600;
   color: var(--tone-warn);
 }
+
+/* Starting a round: tick the coders already in datadesk. */
+.cin-form .coder-picks .field-label {
+  grid-column: 1; padding-top: 0.4rem; font-size: var(--fs-sm); font-weight: 600; color: var(--text-2);
+}
+.cin-form .coder-pick-list {
+  grid-column: 2; max-width: 32rem; max-height: 16rem; overflow-y: auto;
+  padding: var(--s-2); border: 1px solid var(--border); border-radius: var(--r-md);
+}
+.cin-form .coder-pick-list label.check { display: flex; gap: var(--s-2); align-items: baseline; font-size: var(--fs-sm); }
+.cin-form .coder-pick-list .quiet { color: var(--text-3); font-size: var(--fs-xs); }
